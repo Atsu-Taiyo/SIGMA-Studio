@@ -43,6 +43,29 @@ function edit(session: RendererDocumentSession, text: string) {
 }
 
 describe("Web connection to the existing shared-document protocol", () => {
+  it("retains unsent edits when another tab attempts to open the same journal and releases ownership on leaving", async () => {
+    const remote = fixture(), journal = store();
+    const owned = new Set<string>();
+    const exclusive = { ...journal, acquire: async (actor: string, id: string) => {
+      const key = `${actor}/${id}`;
+      if (owned.has(key)) throw new Error("DOCUMENT_ALREADY_OPEN");
+      owned.add(key); return () => { owned.delete(key); };
+    } };
+    const first = new BrowserSharedClient({ actorId: "alice" }, exclusive, remote.request);
+    const second = new BrowserSharedClient({ actorId: "alice" }, exclusive, remote.request);
+    const info = await first.open(id), renderer = new RendererDocumentSession(info, first.bridge);
+    remote.setOffline(true); edit(renderer, "Unsent in the first tab"); await renderer.flush();
+    await expect(second.open(id)).rejects.toThrow("DOCUMENT_ALREADY_OPEN");
+    expect(journal.records.get(`alice/${id}`)?.outbox).toHaveLength(1);
+    renderer.destroy(); await first.release(info.binding.localFileId);
+    remote.setOffline(false);
+    const restored = await second.open(id);
+    expect(second.document(restored)).toMatchObject({ content: [{ children: [{ text: "Unsent in the first tab" }] }] });
+    await second.flush(restored.binding.localFileId, true);
+    expect(remote.server.project()).toMatchObject({ content: [{ children: [{ text: "Unsent in the first tab" }] }] });
+    await first.close(); await second.close(); remote.server.destroy();
+    expect(owned.size).toBe(0);
+  });
   it("sends granular Yjs edits to the same document while preserving an Electron-side change", async () => {
     const remote = fixture(), journal = store();
     const client = new BrowserSharedClient({ actorId: "alice" }, journal, remote.request);

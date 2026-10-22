@@ -66,7 +66,7 @@ export function SharedWebApp() {
   const run = useCallback(async (action: () => Promise<void>) => {
     setBusy(true); setError(null);
     try { await action(); }
-    catch (error) { setError(t(error instanceof Error && /EPOCH/.test(error.message) ? "webShared.epochChanged" : "webShared.actionFailed")); }
+    catch (error) { setError(t(error instanceof Error && error.message === "DOCUMENT_ALREADY_OPEN" ? "webShared.alreadyOpen" : error instanceof Error && /EPOCH/.test(error.message) ? "webShared.epochChanged" : "webShared.actionFailed")); }
     finally { setBusy(false); }
   }, [t]);
   const refresh = () => void run(async () => { if (client) setNodes(await client.catalog()); });
@@ -77,7 +77,7 @@ export function SharedWebApp() {
   });
   const leave = () => void run(async () => {
     if (!client || !opened) return;
-    await opened.session.flush(); client.visible(null); opened.session.destroy(); setOpened(null); setNodes(await client.catalog());
+    await opened.session.flush(); client.visible(null); opened.session.destroy(); await client.release(opened.info.binding.localFileId); setOpened(null); setNodes(await client.catalog());
   });
   const logout = () => void run(async () => {
     if (opened) { await opened.session.flush(); await client?.flush(opened.info.binding.localFileId, true); }

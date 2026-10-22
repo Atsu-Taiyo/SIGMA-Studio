@@ -7,7 +7,8 @@ const env = { APP_ORIGIN: "https://web.example.test", SIGMA_COLLABORATION_URL: "
   SIGMA_SUPABASE_ANON_KEY: "sb_publishable_fixture", SESSION_SECRET: "fixture-session-encryption-key-32-bytes-minimum" };
 const documentId = "00000000-0000-4000-8000-000000000001";
 const tokens = { access_token: "fixture-private-access", refresh_token: "fixture-private-refresh", expires_in: 3600, user: { id: "fixture-actor", email: "fixture@example.test" } };
-const request = (path, options = {}) => new Request(`${env.APP_ORIGIN}${path}`, { ...options, headers: { Origin: env.APP_ORIGIN, ...options.headers } });
+const request = (path, options = {}) => new Request(`${env.APP_ORIGIN}${path}`, { ...options, headers: { Origin: env.APP_ORIGIN,
+  ...(path.startsWith("/api/collaboration/") ? { "X-Sigma-Actor": tokens.user.id } : {}), ...options.headers } });
 async function login(issued = tokens) {
   const start = await handleRequest(request("/api/auth/login", { method: "POST" }), env);
   const startBody = await start.json(), url = new URL(startBody.url);
@@ -42,6 +43,29 @@ test("rejects login CSRF and callbacks without the browser's verifier cookie", a
 test("never proxies unauthenticated requests or unconfigured server keys", async () => {
   assert.equal((await handleRequest(request(`/api/collaboration/documents/${documentId}/snapshot`), env)).status, 401);
   assert.equal((await handleRequest(request("/api/auth/session"), { ...env, SIGMA_SUPABASE_ANON_KEY: "sb_secret_forbidden" })).status, 503);
+});
+test("rejects a stale tab's account before forwarding edits, assets or opening a socket", async () => {
+  const cookie = await login({ ...tokens, user: { id: "other-account" } });
+  let forwarded = 0;
+  for (const [route, method, headers] of [
+    [`/documents/${documentId}/updates`, "POST", {}],
+    [`/documents/${documentId}/assets/${documentId}`, "PUT", {}],
+    [`/documents/${documentId}/snapshot`, "GET", {}],
+    [`/documents/${documentId}/socket?actor=${tokens.user.id}`, "GET", { Upgrade: "websocket" }],
+  ]) {
+    const response = await handleRequest(request(`/api/collaboration${route}`, { method, headers: { Cookie: cookie, ...headers } }), env,
+      async () => { forwarded++; return Response.json({}); });
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), { error: "ACCOUNT_CHANGED" });
+  }
+  assert.equal(forwarded, 0);
+});
+test("requires an account binding for collaboration requests", async () => {
+  const cookie = await login();
+  const response = await handleRequest(request(`/api/collaboration/documents/${documentId}/updates`, {
+    method: "POST", headers: { Cookie: cookie, "X-Sigma-Actor": "" },
+  }), env, async () => { throw new Error("Must not forward an unbound edit"); });
+  assert.equal(response.status, 409);
 });
 test("forwards the signed-in user's authority to the fixed existing backend and strips injected headers", async () => {
   const cookie = await login();

@@ -10,7 +10,7 @@ import { createSharedBrowserStore, type BrowserSharedRecord, type SharedBrowserS
 
 export async function webRequest<T>(path: string, body?: unknown, actorId?: string): Promise<T> {
   const response = await fetch(path, { method: body === undefined ? "GET" : "POST", credentials: "same-origin", redirect: "error",
-    headers: body === undefined ? {} : { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
+    headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...(actorId ? { "X-Sigma-Actor": actorId } : {}) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
   if (!response.ok) throw await responseError(response);
   if (actorId && response.headers.get("x-sigma-actor") !== actorId) { await response.body?.cancel(); throw new Error("ACCOUNT_CHANGED"); }
   return readResponseJson<T>(response, 24 * 1024 * 1024);
@@ -27,6 +27,7 @@ export class BrowserSharedClient {
   private entries = new Map<string, Entry>();
   private listeners = new Set<(event: CollaborationEvent) => void>();
   private closed = false;
+  private leases = new Map<string, () => void>();
   private request: <T>(route: string, body?: unknown) => Promise<T>;
   constructor(readonly user: CollaborationProfile, private readonly store: SharedBrowserStore = createSharedBrowserStore(),
     request = <T>(route: string, body?: unknown) => webRequest<T>(`/api/collaboration${route}`, body, user.actorId)) {
@@ -52,7 +53,7 @@ export class BrowserSharedClient {
       },
       end: async () => unavailable(), copy: async () => unavailable(),
       asset: (file, id, source) => this.asset(file, id, source),
-      assetUrl: (file, id) => this.entry(file).record.assets[id]?.source ?? `/api/collaboration/documents/${this.entry(file).record.sharedDocumentId}/assets/${id}`,
+      assetUrl: (file, id) => this.entry(file).record.assets[id]?.source ?? `/api/collaboration/documents/${this.entry(file).record.sharedDocumentId}/assets/${id}?actor=${encodeURIComponent(this.user.actorId)}`,
       onEvent: listener => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; },
     };
   }
@@ -85,6 +86,19 @@ export class BrowserSharedClient {
   }
   async open(id: string): Promise<SessionInfo> {
     if (!/^[a-f0-9-]{36}$/i.test(id)) throw new Error("INVALID_DOCUMENT_ID");
+    // One writer owns the durable journal. Two tabs writing whole records would
+    // otherwise overwrite each other's unsent edits while offline.
+    const existing = [...this.entries.values()].find(entry => entry.record.sharedDocumentId === id);
+    if (existing) return existing.info;
+    const release = await this.store.acquire?.(this.user.actorId, id);
+    try {
+      if (this.closed) throw new Error("ACCOUNT_CHANGED");
+      const info = await this.openRecord(id);
+      if (release) this.leases.set(id, release);
+      return info;
+    } catch (error) { release?.(); throw error; }
+  }
+  private async openRecord(id: string): Promise<SessionInfo> {
     const cached = await this.store.get(this.user.actorId, id);
     const snapshot = await this.request<{ state: string; role: MemberRole; epoch: number }>(`/documents/${id}/snapshot`);
     if (this.closed) throw new Error("ACCOUNT_CHANGED");
@@ -175,7 +189,7 @@ export class BrowserSharedClient {
       if (!asset.pending) continue;
       const source = await fetch(asset.source);
       const bytes = await source.blob();
-      const response = await fetch(`/api/collaboration${prefix}/assets/${id}`, { method: "PUT", body: bytes, credentials: "same-origin", redirect: "error", signal: AbortSignal.timeout(30_000) });
+      const response = await fetch(`/api/collaboration${prefix}/assets/${id}`, { method: "PUT", body: bytes, headers: { "X-Sigma-Actor": this.user.actorId }, credentials: "same-origin", redirect: "error", signal: AbortSignal.timeout(30_000) });
       if (!response.ok) throw await responseError(response);
       if (response.headers.get("x-sigma-actor") !== this.user.actorId) { await response.body?.cancel(); throw new Error("ACCOUNT_CHANGED"); }
       await response.body?.cancel();
@@ -202,6 +216,7 @@ export class BrowserSharedClient {
     if (!entry.visible || entry.socket || typeof location === "undefined") return;
     const url = new URL(`/api/collaboration/documents/${entry.record.sharedDocumentId}/socket`, location.origin);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.searchParams.set("actor", this.user.actorId);
     const socket = new WebSocket(url);
     entry.socket = socket;
     socket.onmessage = message => {
@@ -259,7 +274,7 @@ export class BrowserSharedClient {
     }
     const cached = entry.record.assets[id];
     if (cached) return cached.source;
-    const response = await fetch(`/api/collaboration/documents/${entry.record.sharedDocumentId}/assets/${id}`, { credentials: "same-origin", redirect: "error", signal: AbortSignal.timeout(30_000) });
+    const response = await fetch(`/api/collaboration/documents/${entry.record.sharedDocumentId}/assets/${id}`, { headers: { "X-Sigma-Actor": this.user.actorId }, credentials: "same-origin", redirect: "error", signal: AbortSignal.timeout(30_000) });
     if (!response.ok) throw await responseError(response);
     if (response.headers.get("x-sigma-actor") !== this.user.actorId) { await response.body?.cancel(); throw new Error("ACCOUNT_CHANGED"); }
     const bytes = await readResponseBytes(response, 20 * 1024 * 1024);
@@ -272,8 +287,20 @@ export class BrowserSharedClient {
   }
   async close(): Promise<void> {
     this.closed = true;
-    for (const entry of this.entries.values()) { clearTimeout(entry.retry); entry.socket?.close(); await entry.tail.catch(() => {}); entry.shared.destroy(); }
+    for (const entry of this.entries.values()) {
+      clearTimeout(entry.retry); entry.socket?.close();
+      await entry.syncing?.catch(() => {}); await entry.tail.catch(() => {}); entry.shared.destroy();
+    }
+    this.leases.forEach(release => release()); this.leases.clear();
     this.listeners.clear(); this.entries.clear();
+  }
+  async release(file: string): Promise<void> {
+    const entry = this.entry(file);
+    entry.visible = false; clearTimeout(entry.retry);
+    const socket = entry.socket; entry.socket = undefined; socket?.close();
+    await entry.syncing?.catch(() => {}); await entry.tail;
+    this.entries.delete(file); entry.shared.destroy();
+    this.leases.get(entry.record.sharedDocumentId)?.(); this.leases.delete(entry.record.sharedDocumentId);
   }
   document(info: SessionInfo): SigmaDocument { return parseSigmaDocument(this.entry(info.binding.localFileId).shared.project()); }
 }

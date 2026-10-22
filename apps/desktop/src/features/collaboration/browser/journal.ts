@@ -12,6 +12,7 @@ export interface BrowserSharedRecord {
 export interface SharedBrowserStore {
   get(actor: string, id: string): Promise<BrowserSharedRecord | undefined>;
   put(record: BrowserSharedRecord): Promise<void>;
+  acquire?(actor: string, id: string): Promise<() => void>;
 }
 
 /** A separate, account-scoped Yjs journal. Never reads the browser's local-only SigmaDoc library. */
@@ -26,6 +27,15 @@ export function createSharedBrowserStore(): SharedBrowserStore {
   });
   const key = (actor: string, id: string) => `${actor}/${id}`;
   return {
+    async acquire(actor, id) {
+      if (!navigator.locks) throw new Error("BROWSER_JOURNAL_UNAVAILABLE");
+      return new Promise<() => void>((resolve, reject) => {
+        void navigator.locks.request(`sigma-studio-shared/${key(actor, id)}`, { mode: "exclusive", ifAvailable: true }, async lock => {
+          if (!lock) { reject(new Error("DOCUMENT_ALREADY_OPEN")); return; }
+          await new Promise<void>(release => resolve(release));
+        }).catch(() => reject(new Error("BROWSER_JOURNAL_UNAVAILABLE")));
+      });
+    },
     async get(actor, id) {
       const db = await database();
       return new Promise((resolve, reject) => {

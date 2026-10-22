@@ -368,6 +368,7 @@ export const workspace = {
     loadFailed: "Could not load shared materials. Check your connection and sign-in status.",
     notConfigured: "The Web connection has not been configured. Contact your administrator.",
     actionFailed: "Could not complete the action. Check your connection and access, then try again.",
+    alreadyOpen: "This material is open in another tab. Close it there, then try again.",
     epochChanged: "This material was restored to an earlier version. Unsent browser edits have been retained. Check the restored material in the desktop app.",
   },
 } satisfies TranslationsOf<typeof ja>;

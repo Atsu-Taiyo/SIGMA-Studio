@@ -1421,8 +1421,13 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     }
   }, [activeFileId, documentInstanceRevision, workspaceReady]);
 
+  const previousPaneFocusRef = useRef(paneFocused);
   useEffect(() => {
-    if (!persistent || !paneFocused || !workspaceReady) return;
+    const gainedFocus = paneFocused && !previousPaneFocusRef.current;
+    previousPaneFocusRef.current = paneFocused;
+    // Restore a mounted pane when returning to it. Initial loading must leave
+    // text unselected until the user chooses an editing target.
+    if (!persistent || !gainedFocus || !workspaceReady) return;
     const frame = window.requestAnimationFrame(() => {
       if (!ownsWorkspaceInput()) return;
       const active = window.document.activeElement;

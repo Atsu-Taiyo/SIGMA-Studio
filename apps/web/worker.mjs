@@ -126,16 +126,23 @@ export async function handleRequest(request, env, fetcher = fetch) {
       return json({ ok: true }, 200, [setCookie(SESSION, "", 0, env), setCookie(LOGIN, "", 0, env)]);
     }
     if (!session) return json({ error: "AUTH_REQUIRED" }, 401);
+    const prefix = "/api/collaboration";
+    const collaboration = url.pathname.startsWith(`${prefix}/`);
+    const websocket = request.headers.get("Upgrade")?.toLowerCase() === "websocket";
+    const expectedActor = request.headers.get("X-Sigma-Actor") ?? (request.method === "GET" ? url.searchParams.get("actor") : null);
+    // Cookies are shared between tabs. Bind the request before any upstream side
+    // effect so a stale tab can never send another account's pending edits.
+    if (collaboration && expectedActor !== session.user.actorId) return json({ error: "ACCOUNT_CHANGED" }, 409);
     if (session.expires <= Date.now() + 60_000) {
       session = await authRequest(settings, "/token?grant_type=refresh_token", { refresh_token: session.refresh }, fetcher);
+      if (collaboration && expectedActor !== session.user.actorId) return json({ error: "ACCOUNT_CHANGED" }, 409);
       cookies.push(setCookie(SESSION, await seal(session, env, SESSION), 30 * 86400, env));
     }
     if (url.pathname === "/api/auth/session" && request.method === "GET") return json({ user: session.user }, 200, cookies);
-    const prefix = "/api/collaboration";
     const path = url.pathname.slice(prefix.length);
-    if (!url.pathname.startsWith(`${prefix}/`) || url.search || !permitted(path, request.method)) return json({ error: "NOT_FOUND" }, 404);
+    const validQuery = request.method === "GET" ? [...url.searchParams.keys()].every(key => key === "actor") : !url.search;
+    if (!collaboration || !validQuery || !permitted(path, request.method)) return json({ error: "NOT_FOUND" }, 404);
     const headers = new Headers({ Authorization: `Bearer ${session.access}` });
-    const websocket = request.headers.get("Upgrade")?.toLowerCase() === "websocket";
     if (websocket) headers.set("Upgrade", "websocket");
     if (request.headers.has("Content-Type")) headers.set("Content-Type", request.headers.get("Content-Type"));
     // Workers on the same workers.dev zone must communicate through a Service

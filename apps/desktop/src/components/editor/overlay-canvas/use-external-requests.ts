@@ -344,11 +344,7 @@ export function useOverlayExternalRequests({
       transitionMode({ type: "select" });
       onSelectPointHandled(request.id, false);
     }
-<<<<<<< HEAD
-  }, [handledSelectPointRequestIdRef, shapesRef, getShapeAtPoint, getOpenStrokeShapeAtPoint, focusOverlayCanvas, transitionMode, onSelectPointHandled, activeTextEditorRef, selectShape, editPolicyLockedShapeIdsRef, editPolicyUnselectableShapeIdsRef, focusedGroupIdRef, refreshAnchorMeasurements, setSelectedShapeIds, setShapes, queueOverlaySave, documentId, openShapeContextMenu, selectedIdsRef]);
-=======
-  }, [handledSelectPointRequestIdRef, shapesRef, getShapeAtPoint, getOpenStrokeShapeAtPoint, getEditableTextShapeAtPoint, focusOverlayCanvas, transitionMode, onSelectPointHandled, activeTextEditorRef, selectShape, editPolicyLockedShapeIdsRef, editPolicyUnselectableShapeIdsRef, focusedGroupIdRef, refreshAnchorMeasurements, setSelectedShapeIds, setShapes, queueOverlaySave, documentId, openShapeContextMenu]);
->>>>>>> dd72951898395695de4fcdea2f20d597bedd431e
+  }, [handledSelectPointRequestIdRef, shapesRef, getShapeAtPoint, getOpenStrokeShapeAtPoint, getEditableTextShapeAtPoint, focusOverlayCanvas, transitionMode, onSelectPointHandled, activeTextEditorRef, selectShape, editPolicyLockedShapeIdsRef, editPolicyUnselectableShapeIdsRef, focusedGroupIdRef, refreshAnchorMeasurements, setSelectedShapeIds, setShapes, queueOverlaySave, documentId, openShapeContextMenu, selectedIdsRef]);
 
   useEffect(() => {
     if (selectPointRequest) {
