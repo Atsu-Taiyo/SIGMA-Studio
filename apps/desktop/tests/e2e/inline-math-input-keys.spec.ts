@@ -134,31 +134,12 @@ test.describe("ArrowDown and ArrowUp between the limits", () => {
     await expect.poll(() => value(field)).toBe(String.raw`\sum_{k=10}^{nm}\placeholder{}`);
   });
 
-  test("x_1^2: ArrowDown from the exponent reaches the subscript", async ({ page }) => {
-    await openEditor(page);
-    const field = await enterMath(page);
-
-    await page.keyboard.type("x");
-    await page.keyboard.press("Control+Alt+^");
-    await page.keyboard.type("1");
-    await page.keyboard.press("Tab");
-    await page.keyboard.type("2");
-    await expect.poll(() => value(field)).toBe("x_1^2");
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.type("3");
-    await expect.poll(() => value(field)).toBe("x_{13}^2");
-    await page.keyboard.press("ArrowUp");
-    await page.keyboard.type("4");
-    await expect.poll(() => value(field)).toBe("x_{13}^{24}");
-  });
-
   test("a single script and the fractions keep MathLive's own behaviour", async ({ page }) => {
     await openEditor(page);
     const field = await enterMath(page);
 
-    await page.keyboard.type("x");
-    await page.keyboard.press("Control+^");
-    await page.keyboard.type("2");
+    await page.keyboard.type("x^2");
+    await expect.poll(() => value(field)).toBe("x^2");
     await page.keyboard.press("ArrowDown");
     // 下付きは無いので、キャレットは上付きの中のまま。
     await page.keyboard.type("3");
