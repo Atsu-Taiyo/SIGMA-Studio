@@ -5,14 +5,18 @@ import { useCallback, useEffect, useState } from "react";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import type { DesktopCustomFont } from "@/types/desktop";
 import { getLocalFontBridge, type LocalFontFace } from "@/lib/local-font-contracts";
+import { getBrowserLocalFonts, type BrowserFontAccess } from "@/lib/browser-local-fonts";
 
 export function useCustomFonts(): {
   customFonts: DesktopCustomFont[];
   systemFonts: LocalFontFace[] | null;
   reloadCustomFonts: () => void;
+  browserFontAccess: BrowserFontAccess | null;
+  requestSystemFonts: () => void;
 } {
   const [customFonts, setCustomFonts] = useState<DesktopCustomFont[]>([]);
   const [systemFonts, setSystemFonts] = useState<LocalFontFace[] | null>(null);
+  const [browserFontAccess, setBrowserFontAccess] = useState<BrowserFontAccess | null>(null);
 
   const reloadCustomFonts = useCallback(() => {
     const local = getLocalFontBridge();
@@ -24,6 +28,7 @@ export function useCustomFonts(): {
     }
     const bridge = getDesktopBridge();
     if (!bridge?.fonts) {
+      if (!bridge) void getBrowserLocalFonts().refresh();
       return;
     }
     bridge.fonts.list()
@@ -35,6 +40,23 @@ export function useCustomFonts(): {
       .catch((error) => {
         console.warn("Failed to load custom fonts", error);
       });
+  }, []);
+
+  useEffect(() => {
+    if (getLocalFontBridge() || getDesktopBridge()) return;
+    const fonts = getBrowserLocalFonts();
+    const update = () => {
+      const catalog = fonts.getSnapshot();
+      setSystemFonts(catalog.systemFonts);
+      setBrowserFontAccess(catalog.status);
+    };
+    const unsubscribe = fonts.subscribe(update);
+    update();
+    return unsubscribe;
+  }, []);
+
+  const requestSystemFonts = useCallback(() => {
+    if (!getLocalFontBridge() && !getDesktopBridge()) void getBrowserLocalFonts().request();
   }, []);
 
   useEffect(() => {
@@ -59,7 +81,7 @@ export function useCustomFonts(): {
     )).join("\n");
   }, [customFonts]);
 
-  return { customFonts, systemFonts, reloadCustomFonts };
+  return { customFonts, systemFonts, reloadCustomFonts, browserFontAccess, requestSystemFonts };
 }
 
 function fontFormatForUrl(url: string): string {

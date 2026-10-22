@@ -1028,6 +1028,25 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                 data-popover-initial-focus=""
                 onChange={setFontFamilyQuery}
               />
+              {chrome.format.browserFontAccess && chrome.format.browserFontAccess !== "granted" && (
+                <div className="font-family-local-access">
+                  {chrome.format.browserFontAccess !== "unsupported" && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={chrome.format.browserFontAccess === "loading"}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={chrome.format.requestSystemFonts}
+                      title={t("format.font.local.help")}
+                    >
+                      {t(chrome.format.browserFontAccess === "loading" ? "format.font.local.loading" : "format.font.local.enable")}
+                    </button>
+                  )}
+                  {chrome.format.browserFontAccess !== "loading" && (
+                    <p className="font-family-menu-empty" role="status">{t(`format.font.local.${chrome.format.browserFontAccess}`)}</p>
+                  )}
+                </div>
+              )}
               {!fontFamilyIsKnownOption ? (
                 <div className="font-family-menu-group" role="group" aria-label={t("format.font.currentGroup")}>
                   <div className="font-family-menu-group-label">{t("format.font.currentGroup")}</div>

@@ -153,24 +153,30 @@ export function Select({
 
     const update = () => {
       const rect = trigger.getBoundingClientRect();
-      const menuHeight = menuRef.current?.offsetHeight ?? 0;
-      const menuWidthPx = menuRef.current?.offsetWidth ?? rect.width;
+      const menu = menuRef.current;
+      const menuHeight = menu?.getBoundingClientRect().height ?? 0;
+      const menuWidthPx = menu?.offsetWidth ?? rect.width;
+      // Use the unclipped content to choose a side. Comparing the last constrained
+      // height with the available space creates a resize feedback loop, especially
+      // when offsetHeight rounds a fractional font-menu height up to a whole pixel.
+      const contentHeight = menu
+        ? menu.scrollHeight + menu.offsetHeight - menu.clientHeight
+        : 0;
       const below = rect.bottom + 4;
-      const above = rect.top - 4 - menuHeight;
-      const fitsBelow = below + menuHeight <= window.innerHeight - VIEWPORT_MARGIN_PX;
-      const top = fitsBelow
+      const spaceBelow = Math.max(0, Math.floor(window.innerHeight - VIEWPORT_MARGIN_PX - below));
+      const spaceAbove = Math.max(0, Math.floor(rect.top - 4 - VIEWPORT_MARGIN_PX));
+      const opensBelow = contentHeight <= spaceBelow || spaceBelow >= spaceAbove;
+      const maxHeight = opensBelow ? spaceBelow : spaceAbove;
+      const top = opensBelow
         ? below
-        : Math.max(VIEWPORT_MARGIN_PX, above >= VIEWPORT_MARGIN_PX ? above : below);
+        : Math.max(VIEWPORT_MARGIN_PX, rect.top - 4 - Math.min(menuHeight, maxHeight));
       const maxLeft = window.innerWidth - VIEWPORT_MARGIN_PX - menuWidthPx;
       setMenuStyle({
         position: "fixed",
         top,
         left: Math.max(VIEWPORT_MARGIN_PX, Math.min(rect.left, Math.max(VIEWPORT_MARGIN_PX, maxLeft))),
         ...(menuWidth === "trigger" ? { width: rect.width } : { minWidth: rect.width }),
-        maxHeight: Math.max(
-          120,
-          (fitsBelow ? window.innerHeight - below : rect.top - 4) - VIEWPORT_MARGIN_PX,
-        ),
+        maxHeight,
       });
     };
 

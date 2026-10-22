@@ -79,6 +79,14 @@ npm run electron:build
 
 ブラウザでしか分からない選択・フォーカス・貼り付け・ページ配置は該当するPlaywrightテストを実行します。
 
+Web版もデスクトップ版と同じフォントメニューを使います。PC版Chrome / Edge等のLocal Font Access対応環境では、
+メニューの「このPCのフォントを使う」からブラウザのアクセス許可を与えると、OSにインストールされた書体を選べます。
+HTTPSまたはlocalhostが必要です。起動・フォーカス復帰時には許可済みの場合だけ一覧を再取得し、勝手に許可を求めません。
+一覧はメモリにだけ保持し、フォント本体は読み取り・アップロードしません。文書には既存の書体指定だけを保存します。
+非対応・拒否・読み取り失敗時も既存のフォントメニューを維持し、アクセス状態をメニュー内に表示します。
+共有相手に同じ書体が入っていなければ代替書体になるため、OSフォントへのアクセスだけで端末間の紙面一致は保証されません。
+実OSフォントでの描画・IndexedDB保存・再読込と、権限取り消しは `tests/e2e/browser-local-fonts.spec.ts` で確認します。
+
 ```sh
 npm exec --workspace @sigma-studio/desktop -- playwright install chromium
 npm --workspace @sigma-studio/desktop run test:e2e -- tests/e2e/body-block-paste.spec.ts

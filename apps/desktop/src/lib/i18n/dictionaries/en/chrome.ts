@@ -322,6 +322,16 @@ export const chrome = {
       currentGroup: "Current font",
       customGroup: "Added fonts",
       empty: "No matching fonts.",
+      local: {
+        enable: "Use fonts on this PC",
+        loading: "Loading fonts…",
+        help: "Read fonts installed on this PC. Font files are not uploaded.",
+        prompt: "Allow access in your browser to choose fonts installed on this PC.",
+        denied: "Font access is blocked. Allow it in your browser's site settings.",
+        unsupported: "This browser cannot list OS fonts. Use desktop Chrome or Edge.",
+        error: "Could not read fonts. Check this site's permissions and try again.",
+        empty: "No available OS fonts were found.",
+      },
       group: {
         system: "Fonts on this PC",
         // 書体名 (「游ゴシック」等) は固有名なので訳さない。グループ見出しだけを訳す。
