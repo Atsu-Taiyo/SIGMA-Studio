@@ -8,6 +8,58 @@ import { grabShapeFromBody } from "../e2e/body-overlay-entry";
 
 const APP_ROOT = path.resolve(__dirname, "../..");
 
+test("spread separator controls and gutter menus address the right-hand pages", async () => {
+  const profile = mkdtempSync(path.join(tmpdir(), "sigma-spread-separators-"));
+  const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  env.SIGMA_STUDIO_USER_DATA_DIR = profile;
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.SIGMA_STUDIO_DEV_SERVER_URL;
+  const app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1500, height: 1000 });
+    await page.waitForFunction(() => Boolean(window.desktopAPI));
+    const source = createBlankDocument("2列の段間線");
+    source.content = Array.from({ length: 8 }, (_, index) => ({ type: "paragraph", id: `spread-${index}`,
+      pagination: { break: index > 0 }, children: [{ type: "text", text: `本文${index}` }],
+    }));
+    source.pageLayout = normalizePageLayout({ flow: { columnCount: 2, columnRule: { style: "solid", widthPx: 1, color: "#111111" } } });
+    const created = await page.evaluate(async document => {
+      await window.desktopAPI!.settings!.setUiLocale!("ja");
+      localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      localStorage.setItem("sigma-studio:page-arrangement-preference", "spread");
+      return window.desktopAPI!.storage.createFileFromDocument({ document });
+    }, source);
+    await page.reload();
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    for (const number of [2, 4]) {
+      const sheet = page.locator(".page-backdrop .a4-page-sheet").nth(number - 1);
+      const rule = sheet.locator(".page-column-rules > span").first();
+      await rule.scrollIntoViewIfNeeded();
+      const bounds = (await rule.boundingBox())!;
+      await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, { button: "right" });
+      const dialog = page.getByRole("dialog", { name: "段間の線", exact: true });
+      await expect(dialog).toContainText(`${number}ページ目に適用`);
+      await dialog.getByRole("button", { name: /^線種/ }).click();
+      await page.getByRole("menuitemradio", { name: "点線", exact: true }).click();
+      await dialog.getByRole("button", { name: "閉じる", exact: true }).click();
+      await expect.poll(async () => (await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), created.file.fileId))
+        ?.pageLayout?.flow.pageColumnRules?.find(entry => entry.page === number)?.rule.style).toBe("dotted");
+      const control = page.locator(`[data-column-rule-page="${number}"]`).first();
+      await control.scrollIntoViewIfNeeded();
+      const button = (await control.boundingBox())!;
+      const line = (await rule.boundingBox())!;
+      expect(Math.abs(button.x + button.width / 2 - line.x - line.width / 2)).toBeLessThan(2);
+      const paper = (await sheet.boundingBox())!;
+      expect(button.y).toBeGreaterThanOrEqual(paper.y);
+      expect(button.y + button.height).toBeLessThan(paper.y + paper.height);
+      await control.click();
+      await expect(dialog).toContainText(`${number}ページ目に適用`);
+      await dialog.getByRole("button", { name: "閉じる", exact: true }).click();
+    }
+  } finally { await app.close(); rmSync(profile, { recursive: true, force: true }); }
+});
+
 test("page separator overrides and text-box decoration survive saving and reopening Electron", async ({}, testInfo) => {
   const profile = mkdtempSync(path.join(tmpdir(), "sigma-page-separators-"));
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));

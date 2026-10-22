@@ -2507,13 +2507,15 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       const rect = canvas.getBoundingClientRect();
       const x = (event.clientX - rect.left) * 100 / zoom;
       const y = (event.clientY - rect.top) * 100 / zoom;
-      const pageIndex = Math.floor(y / (pageHeightPx + PAGE_GAP_PX));
-      const pageY = y - pageIndex * (pageHeightPx + PAGE_GAP_PX);
+      const pageIndex = pageIndexAtDisplayPoint(arrangement, { x, y });
+      const origin = pageOrigin(arrangement, pageIndex);
+      const pageX = x - origin.x;
+      const pageY = y - origin.y;
       const inBody = pageY >= metrics.margins.topPx && pageY <= pageHeightPx - metrics.margins.bottomPx;
       const nearRule = Array.from({ length: metrics.flow.columnCount - 1 }, (_, index) =>
         metrics.margins.leftPx + (index + 1) * metrics.flow.columnWidthPx + (index + 0.5) * metrics.flow.columnGapPx,
-      ).some(left => Math.abs(x - left) <= Math.min(6, metrics.flow.columnGapPx / 2));
-      if (pageIndex >= 0 && inBody && nearRule) {
+      ).some(left => Math.abs(pageX - left) <= Math.min(6, metrics.flow.columnGapPx / 2));
+      if (pageIndex >= 0 && pageIndex < pageCount && inBody && nearRule) {
         event.preventDefault();
         event.stopPropagation();
         setBodyContextMenu(null);
@@ -2594,6 +2596,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       target,
     });
   }, [
+    arrangement,
+    pageCount,
     isOverlayEditing,
     isPagedRender,
     metrics,
@@ -3294,11 +3298,12 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                 Array.from({ length: metrics.flow.columnCount - 1 }, (_, divider) => (
                   <button key={`column-rule-${index}-${divider}`} type="button"
                     className="page-column-rule-control"
+                    data-column-rule-page={index + 1}
                     aria-label={tSettings("columnRule.title")}
                     title={tSettings("columnRule.title")}
                     style={{
-                      top: index * (pageHeightPx + PAGE_GAP_PX) + Math.max(0, metrics.margins.topPx - 24),
-                      left: metrics.margins.leftPx + (divider + 1) * metrics.flow.columnWidthPx + (divider + 0.5) * metrics.flow.columnGapPx,
+                      top: pageOrigin(arrangement, index).y + Math.max(0, metrics.margins.topPx - 24),
+                      left: pageOrigin(arrangement, index).x + metrics.margins.leftPx + (divider + 1) * metrics.flow.columnWidthPx + (divider + 0.5) * metrics.flow.columnGapPx,
                       height: 24,
                     }}
                     onMouseDown={event => event.stopPropagation()}
