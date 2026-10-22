@@ -755,7 +755,7 @@
   position: absolute;
   top: 0;
   /* 用紙外の図形も編集面に含め、コメント欄はその外側に置く。 */
-  left: calc(var(--page-width) + var(--overlay-bleed-x, 0px) + 26px);
+  left: calc(var(--page-canvas-width, var(--page-width)) + var(--overlay-bleed-x, 0px) + 26px);
   z-index: 35;
   width: 284px;
   pointer-events: none;

@@ -18,6 +18,7 @@ import {
 } from "@/lib/editor-clipboard";
 import type { Translate } from "@/lib/i18n";
 import { readSpreadsheetClipboard } from "@/lib/spreadsheet-clipboard";
+import { readFlowPageShift } from "../page-canvas/page-arrangement-dom";
 import { viewportToCanvasAnchor } from "../page-canvas/popover-anchors";
 
 import { isMultiEditorTextRunSpan, replaceActiveTextRunSpan } from "../text-flow/text-run-span";
@@ -265,7 +266,9 @@ function tablePasteCenter(target: EventTarget | null, width: number, height: num
   if (!block || !canvas.contains(block)) return undefined;
   const rect = block.getBoundingClientRect();
   const point = viewportToCanvasAnchor({ left: rect.left, top: rect.bottom }, canvas);
-  return { x: point.left + width / 2, y: point.top + 8 + height / 2 };
+  // 図形の座標は紙面 (モデル) 座標。2 ページ並びではブロックはそのページのずらしで描かれている。
+  const shift = readFlowPageShift(block);
+  return { x: point.left - shift.x + width / 2, y: point.top - shift.y + 8 + height / 2 };
 }
 
 /** 本文の contenteditable は図形も受け取れるので、通常の入力欄とは区別する。 */

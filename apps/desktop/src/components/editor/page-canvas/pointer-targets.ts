@@ -23,6 +23,7 @@ import  {
 import { resolveHoverDragUnitAt, resolveInnerAffordanceProbe, type DragIndex } from "./block-drag-dom";
 import { visibleBlockClientRect } from "./visible-block-rect";
 import { pickContiguousSelectedSiblingIds } from "./block-ops";
+import { pageShiftAtCanvasPoint, readCanvasPageArrangement } from "./page-arrangement-dom";
 import  {
   getCanvasPointerPoint,
   getPageOverlayPoint,
@@ -71,6 +72,7 @@ export function getPagePointerContext({
     pageCount,
     pageGapPx: PAGE_GAP_PX,
     pageHeightPx,
+    arrangement: readCanvasPageArrangement(canvas),
   });
 }
 
@@ -102,6 +104,7 @@ export function getClientOverlayPointOnPage({
     pageCount,
     pageGapPx: PAGE_GAP_PX,
     pageHeightPx,
+    arrangement: readCanvasPageArrangement(canvas),
   });
 }
 
@@ -126,6 +129,7 @@ export function getClientOverlayPointOnCanvas({
     clientX,
     clientY,
     metrics,
+    arrangement: readCanvasPageArrangement(canvas),
   });
 }
 
@@ -152,6 +156,11 @@ export function hitTestTopLevelBlock(
   // 解決し直されて (ズーム≠100% では左ガターでも空振りして) つまみが消える。
   const canvasRect = canvas.getBoundingClientRect();
   const scale = canvasLayoutScale(canvas);
+  // 段の判定はページの中の位置で行う (2 ページ並びの右の列のページでも同じ段に当てる)。
+  const pointerShift = pageShiftAtCanvasPoint(canvas, {
+    x: (clientX - canvasRect.left) / scale,
+    y: (clientY - canvasRect.top) / scale,
+  });
   const probeColumnLeftPx = blockHitProbeColumnLeftPx(
     {
       contentLeftPx: metrics.margins.leftPx,
@@ -159,8 +168,8 @@ export function hitTestTopLevelBlock(
       columnWidthPx: metrics.flow.columnWidthPx,
       columnGapPx: metrics.flow.columnGapPx,
     },
-    (clientX - canvasRect.left) / scale,
-  );
+    (clientX - canvasRect.left) / scale - pointerShift.x,
+  ) + pointerShift.x;
   const columnProbeX = canvasRect.left + (probeColumnLeftPx + BLOCK_HIT_PROBE_INSET_PX) * scale;
   const gapProbePx = BLOCK_HIT_GAP_PROBE_PX * scale;
   const direct = resolveTopLevelBlockAtPoint(canvas, clientX, clientY)
