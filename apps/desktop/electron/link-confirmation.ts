@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { inspectLink, type LinkConfirmationRequest, type LinkDestination } from "@/lib/link-confirmation";
 
-/** One immutable request at a time. A page cannot replace a destination while it is being reviewed. */
+/** Ordinary browser HTTPS navigation is silent; destinations needing review use one immutable request. */
 export class LinkConfirmation {
   private current: { request: LinkConfirmationRequest; finish(approved: boolean): void } | null = null;
 
@@ -12,6 +12,9 @@ export class LinkConfirmation {
   confirm(url: string, destination: LinkDestination, signal?: AbortSignal): Promise<boolean> {
     const details = inspectLink(url, destination);
     if (!details || this.current || signal?.aborted) return Promise.resolve(false);
+    // URL features determine whether to interrupt browsing, not a site's reputation.
+    // Keep this per request so a redirect to a warning-bearing URL still needs approval.
+    if (destination === "browser" && details.warnings.length === 0) return Promise.resolve(true);
     return new Promise(resolve => {
       const request = { ...details, id: randomUUID() };
       const abort = () => this.respond(request.id, false);
