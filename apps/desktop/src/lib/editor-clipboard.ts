@@ -609,6 +609,14 @@ export interface CloneOverlayShapesOptions {
    * ids itself afterwards — dropping them here would stop material figures from following the text.
    */
   dropBlockAnchors?: boolean;
+  /**
+   * What a dropped block anchor becomes. `"page"` (default) pins the shape where it was put.
+   * `"unanchored"` removes the anchor so the host picks a block from the shape's final position on
+   * its next save — exactly what a shape created at that position gets. The pointer-placed paste
+   * uses it; pinning there would turn a paste next to a paragraph into a figure that no longer
+   * follows the text.
+   */
+  droppedBlockAnchor?: "page" | "unanchored";
 }
 
 export function cloneOverlayShapesForPaste(
@@ -700,7 +708,11 @@ function cloneOverlayShapeForPaste(
       next.anchor = { type: "page" };
     }
   } else if (!mappedBlockId && options.dropBlockAnchors && shape.anchor?.type === "block") {
-    next.anchor = { type: "page" };
+    if (options.droppedBlockAnchor === "unanchored") {
+      delete next.anchor;
+    } else {
+      next.anchor = { type: "page" };
+    }
   }
 
   if (next.type === "image") {

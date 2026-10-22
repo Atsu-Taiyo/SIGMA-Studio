@@ -91,6 +91,7 @@ import {
   type MeasuredBlock
 } from "./overlay-canvas/anchor";
 import { isOverlayActionBlockedByEditPolicy, isOverlayShapeUnselectable, pruneUnselectableSelection } from "./overlay-canvas/edit-policy";
+import { findEditableTextShapeAtPoint } from "./overlay-canvas/double-click-target";
 import { EMPTY_OVERLAY_EDIT_POLICY, type OverlayEditPolicy, type OverlayShapeDecoration } from "./overlay-canvas/editor-extension";
 import { focusOverlaySurface } from "./overlay-canvas/focus-overlay-surface";
 import {
@@ -1158,6 +1159,16 @@ export default function OverlayCanvasEditorClient({
 
     return undefined;
   }, [shapesRef]);
+
+  /** ダブルクリックで下に隠れた文章の図形を直すための探索。選択は一番手前のまま (`double-click-target.ts`)。 */
+  const getEditableTextShapeAtPoint = useCallback((point: OverlayPoint): OverlayShape | undefined => (
+    findEditableTextShapeAtPoint({
+      shapes: shapesRef.current,
+      point,
+      isUnselectable: (id) => isOverlayShapeUnselectable(id, editPolicyUnselectableShapeIdsRef.current),
+      editPolicyLockedIds: editPolicyLockedShapeIdsRef.current,
+    })
+  ), [shapesRef]);
   const {
     duplicateSelectedShapes,
     deleteSelectedShapes,
@@ -1194,7 +1205,9 @@ export default function OverlayCanvasEditorClient({
     solidEdgeRef,
     documentIdRef,
     canvasRef,
-    getBlockAnchorScope
+    getBlockAnchorScope,
+    pageHeightPx,
+    pageGapPx
   });
 
   /**
@@ -1241,6 +1254,7 @@ export default function OverlayCanvasEditorClient({
     onSelectPointHandled,
     getShapeAtPoint,
     getOpenStrokeShapeAtPoint,
+    getEditableTextShapeAtPoint,
     focusedGroupIdRef,
     setShapes,
     queueOverlaySave,
@@ -1658,6 +1672,7 @@ export default function OverlayCanvasEditorClient({
     modeRef,
     getShapeAtPoint,
     getOpenStrokeShapeAtPoint,
+    getEditableTextShapeAtPoint,
     setContextMenu,
     focusOverlayCanvas
   });
