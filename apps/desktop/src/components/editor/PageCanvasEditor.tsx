@@ -903,7 +903,7 @@ const {
   } = layoutViewState;
   // 図形の選択ポップオーバーの描いた幅 (中身で変わる)。紙面に浮かべる部品が避ける矩形に使う。
   const [overlayPopoverWidthPx, setOverlayPopoverWidthPx] = useState<number | undefined>(undefined);
-  const { overlaySelectionKey, selectionActionPopover, selectionControlsRect } = usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight, layoutRevision: layoutViewState.revision, overlayPopoverWidthPx });
+  const { overlaySelectionKey, selectionActionPopover, selectionControlsRect } = usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight, layoutRevision: layoutViewState.revision, overlayPopoverWidthPx, blockHandleSelected: selectedId !== null && blockSelection.ids.includes(selectedId) });
   useLayoutEffect(() => {
     requestCaretKeeperReanchor();
   }, [layoutViewState]);

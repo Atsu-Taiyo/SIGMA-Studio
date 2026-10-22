@@ -13,6 +13,7 @@ import {
   sameExtensionActionPopover,
   type CommentAnchorCandidateGate,
 } from "./comment-anchor-candidate";
+import { isCaretOnlyInBlock } from "./caret-only-selection";
 import { hasHeldCanvasTextSelection } from "./held-text-selection";
 import { findBlockElement,getMathTexFromRange } from "./comment-geometry";
 import { ExtensionActionPopoverState } from "./editor-contracts";
@@ -59,10 +60,12 @@ interface Inputs {
   layoutRevision: number;
   /** 描いた図形の選択ポップオーバーの幅 (画面の px)。測る前は見積もり。 */
   overlayPopoverWidthPx?: number;
+  /** つまみ (ブロックの掴み手) で `selectedId` のブロックを丸ごと選んでいるか。カーソルだけとは扱わない。 */
+  blockHandleSelected?: boolean;
 }
 
 const TEXT_SELECTION_ACTION_DEBOUNCE_MS = 120;
-export function usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight, layoutRevision, overlayPopoverWidthPx }: Inputs) {
+export function usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight, layoutRevision, overlayPopoverWidthPx, blockHandleSelected = false }: Inputs) {
 
   const [extensionTextSelectionPopover, setExtensionTextSelectionPopover] = useState<ExtensionActionPopoverState | null>(null);
 
@@ -411,6 +414,8 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
     }
 
     let frame = 0;
+    const readCaretOnly = () => !blockHandleSelected && isCaretOnlyInBlock(canvasRef.current, selectedId);
+    let caretOnlyShown = readCaretOnly();
     const updatePosition = () => {
       frame = 0;
       const canvas = canvasRef.current;
@@ -457,17 +462,25 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
         return;
       }
 
+      const commentAnchor = selectedId && canComment
+        ? createBlockCommentAnchor(document, selectedId)
+        : null;
+      emitCommentAnchorCandidate(commentAnchor);
+      // カーソルを置いただけ (範囲もブロックの選択もない) なら、何も選んでいないので浮かぶ操作は出さない。
+      // 上のコメントの候補 (コメント欄の「コメントを追加」の付け先) は、これまでどおりカーソルのあるブロックを指す。
+      caretOnlyShown = readCaretOnly();
+      if (caretOnlyShown) {
+        applySelectedTargetPopovers(null, null);
+        return;
+      }
+
       const blockElement = selectedId ? findBlockElement(canvas, selectedId) : null;
       const extensionAction = selectionExtension?.createAction({
         kind: "block",
         targetId: selectedId,
       }) ?? null;
-      const commentAnchor = selectedId && canComment
-        ? createBlockCommentAnchor(document, selectedId)
-        : null;
       const rect = blockElement?.getBoundingClientRect();
       const position = rect ? withSelectionTrailingAnchor(getSelectionActionPopoverPosition(rect), [rect], canvas) : null;
-      emitCommentAnchorCandidate(commentAnchor);
       applySelectedTargetPopovers(
         extensionAction && position ? { action: extensionAction, position } : null,
         commentAnchor && position ? { anchor: commentAnchor, position } : null,
@@ -477,15 +490,32 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
       if (frame) window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(updatePosition);
     };
+    // 選んだブロックが同じまま、カーソルだけの状態と変わる/戻ることがある (カーソルのあるブロックを
+    // つまみで選び直す、選択を解いてカーソルに戻す)。`selectedId` は動かないので、選択が動いたら
+    // 「カーソルだけか」だけを安く読み直し、変わったときだけ位置の測り直しを頼む。
+    let recheckFrame = 0;
+    const recheckCaretOnly = () => {
+      if (selectedInlineMath) return;
+      if (recheckFrame) window.cancelAnimationFrame(recheckFrame);
+      recheckFrame = window.requestAnimationFrame(() => {
+        recheckFrame = 0;
+        if (readCaretOnly() !== caretOnlyShown) scheduleUpdate();
+      });
+    };
     scheduleUpdate();
     window.addEventListener("resize", scheduleUpdate);
     window.addEventListener("scroll", scheduleUpdate, true);
+    window.document.addEventListener("selectionchange", recheckCaretOnly);
+    window.document.addEventListener("focusin", recheckCaretOnly);
     return () => {
       if (frame) window.cancelAnimationFrame(frame);
+      if (recheckFrame) window.cancelAnimationFrame(recheckFrame);
       window.removeEventListener("resize", scheduleUpdate);
       window.removeEventListener("scroll", scheduleUpdate, true);
+      window.document.removeEventListener("selectionchange", recheckCaretOnly);
+      window.document.removeEventListener("focusin", recheckCaretOnly);
     };
-  }, [commentAnchorOwnershipRevision, document, hasCommentAnchorRequest, isOverlayEditing, selectionExtension, selectedId, selectedInlineMath, totalHeight, layoutRevision, zoom, canvasRef]);
+  }, [blockHandleSelected, commentAnchorOwnershipRevision, document, hasCommentAnchorRequest, isOverlayEditing, selectionExtension, selectedId, selectedInlineMath, totalHeight, layoutRevision, zoom, canvasRef]);
   return { overlaySelectionKey, selectionActionPopover, selectionControlsRect };
 }
 

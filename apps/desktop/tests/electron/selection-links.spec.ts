@@ -16,7 +16,7 @@ async function selectText(page: Page) {
     window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
     document.dispatchEvent(new Event("selectionchange"));
   });
-  // A caret already has a block-link button. Wait for the debounced text-range action.
+  // A caret alone floats nothing; wait for the debounced text-range band.
   await expect(page.locator(".selection-action-popover:not(.selection-action-popover--trailing)")).toBeVisible();
 }
 

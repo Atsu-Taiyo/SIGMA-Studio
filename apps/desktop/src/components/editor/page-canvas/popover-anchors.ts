@@ -32,7 +32,7 @@ export interface SelectionActionPopoverPosition {
   centerX?: number;
   /**
    * 本文の選択だけが持つ。帯から開く AI・コメントの入力欄を選んだところのすぐ下に開くのと、
-   * 書式の帯が無いとき (カーソルだけ・数式だけ) に AI・コメントを右下のチップで出すのに使う。
+   * 書式の帯が無いとき (数式だけ・ブロックを丸ごと選んだとき) に AI・コメントを右下のチップで出すのに使う。
    * 図形の選択は持たない (入力欄は帯の下に開く)。
    */
   trailing?: SelectionTrailingAnchor;
