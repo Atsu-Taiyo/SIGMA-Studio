@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 
 import type { SigmaDocument } from "@/types/sigma-doc";
 
-import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
+import { installDesktopRuntimeMock, type DesktopRuntimeMockOptions } from "./desktop-runtime-mock";
 
 /**
  * In-memory workspace storage so a test can open several material tabs.
@@ -20,8 +20,10 @@ export async function installDocumentTabMock(
    * tab to start with nothing on it.
    */
   newDocument: SigmaDocument = initialDocument,
+  /** Passed through to the single-document runtime mock (e.g. `templates`). */
+  runtimeOptions: DesktopRuntimeMockOptions = {},
 ): Promise<void> {
-  await installDesktopRuntimeMock(page, initialDocument);
+  await installDesktopRuntimeMock(page, initialDocument, runtimeOptions);
   await page.addInitScript(({ seedDocument, blankDocument }: { seedDocument: SigmaDocument; blankDocument: SigmaDocument }) => {
     const bridge = window.desktopAPI;
     if (!bridge?.storage) {

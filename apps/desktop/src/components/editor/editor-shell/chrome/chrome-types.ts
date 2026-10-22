@@ -21,6 +21,7 @@ import type { ShapeTypeChangeCommand } from "@/components/editor/overlay-canvas/
 import type { SharedFillState } from "@/components/editor/overlay-canvas/style-patch";
 import type { OverlayPoint, OverlayTool } from "@/components/editor/overlay-canvas/types";
 import type { OverlayArrangeAction, OverlayCommand, OverlaySelectionStylePatch, OverlaySelectionSummary } from "@/components/editor/page-overlay-types";
+import type { TemplateGalleryMode } from "@/components/templates/TemplateGallery";
 import type { TooltipContent } from "@/components/ui/Tooltip";
 import type { BoxedVariant, InlineNode, SigmaBlock, SigmaDocument, TextAlign } from "@/features/document";
 import type { OverlayDash, OverlayTextSize } from "@/features/document/overlay-model";
@@ -347,7 +348,8 @@ export interface EditorChromeAppMenu {
   setNewDocMenuOpen: Dispatch<SetStateAction<boolean>>;
   setOverlayEditing: Dispatch<SetStateAction<boolean>>;
   setPageSettingsOpen: Dispatch<SetStateAction<boolean>>;
-  setTemplateGalleryOpen: Dispatch<SetStateAction<boolean>>;
+  /** テンプレートギャラリーを開く。"use" は「テンプレートから新規」(新しい教材)、"insert" は「テンプレートを挿入」(開いている教材へ)。 */
+  setTemplateGalleryMode: Dispatch<SetStateAction<TemplateGalleryMode | null>>;
   setTexCommandReferenceOpen: Dispatch<SetStateAction<boolean>>;
   setTexEnvironmentSettingsOpen: Dispatch<SetStateAction<boolean>>;
   setTitleInputFocused: Dispatch<SetStateAction<boolean>>;
