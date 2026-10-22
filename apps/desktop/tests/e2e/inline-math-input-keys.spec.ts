@@ -138,19 +138,20 @@ test.describe("ArrowDown and ArrowUp between the limits", () => {
     await openEditor(page);
     const field = await enterMath(page);
 
-    await page.keyboard.type("x^2");
-    await expect.poll(() => value(field)).toBe("x^2");
+    // 数字は上付きから自動で抜けるので、文字 (a) で上付きの中に留まる。
+    await page.keyboard.type("x^a");
+    await expect.poll(() => value(field)).toBe("x^{a}");
     await page.keyboard.press("ArrowDown");
     // 下付きは無いので、キャレットは上付きの中のまま。
-    await page.keyboard.type("3");
-    await expect.poll(() => value(field)).toBe("x^{23}");
+    await page.keyboard.type("b");
+    await expect.poll(() => value(field)).toBe("x^{ab}");
 
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("Control+/");
     await page.keyboard.type("b");
     await page.keyboard.press("ArrowUp");
     await page.keyboard.type("a");
-    await expect.poll(() => value(field)).toBe(String.raw`x^{23}\frac{a}{b}`);
+    await expect.poll(() => value(field)).toBe(String.raw`x^{ab}\frac{a}{b}`);
   });
 });
 
