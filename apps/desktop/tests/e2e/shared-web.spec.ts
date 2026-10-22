@@ -141,7 +141,7 @@ test("shared-only Web and real Electron exchange edits through the same backend 
   const secondTab = await page.context().newPage();
   await secondTab.goto(site);
   await secondTab.getByRole("button", { name: "共有の検証教材", exact: true }).click();
-  await expect(secondTab.getByRole("alert")).toContainText("別のタブで開かれています");
+  await expect(secondTab.getByRole("alert").filter({ hasText: "別のタブで開かれています" })).toBeVisible();
   await expect(secondTab.locator('.page-flow [contenteditable="true"]')).toHaveCount(0);
   await secondTab.close();
   await expect.poll(() => page.locator(`img[src*="/assets/${assetId}"]`).first().evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(1);
