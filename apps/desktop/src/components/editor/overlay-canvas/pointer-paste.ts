@@ -1,3 +1,5 @@
+import { displayCanvasSize, displayToModel, type PageArrangement } from "@/features/rendering/core";
+
 import type { OverlayPoint } from "./types";
 
 /**
@@ -107,6 +109,27 @@ function clampAxis(center: number, extent: number, min: number, max: number): nu
   return Math.min(max - half, Math.max(min + half, center));
 }
 
+/**
+ * ページを 2 列に並べた表示での、client 座標 → 紙面 (モデル) 座標の写し方。図形の層は並べた紙面の
+ * 大きさで描かれるので、横幅から倍率を出して表示座標にし、点が載るページのずらしを引く
+ * (`OverlayCanvasEditorClient` の `pagePointFromClient` と同じ)。1 列なら undefined (既定の写し方)。
+ */
+export function createArrangedPastePointMapper(
+  arrangement: PageArrangement | null,
+): ((pointer: ClientPoint, rect: CanvasClientRect) => OverlayPoint | null) | undefined {
+  if (!arrangement) {
+    return undefined;
+  }
+  return (pointer, rect) => {
+    const scale = rect.width / displayCanvasSize(arrangement, 1).width;
+    if (!(scale > 0)) {
+      return null;
+    }
+    const point = displayToModel(arrangement, { x: (pointer.x - rect.left) / scale, y: (pointer.y - rect.top) / scale });
+    return { x: point.x, y: point.y };
+  };
+}
+
 export interface PointerPastePlacement {
   /** ポインタを紙面の座標へ写した点 (まだページへ押し戻していない)。 */
   point: OverlayPoint;
@@ -121,11 +144,17 @@ export function resolvePointerPastePlacement(
   pointer: ClientPoint | null | undefined,
   rect: CanvasClientRect | null | undefined,
   layout: PasteCanvasLayout,
+  /**
+   * client 座標 → 紙面 (モデル) 座標の写し方。ページを 2 列に並べた表示では、画面の点を並べた紙面の
+   * 座標に直してから、そのページのずらしを引く必要がある (`pagePointFromClient` と同じ)。省くと 1 列の写し方。
+   */
+  toCanvasPoint: (pointer: ClientPoint, rect: CanvasClientRect) => OverlayPoint | null
+    = (point, clientRect) => clientPointToCanvasPoint(point, clientRect, layout),
 ): PointerPastePlacement | null {
   if (!pointer || !rect || !hasPageLayout(layout)) {
     return null;
   }
-  const point = clientPointToCanvasPoint(pointer, rect, layout);
+  const point = toCanvasPoint(pointer, rect);
   return point ? { point, layout } : null;
 }
 
