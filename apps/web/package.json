@@ -1,0 +1,12 @@
+{
+  "name": "@sigma-studio/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preview": "wrangler dev --ip 127.0.0.1 --port 3990",
+    "check": "wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "wrangler": "4.151.3"
+  }
+}

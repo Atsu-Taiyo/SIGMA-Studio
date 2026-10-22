@@ -96,6 +96,35 @@ npm --workspace @sigma-studio/desktop run test:e2e -- tests/e2e/body-block-paste
 `SIGMA_STUDIO_E2E_BASE_URL` にURLを指定します。永続化や印刷を変えた場合は、
 表示だけでなく保存されたSigmaDoc、再読込、印刷結果まで確認します。
 
+## 共有教材専用のWeb版
+
+`npm run web:build` は、Electron版と同じEditorShellとYjsの履歴を使う共有教材専用の静的画面を作ります。
+`npm run web:preview` は `apps/web/worker.mjs` をローカルのCloudflare Workersで実行します。
+`apps/web/.dev.vars.example` を `.dev.vars` へ複製し、Electron版と同じ共有API・Supabaseの接続先と公開キー、
+サイト自身の `APP_ORIGIN`、32バイト以上のランダムな `SESSION_SECRET` を設定してください。
+本番では `SESSION_SECRET` をWorker Secretに置きます。認証トークンは暗号化したHttpOnly Cookieで保持し、
+フロントエンドのJavaScriptやlocalStorageへ渡しません。Web用Workerは既存の共有バックエンドへ本人の権限で中継します。
+
+Supabaseの許可済みRedirect URLへ `${APP_ORIGIN}/auth/callback/web` を追加する必要があります。
+ログインのstateを戻すため、同じパスの `${APP_ORIGIN}/auth/callback/web?state=*` も許可します。
+既存のElectron用ループバックURLとSite URLは保持してください。
+Web版の一覧には、ログイン中の本人が読み取れる共有済み教材だけが出ます。未共有のローカル教材は読み込まず、
+新規作成・共有開始・共有管理・過去の版への復元はElectron版で行います。閲覧者は編集できません。
+編集とUndoは既存の `RendererDocumentSession` へ接続し、JSON全体をクラウドへ上書きしません。
+未送信編集のYjs journalは `sigma-studio-shared` IndexedDBにアカウント別に保持し、保存済みの文書全体とは分けます。
+通信中に閉じた場合の再送に同じ操作IDを使い、復元で世代が変わった文書へ古い未送信編集を自動送信しません。
+
+`npm run web:test` は認証と中継の境界を確認します。`npm run electron:build` と `npm run web:build` の後、
+`npm run test:e2e:web` で実Workerランタイム・ブラウザ・Electronを同じローカル検証用サーバーへ接続し、
+相互編集・再読み込み・閲覧者の権限を確認します。この検証は本番のGoogleログインや本番教材での相互編集を証明しません。
+
+Cloudflareの試用先は `https://sigma-studio-web.sigma-studio-experiment.workers.dev` です。
+`apps/web/wrangler.jsonc` が公開先と既存バックエンドの接続先を持ち、
+`SESSION_SECRET` と `SIGMA_SUPABASE_ANON_KEY` はWorker Secretで設定します。
+同じworkers.devゾーンの共有Workerへは `COLLABORATION` Service Bindingで接続します。
+`npm run web:deploy` はWeb画面をビルドし、設定済みのSecretを保持して配備します。
+既存の共有バックエンド自体のデプロイは行いません。
+
 ## 公開パッケージを検証する
 
 EditorはViewerの生成型を使うため、先に両パッケージをビルドします。
