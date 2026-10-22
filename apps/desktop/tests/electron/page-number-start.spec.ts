@@ -66,14 +66,18 @@ test("page number start of 0 numbers the footers 0..N-1 in the editor and the pr
       const document = await window.desktopAPI!.storage.loadDocument(id);
       return document?.pageLayout && "pageNumberStart" in document.pageLayout ? document.pageLayout.pageNumberStart : null;
     }, fileId);
-    /** 紙の枚数に対して `0/N-1 … N-1/N-1` と出ていること。 */
-    const expectedFromZero = (count: number) => Array.from({ length: count }, (_, index) => `${index}/${count - 1}`);
-    const expectedFromOne = (count: number) => Array.from({ length: count }, (_, index) => `${index + 1}/${count}`);
+    /**
+     * 描かれている紙 (`drawn` 枚。編集面は見えている近くのページしか描かない) に対して、全 `total` ページで
+     * `0/N-1 … ` と出ていること。総数は描いた枚数ではなく文書のページ数。
+     */
+    const expectedFromZero = (drawn: number, total: number) => Array.from({ length: drawn }, (_, index) => `${index}/${total - 1}`);
+    const expectedFromOne = (drawn: number, total: number) => Array.from({ length: drawn }, (_, index) => `${index + 1}/${total}`);
 
     // 既定: 1 から数える。3 ページ以上ある。
     await expect.poll(() => editorSheets.count()).toBeGreaterThanOrEqual(3);
-    const pageCount = await editorSheets.count();
-    await expect.poll(() => footers(".page-backdrop .a4-page-sheet")).toEqual(expectedFromOne(pageCount));
+    const pageCount = Number(await page.locator(".page-canvas").first().getAttribute("data-page-count"));
+    const drawnSheets = await editorSheets.count();
+    await expect.poll(() => footers(".page-backdrop .a4-page-sheet")).toEqual(expectedFromOne(drawnSheets, pageCount));
     expect(await savedStart()).toBeNull();
 
     const openDialog = async () => {
@@ -93,7 +97,7 @@ test("page number start of 0 numbers the footers 0..N-1 in the editor and the pr
     await dialog.getByRole("button", { name: "適用", exact: true }).click();
     await expect(dialog).toHaveCount(0);
 
-    await expect.poll(() => footers(".page-backdrop .a4-page-sheet")).toEqual(expectedFromZero(pageCount));
+    await expect.poll(() => footers(".page-backdrop .a4-page-sheet")).toEqual(expectedFromZero(drawnSheets, pageCount));
     await expect.poll(savedStart).toBe(0);
     await page.screenshot({ path: testInfo.outputPath("footers-from-zero.png") });
 
@@ -101,7 +105,7 @@ test("page number start of 0 numbers the footers 0..N-1 in the editor and the pr
     await page.reload();
     await expect(body(page)).toBeVisible();
     await page.locator(".startup-splash").waitFor({ state: "hidden" }).catch(() => undefined);
-    await expect.poll(() => footers(".page-backdrop .a4-page-sheet")).toEqual(expectedFromZero(pageCount));
+    await expect.poll(() => footers(".page-backdrop .a4-page-sheet")).toEqual(expectedFromZero(drawnSheets, pageCount));
     dialog = await openDialog();
     await expect(dialog.locator("#page-number-start")).toHaveValue("0");
     await dialog.getByRole("button", { name: "キャンセル", exact: true }).click();
@@ -113,7 +117,7 @@ test("page number start of 0 numbers the footers 0..N-1 in the editor and the pr
     printUrl.search = new URLSearchParams({ fileId, profile: "teacher" }).toString();
     await page.goto(printUrl.href);
     await expect(page.locator(".paged-surface[data-paged-surface-state='ready']")).toHaveCount(1);
-    await expect.poll(printFooters).toEqual(expectedFromZero(pageCount));
+    await expect.poll(printFooters).toEqual(expectedFromZero(pageCount, pageCount));
     await page.screenshot({ path: testInfo.outputPath("print-from-zero.png") });
 
     // 編集画面へ戻り、1 に戻すと値を持たなくなる。
@@ -125,7 +129,7 @@ test("page number start of 0 numbers the footers 0..N-1 in the editor and the pr
     await dialog.locator("#page-number-start").press("Tab");
     await dialog.getByRole("button", { name: "適用", exact: true }).click();
     await expect(dialog).toHaveCount(0);
-    await expect.poll(() => footers(".page-backdrop .a4-page-sheet")).toEqual(expectedFromOne(pageCount));
+    await expect.poll(() => footers(".page-backdrop .a4-page-sheet")).toEqual(expectedFromOne(drawnSheets, pageCount));
     await expect.poll(savedStart).toBeNull();
   } finally {
     await app.close();
