@@ -530,6 +530,12 @@ export const chrome = {
     zoomInTooltip: "Zoom in",
     zoomOut: "Zoom out",
     zoomOutTooltip: "Zoom out",
+    /** View > Page layout. A display preference, never saved in the document. */
+    pageArrangement: "Page layout",
+    pageArrangementSingle: "Single",
+    pageArrangementSingleTooltip: "Show pages in a single column",
+    pageArrangementSpread: "Two pages",
+    pageArrangementSpreadTooltip: "Show two pages side by side",
   },
   ribbon: {
     tablist: "Ribbon tabs",

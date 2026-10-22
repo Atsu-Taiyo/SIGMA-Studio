@@ -8,6 +8,7 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import type { SelectedInlineMath } from "@/components/editor/EditorSettings";
+import type { PageArrangementPreference } from "@/lib/page-arrangement-preference";
 import type { FontFamilyGroup } from "@/components/editor/editor-shell/constants";
 import type { DocumentOpenFailure } from "@/components/editor/editor-shell/document-open-failure";
 import type {
@@ -275,6 +276,9 @@ export interface EditorChromeView {
   pageCount: number;
   zoom: number;
   zoomOptions: readonly [10, 15, 25, 33, 50, 67, 75, 90, 100, 125, 150, 200, 300, 400, 600, 800] | number[];
+  /** ページの並び (表示だけの設定)。ページの無い教材 (ホワイトボード) では null で、切り替えを出さない。 */
+  pageArrangement: PageArrangementPreference | null;
+  setPageArrangement: (next: PageArrangementPreference) => void;
 }
 
 /** メニューバー行（タイトル・アプリメニュー・教材タブ・保存状態・右側アクション・隠しinput）。 */
