@@ -4,12 +4,14 @@ import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
 
 const APP_ROOT = path.resolve(__dirname, "../..");
+const devUrl = process.env.SIGMA_STUDIO_E2E_BASE_URL;
 
 test("the font menu offers the fonts installed on this PC, and falls back to the fixed menu when they cannot be read", async () => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")) || !existsSync(path.join(APP_ROOT, "out/index.html")), "Build the static renderer and Electron first.");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")) || (!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html"))), "Build Electron and start a dev server or build the static renderer first.");
   const profile = mkdtempSync(path.join(os.tmpdir(), "sigma-local-fonts-"));
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   env.SIGMA_STUDIO_USER_DATA_DIR = profile;
+  if (devUrl) env.SIGMA_STUDIO_DEV_SERVER_URL = devUrl;
   delete env.ELECTRON_RUN_AS_NODE;
   let app: ElectronApplication | undefined;
   try {
@@ -41,6 +43,7 @@ test("the font menu offers the fonts installed on this PC, and falls back to the
     await page.locator('button[aria-label^="フォント:"]').first().click({ timeout: 15_000 });
     const menu = page.getByRole("menu", { name: "フォント", exact: true });
     await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "このPCのフォントを使う" })).toHaveCount(0);
     await expect(menu.getByText("M PLUS 1p").first()).toBeVisible();
     const pcGroup = menu.getByRole("group", { name: "このPCのフォント" });
     if (faces === null) {

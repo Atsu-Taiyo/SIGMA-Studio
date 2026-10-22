@@ -2965,6 +2965,12 @@ button:disabled {
   gap: 2px;
 }
 
+.font-family-local-access {
+  padding-bottom: var(--space-xs);
+  margin-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
 .font-family-menu-group + .font-family-menu-group {
   margin-top: 6px;
   padding-top: 6px;

@@ -33,6 +33,7 @@ import type { DocumentMetadata } from "@/lib/storage";
 import type { NewMaterialTargets } from "@/components/editor/editor-shell/use-new-material-targets";
 import type { UiLayoutPreference } from "@/lib/ui-layout-preference";
 import type { DesktopUpdateState } from "@/types/desktop";
+import type { BrowserFontAccess } from "@/lib/browser-local-fonts";
 import type { LucideIcon } from "lucide-react";
 
 import type { ColumnCommandState } from "./layout-commands";
@@ -193,6 +194,8 @@ export interface EditorChromeFormat {
   underlineActive: boolean;
   visibleCustomFontOptions: { label: string; value: string; }[];
   visibleFontFamilyGroups: FontFamilyGroup[];
+  browserFontAccess: BrowserFontAccess | null;
+  requestSystemFonts: () => void;
 }
 
 /** 挿入グループ。 */

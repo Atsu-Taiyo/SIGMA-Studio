@@ -759,7 +759,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, []);
   const { workspaceLayout, getWorkspaceLayout, setWorkspaceLayout, activateWorkspaceGroupTab, moveWorkspaceGroupTab, splitWorkspaceGroupTab, closeWorkspaceGroupTab, resizeWorkspaceGroupSplit, focusWorkspaceGroup } = useWorkspaceTabCoordination({ initialDocumentId: initialDocument.docId, getActiveFileId: getActiveWorkspaceFileId, setOpenFileIds: installOpenWorkspaceFileIds, openDocumentInWorkspace: requestOpenWorkspaceDocument, closeDocumentTab: requestCloseWorkspaceDocument, rememberPaneHandoff: rememberWorkspacePaneHandoff });
   const { shortcutOverrides, setShortcutOverrides, customCommands, setCustomCommands, commandSettingsLoaded, commandSettingsError, openCommandSettings } = useCommandSettingsController(setCommandSettingsOpen, setStatusMessage);
-  const { customFonts, systemFonts, reloadCustomFonts } = useCustomFonts();
+  const { customFonts, systemFonts, reloadCustomFonts, browserFontAccess, requestSystemFonts } = useCustomFonts();
   const { searchOpen, setSearchOpen, replaceOpen, setReplaceOpen, searchQuery, setSearchQuery, replaceText, setReplaceText } = useDocumentSearchState();
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   const [canPasteProblem, setCanPasteProblem] = useState(false);
@@ -4627,6 +4627,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       blockStyleButtonRef, blockStyleMenuOpen,
       canUseTextBlockStyle, canUseTextToolbar, textToolbarDisabledReason, fontFamily, fontFamilyButtonRef,
       fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery,
+      browserFontAccess, requestSystemFonts,
       fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput,
       handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef,
       lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen,
