@@ -62,3 +62,65 @@ test("the font menu offers the fonts installed on this PC, and falls back to the
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
+
+test("font command choices settle after font loading and preserve the saved command", async ({}, testInfo) => {
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")) || (!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html"))), "Build Electron and start a dev server or build the static renderer first.");
+  const profile = mkdtempSync(path.join(os.tmpdir(), "sigma-font-command-"));
+  const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  env.SIGMA_STUDIO_USER_DATA_DIR = profile;
+  if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env, chromiumSandbox: true });
+  try {
+    const page = await app.firstWindow();
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.settings));
+    await page.evaluate(async () => {
+      await window.desktopAPI!.settings!.setUiLocale!("ja");
+      localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+    });
+    await page.reload();
+    await expect(page.locator("[data-startup-splash]")).toHaveCount(0, { timeout: 90_000 });
+    const openSettings = async () => {
+      await page.getByRole("button", { name: "設定", exact: true }).click();
+      await page.getByRole("menuitem", { name: "ショートカット設定" }).click();
+      return page.getByRole("dialog", { name: "ショートカット設定", exact: true });
+    };
+    const dialog = await openSettings();
+    await dialog.getByRole("combobox", { name: "操作 1", exact: true }).click();
+    await page.getByRole("option", { name: "フォントに変更", exact: true }).click();
+    const trigger = dialog.getByRole("combobox", { name: "フォント", exact: true });
+    for (const height of [900, 720]) {
+      await app.evaluate(({ BrowserWindow }, height) => BrowserWindow.getAllWindows()[0].setContentSize(900, height), height);
+      await trigger.click();
+      const menu = page.getByRole("listbox");
+      await expect(menu).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      const samples = await menu.evaluate(async element => {
+        const frames: { top: number; height: number; maxHeight: string }[] = [];
+        for (let i = 0; i < 90; i++) {
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+          const rect = element.getBoundingClientRect();
+          frames.push({ top: rect.top, height: rect.height, maxHeight: (element as HTMLElement).style.maxHeight });
+        }
+        return frames;
+      });
+      await page.screenshot({ path: testInfo.outputPath(`font-command-${height}.png`) });
+      expect(new Set(samples.map(sample => JSON.stringify(sample))).size, JSON.stringify(samples.slice(0, 12))).toBe(1);
+      await trigger.press("Escape");
+    }
+    await trigger.click();
+    const picked = page.getByRole("listbox").getByRole("option", { name: "M PLUS 1p", exact: true }).first();
+    const value = await picked.getAttribute("data-value");
+    await picked.click();
+    await dialog.getByRole("textbox", { name: "名前", exact: true }).fill("フォントの安定性確認");
+    await dialog.getByRole("button", { name: "追加", exact: true }).click();
+    await expect.poll(() => page.evaluate(async () => (await window.desktopAPI!.settings!.get()).customCommands))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ label: "フォントの安定性確認", actions: [{ type: "fontFamily", value }] })]));
+    await page.reload();
+    const reopened = await openSettings();
+    await expect(reopened.getByRole("button", { name: "フォントの安定性確認 のキー割り当てを変更", exact: true })).toBeVisible();
+  } finally {
+    await app.close();
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
