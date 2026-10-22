@@ -15,7 +15,9 @@ import type {
   SigmaCommentAnchor,
   SigmaDocument,
 } from "@/features/document";
+import { modelToDisplay } from "@/features/rendering/core";
 import { PROBLEM_AREA_ORDER } from "./block-ops";
+import { readCanvasPageArrangement } from "./page-arrangement-dom";
 
 export interface CommentAnchorPopoverState {
   anchor: SigmaCommentAnchor;
@@ -32,7 +34,7 @@ export interface SelectionActionPopoverPosition {
   centerX?: number;
   /**
    * 本文の選択だけが持つ。帯から開く AI・コメントの入力欄を選んだところのすぐ下に開くのと、
-   * 書式の帯が無いとき (カーソルだけ・数式だけ) に AI・コメントを右下のチップで出すのに使う。
+   * 書式の帯が無いとき (数式だけ・ブロックを丸ごと選んだとき) に AI・コメントを右下のチップで出すのに使う。
    * 図形の選択は持たない (入力欄は帯の下に開く)。
    */
   trailing?: SelectionTrailingAnchor;
@@ -158,7 +160,10 @@ export function getOverlaySelectionActionPopoverPosition(
     return null;
   }
 
-  const { bounds, verticalClearance } = anchor;
+  const { verticalClearance } = anchor;
+  // 2 ページ並びでは、選択はそのページのずらしで描かれている (`overlay-canvas/page-shift.tsx`)。
+  const arrangement = readCanvasPageArrangement(canvas);
+  const bounds = arrangement ? { ...anchor.bounds, ...modelToDisplay(arrangement, anchor.bounds) } : anchor.bounds;
   const zoomScale = Math.max(0.01, zoom / 100);
   const canvasRect = canvas.getBoundingClientRect();
   return getSelectionActionPopoverPosition(new DOMRect(
@@ -246,7 +251,7 @@ export function getSelectionTrailingAnchor(
   const scrollerRect = canvas?.closest<HTMLElement>(".editor-canvas")?.getBoundingClientRect() ?? null;
   const viewportRight = Math.min(window.innerWidth, scrollerRect?.right ?? Number.POSITIVE_INFINITY);
   const viewportBottom = Math.min(window.innerHeight, scrollerRect?.bottom ?? Number.POSITIVE_INFINITY);
-  const page = findPageSheetRect(canvas, (lineTop + bottom) / 2);
+  const page = findPageSheetRect(canvas, (lineTop + bottom) / 2, right);
   return {
     right,
     bottom,
@@ -288,18 +293,25 @@ function findLineAtSelectionEnd(rects: readonly DOMRect[], end: DOMRect): DOMRec
   return line;
 }
 
-/** 選択の行が載っている用紙の矩形。用紙の無い面 (ホワイトボード) や用紙の間では null。 */
-function findPageSheetRect(canvas: HTMLElement | null, y: number): DOMRect | null {
+/**
+ * 選択の行が載っている用紙の矩形。用紙の無い面 (ホワイトボード) や用紙の間では null。
+ * 2 ページ並びでは同じ高さに 2 枚あるので、横の位置 (`x`) も含む用紙を選ぶ。
+ */
+function findPageSheetRect(canvas: HTMLElement | null, y: number, x: number): DOMRect | null {
   if (!canvas) {
     return null;
   }
+  let sameRow: DOMRect | null = null;
   for (const sheet of Array.from(canvas.querySelectorAll<HTMLElement>(".page-backdrop > .a4-page-sheet"))) {
     const rect = sheet.getBoundingClientRect();
     if (y >= rect.top && y <= rect.bottom) {
-      return rect;
+      if (x >= rect.left && x <= rect.right) {
+        return rect;
+      }
+      sameRow ??= rect;
     }
   }
-  return null;
+  return sameRow;
 }
 
 /**

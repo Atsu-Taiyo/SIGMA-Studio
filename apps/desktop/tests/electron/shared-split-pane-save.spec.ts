@@ -172,7 +172,7 @@ test("a shared document first opened in a split pane is editable offline and sen
     await page.getByRole("tab", { name: "手元の教材", exact: true }).click({ button: "right" });
     await page.getByRole("menuitem", { name: "右に並べて開く" }).click();
     await expect(page.locator(".workspace-tab-group")).toHaveCount(2);
-    const passive = page.locator(".workspace-passive-editor").filter({ hasText: "共有の本文" });
+    const passive = page.locator(".workspace-tab-group:not([data-focused]) .editor-canvas").filter({ hasText: "共有の本文" });
     // The document shows while its first sync is still unanswered. Before this change the open
     // waited for it: the live connection gives up after 10 s, the sync request after 20 s.
     await expect.poll(() => firstStallAt !== undefined).toBe(true);

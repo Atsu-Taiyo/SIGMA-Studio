@@ -26,21 +26,26 @@ export async function downloadGeneratedFile(blob: Blob, fileName: string): Promi
     return saveToDownloads({ fileName, dataBase64 });
   }
 
+  downloadBlobInBrowser(blob, fileName);
+  return { filePath: null };
+}
+
+/** Browser-owned download; desktop document exports keep their native save dialog. */
+export function downloadBlobInBrowser(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob);
+  let anchor: HTMLAnchorElement | undefined;
   try {
-    const anchor = document.createElement("a");
+    anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = fileName;
+    anchor.download = spaceFreeFileName(fileName);
     anchor.rel = "noopener";
     document.body.append(anchor);
     anchor.click();
-    anchor.remove();
   } finally {
-    // The click has already handed the blob to the download; revoking on the next task keeps the
-    // URL alive long enough for browsers that read it asynchronously.
+    anchor?.remove();
+    // Keep the URL alive briefly for browsers that read the blob asynchronously after the click.
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }
-  return { filePath: null };
 }
 
 /** Reveals a downloaded file in Finder/Explorer. A no-op outside the desktop app. */

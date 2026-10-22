@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
   Check,
@@ -27,14 +27,16 @@ interface WorkspaceTab {
   name: string;
 }
 
+/** "insert" merges the template into the open document; "use" spins up a new document. */
+export type TemplateGalleryMode = "insert" | "use";
+
 export interface TemplateGalleryProps {
   open: boolean;
   onClose: () => void;
-  /** "insert" merges the template into the open document; "use" spins up a new document. */
-  mode: "insert" | "use";
+  mode: TemplateGalleryMode;
   /** Workspace tab to open on first render (defaults to the first participating workspace). */
   activeWorkspaceId?: string | null;
-  /** The document offered for "save as template" — only used in insert mode. */
+  /** The document offered for "save as template". The editor passes it in both modes; the workspace screen has none. */
   currentDocument?: SigmaDocument | null;
   onInsert?: (template: TemplateItem) => void;
   onUse?: (template: TemplateItem) => void | Promise<void>;
@@ -61,6 +63,7 @@ export function TemplateGallery({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [busy, setBusy] = useState(false);
+  const applyingRef = useRef(false);
 
   const resetTransientState = useCallback(() => {
     setSearch("");
@@ -224,7 +227,18 @@ export function TemplateGallery({
     if (mode === "insert") {
       onInsert?.(template);
     } else {
-      await onUse?.(template);
+      // 新規作成は保存と作成を待つので、その間の二度押しで教材が二つできないようにする。
+      if (applyingRef.current) {
+        return;
+      }
+      applyingRef.current = true;
+      setBusy(true);
+      try {
+        await onUse?.(template);
+      } finally {
+        applyingRef.current = false;
+        setBusy(false);
+      }
     }
     closeGallery();
   }, [mode, onInsert, onUse, closeGallery]);
@@ -233,7 +247,7 @@ export function TemplateGallery({
     return null;
   }
 
-  const canSave = mode === "insert" && Boolean(currentDocument);
+  const canSave = Boolean(currentDocument);
 
   return (
     <div className="template-gallery-backdrop" data-modal-backdrop="" role="presentation" onPointerDown={closeGallery}>

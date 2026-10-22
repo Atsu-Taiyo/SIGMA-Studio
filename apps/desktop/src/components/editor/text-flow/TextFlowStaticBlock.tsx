@@ -3,8 +3,10 @@
 import { useMemo, type CSSProperties } from "react";
 
 import {
+  blockSpaceAfterPx,
   blockSpaceAfterStyleVars,
   listItemSpaceAfterStyleVars,
+  normalizeBlockSpaceAfterPx,
   normalizeCodeBlockTheme,
   type CodeBlockNode,
   type TextAlign,
@@ -112,6 +114,35 @@ const identityTextResolver: TextResolver = (text) => text;
 const NO_CLASS_NAMES: TextFlowStaticBlockClassNames = {};
 const NO_STYLES: TextFlowStaticBlockStyles = {};
 
+/**
+ * 下余白をスタイルシート抜きで描くための inline 値。
+ *
+ * `document-surface.css` は `--sigma-doc-space-after` を `padding-bottom` として読むが、SVG 書き出しの
+ * `<foreignObject>` はそのスタイルシートを持たない (`selfContained`)。変数だけを書いても余白は
+ * 描かれず、画面と書き出しで段落の間隔が食い違う。アプリの中へ戻して描いても同じ値なので二重にはならない。
+ */
+function selfContainedSpaceAfterStyle(
+  block: { spaceAfterPx?: number; type?: string },
+  selfContained: boolean,
+): CSSProperties | undefined {
+  const px = selfContained ? blockSpaceAfterPx(block) : 0;
+  return px > 0 ? { paddingBottom: `${px}px` } : undefined;
+}
+
+/**
+ * リスト項目の最後の所有本文 (継続行、無ければ先頭行) の下に描く余白。`document-surface.css` が
+ * `li` の専用変数を読む規則の inline 版で、その本文自身のブロック余白より優先する。
+ */
+function withEdgePadding(styles: TextFlowStaticBlockStyles, px: number): TextFlowStaticBlockStyles {
+  const padding = { paddingBottom: `${px}px` };
+  return {
+    ...styles,
+    paragraph: { ...styles.paragraph, ...padding },
+    heading: { ...styles.heading, ...padding },
+    divider: { ...styles.divider, ...padding },
+  };
+}
+
 /** `undefined` rather than the id, so the attribute is absent instead of empty. */
 function blockIdAttr(id: string, omitBlockIds: boolean): string | undefined {
   return omitBlockIds ? undefined : id;
@@ -182,6 +213,7 @@ export function TextFlowStaticBlock({
         className={classNames.divider}
         style={{
           ...blockSpaceAfterStyleVars(block),
+          ...selfContainedSpaceAfterStyle(block, selfContained),
           ...styles.divider,
         } as CSSProperties}
       />
@@ -218,6 +250,7 @@ function TextFlowStaticHeading({
         lineHeight: block.lineHeight,
         ...typographyVars,
         ...blockSpaceAfterStyleVars(block),
+        ...selfContainedSpaceAfterStyle(block, shared.selfContained),
         ...shared.styles.heading,
       } as CSSProperties}
     >
@@ -259,6 +292,7 @@ function TextFlowStaticParagraph({
         lineHeight: block.lineHeight,
         ...typographyVars,
         ...blockSpaceAfterStyleVars(block),
+        ...selfContainedSpaceAfterStyle(block, shared.selfContained),
         ...shared.styles.paragraph,
       } as CSSProperties}
     >
@@ -441,6 +475,10 @@ function TextFlowStaticList({
     // Note the asymmetry with the editing surface, where `data-sigma-doc-id` sits on the inner `p`:
     // these must stay on the `li` or the CSS rule never matches.
     const markerTypography = ownMarkerTypographies.get(item.id);
+    const continuations = item.continuations ?? [];
+    // スタイルシートの無い書き出しでは、項目の余白を最後の所有本文の inline padding として描く
+    // (`document-surface.css` の `li` 専用変数の規則と同じ置き場所)。
+    const edgePx = shared.selfContained ? normalizeBlockSpaceAfterPx(item.spaceAfterPx) : undefined;
     return (
       <li
         key={item.id}
@@ -448,9 +486,18 @@ function TextFlowStaticList({
         {...markerTypography?.attrs}
         style={{ ...markerTypography?.style, ...listItemSpaceAfterStyleVars(item) } as CSSProperties}
       >
-        <TextFlowStaticListItemContent item={item} shared={shared} />
-        {(item.continuations ?? []).map((continuation) => (
-          <TextFlowStaticBlock key={continuation.id} block={continuation} {...shared} />
+        <TextFlowStaticListItemContent
+          item={item}
+          shared={shared}
+          edgePaddingPx={continuations.length === 0 ? edgePx : undefined}
+        />
+        {continuations.map((continuation, index) => (
+          <TextFlowStaticBlock
+            key={continuation.id}
+            block={continuation}
+            {...shared}
+            styles={edgePx && index === continuations.length - 1 ? withEdgePadding(shared.styles, edgePx) : shared.styles}
+          />
         ))}
         {(item.nested ?? []).map((nested) => (
           <TextFlowStaticList key={nested.id} block={nested} shared={shared} markerTypographies={ownMarkerTypographies} />
@@ -468,7 +515,7 @@ function TextFlowStaticList({
         data-list-marker={block.markerStyle === "paren" ? "paren" : undefined}
         className={classNames.list}
         start={block.start}
-        style={{ ...blockSpaceAfterStyleVars(block), ...styles.list } as CSSProperties}
+        style={{ ...blockSpaceAfterStyleVars(block), ...selfContainedSpaceAfterStyle(block, shared.selfContained), ...styles.list } as CSSProperties}
       >
         {items}
       </ol>
@@ -477,7 +524,7 @@ function TextFlowStaticList({
       <ul
         data-sigma-doc-id={blockIdAttr(block.id, omitBlockIds)}
         className={classNames.list}
-        style={{ ...blockSpaceAfterStyleVars(block), ...styles.list } as CSSProperties}
+        style={{ ...blockSpaceAfterStyleVars(block), ...selfContainedSpaceAfterStyle(block, shared.selfContained), ...styles.list } as CSSProperties}
       >
         {items}
       </ul>
@@ -487,9 +534,12 @@ function TextFlowStaticList({
 function TextFlowStaticListItemContent({
   item,
   shared,
+  edgePaddingPx,
 }: {
   item: Extract<RichBlock, { type: "list" }>["items"][number];
   shared: TextFlowStaticSharedProps;
+  /** 項目の下余白。継続行が無いとき、この先頭行が最後の所有本文として引き受ける。 */
+  edgePaddingPx?: number;
 }) {
   const layoutChildren = capInlineNodesForEditorLayout(item.children);
   const typographyVars = inlineNodesTextBlockTypographyVars(layoutChildren.children);
@@ -501,7 +551,12 @@ function TextFlowStaticListItemContent({
       ref={ref}
       data-boxed-run-aligned={aligned ? "true" : undefined}
       data-editor-layout-capped={layoutChildren.capped ? "" : undefined}
-      style={{ display: "block", textAlign: item.align ?? shared.defaultTextAlign ?? undefined, ...typographyVars }}
+      style={{
+        display: "block",
+        textAlign: item.align ?? shared.defaultTextAlign ?? undefined,
+        ...typographyVars,
+        ...(edgePaddingPx ? { paddingBottom: `${edgePaddingPx}px` } : {}),
+      }}
       data-sigma-doc-list-item-text=""
     >
       {renderInlineContent(layoutChildren.children, {

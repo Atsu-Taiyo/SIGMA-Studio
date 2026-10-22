@@ -54,6 +54,7 @@ jobs:
       - run: npm run dependencies:check
       - run: npm run version:check
       - run: npm run test:scripts
+      - run: npm run web:test
       - run: python3 -m unittest discover -s scripts -p 'windows_store*_test.py'
       - run: npm exec --workspace @sigma-studio/desktop -- next typegen
       - run: npm run typecheck
@@ -82,7 +83,9 @@ jobs:
   electron-smoke:
     name: Electron persistence and IPC smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Includes the static build plus the growing persistence suite. A recent run
+    # reached only test 14/80 before the old 20-minute job limit canceled it.
+    timeout-minutes: 35
     env:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:

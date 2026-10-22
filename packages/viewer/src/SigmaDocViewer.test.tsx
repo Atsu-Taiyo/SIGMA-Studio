@@ -359,6 +359,34 @@ describe("SigmaDocViewer", () => {
     expect(document.pageLayout?.overlay?.overlaySnapshot?.shapes).toHaveLength(3);
   });
 
+  it("numbers the footer from pageNumberStart so a cover page can be page 0", async () => {
+    const document = createDocument({ bodyText: "COVER_PAGE" });
+    document.content.push({ ...paragraph("second_page", "SECOND_PAGE"), pagination: { break: true } });
+    document.pageLayout = {
+      preset: "A4",
+      orientation: "portrait",
+      pageSize: { widthMm: 210, heightMm: 297 },
+      marginsMm: { top: 20, right: 20, bottom: 25, left: 20 },
+      flow: { type: "columns", columnCount: 1, columnGapMm: 8 },
+      footer: {
+        enabled: true,
+        heightMm: 10,
+        offsetMm: 5,
+        showOnFirstPage: true,
+        blocks: [paragraph("footer_numbers", "{page}/{total}")],
+      },
+      pageNumberStart: 0,
+    };
+
+    const { container } = await renderViewer(<SigmaDocViewer document={document} />);
+    const footers = Array.from(container.querySelectorAll('[data-sigma-doc-id="footer_numbers"]'), (node) => node.textContent);
+
+    expect(footers).toEqual(["0/1", "1/1"]);
+    // 保存済みの値は変わらない。
+    expect(document.pageLayout?.pageNumberStart).toBe(0);
+    expect(parseSigmaDocument(JSON.parse(JSON.stringify(document))).pageLayout?.pageNumberStart).toBe(0);
+  });
+
   it("clips overflowing content and expands it from the built-in control", async () => {
     const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
     Object.defineProperty(HTMLElement.prototype, "scrollHeight", {

@@ -21,6 +21,7 @@ export * from "./overlay-table-read-model";
 export * from "./overlay-text-line-count";
 export * from "./overlay-text-scale";
 export * from "./overlay-visibility-projection";
+export * from "./page-arrangement";
 export * from "./pagination";
 export * from "./problem-area-column-flow";
 export * from "./problem-area-visibility";

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
@@ -56,7 +56,7 @@ test("real Electron supports persisted three-way tab groups and untouched-draft 
 
     await dragTabToEdge(page, "分割教材B", 0, "right");
     await expect(page.locator(".workspace-tab-group")).toHaveCount(2);
-    const passive = page.locator(".workspace-passive-editor .page-canvas").first();
+    const passive = page.locator(".workspace-tab-group:not([data-focused]) .editor-canvas .page-canvas").first();
     const passiveScale = () => passive.evaluate(element => getComputedStyle(element).getPropertyValue("--editor-zoom"));
     const beforeZoom = await passiveScale();
     await expect(page.locator('[title="保存済みの教材を開く"]')).toHaveCount(0);
@@ -67,7 +67,7 @@ test("real Electron supports persisted three-way tab groups and untouched-draft 
     const activeId = await activeGroup.getAttribute("data-group-id");
     const zoomedScale = await activeGroup.locator(".page-canvas").first().evaluate(element => getComputedStyle(element).getPropertyValue("--editor-zoom"));
     await passive.click({ position: { x: 30, y: 30 } });
-    await page.locator(`[data-group-id="${activeId}"] .workspace-passive-editor`).click({ position: { x: 30, y: 30 } });
+    await page.locator(`[data-group-id="${activeId}"] .editor-canvas`).click({ position: { x: 30, y: 30 } });
     await expect.poll(() => page.locator(`[data-group-id="${activeId}"] .page-canvas`).first().evaluate(element => getComputedStyle(element).getPropertyValue("--editor-zoom"))).toBe(zoomedScale);
     await dragTabToEdge(page, "分割教材C", 0, "bottom");
     await expect(page.locator(".workspace-tab-group")).toHaveCount(3);
@@ -134,6 +134,7 @@ test("failed save keeps the current document and pane layout when splitting a ta
     const page = await app.firstWindow();
     await page.setViewportSize({ width: 1500, height: 1050 });
     await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+    await expect(page.locator("[data-startup-splash]")).toHaveCount(0);
     await page.evaluate(async () => {
       await window.desktopAPI!.settings!.setUiLocale!("ja");
       const api = window.desktopAPI!.storage;
@@ -166,7 +167,7 @@ test("failed save keeps the current document and pane layout when splitting a ta
   }
 });
 
-test("an unfocused pane stays an editing surface and a click there edits at that point", async () => {
+test("visible panes edit without reloads and retain their editor, history and saved content", async ({}, testInfo) => {
   test.skip(!PREPARED, "Build Electron and the static renderer first.");
   test.setTimeout(180_000);
   const root = mkdtempSync(path.join(os.tmpdir(), "sigma-tab-passive-"));
@@ -176,8 +177,10 @@ test("an unfocused pane stays an editing surface and a click there edits at that
   const app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
   try {
     const page = await app.firstWindow();
+    page.on("pageerror", error => console.error("renderer:", error.message));
     await page.setViewportSize({ width: 1500, height: 1000 });
     await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+    await expect(page.locator("[data-startup-splash]")).toHaveCount(0);
     const fileIds = await page.evaluate(async () => {
       await window.desktopAPI!.settings!.setUiLocale!("ja");
       const api = window.desktopAPI!.storage;
@@ -189,7 +192,7 @@ test("an unfocused pane stays an editing surface and a click there edits at that
           teacher: { showSolutions: true, showHints: true, includeAnswers: true },
           answerBook: { onlySolutions: true, showSolutions: true, showHints: false, includeAnswers: true },
         },
-        content: [paragraph(`${docId}_lead`, lead), ...Array.from({ length: 40 }, (_, index) => paragraph(`${docId}_p${index}`, `${title} ${index + 1}行目の本文`))],
+        content: [paragraph("same_lead", lead), ...Array.from({ length: 40 }, (_, index) => paragraph(`same_p${index}`, `${title} ${index + 1}行目の本文`))],
       });
       const a = await api.createFileFromDocument({ document: make("doc_passive_a", "左の教材", "左の先頭") } as never);
       const b = await api.createFileFromDocument({ document: make("doc_passive_b", "右の教材", "右の先頭") } as never);
@@ -199,37 +202,106 @@ test("an unfocused pane stays an editing surface and a click there edits at that
     });
     await page.reload();
     await expect(page.locator("[data-startup-splash]")).toHaveCount(0, { timeout: 60_000 });
+    const memoryBefore = await app.evaluate(({ app }) => app.getAppMetrics().filter(metric => metric.type === "Tab").map(metric => metric.memory.workingSetSize));
     await dragTabToEdge(page, "右の教材", 0, "right");
-    await expect(page.locator(".workspace-tab-group")).toHaveCount(2);
-
-    // The pane that is not being edited shows the editor's own surface, read-only, not a print preview.
-    const passive = page.locator(".workspace-passive-editor");
-    await expect(passive).toHaveCount(1);
-    await expect(passive.locator(".page-canvas")).toBeVisible();
-    await expect(passive.locator(".paged-surface")).toHaveCount(0);
-    await expect(passive.locator('[contenteditable="true"]')).toHaveCount(0);
-    await expect(passive).toContainText("左の教材 12行目の本文");
-
-    // Clicking a line there makes it the edited pane with the caret on that line.
-    await passive.evaluate((element) => { element.scrollTop = 160; });
-    const line = passive.getByText("左の教材 12行目の本文", { exact: true });
-    const box = await line.evaluate(element => {
-      // Independent zoom may make the block wider than its clipped pane.
-      // Click the visible text, not the block's offscreen right border.
-      const range = document.createRange(); range.selectNodeContents(element);
-      const rect = range.getBoundingClientRect();
-      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    await expect(page.locator(".workspace-tab-group")).toHaveCount(2).catch(async error => {
+      console.log(await page.evaluate(() => ({ text: document.body.innerText.slice(0, 800), shells: [...document.querySelectorAll(".app-shell")].map(el => ({ hidden: el.hasAttribute("hidden"), file: el.getAttribute("data-workspace-editor-file"), html: el.querySelector(".workspace-persistent-grid-slot")?.innerHTML.slice(0, 200) })) })));
+      throw error;
     });
-    await page.mouse.click(box.x + box.width - 2, box.y + box.height / 2);
-    const live = page.locator('.workspace-tab-group[data-live="true"]');
-    await expect(live.locator('[data-sigma-doc-id="doc_passive_a_p11"]')).toBeVisible();
-    await expect.poll(() => page.evaluate(() => document.activeElement?.closest('[contenteditable="true"]') !== null)).toBe(true);
-    await page.keyboard.insertText("★");
-    await expect(live.locator('[data-sigma-doc-id="doc_passive_a_p11"]')).toContainText("左の教材 12行目の本文★");
-    await expect.poll(() => page.evaluate((fileId) => window.desktopAPI!.storage.loadDocument(fileId).then((doc) => JSON.stringify(doc)), fileIds[0]))
-      .toContain("12行目の本文★");
-    // The pane that was being edited is now the read-only one.
-    await expect(page.locator(".workspace-passive-editor")).toContainText("右の教材 1行目の本文");
+
+    const groups = page.locator(".workspace-tab-group");
+    const left = groups.filter({ hasText: "左の先頭" });
+    const right = groups.filter({ hasText: "右の先頭" });
+    await expect(left.locator('.page-flow [contenteditable="true"]')).not.toHaveCount(0);
+    await expect(right.locator('.page-flow [contenteditable="true"]')).not.toHaveCount(0);
+    await expect(page.locator(".workspace-passive-editor")).toHaveCount(0);
+    await expect(page.locator(".workspace-tab-loading-preview")).toHaveCount(0);
+    await page.evaluate(() => {
+      const state = window as typeof window & { paneNodes: Element[] };
+      state.paneNodes = Array.from(document.querySelectorAll('.workspace-tab-group .page-flow .ProseMirror'));
+    });
+    // Count real main/preload document reads. Focusing visible panes must not reload either file.
+    await app.evaluate(({ ipcMain }) => {
+      const state = globalThis as typeof globalThis & { paneLoads: number };
+      state.paneLoads = 0;
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => Promise<unknown>> })._invokeHandlers;
+      for (const channel of ["storage:load-document", "storage:load-document-with-recovery"]) {
+        const original = handlers.get(channel)!;
+        ipcMain.removeHandler(channel);
+        ipcMain.handle(channel, async (...args) => { state.paneLoads++; return original(...args); });
+      }
+    });
+    const a = left.locator('[data-sigma-doc-id="same_p11"]');
+    const b = right.locator('[data-sigma-doc-id="same_p11"]');
+    const putAtEnd = async (line: typeof a, text: string) => {
+      await line.click({ position: { x: 120, y: 12 } });
+      await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowRight" : "End");
+      await page.keyboard.insertText(text);
+    };
+    await putAtEnd(a, "★左");
+    await expect(a).toContainText("左の教材 12行目の本文★左");
+    await putAtEnd(b, "★右");
+    await expect(b).toContainText("右の教材 12行目の本文★右");
+    const modifier = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.press(`${modifier}+z`);
+    await expect(b).not.toContainText("★右");
+    await expect(a).toContainText("★左");
+    await page.keyboard.press(`${modifier}+Shift+z`);
+    await expect(b).toContainText("★右");
+    for (let index = 0; index < 8; index++) {
+      await a.click({ position: { x: 100, y: 12 } });
+      await b.click({ position: { x: 100, y: 12 } });
+    }
+    await page.locator(`[data-tab-id="document:${fileIds[0]}"]`).getByRole("tab").click();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest(".workspace-document-editor")?.textContent?.includes("左の先頭"))).toBe(true);
+    await page.keyboard.insertText("タブ入力");
+    await expect(a).toContainText("タブ入力");
+    await page.keyboard.press(`${modifier}+z`);
+    await expect(a).not.toContainText("タブ入力");
+    await expect(b).toContainText("★右");
+    await b.click({ position: { x: 100, y: 12 } });
+    expect(await app.evaluate(() => (globalThis as typeof globalThis & { paneLoads: number }).paneLoads)).toBe(0);
+    expect(await page.evaluate(() => (window as typeof window & { paneNodes: Element[] }).paneNodes.every(node => node.isConnected))).toBe(true);
+    const memoryAfter = await app.evaluate(({ app }) => app.getAppMetrics().filter(metric => metric.type === "Tab").map(metric => metric.memory.workingSetSize));
+    const memoryPath = testInfo.outputPath("renderer-memory-KiB.json");
+    writeFileSync(memoryPath, JSON.stringify({ single: memoryBefore, splitAfter16Switches: memoryAfter }));
+    await testInfo.attach("renderer-memory-KiB", { path: memoryPath, contentType: "application/json" });
+    await page.screenshot({ path: testInfo.outputPath("seamless-split.png") });
+    await expect.poll(() => page.evaluate((ids) => Promise.all(ids.map(id => window.desktopAPI!.storage.loadDocument(id))).then(docs => docs.map(doc => JSON.stringify(doc))), fileIds))
+      .toEqual([expect.stringContaining("12行目の本文★左"), expect.stringContaining("12行目の本文★右")]);
+    // A dirty background pane must block close if its save fails, even when the focused pane is clean.
+    await app.evaluate(({ ipcMain }, blockedFileId) => {
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => Promise<unknown>> })._invokeHandlers;
+      const original = handlers.get("storage:save-document")!;
+      const state = globalThis as typeof globalThis & { restorePaneSave: () => void };
+      state.restorePaneSave = () => { ipcMain.removeHandler("storage:save-document"); ipcMain.handle("storage:save-document", original); };
+      ipcMain.removeHandler("storage:save-document");
+      ipcMain.handle("storage:save-document", (...args) => args[1] === blockedFileId ? { ok: false, error: "BACKGROUND_SAVE_FAILED" } : original(...args));
+    }, fileIds[0]);
+    await putAtEnd(a, "保存待ち");
+    await b.click({ position: { x: 100, y: 12 } });
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+    const failedClose = page.getByRole("dialog", { name: "保存できませんでした" });
+    await expect(failedClose).toBeVisible();
+    await expect(failedClose).toContainText("BACKGROUND_SAVE_FAILED");
+    await expect(a).toContainText("保存待ち");
+    await failedClose.getByRole("button", { name: "キャンセル", exact: true }).click();
+    await app.evaluate(() => (globalThis as typeof globalThis & { restorePaneSave: () => void }).restorePaneSave());
+    // Close while both editors are mounted, then verify a real app restart, not just DOM state.
+    await app.close();
+    const reopenedApp = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
+    try {
+      const reopened = await reopenedApp.firstWindow();
+      await reopened.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+      await expect(reopened.locator(".workspace-tab-group")).toHaveCount(2, { timeout: 60_000 });
+      await expect(reopened.locator(".workspace-tab-group").filter({ hasText: "左の先頭" }).locator('[data-sigma-doc-id="same_p11"]')).toContainText("★左");
+      await expect(reopened.locator(".workspace-tab-group").filter({ hasText: "右の先頭" }).locator('[data-sigma-doc-id="same_p11"]')).toContainText("★右");
+      for (const group of await reopened.locator(".workspace-tab-group").all()) {
+        await expect(group.locator(".workspace-document-editor")).toHaveCount(1);
+        await expect(group.locator('.page-flow [contenteditable="true"]')).not.toHaveCount(0);
+      }
+    } finally { await reopenedApp.close(); }
+
   } finally {
     await app.close().catch(() => {});
     rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

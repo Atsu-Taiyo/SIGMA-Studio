@@ -2709,6 +2709,7 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
       throw new Error("test fixture page layout missing");
     }
     document.pageLayout.flow = { type: "columns", columnCount: 2, columnGapMm: 11 };
+    document.pageLayout.pageNumberStart = 0;
     const previousLayout = structuredClone(document.pageLayout);
     const saved = await saveAtCurrentRevision(store, fileId, document);
     expect(saved.ok).toBe(true);
@@ -2722,6 +2723,7 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
       orientation: previousLayout.orientation,
       marginsMm: previousLayout.marginsMm,
       flow: previousLayout.flow,
+      pageNumberStart: 0,
     });
 
     const result = extractPayload(await client.callTool({
@@ -2752,6 +2754,7 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
         left: previousLayout.marginsMm.left,
       },
       flow: previousLayout.flow,
+      pageNumberStart: 0,
     });
     expect(proposal.nextDocument.pageLayout?.header).toEqual(previousLayout.header);
     expect(proposal.nextDocument.pageLayout?.footer).toEqual(previousLayout.footer);

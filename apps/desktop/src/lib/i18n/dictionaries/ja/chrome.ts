@@ -248,7 +248,9 @@ export const chrome = {
     newBlank: "空の教材",
     newWhiteboard: "ホワイトボード",
     untitledWhiteboard: "無題のホワイトボード",
-    newFromTemplate: "テンプレートから追加",
+    newFromTemplate: "テンプレートから新規",
+    /** 開いている教材の本文へテンプレートの中身を挿入する (用紙設定は変わらない)。新規作成の「テンプレートから新規」とは別。 */
+    insertTemplate: "テンプレートを挿入",
     library: "教材一覧",
     /** 「新規教材」のメニューで、作成先のワークスペースを選んで空の教材を作る欄。 */
     newInWorkspaceGroup: "作成先のワークスペース",
@@ -326,6 +328,16 @@ export const chrome = {
       currentGroup: "現在のフォント",
       customGroup: "追加フォント",
       empty: "一致するフォントがありません。",
+      local: {
+        enable: "このPCのフォントを使う",
+        loading: "フォントを読み込み中…",
+        help: "このPCにあるフォントを読み込みます。フォントファイルはアップロードしません。",
+        prompt: "ブラウザで許可すると、このPCのフォントを選べます。",
+        denied: "フォントへのアクセスが許可されていません。ブラウザのサイト設定で許可してください。",
+        unsupported: "このブラウザではOSのフォント一覧を読み込めません。PC版のChromeまたはEdgeをご利用ください。",
+        error: "フォントを読み込めませんでした。サイトのアクセス許可を確認して、もう一度お試しください。",
+        empty: "利用できるOSフォントが見つかりませんでした。",
+      },
       // フォント名そのもの (「游ゴシック」等) は書体の固有名なので翻訳しない。
       // ここで訳すのはグループ見出しだけ。
       group: {
@@ -538,6 +550,12 @@ export const chrome = {
     zoomInTooltip: "表示を拡大",
     zoomOut: "縮小",
     zoomOutTooltip: "表示を縮小",
+    /** 表示 > ページの並び。表示だけの設定で、教材には保存しない。 */
+    pageArrangement: "ページの並び",
+    pageArrangementSingle: "1列",
+    pageArrangementSingleTooltip: "ページを縦に1列で表示",
+    pageArrangementSpread: "2列",
+    pageArrangementSpreadTooltip: "2ページずつ横に並べて表示",
   },
   ribbon: {
     tablist: "リボンタブ",

@@ -445,7 +445,7 @@ Tiptapは編集UIとして使い、保存形式にはしません。
 }
 ```
 
-`preset` は `A4` / `A3` / `B5` / `B4` / `custom` を持てます。文書全体の本文 `content` は段ごとの配列に分けず、論理順の1本の配列を正本にします。ページ段への流し込み、ページ寸法、本文矩形、ヘッダー/フッターの表示テキストは `features/document` の正規化・metrics関数から派生させます。一方、本文途中だけを段組みにする `layoutSection` は新聞型の自動流し込みではなく、`layout.columnStartIds`で各childの列所属、`layout.columnWidths`で相対幅を明示します。列ごとに独立した編集面とページカーソルを持つため、左列末尾のEnterやページ溢れで右列へ本文が移ることはありません。短い列は空白のまま、長い列だけが次ページへ続きます。`pagination.break`は局所段組の列境界には使いません。ヘッダー/フッター本文は `blocks` を正規データにし、Tiptapのページ表示拡張は実験的な表示レイヤーとして使い、Tiptap JSONや拡張内部状態は正本にしません。紙面 (編集画面とPDF) のヘッダー/フッターは、編集していないページでも本文と同じ `TextFlowEditor` を読み取り専用で描きます (`page-canvas/running-region-view.tsx` の `RunningRegionPageView`、箱の位置は編集中の帯と同じ数で決める)。静的な描画 (`PageRunningRegionView`) はエディタを持たない面 (埋め込みビューア・サムネイル) だけのもので、紙面が使うと空白や差し込みの見え方が編集に入った途端に変わります。差し込み (`{title}` `{page}` `{total}`) は本文に書いた文字のまま残し、見つけ方と値は `features/document/application/running-region-fields.ts` の 1 か所で決めます。エディタでは `components/tiptap/running-field-extension.ts` が値を装飾として重ね、差し込みを 1 つの塊として扱います (カーソルは中に入らず、Backspace / Delete は塊ごと消す)。
+`preset` は `A4` / `A3` / `B5` / `B4` / `custom` を持てます。文書全体の本文 `content` は段ごとの配列に分けず、論理順の1本の配列を正本にします。ページ段への流し込み、ページ寸法、本文矩形、ヘッダー/フッターの表示テキストは `features/document` の正規化・metrics関数から派生させます。一方、本文途中だけを段組みにする `layoutSection` は新聞型の自動流し込みではなく、`layout.columnStartIds`で各childの列所属、`layout.columnWidths`で相対幅を明示します。列ごとに独立した編集面とページカーソルを持つため、左列末尾のEnterやページ溢れで右列へ本文が移ることはありません。短い列は空白のまま、長い列だけが次ページへ続きます。`pagination.break`は局所段組の列境界には使いません。ヘッダー/フッター本文は `blocks` を正規データにし、Tiptapのページ表示拡張は実験的な表示レイヤーとして使い、Tiptap JSONや拡張内部状態は正本にしません。紙面 (編集画面とPDF) のヘッダー/フッターは、編集していないページでも本文と同じ `TextFlowEditor` を読み取り専用で描きます (`page-canvas/running-region-view.tsx` の `RunningRegionPageView`、箱の位置は編集中の帯と同じ数で決める)。静的な描画 (`PageRunningRegionView`) はエディタを持たない面 (埋め込みビューア・サムネイル) だけのもので、紙面が使うと空白や差し込みの見え方が編集に入った途端に変わります。差し込み (`{title}` `{page}` `{total}`) は本文に書いた文字のまま残し、見つけ方と値は `features/document/application/running-region-fields.ts` の 1 か所で決めます。`{page}` `{total}` に出す番号は組版上のページ (1 始まり) から `getRunningRegionPageNumbers` で求め、`pageLayout.pageNumberStart` (表紙を 0 ページにするなど) だけを反映します。表示するページの指定・ページ専用の中身・ページ移動は、開始番号に関係なく組版上のページのままです。エディタでは `components/tiptap/running-field-extension.ts` が値を装飾として重ね、差し込みを 1 つの塊として扱います (カーソルは中に入らず、Backspace / Delete は塊ごと消す)。
 
 ### Math Editor
 
@@ -458,6 +458,11 @@ MathLiveを使います。
 - 既存TeXの再編集
 
 表示はKaTeXを使います。MathLiveは入力とTeX検証に使い、KaTeXは表示に使います。
+
+数式の入力欄のキー入力は、本文と図形内テキストで同じ入力欄 (`components/tiptap/inline-math-extension.tsx`) を通ります。次の3つはMathLiveの既定とは違う動きなので、各ファイルが持ちます。
+- 分数のテンプレート (`\frac{#?}{#?}`・`\dfrac`・`\tfrac`・`\cfrac`) は、数式の中のCtrl+/・本文から押したCtrl+/・数式パレット・`/frac`の入力のどれでも、入れた直後に分母の空欄が選ばれます (`lib/math-keyboard-shortcuts.ts` の `focusMathFractionDenominator`。入口ごとに分けず挿入の1か所で揃える)。分子へはMathLiveの↑で移ります。選んだ範囲を包むテンプレート (`wrapsSelection`) と、分数ではない二項係数 (`\binom`) は最初の空欄のままです。
+- 上付きと下付きの両方を持つ原子 (`\int_a^b`・`\sum`・`x_1^2`) では、上付きの中で↓、下付きの中で↑を押すと反対側の枠の末尾へ移ります。いちばん内側の枠で決め、分数・配列・片側だけの原子はMathLiveの動きのままです (`lib/mathlive-script-navigation.ts`。MathLiveの内部 `_mathfield.model` を読むのはここと `mathlive-open-fence.ts` だけで、実物のMathLiveで確かめるtestがあります)。
+- IMEが全角で確定した英数・記号 (U+FF01〜U+FF5E と全角スペース) は、MathLiveへ渡す前に半角へ戻します (`lib/half-width-ascii.ts`・`lib/mathlive-half-width-input.ts`)。変換中の文字には触れず、かな・漢字はそのままです。入力ソースの英数への切り替え (`electron/input-source.ts`) は非同期で英語の入力ソースが無いと失敗するため、この確定時の変換が本体で、切り替えの失敗は開発中だけ `console.warn` に出します。
 
 数式の一部に選んだフォントは、TeXの `\htmlStyle{font-family:…}{…}` として正本に残します (`lib/math-font-style.ts`)。ツールバーのフォントは、数式の入力欄で範囲を選んでいればその範囲だけに付きます (`components/tiptap/inline-math-font.ts`。範囲はMathLiveが構造の境目をまたいで持つことがあるので、同じTeXを表す最も狭い範囲へ詰めてから置き換える)。数式の入力欄は焦点を失うと確定して閉じますが、フォントメニュー (`INLINE_MATH_FONT_MENU_ATTRIBUTE` の印の中) の検索欄へ移ったときだけは閉じずに待ち、メニューを開いた時点の入力欄へ付けます。メニューの外へ焦点が出るか、入力欄へ焦点が戻らないままメニューが閉じたら確定します。数式の文字は書体クラスが自前のフォントを持つので、包んだ要素の指定を継がせる規則を静的描画 (`document-surface.css`) と編集中の入力欄 (`SIGMA_MATHLIVE_MACRO_STYLES`) の両方に置きます。無害化 (`math-markup.ts`) は `font-family` をフォント名の並びとしてだけ通します。
 
@@ -589,6 +594,7 @@ remote asset参照の例:
 ```
 
 オーバーレイ上でリサイズ・移動・整列ができ、本文ブロックへの `anchor` でテキストのリフローに追従させられます。画像をダブルクリックするとキャンバス内トリミングモードに入り、表示中の写真範囲だけを変更できます。
+ダブルクリックだけは、一番手前の図形が文字を直さない図形（画像・図・グラフ・四角形など）のとき、点の下にある編集できる文章の図形のうち一番手前（`overlay-canvas/double-click-target.ts`）の編集に入ります。覆っている図形は変更せず、クリックでの選択は従来どおり一番手前が勝ちます。下に文章が無い、またはロック・編集ポリシーの予約・非表示のときは従来の動き（画像ならトリミング）です。
 
 ## Graphs And Math Labels
 
@@ -730,6 +736,12 @@ border を引く、running region のリストは region スコープ、静的�
   coreの公開入口へDOMイベントの責務を持ち込まず、必要なcanvas adapterだけがこの小さな入口を参照する。
 - ネイティブclipboardのイベント所有権と転送は`editor-shell/clipboard-events.ts`が扱う。
   copyのbubble、pasteのcapture、複数editorにまたがる置換の遅延順序を維持し、SigmaDocの変更・履歴・選択はshell側のportへ返す。
+- 図形の⌘Vはマウスポインタの位置へ置く。ポインタの最後の位置は`overlay-canvas/pointer-paste.ts`がwindowの`pointermove`/`pointerleave`だけで覚え
+  （React stateを持たない）、貼る瞬間に`elementFromPoint`が文書の編集領域（`.page-mode`。分割表示の読み取り専用ペインとホワイトボードは除く）の上のときだけ
+  `pasteShapes`要求の`pointerClient`（client座標）としてoverlayへ渡す。メニューバー・サイドバー・ダイアログの上や位置不明は渡さず、従来の「元の位置から20pxずらす」。
+  紙面座標への変換とページへの押し戻し（灰色の隙間は近いページへ）は、キャンバスの実測を持つ編集面が`prepareOverlayShapesForPaste`の`pointerPlacement`で行う。
+  ポインタに置いた図形はブロックのanchorを外し（ページ固定は固定のまま）、保存の再アンカーが置いた位置から新しい図形と同じように近い本文ブロックへ付け直す。
+  ドロップ・ホワイトボードの`centerAt`は従来どおりページ固定に留め、ページの並びを持たない面（running region・素材編集）は従来の置き方のまま。
 - 本文clipboardのcopy・cut・貼付経路と編集面ごとの履歴キーは`text-flow/clipboard-transactions.ts`が扱う。
   図中テキストも同じ`copyEditorSelection`・`pasteIntoEditorSurface`を通し、編集面ごとの独自のcopy・paste分岐を持たない。
   payloadを持たない貼付はスキーマ自身のHTML往復（`renderHTML`→`parseHTML`）で戻すので、markの`parseHTML`は
@@ -807,7 +819,12 @@ border を引く、running region のリストは region スコープ、静的�
   通知する前にキャッシュを無効化する。設定ごとの検証と保存失敗時の方針は各設定に残す。
 - Electronの `cli-child-env.ts` は環境変数の選別とPATH構築を共有する。
   認証を上書きする変数の禁止やプロバイダ固有の追加変数は各clientに残す。
-- `EditorShell` の正本文書・revision・Undo/Redo・commitは一つの所有者に保つ。
+- `EditorShell` の正本文書・revision・Undo/Redo・commitは教材ごとに一つの所有者に保つ。
+  `editor-shell/persistent-workspace.tsx` が表示中の教材のownerと分割レイアウトを保持する。
+  各紙面は固定のportal先に描き、左右のフォーカス移動では保存・再読込・再マウントを行わない。
+  フォーカスしたownerだけが共通のchrome、windowショートカット、clipboard、終了要求を受ける。
+  終了要求は全ownerの保存結果とdirtyを集約し、非表示になったownerも保存成功後にのみ解放する。
+  `EditorInputContext` は表示中の複数の紙面からwindow入力の所有者を同期的に判定する。
   復旧読込は `use-document-recovery.ts`、埋め込みhostの反響判定は `use-embedded-document-sync.ts`、
   終了時の保存と再試行は `use-window-close-boundary.ts` が所有する。遅延読込、timer、close要求の
   世代を各ownerが管理し、unmountや後続のキャンセル後に古い完了通知を採用しない。

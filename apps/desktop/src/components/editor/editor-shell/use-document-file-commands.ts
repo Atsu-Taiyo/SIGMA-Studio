@@ -8,6 +8,7 @@ import type { EditorSaveState } from "@/features/editor-state/types";
 import { writeTextToClipboard } from "@/lib/clipboard-text";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { serializeDocumentText } from "@/lib/document-text-transfer";
+import { downloadBlobInBrowser } from "@/lib/download-file";
 import { resolveDocumentTitle } from "@/lib/document-title";
 import type { Translate } from "@/lib/i18n";
 import { createId } from "@/lib/id";
@@ -78,13 +79,12 @@ export function useDocumentFileCommands({
       }
       return;
     }
-    const blob = new Blob([data], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = window.document.createElement("a");
-    anchor.href = url;
-    anchor.download = suggestedName;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    try {
+      downloadBlobInBrowser(new Blob([data], { type: "application/json" }), suggestedName);
+    } catch (error) {
+      setSaveState("error");
+      setStatusMessage(error instanceof Error ? error.message : tEditor("status.saveFailed"));
+    }
   };
 
   /**

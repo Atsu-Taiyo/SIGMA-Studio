@@ -118,6 +118,40 @@ describe("PageRunningRegionView", () => {
     expect(html).toContain(">3</");
   });
 
+  it("numbers {page} and {total} from the page number start while pages stay physical", () => {
+    const metrics = getPageMetrics(getDefaultPageLayout());
+    const region: PageRunningRegion = {
+      enabled: true,
+      heightMm: 12,
+      offsetMm: 5,
+      showOnFirstPage: true,
+      pageContents: [{ page: 2, blocks: [{ type: "paragraph", id: "own_p", children: [{ type: "text", text: "専用 {page}" }] }] }],
+      blocks: [{ type: "paragraph", id: "footer_p", children: [{ type: "text", text: "{page}/{total}" }] }],
+    };
+    const render = (pageNumber: number, pageNumberStart?: number, patch: Partial<PageRunningRegion> = {}) => renderToStaticMarkup(
+      <PageRunningRegionView
+        region={{ ...region, ...patch }}
+        kind="footer"
+        title="表紙つき"
+        pageNumber={pageNumber}
+        totalPages={5}
+        pageNumberStart={pageNumberStart}
+        metrics={metrics}
+      />,
+    );
+
+    expect(render(1, 0)).toContain(">0/4</");
+    expect(render(5, 0)).toContain(">4/4</");
+    expect(render(5)).toContain(">5/5</");
+    expect(render(5, 1)).toContain(">5/5</");
+    expect(render(3, 10)).toContain(">12/14</");
+    // ページ専用の中身を引くのは組版上のページ (2 枚目 = 表示上の 1)。
+    expect(render(2, 0)).toContain(">専用 1</");
+    // 表示するかどうかも組版上のページ。表示上の番号が 0 でも 1 枚目は「先頭ページ」。
+    expect(render(1, 0, { showOnFirstPage: false })).toBe("");
+    expect(render(2, 0, { showOnLaterPages: false })).toBe("");
+  });
+
   // The running region was the last place the PDF path drew overlay shapes by injecting an SVG
   // string. `.paged-surface` now renders them with the same React components as the body, so the
   // editor and the PDF cannot diverge.

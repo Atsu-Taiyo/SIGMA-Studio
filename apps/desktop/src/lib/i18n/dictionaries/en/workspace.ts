@@ -240,8 +240,8 @@ export const workspace = {
     updatedAt: "Updated {{date}} {{time}}",
   },
   template: {
-    insertHint: "Selecting one inserts it into the current document",
-    createHint: "Selecting one creates a new material from that template",
+    insertHint: "Selecting one inserts its content into the current document (the page setup stays as it is)",
+    createHint: "Selecting one creates a new material from that template, page setup included",
     workspaces: "Workspaces",
     searchPlaceholder: "Search templates and workspaces",
     noMatches: "No matching templates",
@@ -359,5 +359,16 @@ export const workspace = {
     docsTitle: "Google Docs style",
     docsDescription: "Puts everything in one toolbar (default)",
     footnote: "You can switch at any time",
+  },
+  webShared: {
+    title: "Shared materials", login: "Sign in with Google", logout: "Sign out", loading: "Loading…", refresh: "Refresh", back: "Back to shared materials",
+    loginHelp: "Sign in with the same account as the desktop app to open your shared materials.",
+    help: "Materials shared from the desktop app appear here. Create materials and start sharing in the desktop app.",
+    empty: "No shared materials are available.", search: "Search shared materials", name: "Material", location: "Location", permission: "Access", viewer: "View only", editor: "Can edit",
+    loadFailed: "Could not load shared materials. Check your connection and sign-in status.",
+    notConfigured: "The Web connection has not been configured. Contact your administrator.",
+    actionFailed: "Could not complete the action. Check your connection and access, then try again.",
+    alreadyOpen: "This material is open in another tab. Close it there, then try again.",
+    epochChanged: "This material was restored to an earlier version. Unsent browser edits have been retained. Check the restored material in the desktop app.",
   },
 } satisfies TranslationsOf<typeof ja>;

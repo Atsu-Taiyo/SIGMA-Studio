@@ -35,6 +35,7 @@ import { boxCommandToInlineNodes, parseTexBoxCommand } from "@/lib/tex-box-comma
 import { inlineNodesToTiptapNodes } from "@/lib/tiptap-adapter";
 import { MathEnvironmentValueProvider } from "@/features/rendering/adapters/react";
 import { mathFieldDefaultMode } from "@/features/rendering/core";
+import { getScriptBranchArrowDirection, moveBetweenScriptBranches } from "@/lib/mathlive-script-navigation";
 import {
   DEFAULT_MATH_RENDER_ENVIRONMENT,
   type MathRenderEnvironment,
@@ -64,6 +65,7 @@ export {
 } from "@/lib/inline-math-latex-commands";
 export { renderMathHtml };
 import {
+  focusMathFractionDenominator,
   getMathfieldLatex,
   getMathKeyboardMathShortcut,
   handleMathKeyboardMathShortcut,
@@ -434,9 +436,26 @@ export function requestDesktopAsciiInputSource(): DesktopAsciiInputSession | nul
   return {
     restored: false,
     restoreToken: switchToAscii()
-      .then((result) => (result.ok && result.restoreToken ? result.restoreToken : null))
-      .catch(() => null),
+      .then((result) => {
+        if (!result.ok && !result.skipped) {
+          // 英語の入力ソースが無い・OS が拒んだなど。数式は全角のまま確定しうる (確定した文字は
+          // `mathlive-half-width-input.ts` が半角へ戻す) ので、利用者には出さず開発中だけ記録する。
+          warnInputSourceSwitchFailure(result.error);
+        }
+        return result.ok && result.restoreToken ? result.restoreToken : null;
+      })
+      .catch((error: unknown) => {
+        warnInputSourceSwitchFailure(error);
+        return null;
+      }),
   };
+}
+
+function warnInputSourceSwitchFailure(reason: unknown) {
+  if (process.env.NODE_ENV === "production") {
+    return;
+  }
+  console.warn("Failed to switch to the ASCII input source for math editing", reason);
 }
 
 export function restoreDesktopInputSource(session: DesktopAsciiInputSession | null) {
@@ -1653,6 +1672,10 @@ function InlineMathLiveField({
       mode: "math",
       selectionMode: options.format === "latex" ? "placeholder" : "after",
     });
+    // `/frac` と打って出した分数も、ショートカットやパレットの分数と同じく分母から入れる。
+    if (options.format === "latex") {
+      focusMathFractionDenominator(mathField, replacement);
+    }
     onInputRef.current(syncInlineMathFieldLineBreaks(mathField));
   }, []);
 
@@ -1967,6 +1990,22 @@ function InlineMathLiveField({
     },
     onMouseDown,
     onKeyDownCapture: (event: KeyboardEvent) => {
+      // 上付きと下付きを両方持つ原子 (∫_a^b・Σ) の中で ↓/↑ を押すと、上下の枠を行き来する。
+      // MathLive は分数と配列でしか動かない (`mathlive-script-navigation.ts`)。MathLive の処理より前に行う。
+      const scriptArrow = locked ? null : getScriptBranchArrowDirection({
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        isComposing: event.nativeEvent.isComposing,
+        key: event.key,
+        keyCode: event.keyCode,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+      });
+      if (scriptArrow && moveBetweenScriptBranches(event.currentTarget, scriptArrow)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (!shouldCommitInlineMathOnKeyDown(event)) {
         return;
       }

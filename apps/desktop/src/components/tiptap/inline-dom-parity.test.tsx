@@ -184,6 +184,16 @@ const CORPUS: Array<{ document: OverlayTextBlock[]; name: string }> = [
       }],
   },
   {
+    // 段落の下余白は同じ inline custom property として編集面にも静的描画にも出る
+    // (`document-surface.css` がそれを padding にする)。片側だけ描くと、編集を抜けた瞬間に行間が跳ねる。
+    name: "space after a paragraph and a heading",
+    document: [
+      { type: "paragraph", id: "inline_dom_parity_test_19", spaceAfterPx: 12, children: [{ type: "text", text: "余白つき" }] },
+      { type: "heading", id: "inline_dom_parity_test_20", level: 2, align: "center", spaceAfterPx: 7, children: [{ type: "text", text: "見出し" }] },
+      { type: "paragraph", id: "inline_dom_parity_test_21", lineHeight: "1.8", spaceAfterPx: 3, children: [{ type: "text", text: "行間と併用" }] },
+    ],
+  },
+  {
     name: "hard breaks inside a marked run",
     document: [{
         type: "paragraph", id: "inline_dom_parity_test_11",
@@ -228,6 +238,31 @@ describe("overlay text projects the same DOM through Tiptap and the static rende
       expect(staticBlocks(richText)).toEqual(editorBlocks(richText));
     });
   }
+
+  it("draws a paragraph's space after as the same custom property on both sides", () => {
+    const richText: OverlayTextBlock[] = [
+      { type: "paragraph", id: "inline_dom_parity_test_23", spaceAfterPx: 12, children: [{ type: "text", text: "あ" }] },
+    ];
+
+    expect(staticBlocks(richText)[0].style).toMatchObject({ "--sigma-doc-space-after": "12px" });
+    expect(editorBlocks(richText)[0].style).toMatchObject({ "--sigma-doc-space-after": "12px" });
+  });
+
+  it("draws a list item's space on the item's own variable on both sides, not on its first line", () => {
+    const richText: OverlayTextBlock[] = [{
+      type: "list", id: "inline_dom_parity_test_24",
+      listType: "bullet",
+      items: [{ type: "listItem", id: "inline_dom_parity_test_25", spaceAfterPx: 9, children: [{ type: "text", text: "項目" }] }],
+    }];
+    const itemStyle = (blocks: NormalizedNode[]) => blocks[0]?.children?.[0]?.style;
+    const firstLineStyle = (blocks: NormalizedNode[]) => blocks[0]?.children?.[0]?.children?.[0]?.style;
+
+    expect(itemStyle(staticBlocks(richText))).toMatchObject({ "--sigma-doc-list-item-space-after": "9px" });
+    expect(itemStyle(editorBlocks(richText))).toMatchObject({ "--sigma-doc-list-item-space-after": "9px" });
+    // 先頭行にも同じ値を描くと、二重の余白になる。
+    expect(firstLineStyle(staticBlocks(richText))?.["--sigma-doc-space-after"]).toBeUndefined();
+    expect(firstLineStyle(editorBlocks(richText))?.["--sigma-doc-space-after"]).toBeUndefined();
+  });
 
   /**
    * What must agree for a list: the runs inside an item. The item's own wrapper is the known

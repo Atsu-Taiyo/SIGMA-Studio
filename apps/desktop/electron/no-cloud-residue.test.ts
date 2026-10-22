@@ -49,6 +49,10 @@ const OPTIONAL_COLLABORATION_PATHS = [
   /^\.github\/workflows\/collaboration-experiment\.yml$/u,
   /^apps\/collaboration\/.*$/u,
   /^apps\/desktop\/(electron|src\/features)\/collaboration\/.*$/u,
+  // The shared-only Web host uses the same identity provider. Only its settings
+  // and setup guide may name it; SDK imports and legacy workspace APIs stay banned.
+  /^apps\/web\/(?:\.dev\.vars\.example|wrangler\.jsonc)$/u,
+  /^CONTRIBUTING\.md$/u,
   /^supabase\/.*$/u,
   /^docs\/collaboration.*$/u,
   /^docs\/problem-solution-integration\.md$/u,

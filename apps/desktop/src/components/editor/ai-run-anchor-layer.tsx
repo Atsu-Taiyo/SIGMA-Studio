@@ -46,6 +46,7 @@ import { useAiChatRoomsForDocument, type AssistantTurn } from "@/lib/ai/ai-run-c
 import type { AiRunAnchor, AiRunSession, AiRunStatus } from "@/lib/ai/ai-run-session-store";
 import { isAiRunStatusActive, useAiRunSessions } from "@/lib/ai/ai-run-session-store";
 import type { SigmaDocument } from "@/features/document";
+import { pageIndexForModelY, pageShift, type PageArrangement } from "@/features/rendering/core";
 
 import { AiRunCardComposer } from "./ai-run-card-composer";
 import { AiStreamRenderer } from "@/features/ai-edit/view";
@@ -590,6 +591,11 @@ interface AiRunAnchorLayerProps {
   canvasElement: HTMLElement | null;
   openCardRequest?: AiRunCardOpenRequest | null;
   onFocusSession: (roomId: string) => void;
+  /**
+   * 紙面のページの並び (2 ページ並びのときだけ)。`blockRects` は紙面 (モデル) 座標なので、
+   * 錨はそのページのずらしで描く。
+   */
+  pageArrangement?: PageArrangement | null;
 }
 
 export function AiRunAnchorLayer({
@@ -602,6 +608,7 @@ export function AiRunAnchorLayer({
   canvasElement,
   openCardRequest = null,
   onFocusSession,
+  pageArrangement = null,
 }: AiRunAnchorLayerProps) {
   const sessions = useAiRunSessions();
   const [now, setNow] = useState(() => Date.now());
@@ -683,6 +690,7 @@ export function AiRunAnchorLayer({
           canvasElement={canvasElement}
           openCardRequest={openCardRequest?.roomId === roomId ? openCardRequest : null}
           onFocusSession={onFocusSession}
+          pageArrangement={pageArrangement}
         />
       ))}
       {requestedFallbackSession && openCardRequest && (
@@ -698,6 +706,7 @@ export function AiRunAnchorLayer({
           canvasElement={canvasElement}
           openCardRequest={openCardRequest}
           onFocusSession={onFocusSession}
+          pageArrangement={pageArrangement}
         />
       )}
     </div>
@@ -715,6 +724,7 @@ function AiRunAnchorWidget({
   canvasElement,
   openCardRequest,
   onFocusSession,
+  pageArrangement = null,
 }: {
   roomId: string;
   session: AiRunSession;
@@ -726,6 +736,7 @@ function AiRunAnchorWidget({
   canvasElement: HTMLElement | null;
   openCardRequest: AiRunCardOpenRequest | null;
   onFocusSession: (roomId: string) => void;
+  pageArrangement?: PageArrangement | null;
 }) {
   const t = useT("ai");
   const badgeElementsRef = useRef(new Map<string, HTMLDivElement>());
@@ -760,10 +771,10 @@ function AiRunAnchorWidget({
     () => viewportAnchorToCanvasPoint(session.anchor?.canvas ?? null, canvasElement),
     [session.anchor?.canvas, canvasElement],
   );
-  const fallbackPoint = resolveAiRunAnchorPoint(session.anchor, blockRects, fallbackCanvasPoint);
+  const fallbackPoint = toDisplayAnchor(resolveAiRunAnchorPoint(session.anchor, blockRects, fallbackCanvasPoint), pageArrangement);
   const measuredAnchorRegions = useMemo(
-    () => resolveAiRunAnchorRegions(session.anchor, blockRects),
-    [blockRects, session.anchor],
+    () => resolveAiRunAnchorRegions(session.anchor, blockRects).map((region) => toDisplayAnchor(region, pageArrangement)),
+    [blockRects, pageArrangement, session.anchor],
   );
   const anchorRegions = useMemo<AiRunAnchorRegion[]>(
     () => measuredAnchorRegions.length > 0
@@ -1354,6 +1365,18 @@ function findAiRunTargetBlockElement(canvasElement: HTMLElement | null, blockId:
   }
   return Array.from(canvasElement.querySelectorAll<HTMLElement>("[data-sigma-doc-id]"))
     .find((element) => element.dataset.sigmaDocId === blockId) ?? null;
+}
+
+/**
+ * 本文の実測 (紙面のモデル座標) から求めた錨を、描く位置 (2 ページ並びならそのページのずらし) へ移す。
+ * 画面の点から求めた錨 (`source: "canvas"`) は既に描かれた位置なので動かさない。
+ */
+function toDisplayAnchor<T extends AiRunAnchorPoint>(point: T, arrangement: PageArrangement | null): T {
+  if (!arrangement || point.source !== "block") {
+    return point;
+  }
+  const shift = pageShift(arrangement, pageIndexForModelY(arrangement, point.top));
+  return shift.x === 0 && shift.y === 0 ? point : { ...point, left: point.left + shift.x, top: point.top + shift.y };
 }
 
 function viewportAnchorToCanvasPoint(

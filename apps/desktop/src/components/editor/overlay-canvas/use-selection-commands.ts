@@ -58,6 +58,8 @@ import {
   type OverlayInteractionAction
 } from "./interaction-mode";
 import { prepareOverlayShapesForPaste, type ApplyPastedOverlayShapesOptions } from "./paste-shapes";
+import { readCanvasPageArrangement } from "../page-canvas/page-arrangement-dom";
+import { createArrangedPastePointMapper, resolvePointerPastePlacement } from "./pointer-paste";
 import {
   reanchorShapesByPosition
 } from "./reanchor-model";
@@ -101,6 +103,9 @@ export interface Dependencies {
   documentIdRef: RefObject<string | undefined>;
   canvasRef: RefObject<HTMLDivElement | null>;
   getBlockAnchorScope: () => ParentNode | null;
+  /** 1 ページの高さと隙間 (unzoomed px)。⌘V をポインタの位置へ置くときのページへの押し戻しに使う。 */
+  pageHeightPx: number;
+  pageGapPx: number;
 }
 
 export function useOverlaySelectionCommands({
@@ -125,6 +130,8 @@ export function useOverlaySelectionCommands({
   documentIdRef,
   canvasRef,
   getBlockAnchorScope,
+  pageHeightPx,
+  pageGapPx,
 }: Dependencies) {
 
   const duplicateSelectedShapes = useCallback((offset: OverlayPoint = { x: 20, y: 20 }): OverlayShape[] => {
@@ -456,6 +463,23 @@ export function useOverlaySelectionCommands({
     payload: Extract<EditorClipboardPayload, { kind: "overlayShapes" }>,
     options: ApplyPastedOverlayShapesOptions = {},
   ): boolean => {
+    // ⌘V でポインタが編集領域の上にあるとき: その点を紙面の座標へ写し、ページの並びと一緒に渡す。
+    // 本文と一緒に貼る図形 (付け替えるブロックを持つ) と、置き場所を指定された貼り付けは対象外。
+    const pointerPlacement = options.pointerClient
+      && !options.centerAt
+      && Object.keys(options.anchorBlockIdMap ?? {}).length === 0
+      ? resolvePointerPastePlacement(
+        options.pointerClient,
+        canvasRef.current?.getBoundingClientRect(),
+        {
+          canvasWidth: canvasWidthRef.current,
+          canvasHeight: canvasHeightRef.current,
+          pageHeightPx,
+          pageGapPx,
+        },
+        createArrangedPastePointMapper(readCanvasPageArrangement(canvasRef.current)),
+      )
+      : null;
     const prepared = prepareOverlayShapesForPaste({
       payload,
       canvasWidth: canvasWidthRef.current,
@@ -464,6 +488,7 @@ export function useOverlaySelectionCommands({
       anchorBlockIdMap: options.anchorBlockIdMap,
       centerAt: options.centerAt,
       unbounded: options.unbounded,
+      pointerPlacement: pointerPlacement ?? undefined,
     });
     if (prepared.shapes.length === 0) {
       return false;
@@ -504,7 +529,7 @@ export function useOverlaySelectionCommands({
     setSelectedShapeIds(prepared.selectedIds);
     transitionMode({ type: "select" });
     return true;
-  }, [assetsRef, canvasHeightRef, canvasRef, canvasWidthRef, commitOverlayChangeNow, documentIdRef, explicitlySavedShapeStatesRef, getBlockAnchorScope, setAssets, setSelectedShapeIds, setShapes, shapesRef, transitionMode]);
+  }, [assetsRef, canvasHeightRef, canvasRef, canvasWidthRef, commitOverlayChangeNow, documentIdRef, explicitlySavedShapeStatesRef, getBlockAnchorScope, pageGapPx, pageHeightPx, setAssets, setSelectedShapeIds, setShapes, shapesRef, transitionMode]);
 
   /**
    * 混在コピーの図形を「コピーした本文」を基準に付け替える。

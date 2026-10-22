@@ -477,6 +477,7 @@ export const editor = {
     noSavedDocuments: "保存済み教材ファイルがありません。",
     fallbackDocument: "指定された教材を開けなかったため、別の教材を表示しています",
     documentCreated: "新しい教材を作成しました",
+    templateDocumentCreated: "テンプレートから新しい教材を作成しました",
     restoreFailed: "教材を復元できませんでした",
     hostAutosaved: "ホストに自動保存済み",
     hostSynced: "ホストに変更を反映済み",

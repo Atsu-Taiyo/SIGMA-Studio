@@ -149,6 +149,7 @@ export interface CollaborationBridge {
   version(fileId: string, backupId: string): Promise<SharedVersion>;
   backup(fileId: string): Promise<void>;
   restore(fileId: string, backupId: string): Promise<void>;
+  canRestoreVersion?(fileId: string): boolean;
   reload(fileId: string): Promise<void>;
   view(fileId: string | null): Promise<void>;
   visibleFiles?(fileIds: string[]): Promise<void>;
@@ -161,6 +162,8 @@ export interface CollaborationBridge {
    * name) so the remaining edits can be sent (#251).
    */
   replaceMissingImages?(fileId: string): Promise<void>;
+  /** Browser hosts resolve the same canonical asset id through their authenticated HTTP route. */
+  assetUrl?(fileId: string, assetId: string): string;
   /** 自分のプロフィール (名前・アイコン) を取り直す。 */
   profile?(): Promise<CollaborationProfileRecord | null>;
   /** 自分の名前を変える。null や空白だけなら Google の名前へ戻す。 */

@@ -127,7 +127,8 @@ test("keys typed right after Ctrl+M land inside the new formula and keep their o
 
 for (const { name, key, keys, tex } of [
   { name: "log", key: "Control+l", keys: ["x"], tex: String.raw`\log x` },
-  { name: "fraction", key: "Control+/", keys: ["x", "Tab", "y"], tex: String.raw`\frac{x}{y}` },
+  // 分数は分母から入る。↑で分子へ移る。
+  { name: "fraction", key: "Control+/", keys: ["y", "ArrowUp", "x"], tex: String.raw`\frac{x}{y}` },
 ] as const) {
   test(`${name} shortcut from body text behaves like the same shortcut inside math`, async () => {
     const { app, page, fileId, profile } = await launch();
@@ -314,7 +315,7 @@ test("math palette templates go in like the same shortcut pressed inside math", 
     await fraction.click();
     await expect(fromBody.locator("math-field")).toBeFocused();
     await page.keyboard.type("x");
-    await expect.poll(() => editingState(fromBody).then(state => state.value)).toBe(String.raw`\frac{x}{\placeholder{}}`);
+    await expect.poll(() => editingState(fromBody).then(state => state.value)).toBe(String.raw`\frac{\placeholder{}}{x}`);
     const bodyEditing = await settledEditingState(fromBody);
     await page.keyboard.press("Escape");
 
@@ -323,7 +324,7 @@ test("math palette templates go in like the same shortcut pressed inside math", 
     await expect(inside.locator("math-field")).toBeFocused();
     await page.keyboard.press("Control+/");
     await page.keyboard.type("x");
-    await expect.poll(() => editingState(inside).then(state => state.value)).toBe(String.raw`\frac{x}{\placeholder{}}`);
+    await expect.poll(() => editingState(inside).then(state => state.value)).toBe(String.raw`\frac{\placeholder{}}{x}`);
     expect(bodyEditing).toEqual(await settledEditingState(inside));
     await page.keyboard.press("Escape");
 
@@ -335,13 +336,13 @@ test("math palette templates go in like the same shortcut pressed inside math", 
     await palette.hover();
     await fraction.click();
     await page.keyboard.type("x");
-    await expect.poll(() => editingState(editing).then(state => state.value)).toBe(String.raw`a\frac{x}{\placeholder{}}`);
+    await expect.poll(() => editingState(editing).then(state => state.value)).toBe(String.raw`a\frac{\placeholder{}}{x}`);
     await page.keyboard.press("Escape");
 
     await page.keyboard.press("ControlOrMeta+s");
     await expect.poll(() => savedParagraphs(page, fileId)).toMatchObject({
-      p0: String.raw`段落0$\frac{x}{\placeholder{}}$`,
-      p2: String.raw`段落2$a\frac{x}{\placeholder{}}$`,
+      p0: String.raw`段落0$\frac{\placeholder{}}{x}$`,
+      p2: String.raw`段落2$a\frac{\placeholder{}}{x}$`,
     });
   } finally {
     await app.close();

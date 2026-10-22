@@ -8,6 +8,20 @@
 
 export type RunningRegionFieldName = "title" | "page" | "total";
 
+/** `{page}` の数え始め。表紙を 0 ページにしたいときは `pageLayout.pageNumberStart` に 0 を入れる。 */
+export const DEFAULT_PAGE_NUMBER_START = 1;
+export const MAX_PAGE_NUMBER_START = 9999;
+
+/**
+ * 保存された「ページ番号の開始」を読み直す。0 以上 9999 以下の整数だけを受け、
+ * それ以外 (負・小数・文字・欠け) は既定の 1 に倒す。
+ */
+export function normalizePageNumberStart(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_PAGE_NUMBER_START
+    ? value
+    : DEFAULT_PAGE_NUMBER_START;
+}
+
 export interface RunningRegionFieldValues {
   title: string;
   page: number;
@@ -37,6 +51,32 @@ export function findRunningRegionFields(text: string): RunningRegionFieldMatch[]
 /** 本文へ書く差し込みの文字 (`{page}` など)。描くときだけ、そのページの値に置き換わる。 */
 export function runningRegionFieldToken(field: RunningRegionFieldName): string {
   return `{${field}}`;
+}
+
+/**
+ * 組版上のページ (1 始まり・全体のページ数) から、紙面に出す `{page}` と `{total}` を決める。
+ *
+ * `{total}` は最後のページに出る番号と同じにする (開始 0 で 5 ページなら、最後のページは 4、
+ * `{total}` も 4。「4/4」と読める)。表示する/しない・ページ専用の文字・移動・PDF のページ位置は
+ * 組版上のページのまま扱い、番号を替えるのはこの 2 つの差し込みだけ。
+ */
+export function getRunningRegionPageNumbers(
+  pageNumber: number,
+  pageCount: number,
+  pageNumberStart?: number,
+): { page: number; total: number } {
+  const offset = normalizePageNumberStart(pageNumberStart) - DEFAULT_PAGE_NUMBER_START;
+  return { page: pageNumber + offset, total: pageCount + offset };
+}
+
+/** 描くときに使う差し込みの値 (`title` と、開始番号を反映した `page` / `total`)。 */
+export function createRunningRegionFieldValues(
+  title: string,
+  pageNumber: number,
+  pageCount: number,
+  pageNumberStart?: number,
+): RunningRegionFieldValues {
+  return { title, ...getRunningRegionPageNumbers(pageNumber, pageCount, pageNumberStart) };
 }
 
 export function resolveRunningRegionField(field: RunningRegionFieldName, values: RunningRegionFieldValues): string {

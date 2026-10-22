@@ -1,4 +1,5 @@
 "use client";
+import { useOwnsEditorInput } from "@/components/editor/editor-input-context";
 
 import { isTextPointerSelectionClick } from "@/components/editor/text-pointer-selection";
 import { isSvgImageAsset } from "@/lib/svg-to-sigma";
@@ -47,13 +48,23 @@ import {
   MM_TO_PX,
   normalizeOverlaySnapshot,
   PAGE_GAP_PX,
+  resolveBlockSpaceAfterKeyAction,
   roundHalfMm,
   type PageOverlay,
   type ProblemAreaKind,
   type ProblemNode,
 } from "@/features/document";
 import { EmbeddedDocumentFonts, PageColumnRules } from "@/features/rendering/adapters/react";
-import { getVisibleOverlayShapes, isProblemAreaDisplayed } from "@/features/rendering/core";
+import {
+  createPageArrangement,
+  displayCanvasSize,
+  displayToModel,
+  getVisibleOverlayShapes,
+  isProblemAreaDisplayed,
+  pageIndexAtDisplayPoint,
+  pageOrigin,
+  type PageArrangementMode,
+} from "@/features/rendering/core";
 import {
   bodyTextFlowBlockContainsId,
   canInsertManualPageBreakAfterBlock,
@@ -142,7 +153,6 @@ import {
 import { resolveColumnCommandState } from "./page-canvas/column-command-state";
 import {
   getColumnBreakBeforeBlockIdForContextMenu,
-  getPageIndexForY,
   measureLocalColumnContextMenuLayout,
   type LocalColumnContextMenuLayout,
 } from "./page-canvas/column-layout";
@@ -169,6 +179,7 @@ import {
   getFlowUnitSideNoteAttribute,
   mergeFlowUnitStyle,
 } from "./page-canvas/flow-presentation";
+import { getCanvasArrangementAttributes, pageShiftAtCanvasPoint } from "./page-canvas/page-arrangement-dom";
 import { getFlowExtensionNodeId,getProblemAfterContentUnitIds,getProblemAfterInlineContent } from "./page-canvas/inline-content-composition";
 import { calculateReserveSpaceGaps } from "./page-canvas/layout-measure";
 import { LayoutSectionFlowUnit,layoutSectionSideLabel } from "./page-canvas/layout-section-view";
@@ -376,9 +387,11 @@ function PageCanvasEditorImpl({
   selectionTools,
   externalDrop,
   presentation = "edit",
+  pageArrangement = "single",
   problemDisplay,
   publishesSessionPresence: publishesSessionPresenceProp,
 }: PageCanvasEditorProps) {
+  const ownsEditorInput = useOwnsEditorInput();
   const tEditorText = useT("editor");
   const isPagedRender = presentation === "paged";
   const publishesSessionPresence = !isPagedRender && publishesSessionPresenceProp !== false;
@@ -804,6 +817,16 @@ const {
 
   const pageWidthPx = metrics.page.widthPx;
   const pageHeightPx = metrics.page.heightPx;
+  // ページの並び。ホワイトボードと印刷・PDF の面は常に 1 列 (1 列ではすべての変換が恒等写像)。
+  const arrangementMode: PageArrangementMode = pageArrangement === "spread" && !isWhiteboard && !isPagedRender
+    ? "spread"
+    : "single";
+  const arrangement = useMemo(() => createPageArrangement({
+    mode: arrangementMode,
+    pageWidth: pageWidthPx,
+    pageHeight: pageHeightPx,
+    pageGap: PAGE_GAP_PX,
+  }), [arrangementMode, pageHeightPx, pageWidthPx]);
   const contentWidthPx = metrics.content.widthPx;
   const contentHeightPx = metrics.content.heightPx;
   const bodyVerticalSnapGuides = useMemo(() => getBodyVerticalSnapGuides(metrics), [metrics]);
@@ -880,7 +903,7 @@ const {
     bleed
   } = usePageCanvasMeasurement({
     content: { pageDocument, units, historyRevision, overlay, overlaySource: document.pageLayout?.overlay, pendingDeletion, onReanchorOverlay, extensionMeasureKey, preservedShapeIds: editorExtensions?.overlayEditPolicy?.preservedShapeIds },
-    geometry: { metrics, zoom, fontSize, isWhiteboard, isPagedRender },
+    geometry: { metrics, zoom, fontSize, isWhiteboard, isPagedRender, arrangement },
     surface: { flowRef, canvasRef, flowElement },
     spaceAfter: { spaceAfterSessionRef, setSpaceAfterDrag, setBlockAffordance },
   });
@@ -896,6 +919,7 @@ const {
     totalHeight,
     columnRulePieces,
     unitDisplacements,
+    modelUnitDisplacements,
     nodeDisplacements,
     visualEnds,
     sideNoteLabelYs,
@@ -903,7 +927,7 @@ const {
   } = layoutViewState;
   // 図形の選択ポップオーバーの描いた幅 (中身で変わる)。紙面に浮かべる部品が避ける矩形に使う。
   const [overlayPopoverWidthPx, setOverlayPopoverWidthPx] = useState<number | undefined>(undefined);
-  const { overlaySelectionKey, selectionActionPopover, selectionControlsRect } = usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight, layoutRevision: layoutViewState.revision, overlayPopoverWidthPx });
+  const { overlaySelectionKey, selectionActionPopover, selectionControlsRect } = usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight, layoutRevision: layoutViewState.revision, overlayPopoverWidthPx, blockHandleSelected: selectedId !== null && blockSelection.ids.includes(selectedId) });
   useLayoutEffect(() => {
     requestCaretKeeperReanchor();
   }, [layoutViewState]);
@@ -984,9 +1008,9 @@ const {
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const unpublish = canvas ? publishLayoutSnapshot(canvas, layoutViewState) : undefined;
-    setFragmentTables(layoutViewState.boxFragmentSourceLayouts, layoutViewState.boxBlockFragmentLayouts);
+    if (ownsEditorInput()) setFragmentTables(layoutViewState.boxFragmentSourceLayouts, layoutViewState.boxBlockFragmentLayouts);
     return unpublish;
-  }, [layoutViewState]);
+  }, [layoutViewState, ownsEditorInput, shortcutsSuppressed]);
   /**
    * 今この瞬間、断片へ分割されて描かれているブロックの id。
    *
@@ -1024,7 +1048,7 @@ const {
       && (block.id === activeBlockId || bodyTextFlowBlockContainsId(block, activeBlockId))
     ));
   }, []);
-const { visiblePageRange } = usePageCanvasViewport({ isPagedRender, pageCount, canvasRef, zoom, pageHeightPx });
+const { visiblePageRange } = usePageCanvasViewport({ isPagedRender, pageCount, canvasRef, zoom, pageHeightPx, pagesPerRow: arrangement.columns });
 
 const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePageCanvasCommentGeometry({ commentPanel, totalHeight, zoom, showComments, canvasRef });
 
@@ -1066,6 +1090,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     "--page-column-width": `${metrics.flow.columnWidthPx}px`,
     "--editor-font-size": `${fontSize}pt`,
     "--editor-zoom": String(isWhiteboard ? 1 : zoom / 100),
+    // 2 ページ並びの紙面の幅 (コメント欄など、紙面の右に置くものの基準)。1 列では `--page-width` のまま。
+    ...(arrangement.columns > 1 ? { "--page-canvas-width": `${displayCanvasSize(arrangement, 1).width}px` } : {}),
   } as CSSProperties;
   const visiblePageIndexes = useMemo(() => getVisiblePageIndexes(
     visiblePageRange,
@@ -1114,8 +1140,9 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       pageWidthPx,
       pageHeightPx: overlayPageHeightPx,
       selectionControlsRect,
+      pageArrangement: arrangement.columns > 1 ? arrangement : null,
     }),
-    [blockRects, metrics.content.widthPx, overlay.overlaySnapshot?.assets, overlay.overlaySnapshot?.shapes, overlayPageHeightPx, pageWidthPx, reserveSpaceGaps, resolveOverlayPresentation, selectionControlsRect],
+    [arrangement, blockRects, metrics.content.widthPx, overlay.overlaySnapshot?.assets, overlay.overlaySnapshot?.shapes, overlayPageHeightPx, pageWidthPx, reserveSpaceGaps, resolveOverlayPresentation, selectionControlsRect],
   );
   const pinnedOverlayShapeIds = overlaySelection.selectedShapeIds;
   const visibleBodyHitShapes = useMemo(
@@ -1149,6 +1176,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
   useEffect(() => {
     const handleShortcutKeyDown = (event: KeyboardEvent) => {
+      if (!ownsEditorInput()) return;
       if (!isInsertTextShapeAtCursorShortcut(event) || runningRegionEditKind || shortcutsSuppressed) {
         return;
       }
@@ -1166,7 +1194,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
     window.addEventListener("keydown", handleShortcutKeyDown, true);
     return () => window.removeEventListener("keydown", handleShortcutKeyDown, true);
-  }, [requestShortcutOverlayAction, runningRegionEditKind, shortcutsSuppressed]);
+  }, [ownsEditorInput, requestShortcutOverlayAction, runningRegionEditKind, shortcutsSuppressed]);
 
   // 座標変換はポインタイベントの中でしか呼ばれない。ページ数や寸法を deps に入れると
   // ページ割りのたびに識別子が変わり、これに依存する `handleMaterialInsert` 経由で
@@ -1255,6 +1283,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     }
     const canvasRect = canvas.getBoundingClientRect();
     const scale = canvasLayoutScale(canvas);
+    // ドラッグ中のポインタの y はページを決めない (ページの間にも居る) ので、x の列だけで決める。
+    const pointerShift = pageShiftAtCanvasPoint(canvas, { x: (clientX - canvasRect.left) / scale, y: 0 });
     const probeColumnLeftPx = blockHitProbeColumnLeftPx(
       {
         contentLeftPx: metrics.margins.leftPx,
@@ -1262,8 +1292,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
         columnWidthPx: metrics.flow.columnWidthPx,
         columnGapPx: metrics.flow.columnGapPx,
       },
-      (clientX - canvasRect.left) / scale,
-    );
+      (clientX - canvasRect.left) / scale - pointerShift.x,
+    ) + pointerShift.x;
     return canvasRect.left + (probeColumnLeftPx + BLOCK_HIT_PROBE_INSET_PX) * scale;
   }, [metrics]);
 
@@ -1688,6 +1718,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (!ownsEditorInput()) return;
       if (event.key === "Escape") {
         setBlockSelection(EMPTY_BLOCK_SELECTION);
         return;
@@ -1718,7 +1749,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeBlockSelection, onDeleteBlocks]);
+  }, [ownsEditorInput, activeBlockSelection, onDeleteBlocks]);
 
   // グリップ選択のままキーボードで動かしたあと、選択の面を新しい位置で測り直すための予約。
   const blockSelectionRefreshRef = useRef(false);
@@ -1730,6 +1761,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       return;
     }
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (!ownsEditorInput()) return;
       if (
         !event.altKey || !event.shiftKey || event.metaKey || event.ctrlKey
         || (event.key !== "ArrowUp" && event.key !== "ArrowDown")
@@ -1774,7 +1806,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [blockAffordancesEnabled, onMoveBlocksByStep]);
+  }, [ownsEditorInput, blockAffordancesEnabled, onMoveBlocksByStep]);
 
   useEffect(() => {
     if (!blockSelectionRefreshRef.current) {
@@ -1811,6 +1843,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
   useEffect(() => {
     const handleImagePaste = (event: ClipboardEvent) => {
+      if (!ownsEditorInput()) return;
       if (runningRegionEditKind || !event.clipboardData) {
         return;
       }
@@ -1833,7 +1866,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
     window.addEventListener("paste", handleImagePaste, true);
     return () => window.removeEventListener("paste", handleImagePaste, true);
-  }, [requestBodyOverlayImages, runningRegionEditKind]);
+  }, [ownsEditorInput, requestBodyOverlayImages, runningRegionEditKind]);
 
   const handlePageDragOver = useCallback((event: ReactDragEvent<HTMLDivElement>) => {
     if (runningRegionEditKind) {
@@ -1906,6 +1939,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
         clientX: screenX,
         clientY: screenY,
         metrics,
+        arrangement: arrangement.columns > 1 ? arrangement : null,
       });
     };
     const point = toCanvasPoint(clientX, clientY);
@@ -1931,7 +1965,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       targetShapeId,
       openContextMenu,
     });
-  }, [isWhiteboard, metrics, nextSelectPointRequestId, whiteboardPanX, whiteboardPanY, zoom]);
+  }, [arrangement, isWhiteboard, metrics, nextSelectPointRequestId, whiteboardPanX, whiteboardPanY, zoom]);
 
   const completeOverlayPreviewHandoff = useCallback((bounds: DOMRect, start: ClientPoint, end: ClientPoint, targetShapeId?: string) => {
     requestOverlayPreviewSelection(bounds, start.x, start.y, false, true, false, end, targetShapeId);
@@ -2670,6 +2704,10 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     if (target?.closest(".page-running-direct-editor, .page-running-options, .page-context-menu, .problem-context-menu, .selection-action-popover")) {
       return;
     }
+    // A running-region band owns its Ctrl/Cmd selection gesture, including entry from body mode.
+    if ((event.ctrlKey || event.metaKey) && target?.closest(".page-running-editor-band")) {
+      return;
+    }
 
     const targetIsLayoutControl = !!target?.closest(".page-margin-ruler, .page-running-edge");
     const point = getPagePointerContext({
@@ -2867,6 +2905,22 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     };
   }, [visibleLayout.background]);
 
+  /** 用紙の位置。2 ページ並びでは右の列・次の行へ置く (`pageOrigin`)。 */
+  const getPageSheetStyle = (index: number): CSSProperties => {
+    const origin = pageOrigin(arrangement, index);
+    return {
+      top: `${origin.y}px`,
+      ...(origin.x ? { left: `${origin.x}px` } : {}),
+      ...sheetBackgroundStyle,
+    };
+  };
+  // 紙面の表示の寸法。1 列では従来どおり高さだけ (幅は CSS の `--page-width`)。
+  const canvasDisplayStyle = useMemo((): CSSProperties => {
+    if (arrangement.columns === 1) return { height: `${totalHeight}px` };
+    const size = displayCanvasSize(arrangement, pageCount);
+    return { height: `${size.height}px`, width: `${size.width}px` };
+  }, [arrangement, pageCount, totalHeight]);
+
   // しきい値で「描かない」を決めるので CSS 変数の算術では書けない (whiteboard-background.ts のコメント)。
   const whiteboardBackgroundStyle = useMemo(() => getWhiteboardBackgroundStyle({
     background: visibleLayout.background,
@@ -3021,8 +3075,9 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                 diffShapeClassNames={overlayShapeClassNames}
                 publishesSessionPresence={publishesSessionPresence}
               />
-              {!isPagedRender && <RemoteOverlayPresenceLayer shapes={overlayView.shapes} />}
+              {!isPagedRender && <RemoteOverlayPresenceLayer shapes={overlayView.shapes} arrangement={arrangement} />}
               <OverlayPreview
+                arrangement={arrangement}
                 resolvedView={overlayView}
                 visiblePageRange={{ start: -999, end: 9999, overscan: 0 }}
                 stackLayer="all"
@@ -3128,10 +3183,11 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
         <div
           className="page-canvas"
           ref={setCanvasRef}
-          style={{ height: `${totalHeight}px` }}
+          style={canvasDisplayStyle}
           data-page-count={pageCount}
           data-page-height={pageHeightPx}
           data-page-stride={pageHeightPx + PAGE_GAP_PX}
+          {...getCanvasArrangementAttributes(arrangement)}
           onContextMenuCapture={handlePageContextMenu}
           onDragOver={handlePageDragOver}
           onDrop={handlePageDrop}
@@ -3156,7 +3212,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
               <div
                 className="a4-page-sheet"
                 key={index}
-                style={{ top: `${index * (pageHeightPx + PAGE_GAP_PX)}px`, ...sheetBackgroundStyle }}
+                style={getPageSheetStyle(index)}
               >
                 <ColumnGuides metrics={metrics} />
                 <PageColumnRules metrics={metrics} />
@@ -3191,6 +3247,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
           <div className="page-overlay-background-layer" ref={setOverlayBackgroundLayerElement} aria-hidden="true">
             {!pageOverlayEditing && (
               <OverlayPreview
+                arrangement={arrangement}
                 resolvedView={overlayView}
                 visiblePageRange={visiblePageRange}
                 stackLayer="background"
@@ -3213,7 +3270,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   marginEditing={horizontalMarginEditPageNumber === index + 1}
                   layout={visibleLayout}
                   metrics={metrics}
-                  pageTopPx={index * (pageHeightPx + PAGE_GAP_PX)}
+                  pageTopPx={pageOrigin(arrangement, index).y}
+                  pageLeftPx={pageOrigin(arrangement, index).x}
                   pageNumber={index + 1}
                   title={pageDocument.metadata.title}
                   totalPages={pageCount}
@@ -3256,7 +3314,9 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
               if (!section || section.type !== "layoutSection") {
                 return null;
               }
-              const sideNote = getPageColumnSideNote(noteLayout.x, noteLayout.x, metrics);
+              // 描いた位置は表示座標。どの段の横かは、そのページの中の位置で決める。
+              const noteModelX = displayToModel(arrangement, noteLayout).x;
+              const sideNote = getPageColumnSideNote(noteModelX, noteModelX, metrics);
               return (
                 <div
                   key={`box-layout-section-side-note-${sectionId}`}
@@ -3297,7 +3357,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   data-flow-unit-id={unit.id}
                   data-text-run-group={textRunGroupByUnitId.get(unit.id)?.groupId}
                   {...getFlowDisplacementProps(unitDisplacements[unit.id]).attributes}
-                  style={mergeFlowUnitStyle(getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage), unitDisplacements[unit.id])}
+                  style={mergeFlowUnitStyle(getFlowUnitPlacementStyle(unit, modelUnitDisplacements[unit.id], metrics, isColumnPage), unitDisplacements[unit.id])}
                 >
                   {largePasteHydration
                     && !largePasteHydration.hydratedUnitIds.has(unit.id)
@@ -3371,8 +3431,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   columnRulePieces={columnRulePieces?.[unit.id]}
                   columnLayout={problemAreaColumnLayouts[unit.id]}
                   boxFragmentSourceLayouts={boxFragmentSourceLayouts}
-                  layoutStyle={getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage)}
-                  sideNoteAttribute={getFlowUnitSideNoteAttribute(unitDisplacements[unit.id], metrics)}
+                  layoutStyle={getFlowUnitPlacementStyle(unit, modelUnitDisplacements[unit.id], metrics, isColumnPage)}
+                  sideNoteAttribute={getFlowUnitSideNoteAttribute(modelUnitDisplacements[unit.id], metrics)}
                   spaceAfterFollowerClass={spaceAfterFollowerUnitClass(unit.id)}
                   pageColumnGapPx={metrics.flow.columnGapPx}
                   pageColumnGapMm={metrics.flow.columnGapMm}
@@ -3410,8 +3470,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   sideNoteLabelY={sideNoteLabelYs[unit.id]}
                   boxFragmentSourceLayouts={boxFragmentSourceLayouts}
                   frameFragments={frameFragmentLayouts[unit.id]}
-                  layoutStyle={getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage)}
-                  sideNoteAttribute={getFlowUnitSideNoteAttribute(unitDisplacements[unit.id], metrics)}
+                  layoutStyle={getFlowUnitPlacementStyle(unit, modelUnitDisplacements[unit.id], metrics, isColumnPage)}
+                  sideNoteAttribute={getFlowUnitSideNoteAttribute(modelUnitDisplacements[unit.id], metrics)}
                   spaceAfterFollowerClass={spaceAfterFollowerUnitClass(unit.id)}
                   draftMinHeightMm={problemAreaHeightDrafts[problemAreaDraftKey(unit.problem.id, unit.area)]}
                   pageContentHeightPx={metrics.content.heightPx}
@@ -3442,7 +3502,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   className={spaceAfterFollowerUnitClass(unit.id) || undefined}
                   key={unit.block.id}
                   {...getFlowDisplacementProps(unitDisplacements[unit.id]).attributes}
-                  style={mergeFlowUnitStyle(getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage), unitDisplacements[unit.id])}
+                  style={mergeFlowUnitStyle(getFlowUnitPlacementStyle(unit, modelUnitDisplacements[unit.id], metrics, isColumnPage), unitDisplacements[unit.id])}
                 >
                   {hasBreakBefore(unit.block) && (
                     <PageBreakMarker blockId={unit.block.id} onRemove={markerRemoveHandler} displacement={markerDisplacements[unit.id]} />
@@ -3504,7 +3564,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                     changeDecorationState={textFlowChangeDecorationState}
                     pagedRender={isPagedRender}
                     paginationMarkerKind={resolvePageBreakMarkerKind(isColumnPage)}
-                    fragmentPageIndex={getPageIndexForY(fragment.y, pageHeightPx + PAGE_GAP_PX)}
+                    fragmentPageIndex={pageIndexAtDisplayPoint(arrangement, fragment)}
                   />
                 ) : null;
               })}
@@ -3636,16 +3696,16 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   }}
                   onKeyDown={(event) => {
                     // ドラッグでは出しにくい 1px 刻み。Shift で 10px、Backspace/Delete で 0 に戻す。
-                    const step = event.shiftKey ? 10 : 1;
-                    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      adjustBlockSpaceAfter(handle.blockId, event.key === "ArrowDown" ? step : -step);
+                    // 刻みは図中テキストのつまみと共有する (`resolveBlockSpaceAfterKeyAction`)。
+                    const action = resolveBlockSpaceAfterKeyAction(event);
+                    if (!action) {
                       return;
                     }
-                    if (event.key === "Backspace" || event.key === "Delete") {
-                      event.preventDefault();
-                      event.stopPropagation();
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (action.kind === "delta") {
+                      adjustBlockSpaceAfter(handle.blockId, action.deltaPx);
+                    } else {
                       resetBlockSpaceAfter(handle.blockId);
                     }
                   }}
@@ -3687,7 +3747,18 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
             </div>
           )}
 
-          <div className={`page-overlay-layer ${pageOverlayEditing ? "editing" : ""}`}>
+          <div
+            className={`page-overlay-layer ${pageOverlayEditing ? "editing" : ""}`}
+            onDoubleClick={(event) => {
+              // 本文から図形を素のダブルクリックすると、1 回目の押下で図形の編集面へ渡し、編集面の
+              // 読み込みを待つ間の覆い (`.overlay-canvas-loading`) が 2 回目の押下とダブルクリックを
+              // 受ける。ここで拾わないと、下の文章の図形の編集へ入れず選択だけが残る。覆いは
+              // プレビュー面と同じ大きさなので、プレビュー面のダブルクリックと同じ依頼にする。
+              if ((event.target as Element).classList?.contains("overlay-canvas-loading")) {
+                handleOverlayPreviewDoubleClick(event);
+              }
+            }}
+          >
             {pageOverlayEditing ? (
               <>
                 <OverlayCanvasEditor
@@ -3706,6 +3777,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   visiblePageRange={visiblePageRange}
                   pageHeightPx={pageHeightPx}
                   pageGapPx={PAGE_GAP_PX}
+                  pageArrangement={arrangement}
                   verticalSnapGuides={bodyVerticalSnapGuides}
                   commandRequest={runningRegionEditKind ? null : overlayCommandRequest}
                   imageRequest={runningRegionEditKind ? null : overlayImageRequest}
@@ -3732,6 +3804,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   publishesSessionPresence={publishesSessionPresence}
                 />
                 <OverlayPreview
+                  arrangement={arrangement}
                   resolvedView={overlayView}
                   visiblePageRange={visiblePageRange}
                   stackLayer="all"
@@ -3744,6 +3817,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
               </>
             ) : (
               <OverlayPreview
+                arrangement={arrangement}
                 resolvedView={overlayView}
                 visiblePageRange={visiblePageRange}
                 stackLayer="foreground"
@@ -3757,7 +3831,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                 onDoubleClick={handleOverlayPreviewDoubleClick}
               />
             )}
-            {!isPagedRender && <RemoteOverlayPresenceLayer shapes={overlayView.shapes} />}
+            {!isPagedRender && <RemoteOverlayPresenceLayer shapes={overlayView.shapes} arrangement={arrangement} />}
             {overlayPresentation?.floatingContent}
           </div>
           {showComments && commentPanel && (
@@ -3777,6 +3851,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
             blockRects,
             inlineContentTargetIds,
             canvasElement,
+            pageArrangement: arrangement.columns > 1 ? arrangement : null,
           })}
           {pageExtension?.portal && (
             <div ref={extensionPortalRef} className={pageExtension.portal.className} />

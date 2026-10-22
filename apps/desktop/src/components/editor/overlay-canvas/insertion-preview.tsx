@@ -3,7 +3,9 @@ import {
   type BoxedVariant
 } from "@/features/document";
 import { getCurveDrawingHint, getShapeBounds, getTablePlacementBounds, pickStyleDefaultsForInsert, type ClickPointDrawingCommand, type OverlayShapeStyleDefaults } from "@/features/drawing";
+import type { PageArrangement } from "@/features/rendering/core";
 import type { Translate } from "@/lib/i18n";
+import { OverlayPageShift } from "./page-shift";
 import { useT } from "@/lib/i18n/react";
 import {
   useEffect,
@@ -42,12 +44,14 @@ import type {
 export const PREVIEW_SHAPE_ID = "__overlay_insert_preview__";
 
 /** Pointer motion updates this small preview only, without rerendering the document canvas. */
-export function TablePlacementPreview({ tool, surfaceRef, pointFromClient, assets, styleDefaults }: {
+export function TablePlacementPreview({ tool, surfaceRef, pointFromClient, assets, styleDefaults, arrangement = null }: {
   tool: InsertTool;
   surfaceRef: { current: HTMLDivElement | null };
   pointFromClient: (x: number, y: number) => OverlayPoint;
   assets: Record<string, OverlayAsset>;
   styleDefaults: Partial<OverlayShapeStyleDefaults>;
+  /** ページの並び。プレビューはポインタが載るページのずらしで描く。 */
+  arrangement?: PageArrangement | null;
 }) {
   const [point, setPoint] = useState<OverlayPoint | null>(null);
   useEffect(() => {
@@ -73,8 +77,10 @@ export function TablePlacementPreview({ tool, surfaceRef, pointFromClient, asset
   if (!point) return null;
   return (
     <div data-table-placement-preview="" aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
-      <InsertDragPreview tool={tool} start={point} current={point}
-        bounds={{ ...point, w: 0, h: 0 }} assets={assets} styleDefaults={styleDefaults} />
+      <OverlayPageShift arrangement={arrangement} y={point.y}>
+        <InsertDragPreview tool={tool} start={point} current={point}
+          bounds={{ ...point, w: 0, h: 0 }} assets={assets} styleDefaults={styleDefaults} />
+      </OverlayPageShift>
     </div>
   );
 }

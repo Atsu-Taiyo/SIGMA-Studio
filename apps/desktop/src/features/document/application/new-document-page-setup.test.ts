@@ -130,6 +130,18 @@ describe("new document page setup", () => {
     expect(source.pageLayout?.header?.pageContents).toHaveLength(1);
   });
 
+  // 表紙を 0 ページにするなどの数え方は教材ごとの構成。次の教材の最初のページを 0 にしてしまわない。
+  it("does not carry the page number start into the new material", () => {
+    const source = sourceDocument();
+    source.pageLayout!.pageNumberStart = 0;
+    const setup = deriveNewDocumentPageSetup(source);
+    const created = applyNewDocumentPageSetup(blank(), setup);
+
+    expect(created.pageLayout).not.toHaveProperty("pageNumberStart");
+    expect(setup?.pageLayout).not.toHaveProperty("pageNumberStart");
+    expect(source.pageLayout?.pageNumberStart).toBe(0);
+  });
+
   it("does not share header objects with the source document", () => {
     const source = sourceDocument();
     const created = applyNewDocumentPageSetup(blank(), deriveNewDocumentPageSetup(source));

@@ -3,19 +3,49 @@ import { inspectLink } from "@/lib/link-confirmation";
 import { LinkConfirmation } from "./link-confirmation";
 
 describe("link confirmation", () => {
+  it("opens ordinary HTTPS browser destinations without a dialog or remembered approval", async () => {
+    const changed = vi.fn();
+    const gate = new LinkConfirmation(changed);
+    for (const url of ["https://example.test/first", "https://example.test/next", "https://another.test/", "https://example.test/first"]) {
+      expect(await gate.confirm(url, "browser")).toBe(true);
+      expect(gate.pending()).toBeNull();
+    }
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "http://example.test/", "https://user:secret@example.test/", "https://例え.jp/",
+    "https://127.0.0.1/", "https://[::1]/", "https://localhost/", "https://printer.local/",
+  ])("still requires confirmation for a browser URL needing attention: %s", async url => {
+    const gate = new LinkConfirmation(vi.fn());
+    expect(await gate.confirm("https://example.test/", "browser")).toBe(true);
+    const pending = gate.confirm(url, "browser");
+    expect(gate.pending()?.warnings.length).toBeGreaterThan(0);
+    gate.cancel();
+    expect(await pending).toBe(false);
+  });
+
+  it.each(["https://example.test/", "mailto:hello@example.test"])("still requires confirmation before opening an external application: %s", async url => {
+    const gate = new LinkConfirmation(vi.fn());
+    const pending = gate.confirm(url, "external");
+    expect(gate.pending()?.destination).toBe("external");
+    gate.cancel();
+    expect(await pending).toBe(false);
+  });
+
   it("requires an explicit reply for the exact request and never replaces its destination", async () => {
     const changed = vi.fn();
     const gate = new LinkConfirmation(changed);
-    const first = gate.confirm("https://example.test/first", "browser");
+    const first = gate.confirm("http://example.test/first", "browser");
     const request = gate.pending()!;
     gate.respond("wrong-id", true);
     expect(gate.pending()).toEqual(request);
     expect(await gate.confirm("https://example.test/replacement", "browser")).toBe(false);
-    expect(gate.pending()?.url).toBe("https://example.test/first");
+    expect(gate.pending()?.url).toBe("http://example.test/first");
     gate.respond(request.id, true);
     expect(await first).toBe(true);
     expect(gate.pending()).toBeNull();
-    const next = gate.confirm("https://example.test/next", "browser");
+    const next = gate.confirm("http://example.test/next", "browser");
     gate.respond(request.id, true);
     gate.cancel();
     expect(await next).toBe(false);
@@ -25,7 +55,7 @@ describe("link confirmation", () => {
   it("fails closed on cancellation, renderer reload and destroyed browser tabs", async () => {
     const gate = new LinkConfirmation(vi.fn());
     const controller = new AbortController();
-    const pending = gate.confirm("https://example.test/", "browser", controller.signal);
+    const pending = gate.confirm("http://example.test/", "browser", controller.signal);
     controller.abort();
     expect(await pending).toBe(false);
     expect(gate.pending()).toBeNull();

@@ -12,7 +12,7 @@
  * DOM に触らない (`architecture.test.ts` の純モデル境界)。
  */
 
-import { MAX_BLOCK_SPACE_AFTER_PX } from "@/features/document";
+import { clampBlockSpaceAfterPx } from "@/features/document";
 
 /** 段の食い違い・丸めを吸収する許容量 (canvas px)。 */
 const COLUMN_OVERLAP_EPSILON_PX = 0.5;
@@ -41,7 +41,7 @@ export function resolveSpaceAfterDragPx({
 }: SpaceAfterDragInput): number {
   const scale = Number.isFinite(zoomFactor) && zoomFactor > 0 ? zoomFactor : 1;
   const deltaPx = (clientY - startClientY) / scale;
-  return Math.min(MAX_BLOCK_SPACE_AFTER_PX, Math.max(0, Math.round(startPx + deltaPx)));
+  return clampBlockSpaceAfterPx(startPx + deltaPx);
 }
 
 /** cohort の判定に要るだけの矩形 (`MeasuredBlock` の部分集合)。 */

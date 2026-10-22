@@ -5,7 +5,10 @@ import {
   MATH_KEYBOARD_SHORTCUTS,
   collidesWithMathKeyboardShortcut,
   getMathKeyboardMathShortcut,
+  focusMathFractionDenominator,
   handleMathKeyboardMathShortcut,
+  insertMathKeyboardMathTemplate,
+  isMathFractionTemplate,
   isMathKeyboardMathModeShortcut,
   isMathKeyboardReturnToTextShortcut,
 } from "@/lib/math-keyboard-shortcuts";
@@ -76,6 +79,49 @@ describe("math keyboard shortcuts", () => {
       mode: "math",
       selectionMode: "placeholder",
     });
+  });
+
+  it("moves the caret from the numerator to the denominator after inserting a fraction", () => {
+    const calls: string[] = [];
+    const mathField = {
+      executeCommand: vi.fn((command: string) => void calls.push(`command:${command}`)),
+      insert: vi.fn((tex: string) => void calls.push(`insert:${tex}`)),
+    };
+    const preventDefault = vi.fn();
+
+    expect(handleMathKeyboardMathShortcut({ ...eventFor("/"), preventDefault, stopPropagation: vi.fn() }, mathField)).toBe(true);
+
+    // 挿入のあとで、選ばれた分子の空欄から次の空欄 (分母) へ。
+    expect(calls).toEqual(["insert:\\frac{#?}{#?}", "command:moveToNextPlaceholder"]);
+  });
+
+  it("starts every fraction template in its denominator, whichever entry point inserts it", () => {
+    for (const tex of ["\\frac{#?}{#?}", "\\dfrac{#?}{#?}", "\\tfrac{#?}{#?}", "\\cfrac{#?}{#?}", "\\frac {#?} {#?}"]) {
+      const mathField = { executeCommand: vi.fn(), insert: vi.fn() };
+      expect(insertMathKeyboardMathTemplate(mathField, tex), tex).toBe(true);
+      expect(mathField.executeCommand, tex).toHaveBeenCalledExactlyOnceWith("moveToNextPlaceholder");
+    }
+  });
+
+  it("keeps the first blank selected for every other template", () => {
+    const others = [
+      ...MATH_KEYBOARD_SHORTCUTS.filter((shortcut) => shortcut.id !== "fraction").map((shortcut) => shortcut.tex),
+      "\\binom{#?}{#?}",
+      "\\frac{1}{#?}",
+      "\\frac{#?}{2}",
+      "\\sqrt[#?]{#?}",
+      "{#?}^{2}",
+      "x\\frac{#?}{#?}",
+    ];
+    for (const tex of others) {
+      const mathField = { executeCommand: vi.fn(), insert: vi.fn() };
+      insertMathKeyboardMathTemplate(mathField, tex);
+      expect(mathField.insert, tex).toHaveBeenCalledOnce();
+      expect(mathField.executeCommand, tex).not.toHaveBeenCalled();
+    }
+    expect(isMathFractionTemplate("\\frac{#?}{#?}")).toBe(true);
+    expect(isMathFractionTemplate("\\frac{1}{2}")).toBe(false);
+    expect(focusMathFractionDenominator({ insert: vi.fn() }, "\\frac{#?}{#?}")).toBe(false);
   });
 
   it("keeps every configured template valid for MathLive validation", () => {

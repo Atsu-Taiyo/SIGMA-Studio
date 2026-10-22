@@ -244,8 +244,8 @@ export const workspace = {
     updatedAt: "{{date}} {{time}} 更新",
   },
   template: {
-    insertHint: "選ぶと現在の文書に挿入します",
-    createHint: "選ぶとテンプレートから新しい教材を作成します",
+    insertHint: "選ぶと現在の文書にテンプレートの内容を挿入します（用紙設定は変わりません）",
+    createHint: "選ぶと用紙設定ごとテンプレートから新しい教材を作成します",
     workspaces: "ワークスペース",
     searchPlaceholder: "テンプレート・ワークスペースを検索",
     noMatches: "一致するテンプレートがありません",
@@ -368,5 +368,16 @@ export const workspace = {
     docsTitle: "Googleドキュメント風",
     docsDescription: "1段のツールバーにまとめます（既定）",
     footnote: "あとからいつでも切り替えられます",
+  },
+  webShared: {
+    title: "共有教材", login: "Googleでログイン", logout: "ログアウト", loading: "読み込み中…", refresh: "更新", back: "共有教材に戻る",
+    loginHelp: "Electron版と同じアカウントでログインすると、共有済みの教材を開けます。",
+    help: "Electron版で共有された教材を表示しています。新規作成と共有開始はデスクトップ版で行ってください。",
+    empty: "表示できる共有教材がありません。", search: "共有教材を検索", name: "教材名", location: "場所", permission: "権限", viewer: "閲覧のみ", editor: "編集可",
+    loadFailed: "共有教材を取得できませんでした。接続とログイン状態を確認してください。",
+    notConfigured: "Web版の接続設定が完了していません。管理者にお問い合わせください。",
+    actionFailed: "操作を完了できませんでした。接続とアクセス権を確認して、もう一度お試しください。",
+    alreadyOpen: "この教材は別のタブで開かれています。そちらで教材を閉じてから、もう一度開いてください。",
+    epochChanged: "教材が過去の版に復元されています。このブラウザの未送信編集は保持しています。デスクトップ版で復元後の状態を確認してください。",
   },
 } as const;

@@ -47,7 +47,7 @@ test("IME composition into a selected blank stays in the blank and keeps its fra
       }
     };
 
-    // 本文で分数を入れると、分子の空欄が選ばれた状態で開く。そのまま変換する。
+    // 本文で分数を入れると、分母の空欄が選ばれた状態で開く (分数は分母から入れる)。そのまま変換する。
     const inserted = page.locator('.page-flow [data-sigma-doc-id="inserted"]').first();
     await inserted.click();
     await inserted.evaluate(el => {
@@ -62,7 +62,7 @@ test("IME composition into a selected blank stays in the blank and keeps its fra
     await expect.poll(() => valueOf(insertedField)).toBe(String.raw`\frac{${BLANK}}{${BLANK}}`);
     await compose(insertedField, /^\\frac\{/);
     await ime.send("Input.insertText", { text: "漢" });
-    await expect.poll(() => valueOf(insertedField)).toBe(String.raw`\frac{\text{漢}}{${BLANK}}`);
+    await expect.poll(() => valueOf(insertedField)).toBe(String.raw`\frac{${BLANK}}{\text{漢}}`);
     await page.keyboard.press("Enter");
     await expect(insertedField).toHaveCount(0);
 
@@ -103,7 +103,7 @@ test("IME composition into a selected blank stays in the blank and keeps its fra
     await expect(wholeField).toHaveCount(0);
 
     const expectedSaved = {
-      inserted: String.raw`\frac{\text{漢}}{${BLANK}}`,
+      inserted: String.raw`\frac{${BLANK}}{\text{漢}}`,
       ...Object.fromEntries(cases.map(({ id, expected }) => [id, expected])),
       cancelled: String.raw`\frac{a}{${BLANK}}`,
       "whole-numerator": String.raw`\frac{\text{漢}}{c}`,

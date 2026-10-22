@@ -93,6 +93,10 @@ test("comments: floating @ list, @claude in the text, Enter to send, and the acc
 
     // 1. 本文を選ぶと、AI への依頼とコメントは書式と同じ帯に並ぶ (右下の別のチップに分けない)。
     const target = page.locator(".ProseMirror p", { hasText: "練習として" }).first();
+    // カーソルを置いただけでは何も選んでいないので、帯もチップも出さない。
+    await target.click();
+    await page.waitForTimeout(400);
+    await expect(page.locator(".selection-action-popover")).toHaveCount(0);
     await target.click({ clickCount: 3 });
     const band = page.locator(".selection-action-popover").filter({ has: page.getByRole("button", { name: "コメントを追加", exact: true }) });
     await expect(band).toHaveCount(1);

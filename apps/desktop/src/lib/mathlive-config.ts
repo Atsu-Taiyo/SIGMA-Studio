@@ -4,6 +4,7 @@ import { SIGMA_MATHLIVE_MACRO_STYLES } from "@/lib/math-macros";
 import { MATHLIVE_BOX_LAYOUT_CLASS, normalizeMathLiveBoxStyle } from "@/lib/mathlive-box-layout";
 import { installMathLiveCompositionAnchor } from "@/lib/mathlive-composition-anchor";
 import { installMathLiveCompositionSelection } from "@/lib/mathlive-composition-selection";
+import { installMathLiveHalfWidthInput } from "@/lib/mathlive-half-width-input";
 import { collidesWithMathKeyboardShortcut } from "@/lib/math-keyboard-shortcuts";
 import { installMathLiveOpenFenceLatex } from "@/lib/mathlive-open-fence";
 
@@ -81,6 +82,7 @@ export function configureInlineMathLiveField(
   if (mathField.shadowRoot) {
     installMathLiveCompositionAnchor(mathField.shadowRoot);
     installMathLiveCompositionSelection(mathField, mathField.shadowRoot);
+    installMathLiveHalfWidthInput(mathField.shadowRoot);
   }
   mathField.defaultMode = mathFieldDefaultMode(environment.typesetStyle);
   mathField.environmentPopoverPolicy = "off";

@@ -6,6 +6,7 @@ import { isSvgImageAsset } from "@/lib/svg-to-sigma";
 import { CurveDrawingMarkers, InsertDragPreview, OverlayDragReadout, TablePlacementPreview } from "./overlay-canvas/insertion-preview";
 import { getModeStatus } from "./overlay-canvas/mode-status";
 import { readRememberedCalloutCornerRadius } from "./overlay-canvas/remembered-callout-radius";
+import { OverlayPageShift } from "./overlay-canvas/page-shift";
 import { AnchorIndicators, SelectionBox } from "./overlay-canvas/selection-chrome";
 import {
   AnchorMeasurements
@@ -66,12 +67,19 @@ import {
   getShapeSelectionBounds,
   hitTestShape,
   isOverlayRichTextShape,
+  getShapeBounds,
   mergeShapesById,
   pickStyleDefaultsForInsert,
   type OverlayShapeStyleDefaults,
   type OverlaySnapGuide
 } from "@/features/drawing";
-import { type VisiblePageRange } from "@/features/rendering/core";
+import {
+  displayCanvasSize,
+  displayToModel,
+  modelToDisplay,
+  type PageArrangement,
+  type VisiblePageRange,
+} from "@/features/rendering/core";
 import { useT } from "@/lib/i18n/react";
 import { SUPPORTED_OVERLAY_IMAGE_MIME_TYPES } from "@/lib/overlay-image-files";
 import {
@@ -83,6 +91,7 @@ import {
   type MeasuredBlock
 } from "./overlay-canvas/anchor";
 import { isOverlayActionBlockedByEditPolicy, isOverlayShapeUnselectable, pruneUnselectableSelection } from "./overlay-canvas/edit-policy";
+import { findEditableTextShapeAtPoint } from "./overlay-canvas/double-click-target";
 import { EMPTY_OVERLAY_EDIT_POLICY, type OverlayEditPolicy, type OverlayShapeDecoration } from "./overlay-canvas/editor-extension";
 import { focusOverlaySurface } from "./overlay-canvas/focus-overlay-surface";
 import {
@@ -241,6 +250,12 @@ interface OverlayCanvasEditorClientProps {
   pageHeightPx?: number;
   /** ページ間の隙間 (unzoomed px)。窓化のページ判定に使う。 */
   pageGapPx?: number;
+  /**
+   * ページの並び (`features/rendering/core/page-arrangement.ts`)。図形・選択・アンカーはモデル座標
+   * (縦 1 列) のまま持ち、描くときだけ載るページのずらしで動かす。ポインタは表示座標からモデル座標へ
+   * 読み戻す。省略または 1 列では従来どおり。
+   */
+  pageArrangement?: PageArrangement | null;
   /** Whether selected shapes expose draggable page/body anchor handles. */
   showAnchorHandles?: boolean;
   /** ホワイトボードなど、DOM scroll 以外で viewport を流す場合の差し替え口。 */
@@ -309,6 +324,7 @@ export default function OverlayCanvasEditorClient({
   textRepaint = null,
   pageHeightPx = 0,
   pageGapPx = 0,
+  pageArrangement = null,
   showAnchorHandles = true,
   autoScrollPanBy,
   autoScrollViewportElement = null,
@@ -416,6 +432,12 @@ export default function OverlayCanvasEditorClient({
   const graphFillPickShapeId = getGraphFillPickShapeId(mode);
   const bleedSurfaceRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  // 1 列は null に畳む (座標の換算を従来の式のまま通す)。イベントの中で最新を読む。
+  const activePageArrangement = pageArrangement && pageArrangement.columns > 1 ? pageArrangement : null;
+  const pageArrangementRef = useRef(activePageArrangement);
+  useLayoutEffect(() => {
+    pageArrangementRef.current = activePageArrangement;
+  }, [activePageArrangement]);
   useEffect(() => {
     if (!selectedRegion) return;
     const clearOnEscape = (event: KeyboardEvent) => {
@@ -521,6 +543,10 @@ export default function OverlayCanvasEditorClient({
       return OVERLAY_SNAP_THRESHOLD_PX;
     }
 
+    const arrangement = pageArrangementRef.current;
+    if (arrangement) {
+      return OVERLAY_SNAP_THRESHOLD_PX * (displayCanvasSize(arrangement, 1).width / rect.width);
+    }
     const scaleX = canvasWidthRef.current / rect.width;
     const scaleY = canvasHeightRef.current / rect.height;
     return OVERLAY_SNAP_THRESHOLD_PX * Math.max(scaleX, scaleY);
@@ -981,6 +1007,17 @@ export default function OverlayCanvasEditorClient({
       };
     }
 
+    const arrangement = pageArrangementRef.current;
+    if (arrangement) {
+      // 2 ページ並び: 層の要素は並べた紙面の大きさ。表示座標に直してから、載るページのずらしを引く。
+      const scale = rect.width / displayCanvasSize(arrangement, 1).width;
+      const point = displayToModel(arrangement, {
+        x: (clientX - rect.left) / scale,
+        y: (clientY - rect.top) / scale,
+      });
+      return { x: point.x, y: point.y };
+    }
+
     return {
       x: ((clientX - rect.left) / rect.width) * canvasWidthRef.current,
       y: ((clientY - rect.top) / rect.height) * canvasHeightRef.current,
@@ -992,6 +1029,12 @@ export default function OverlayCanvasEditorClient({
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect || canvasWidthRef.current <= 0 || canvasHeightRef.current <= 0) {
       return { x: point.x, y: point.y };
+    }
+    const arrangement = pageArrangementRef.current;
+    if (arrangement) {
+      const scale = rect.width / displayCanvasSize(arrangement, 1).width;
+      const display = modelToDisplay(arrangement, point);
+      return { x: rect.left + display.x * scale, y: rect.top + display.y * scale };
     }
 
     return {
@@ -1116,6 +1159,16 @@ export default function OverlayCanvasEditorClient({
 
     return undefined;
   }, [shapesRef]);
+
+  /** ダブルクリックで下に隠れた文章の図形を直すための探索。選択は一番手前のまま (`double-click-target.ts`)。 */
+  const getEditableTextShapeAtPoint = useCallback((point: OverlayPoint): OverlayShape | undefined => (
+    findEditableTextShapeAtPoint({
+      shapes: shapesRef.current,
+      point,
+      isUnselectable: (id) => isOverlayShapeUnselectable(id, editPolicyUnselectableShapeIdsRef.current),
+      editPolicyLockedIds: editPolicyLockedShapeIdsRef.current,
+    })
+  ), [shapesRef]);
   const {
     duplicateSelectedShapes,
     deleteSelectedShapes,
@@ -1152,7 +1205,9 @@ export default function OverlayCanvasEditorClient({
     solidEdgeRef,
     documentIdRef,
     canvasRef,
-    getBlockAnchorScope
+    getBlockAnchorScope,
+    pageHeightPx,
+    pageGapPx
   });
 
   /**
@@ -1199,6 +1254,7 @@ export default function OverlayCanvasEditorClient({
     onSelectPointHandled,
     getShapeAtPoint,
     getOpenStrokeShapeAtPoint,
+    getEditableTextShapeAtPoint,
     focusedGroupIdRef,
     setShapes,
     queueOverlaySave,
@@ -1616,6 +1672,7 @@ export default function OverlayCanvasEditorClient({
     modeRef,
     getShapeAtPoint,
     getOpenStrokeShapeAtPoint,
+    getEditableTextShapeAtPoint,
     setContextMenu,
     focusOverlayCanvas
   });
@@ -1639,6 +1696,12 @@ export default function OverlayCanvasEditorClient({
     updateGraphShapeSpec,
     insertedTableFocusRef
   });
+
+  // 2 ページ並びで描くページを決める y (ドラッグ中は動かした先)。ずらしは描く箱だけに掛かる。
+  const shapeDisplayPageY = (shape: OverlayShape): number => (
+    getShapeBounds(shape).y + (movingShapeIds?.has(shape.id) ? dragOffset?.y ?? 0 : 0)
+  );
+  const selectionDisplayPageY = (selectionBounds?.y ?? 0) + (movingShapeIds ? dragOffset?.y ?? 0 : 0);
 
   const shapeEditorRenderers = useOverlayShapeEditorRenderers({
     onCreateChartFromTable: createChartFromTable,
@@ -1701,8 +1764,8 @@ export default function OverlayCanvasEditorClient({
           <div className="overlay-canvas-bleed-surface background" aria-hidden="true">
             <div className="overlay-canvas-editor background">
               {backgroundVisibleShapes.map((shape) => (
+                <OverlayPageShift key={shape.id} arrangement={activePageArrangement} y={shapeDisplayPageY(shape)}>
                 <OverlayShapeView
-                  key={shape.id}
                   shape={shape}
                   assets={assets}
                   chartSourceTable={chartSourceTables.get(shape.id) ?? null}
@@ -1721,14 +1784,15 @@ export default function OverlayCanvasEditorClient({
                   decoration={shapeDecorations?.get(shape.id) ?? null}
                   textPaintRevision={getTextPaintRevision(shape, textRepaint)}
                 />
+                </OverlayPageShift>
               ))}
             </div>
           </div>
         ), backgroundLayerElement)}
 
         {foregroundVisibleShapes.map((shape) => (
+          <OverlayPageShift key={shape.id} arrangement={activePageArrangement} y={shapeDisplayPageY(shape)}>
           <OverlayShapeView
-            key={shape.id}
             shape={shape}
             assets={assets}
             chartSourceTable={chartSourceTables.get(shape.id) ?? null}
@@ -1749,25 +1813,30 @@ export default function OverlayCanvasEditorClient({
             onTextMeasuredHeight={handleTextMeasuredHeight}
             textPaintRevision={getTextPaintRevision(shape, textRepaint)}
           />
+          </OverlayPageShift>
         ))}
+        <OverlayPageShift arrangement={activePageArrangement} y={selectionDisplayPageY}>
         <OverlayShapeDimensionLabels
           shapes={selectionChromeHidden || selectionImageCropShape ? [] : selectedDimensionShapes}
           dragTranslate={dragOffset}
           movingShapeIds={movingShapeIds}
         />
+        </OverlayPageShift>
 
         {backgroundVisibleShapes.map((shape) => (
+          <OverlayPageShift key={`${shape.id}-hit-target`} arrangement={activePageArrangement} y={shapeDisplayPageY(shape)}>
           <OverlayShapeHitTarget
-            key={`${shape.id}-hit-target`}
             shape={shape}
             selected={selectedIdSet.has(shape.id)}
             dragTranslate={movingShapeIds?.has(shape.id) ? dragOffset : null}
             onPointerDown={handleShapePointerDown}
             onDoubleClick={handleShapeDoubleClick}
           />
+          </OverlayPageShift>
         ))}
 
         {selectionBounds && selectedShapes.length > 0 && !selectionChromeHidden && (
+          <OverlayPageShift arrangement={activePageArrangement} y={selectionDisplayPageY}>
           <SelectionBox
             shapes={selectedShapes}
             allShapes={shapes}
@@ -1785,16 +1854,19 @@ export default function OverlayCanvasEditorClient({
             solidEdge={solidEdge && selectedShapes.length === 1 && selectedShapes[0].id === solidEdge.shapeId ? solidEdge.index : null}
             solidHoverEdge={hoverSolidEdge && selectedShapes.length === 1 && selectedShapes[0].id === hoverSolidEdge.shapeId ? hoverSolidEdge.index : null}
           />
+          </OverlayPageShift>
         )}
 
         {anchorIndicators.length > 0 && !selectionChromeHidden && !selectionImageCropShape && (
           <AnchorIndicators
             indicators={anchorIndicators}
             onAnchorPointerDown={handleAnchorPointerDown}
+            arrangement={activePageArrangement}
           />
         )}
 
         {marqueeBounds && (
+          <OverlayPageShift arrangement={activePageArrangement} y={marqueeBounds.y}>
           <div
             className="overlay-marquee-box"
             data-retained-region={selectedRegion ? "true" : undefined}
@@ -1805,6 +1877,7 @@ export default function OverlayCanvasEditorClient({
               height: marqueeBounds.h,
             }}
           />
+          </OverlayPageShift>
         )}
 
         {mode.id === "overlay.select" && currentTool.kind === "insert" && currentTool.command === "table" && !hasTablePlacementFeedback() && (
@@ -1814,9 +1887,11 @@ export default function OverlayCanvasEditorClient({
             pointFromClient={pagePointFromClient}
             assets={assets}
             styleDefaults={pickStyleDefaultsForInsert("table", shapeStyleDefaults)}
+            arrangement={activePageArrangement}
           />
         )}
         {insertPreview && !(insertPreview.tool.command === "table" && hasTablePlacementFeedback()) && (
+          <OverlayPageShift arrangement={activePageArrangement} y={insertPreview.start.y}>
           <InsertDragPreview
             tool={insertPreview.tool}
             start={insertPreview.start}
@@ -1827,19 +1902,30 @@ export default function OverlayCanvasEditorClient({
             assets={assets}
             styleDefaults={pickStyleDefaultsForInsert(insertPreview.tool.command, shapeStyleDefaults)}
           />
+          </OverlayPageShift>
         )}
 
         {curveDrawing && (
+          <OverlayPageShift arrangement={activePageArrangement} y={curveDrawing.points[0]?.y ?? curveDrawing.current?.y ?? 0}>
           <CurveDrawingMarkers
             points={curveDrawing.points}
             current={curveDrawing.current}
             closeArmed={curveDrawingClosed}
           />
+          </OverlayPageShift>
         )}
 
-        {adjustmentDragReadout && <OverlayDragReadout {...adjustmentDragReadout} />}
+        {adjustmentDragReadout && (
+          <OverlayPageShift arrangement={activePageArrangement} y={adjustmentDragReadout.position.y}>
+            <OverlayDragReadout {...adjustmentDragReadout} />
+          </OverlayPageShift>
+        )}
 
-        {snapGuides.length > 0 && <SnapGuides guides={snapGuides} />}
+        {snapGuides.length > 0 && (
+          <OverlayPageShift arrangement={activePageArrangement} y={selectionDisplayPageY}>
+            <SnapGuides guides={snapGuides} />
+          </OverlayPageShift>
+        )}
 
         {editPolicyNotice && (
           <p className={editPolicy.blockedNoticeClassName} role="status" aria-live="polite">

@@ -1,9 +1,10 @@
 {
   "name": "sigma-studio-workspace",
-  "version": "0.524.0",
+  "version": "0.525.0",
   "private": true,
   "workspaces": [
     "apps/desktop",
+    "apps/web",
     "packages/viewer",
     "packages/editor",
     "tests/fixtures/editor-react18",
@@ -13,6 +14,11 @@
     "postinstall": "node scripts/patch-http-cache-semantics.mjs",
     "dev": "npm --workspace @sigma-studio/desktop run dev",
     "build": "npm --workspace @sigma-studio/desktop run build",
+    "web:build": "node scripts/build-web.mjs",
+    "web:test": "node --test apps/web/worker.test.mjs",
+    "web:preview": "npm --workspace @sigma-studio/web run preview",
+    "web:deploy": "npm run web:build && npm --workspace @sigma-studio/web exec -- wrangler deploy --keep-vars",
+    "test:e2e:web": "npm exec --workspace @sigma-studio/desktop -- cross-env SIGMA_WEB_E2E=1 SIGMA_STUDIO_E2E_BASE_URL=http://127.0.0.1 playwright test tests/e2e/shared-web.spec.ts",
     "start": "npm --workspace @sigma-studio/desktop run start",
     "lint": "npm --workspace @sigma-studio/desktop run lint",
     "test": "npm --workspace @sigma-studio/desktop run test",

@@ -23,7 +23,8 @@ import {
   type OverlaySolidEdgeSelection
 } from "../page-overlay-types";
 import { getAllSelectableShapeIds, getShapeIdsAnchoredToBlocks } from "./anchored-shape-selection";
-import { isOverlayShapeUnselectable } from "./edit-policy";
+import { resolveDoubleClickTarget } from "./double-click-target";
+import { filterSelectableShapeIds, isOverlayShapeUnselectable } from "./edit-policy";
 import {
   getSelectedShapesInStackOrder,
   getShapeSelectionIds,
@@ -42,6 +43,7 @@ import {
 } from "./reanchor-model";
 import type { ApplyPastedOverlayShapesOptions } from "./paste-shapes";
 import { readRememberedShapeStyle } from "./remembered-shape-style";
+import { getMarqueeSelectionIds } from "./marquee-selection";
 import { type OverlayArrangeAction } from "./reorder-shapes";
 import { getStyleTargetIds } from "./selection-command-model";
 import {
@@ -88,6 +90,8 @@ interface Dependencies {
   onSelectPointHandled: (requestId: number, hitShape: boolean) => void;
   getShapeAtPoint: (point: OverlayPoint, margin?: number) => OverlayShape | undefined;
   getOpenStrokeShapeAtPoint: (point: OverlayPoint) => OverlayShape | undefined;
+  /** 点の下にある、編集に入れる文章の図形のうち一番手前のもの (一番手前が別の図形でも拾う)。 */
+  getEditableTextShapeAtPoint: (point: OverlayPoint) => OverlayShape | undefined;
   focusedGroupIdRef: RefObject<string | null>;
   setShapes: Dispatch<SetStateAction<OverlayShape[]>>;
   queueOverlaySave: (options?: OverlayChangeOptions) => void;
@@ -131,6 +135,7 @@ export function useOverlayExternalRequests({
   onSelectPointHandled,
   getShapeAtPoint,
   getOpenStrokeShapeAtPoint,
+  getEditableTextShapeAtPoint,
   focusedGroupIdRef,
   setShapes,
   queueOverlaySave,
@@ -186,6 +191,7 @@ export function useOverlayExternalRequests({
         historyGroup: request.historyGroup,
         centerAt: request.centerAt,
         unbounded: request.unbounded,
+        pointerClient: request.pointerClient,
       });
     } else if (request.type === "selectShapesForBlocks") {
       // フォーカスは本文に残したまま選択だけ立てる。`focusOverlayCanvas` を呼ぶと本文の
@@ -240,6 +246,28 @@ export function useOverlayExternalRequests({
 
     if (request.startMarquee) {
       focusOverlayCanvas();
+      if (request.dragEndPoint) {
+        const end = request.dragEndPoint;
+        if (Math.hypot(end.x - request.point.x, end.y - request.point.y) >= 3) {
+          setSelectedShapeIds(filterSelectableShapeIds(getMarqueeSelectionIds({
+            shapes: shapesRef.current,
+            marquee: {
+              x: Math.min(request.point.x, end.x), y: Math.min(request.point.y, end.y),
+              w: Math.abs(end.x - request.point.x), h: Math.abs(end.y - request.point.y),
+            },
+            focusedGroupId: focusedGroupIdRef.current,
+            currentIds: selectedIdsRef.current,
+            additive: true,
+          }), editPolicyUnselectableShapeIdsRef?.current));
+        } else {
+          const hit = getShapeAtPoint(end, 8) ?? getOpenStrokeShapeAtPoint(end);
+          if (hit) selectShape(hit.id);
+          else setSelectedShapeIds([]);
+        }
+        transitionMode({ type: "select" });
+        onSelectPointHandled(request.id, true);
+        return;
+      }
       transitionMode({
         type: "startMarquee",
         start: request.point,
@@ -258,7 +286,13 @@ export function useOverlayExternalRequests({
         !isOverlayShapeUnselectable(item.id, editPolicyUnselectableShapeIdsRef?.current)
       ))
       : undefined;
-    const shape = requestedShape ?? getShapeAtPoint(request.point, 8) ?? getOpenStrokeShapeAtPoint(request.point);
+    const hitShape = requestedShape ?? getShapeAtPoint(request.point, 8) ?? getOpenStrokeShapeAtPoint(request.point);
+    // 本文の編集中に図形をダブルクリックしたとき (`startCrop`)。一番手前が文字を直さない図形
+    // (画像・図・四角形など) でも、その下に隠れた文章の図形があればそちらの編集に入る。
+    // 押下の選択 (`targetShapeId` つき) は一番手前が勝つままで、抜けるのはダブルクリックだけ。
+    const shape = hitShape && request.startCrop && !requestedShape
+      ? resolveDoubleClickTarget(hitShape, () => getEditableTextShapeAtPoint(request.point))
+      : hitShape;
 
     if (shape) {
       activeTextEditorRef.current?.commands.blur();
@@ -310,7 +344,7 @@ export function useOverlayExternalRequests({
       transitionMode({ type: "select" });
       onSelectPointHandled(request.id, false);
     }
-  }, [handledSelectPointRequestIdRef, shapesRef, getShapeAtPoint, getOpenStrokeShapeAtPoint, focusOverlayCanvas, transitionMode, onSelectPointHandled, activeTextEditorRef, selectShape, editPolicyLockedShapeIdsRef, editPolicyUnselectableShapeIdsRef, focusedGroupIdRef, refreshAnchorMeasurements, setSelectedShapeIds, setShapes, queueOverlaySave, documentId, openShapeContextMenu]);
+  }, [handledSelectPointRequestIdRef, shapesRef, getShapeAtPoint, getOpenStrokeShapeAtPoint, getEditableTextShapeAtPoint, focusOverlayCanvas, transitionMode, onSelectPointHandled, activeTextEditorRef, selectShape, editPolicyLockedShapeIdsRef, editPolicyUnselectableShapeIdsRef, focusedGroupIdRef, refreshAnchorMeasurements, setSelectedShapeIds, setShapes, queueOverlaySave, documentId, openShapeContextMenu, selectedIdsRef]);
 
   useEffect(() => {
     if (selectPointRequest) {
