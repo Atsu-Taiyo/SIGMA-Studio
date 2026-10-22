@@ -119,7 +119,7 @@ for (const key of ["Tab", "Shift+Tab"] as const) {
       const restoredPage = await activeApp.firstWindow();
       await restoredPage.waitForFunction(() => Boolean(window.desktopAPI?.storage));
       expect(await savedParagraphs(restoredPage, fileId)).toMatchObject({ p0: "段落0$\\int$" });
-    } finally { await activeApp.close(); rmSync(profile, { recursive: true, force: true }); }
+    } finally { await activeApp.close(); rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
   });
 }
 
@@ -140,7 +140,7 @@ test("Tab navigation still moves between fraction placeholders before committing
     await page.keyboard.press("Enter");
     await expect.poll(() => savedParagraphs(page, fileId)).toMatchObject({ p0: "段落0$\\frac{a}{b}$" });
     expect(errors).toEqual([]);
-  } finally { await app.close(); rmSync(profile, { recursive: true, force: true }); }
+  } finally { await app.close(); rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
 
 test("keys typed right after Ctrl+M land inside the new formula and keep their order through save/reload", async () => {

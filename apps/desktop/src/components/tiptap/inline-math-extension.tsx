@@ -1614,6 +1614,7 @@ function InlineMathLiveField({
   const pendingLatexCommandTimeoutRef = useRef(0);
   const committedRef = useRef(false);
   const armedEdgeRef = useRef<"left" | "right" | null>(null);
+  const tabNavigationInProgressRef = useRef(false);
   /** フォントメニューへ焦点が移って確定を待っている間の見張り (`watchInlineMathFontMenuFocus`)。 */
   const stopFontMenuWatchRef = useRef<(() => void) | null>(null);
 
@@ -1990,6 +1991,10 @@ function InlineMathLiveField({
     },
     onMouseDown,
     onKeyDownCapture: (event: KeyboardEvent) => {
+      if (event.key === "Tab") {
+        tabNavigationInProgressRef.current = true;
+        queueMicrotask(() => { tabNavigationInProgressRef.current = false; });
+      }
       // 上付きと下付きを両方持つ原子 (∫_a^b・Σ) の中で ↓/↑ を押すと、上下の枠を行き来する。
       // MathLive は分数と配列でしか動かない (`mathlive-script-navigation.ts`)。MathLive の処理より前に行う。
       const scriptArrow = locked ? null : getScriptBranchArrowDirection({
@@ -2091,6 +2096,12 @@ function InlineMathLiveField({
         return;
       }
       const mathField = event.currentTarget as InlineMathFieldElement;
+      // Pointer-driven selection can unmount an overlay editor immediately.
+      // Preserve its synchronous commit; only defer an active Tab command.
+      if (!tabNavigationInProgressRef.current) {
+        commit(mathField);
+        return;
+      }
       // MathLive's Tab command focuses its next target, then finishes using its
       // model. A synchronous commit here unmounts the field and disposes that
       // model before the command returns (including stopCoalescingUndo).
