@@ -429,6 +429,7 @@ export const editor = {
     noSavedDocuments: "There are no saved documents.",
     fallbackDocument: "The requested document could not be opened, so another one is shown",
     documentCreated: "Created a new document",
+    templateDocumentCreated: "Created a new document from the template",
     restoreFailed: "Could not restore the document",
     hostAutosaved: "Auto-saved to the host",
     hostSynced: "Changes sent to the host",

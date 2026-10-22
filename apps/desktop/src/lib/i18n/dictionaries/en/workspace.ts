@@ -240,8 +240,8 @@ export const workspace = {
     updatedAt: "Updated {{date}} {{time}}",
   },
   template: {
-    insertHint: "Selecting one inserts it into the current document",
-    createHint: "Selecting one creates a new material from that template",
+    insertHint: "Selecting one inserts its content into the current document (the page setup stays as it is)",
+    createHint: "Selecting one creates a new material from that template, page setup included",
     workspaces: "Workspaces",
     searchPlaceholder: "Search templates and workspaces",
     noMatches: "No matching templates",

@@ -30,7 +30,9 @@ export function tiptapDocToOverlayTextBlocks(
   doc: TiptapDoc,
   previousBlocks: readonly OverlayTextBlock[] = [],
 ): OverlayTextBlock[] {
-  return tiptapToTextFlow(doc, [...previousBlocks]).map(toOverlayTextBlock);
+  // 図中テキストの編集面は下余白を PM の属性へ直接書く (つまみ・貼り付け)。属性が正で、前のブロックに
+  // 合わせ直すと、書いたばかりの余白を次の打鍵が巻き戻す。
+  return tiptapToTextFlow(doc, [...previousBlocks], { spaceAfter: "node" }).map(toOverlayTextBlock);
 }
 
 /**

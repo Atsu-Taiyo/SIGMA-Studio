@@ -225,6 +225,50 @@ describe("editor paste ownership", () => {
     expect(ports.pasteShapes).not.toHaveBeenCalled();
   });
 
+  describe("shape paste at the mouse pointer", () => {
+    it("hands the pointer's point to the shape paste when it is over the editing area", () => {
+      const target = mount('<div class="page-flow"><div contenteditable="true" data-target></div></div>');
+      const ports = install({ getPointerPastePoint: vi.fn(() => ({ x: 320, y: 480 })) });
+      const payload = createOverlayClipboardPayload([shape], {}, "source_doc");
+
+      expect(dispatch(target, "paste", clipboardData(payload)).defaultPrevented).toBe(true);
+      expect(ports.pasteShapes).toHaveBeenCalledWith(payload, { pointerClient: { x: 320, y: 480 } });
+    });
+
+    it("keeps the 20px nudge when the pointer is elsewhere (menu bar, sidebar, dialog) or unknown", () => {
+      const target = mount('<div class="page-flow"><div contenteditable="true" data-target></div></div>');
+      const ports = install({ getPointerPastePoint: vi.fn(() => null) });
+      const payload = createOverlayClipboardPayload([shape], {}, "source_doc");
+
+      dispatch(target, "paste", clipboardData(payload));
+      expect(ports.pasteShapes).toHaveBeenCalledWith(payload);
+      expect(vi.mocked(ports.pasteShapes).mock.calls[0]).toHaveLength(1);
+    });
+
+    it("asks for the pointer at paste time, not at registration", () => {
+      const target = mount();
+      let point: { x: number; y: number } | null = null;
+      const ports = install({ getPointerPastePoint: () => point });
+      const payload = createOverlayClipboardPayload([shape], {}, "source_doc");
+
+      point = { x: 10, y: 20 };
+      dispatch(target, "paste", clipboardData(payload));
+      expect(vi.mocked(ports.pasteShapes).mock.calls[0]![1]).toEqual({ pointerClient: { x: 10, y: 20 } });
+    });
+
+    it("also places the shapes of a mixed paste that is routed outside the body", () => {
+      const target = mount();
+      const ports = install({ getPointerPastePoint: () => ({ x: 5, y: 6 }) });
+      const payload = createTextAndShapesClipboardPayload({ slice: {}, text: "本文" }, [shape], {}, "source_doc");
+
+      dispatch(target, "paste", clipboardData(payload));
+      expect(ports.pasteShapes).toHaveBeenCalledWith(
+        createOverlayClipboardPayload([shape], {}, "source_doc"),
+        { pointerClient: { x: 5, y: 6 } },
+      );
+    });
+  });
+
   it("reads the material dialog state at event time", () => {
     const target = mount();
     let materialEditing = false;

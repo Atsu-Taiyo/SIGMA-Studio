@@ -1,4 +1,6 @@
 import { PAGE_NAVIGATOR_SCROLL_PADDING_PX } from "@/components/editor/editor-shell/constants";
+import { readCanvasPageArrangement } from "@/components/editor/page-canvas/page-arrangement-dom";
+import { pageOrigin } from "@/features/rendering/core";
 import {
   getPageMetrics,
   normalizePageLayout,
@@ -36,8 +38,10 @@ export function getVisibleEditorPageNumber(
     contentHeight,
   );
   const focusY = visibleTop + (visibleBottom - visibleTop) * 0.5;
+  // 2 ページ並びでは縦の刻み 1 つが 1 行 (2 ページ)。その行の左のページを今のページとする。
+  const pagesPerRow = readCanvasPageArrangement(canvas)?.columns ?? 1;
 
-  return Math.max(1, Math.floor(focusY / pageStride) + 1);
+  return Math.max(1, Math.floor(focusY / pageStride) * pagesPerRow + 1);
 }
 
 export function scrollEditorCanvasToPage(
@@ -56,7 +60,9 @@ export function scrollEditorCanvasToPage(
   const canvasRect = canvas.getBoundingClientRect();
   const scrollerRect = scroller.getBoundingClientRect();
   const canvasTopInScroller = canvasRect.top - scrollerRect.top + scroller.scrollTop;
-  const pageTop = Math.max(0, Math.floor(pageNumber) - 1) * pageStride * zoomScale;
+  const pageIndex = Math.max(0, Math.floor(pageNumber) - 1);
+  const arrangement = readCanvasPageArrangement(canvas);
+  const pageTop = (arrangement ? pageOrigin(arrangement, pageIndex).y : pageIndex * pageStride) * zoomScale;
 
   scroller.scrollTo({
     top: Math.max(0, canvasTopInScroller + pageTop - PAGE_NAVIGATOR_SCROLL_PADDING_PX),

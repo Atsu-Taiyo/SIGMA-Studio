@@ -248,6 +248,73 @@ describe("assignBoxedRunTargets with per-segment rects", () => {
   });
 });
 
+/** A mark span that can say which document positions it covers (the editing surface can). */
+function boxedAt(r: BoxedRunRect, from: number, to: number, segmentCount = 1): BoxedRunWalkItem {
+  return {
+    kind: "boxed",
+    segments: Array.from({ length: segmentCount }, () => [r]),
+    resolveFallback: () => ({}),
+    resolveRange: () => ({ from, to }),
+  };
+}
+
+describe("assignBoxedRunTargets claims targets by position", () => {
+  // 「（参考）」(太字) + 「　」+ 数式 + 「　型だけは…」: ProseMirror merges the first two text nodes
+  // into ONE `.boxed-text` span (their boxed marks are equal; only the bold mark inside differs),
+  // so the span count is one short of the target count.
+  const label = { from: 1, to: 5, styleKey: "0|frame|" };
+  const space = { from: 5, to: 6, styleKey: "0|frame|", whitespaceOnly: true };
+  const math = { from: 6, to: 7, styleKey: "0|frame|" };
+  const tail = { from: 7, to: 20, styleKey: "0|frame|" };
+
+  it("gives every text node of a coalesced span its own target instead of shifting the run", () => {
+    const measurements = assignBoxedRunTargets(
+      [boxedAt(rect(8, 30), 1, 6), boxedAt(rect(0, 40), 6, 7), boxedAt(rect(8, 30), 7, 20)],
+      [label, space, math, tail],
+    );
+    expect(measurements.map((m) => m.boxedTarget)).toEqual([label, space, math, tail]);
+
+    const connections = computeBoxedRunLineConnections(measurements);
+    expect(connections.get(label)).toEqual({ connectLeft: false, connectRight: true });
+    expect(connections.get(space)).toEqual({ connectLeft: true, connectRight: true });
+    expect(connections.get(math)).toEqual({ connectLeft: true, connectRight: true });
+    expect(connections.get(tail)).toEqual({ connectLeft: true, connectRight: false });
+    // The tail is raised to the formula's height like any other member of the run.
+    expect(computeBoxedRunLineTargets(measurements).get(tail)).toMatchObject({ targetHeight: 40, extraPaddingTop: 8, extraPaddingBottom: 10 });
+  });
+
+  it("decorates every text node of a trailing coalesced span", () => {
+    const parts = [{ from: 7, to: 12, styleKey: "0|frame|" }, { from: 12, to: 16, styleKey: "0|frame|" }, { from: 16, to: 20, styleKey: "0|frame|" }];
+    const measurements = assignBoxedRunTargets(
+      [boxedAt(rect(8, 30), 1, 5), boxedAt(rect(0, 40), 5, 6), boxedAt(rect(8, 30), 7, 20)],
+      [{ from: 1, to: 5, styleKey: "0|frame|" }, { from: 5, to: 6, styleKey: "0|frame|" }, ...parts],
+    );
+    expect(measurements.map((m) => m.boxedTarget)).toEqual([
+      { from: 1, to: 5, styleKey: "0|frame|" }, { from: 5, to: 6, styleKey: "0|frame|" }, ...parts,
+    ]);
+    // Each text node takes the span's one measured box.
+    expect(measurements.slice(2).map((m) => [m.top, m.bottom])).toEqual([[8, 30], [8, 30], [8, 30]]);
+  });
+
+  it("still pairs one-to-one when every span stands in for exactly its measured boxes", () => {
+    const first = { from: 1, to: 2, styleKey: "0|frame|" }, second = { from: 2, to: 3, styleKey: "0|frame|" };
+    const measurements = assignBoxedRunTargets([boxedAt(rect(0, 30), 1, 3, 2)], [first, second]);
+    expect(measurements.map((m) => m.boxedTarget)).toEqual([first, second]);
+  });
+
+  it("does not hand a span the targets that belong to the next one", () => {
+    const a = { from: 1, to: 3, styleKey: "0|frame|" }, b = { from: 3, to: 6, styleKey: "0|frame|" };
+    const measurements = assignBoxedRunTargets([boxedAt(rect(0, 20), 1, 3), boxedAt(rect(0, 20), 3, 6)], [a, b]);
+    expect(measurements.map((m) => m.boxedTarget)).toEqual([a, b]);
+  });
+
+  it("keeps the order pairing for a span whose range the view cannot map", () => {
+    const only = { from: 1, to: 3, styleKey: "0|frame|" };
+    const unmapped: BoxedRunWalkItem = { kind: "boxed", segments: [[rect(0, 20)]], resolveFallback: () => ({}), resolveRange: () => undefined };
+    expect(assignBoxedRunTargets([unmapped], [only]).map((m) => m.boxedTarget)).toEqual([only]);
+  });
+});
+
 describe("collectOwnedBoxedRunSegments", () => {
   it("stands in for itself when the span holds no node views", () => {
     const span = fakeMarkSpan([]);

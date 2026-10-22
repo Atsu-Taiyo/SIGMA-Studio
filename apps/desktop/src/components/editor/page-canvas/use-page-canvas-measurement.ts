@@ -6,10 +6,12 @@ import { getRotatedShapeVisualBounds } from "@/features/drawing";
 import { EDITOR_ZOOM_CHANGE_EVENT } from "@/features/rendering/adapters/editor-zoom-event";
 import {
   buildFlowModel,
+  createPageArrangement,
   placeFlow,
-  planFlowRender,
+  planArrangedFlowRender,
   type FlowColumnRulePiece,
   type FlowDisplacement,
+  type PageArrangement,
   type TextFlowColumnBlockLayout,
 } from "@/features/rendering/core";
 import { collectManualBreakHostIds } from "@/features/text-editing";
@@ -96,6 +98,11 @@ interface MeasurementGeometry {
   fontSize: number;
   isWhiteboard: boolean;
   isPagedRender: boolean;
+  /**
+   * ページの並び (表示だけ)。ページ割りはモデル座標のまま行い、描く変位にだけページのずらしを足す。
+   * 計測は描いた要素のずらしを引いてモデル座標を読む (`measureFlowBlocks`)。
+   */
+  arrangement?: PageArrangement;
 }
 interface MeasurementSurface {
   flowRef: RefObject<HTMLDivElement | null>;
@@ -118,6 +125,10 @@ interface PageCanvasMeasurementInputs {
 export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfter }: PageCanvasMeasurementInputs) {
   const { pageDocument, units, historyRevision, overlay, overlaySource, pendingDeletion, onReanchorOverlay, extensionMeasureKey = "", preservedShapeIds = NO_PRESERVED_SHAPE_IDS } = content;
   const { metrics, zoom, fontSize, isWhiteboard, isPagedRender } = geometry;
+  const singleArrangement = useMemo(() => createPageArrangement({
+    mode: "single", pageWidth: metrics.page.widthPx, pageHeight: metrics.page.heightPx, pageGap: PAGE_GAP_PX,
+  }), [metrics.page.heightPx, metrics.page.widthPx]);
+  const arrangement = geometry.arrangement ?? singleArrangement;
   const { flowRef, canvasRef, flowElement } = surface;
   const { spaceAfterSessionRef, setSpaceAfterDrag, setBlockAffordance } = spaceAfter;
   const pageHeightPx = metrics.page.heightPx;
@@ -463,6 +474,7 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
     const nextAreaLayouts: Record<string, ProblemAreaColumnLayout> = {};
     let nextColumnRulePieces: Record<string, FlowColumnRulePiece[]> = {};
     let nextUnitDisplacements: Record<string, FlowDisplacement> = {};
+    let nextModelUnitDisplacements: Record<string, FlowDisplacement> = {};
     let nextNodeDisplacements: Record<string, FlowDisplacement> = {};
     let nextVisualEnds: Record<string, number> = {};
     let nextSideNoteLabelYs: Record<string, number> = {};
@@ -491,7 +503,13 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
         columnGap: isColumnPage ? metrics.flow.columnGapPx : 0,
       });
       // 印刷・PDF の面は改ページの印を描かないので、印の場所で入れ物の片を切らない。
-      const flowPlan = planFlowRender(built, placement, { hideManualBreakMarkers: isPagedRender });
+      // 描く指示はページの並びのずらしを含む (1 列では model と同じ)。
+      const { display: flowPlan, model: modelPlan } = planArrangedFlowRender(
+        built,
+        placement,
+        arrangement,
+        { hideManualBreakMarkers: isPagedRender },
+      );
       if (placement.diagnostics.tallLines.length > 0) {
         countPerformanceEvent("PageCanvasEditor.tallLineOverflow");
       }
@@ -500,6 +518,7 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
       nextFrameFragmentLayouts = flowPlan.framePieces;
       nextColumnRulePieces = flowPlan.columnRulePieces;
       nextUnitDisplacements = flowPlan.unitDisplacements;
+      nextModelUnitDisplacements = modelPlan.unitDisplacements;
       nextNodeDisplacements = flowPlan.nodeDisplacements;
       nextVisualEnds = flowPlan.visualEnds;
       nextSideNoteLabelYs = flowPlan.sideNoteLabelYs;
@@ -583,6 +602,7 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
         sameMeasuredBlockMap(current.blockRects, blockCanvasRects) &&
         sameBlockExtentMap(current.blockExtents, extents) &&
         sameDisplacementMap(current.unitDisplacements, nextUnitDisplacements) &&
+        sameDisplacementMap(current.modelUnitDisplacements, nextModelUnitDisplacements) &&
         sameDisplacementMap(current.nodeDisplacements, nextNodeDisplacements) &&
         sameColumnRulePieces(current.columnRulePieces ?? {}, nextColumnRulePieces) &&
         sameNumberMap(current.visualEnds, nextVisualEnds) &&
@@ -612,6 +632,7 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
         unitLayouts: nextLayouts,
         columnRulePieces: nextColumnRulePieces,
         unitDisplacements: nextUnitDisplacements,
+        modelUnitDisplacements: nextModelUnitDisplacements,
         nodeDisplacements: nextNodeDisplacements,
         visualEnds: nextVisualEnds,
         sideNoteLabelYs: nextSideNoteLabelYs,
@@ -621,7 +642,7 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
       return next;
     });
     return "measured";
-  }, [flowRef, zoom, pageHeightPx, units, pageDocument.docId, marginTopPx, isColumnPage, contentHeightPx, metrics.margins.leftPx, metrics.content.widthPx, metrics.flow.columnCount, metrics.flow.columnWidthPx, metrics.flow.columnGapPx, isPagedRender, pageWidthPx, layoutInput]);
+  }, [flowRef, zoom, pageHeightPx, units, pageDocument.docId, marginTopPx, isColumnPage, contentHeightPx, metrics.margins.leftPx, metrics.content.widthPx, metrics.flow.columnCount, metrics.flow.columnWidthPx, metrics.flow.columnGapPx, isPagedRender, pageWidthPx, layoutInput, arrangement]);
 
   // 再ページ割り 1 回ぶんの実測。打鍵ごとに rAF で走るので、ここが 1 フレームを超えると
   // そのまま入力の詰まりになる (perf-probe の typing フェーズがこの measure を見る)。
@@ -837,6 +858,7 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
     fontSize: number;
     historyRevision: number;
     overlay: PageOverlay | undefined;
+    arrangement: PageArrangement;
   } | null>(null);
 
   useLayoutEffect(() => {
@@ -850,13 +872,15 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
       previous.zoom !== zoom ||
       previous.fontSize !== fontSize ||
       previous.historyRevision !== historyRevision ||
-      previous.overlay !== overlaySource;
+      previous.overlay !== overlaySource ||
+      previous.arrangement.mode !== arrangement.mode;
     structuralRecomputeDepsRef.current = {
       metrics,
       zoom,
       fontSize,
       historyRevision,
       overlay: overlaySource,
+      arrangement,
     };
 
     if (structuralChanged) {
@@ -918,7 +942,7 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
       // recompute per frame. The deferred run refreshes prevMeasureRef itself.
       scheduleRecompute(true);
     }
-  }, [overlaySource, fontSize, historyRevision, markFullMeasureDirty, metrics, recompute, scheduleRecompute, units, zoom, spaceAfterSessionRef]);
+  }, [overlaySource, fontSize, historyRevision, markFullMeasureDirty, metrics, recompute, scheduleRecompute, units, zoom, spaceAfterSessionRef, arrangement]);
 
   // Webfonts land after the first layout and shift blocks by a pixel or two. That does
   // not always change the flow's own size, so the ResizeObserver below can miss it — and

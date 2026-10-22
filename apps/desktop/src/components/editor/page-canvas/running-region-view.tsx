@@ -2,6 +2,7 @@
 import { useEditorExtensions } from "@/components/editor/editor-extension-context";
 import { TextFlowEditor } from "@/components/editor/TextFlowEditor";
 import {
+  createRunningRegionFieldValues,
   getRunningRegionBoundsMm,
   getRunningRegionOverlaySize,
   hasRunningRegionPageContent,
@@ -70,9 +71,10 @@ export function RunningRegionPageView({
   mathFractionSizing?: MathFractionSizing | null;
 }) {
   const blocks = useMemo(() => region ? pageRunningRegionToTextFlowBlocks(region, kind, pageNumber) : [], [kind, pageNumber, region]);
+  const pageNumberStart = layout.pageNumberStart;
   const fieldValues = useMemo<RunningRegionFieldValues>(
-    () => ({ title, page: pageNumber, total: totalPages }),
-    [pageNumber, title, totalPages],
+    () => createRunningRegionFieldValues(title, pageNumber, totalPages, pageNumberStart),
+    [pageNumber, pageNumberStart, title, totalPages],
   );
   if (!region?.enabled || !pageRunningRegionHasContentOnPage(region, pageNumber) || !isRunningRegionShownOnPage(region, pageNumber)) {
     return null;
@@ -121,6 +123,7 @@ export function RunningRegionControls({
   layout,
   metrics,
   pageTopPx,
+  pageLeftPx = 0,
   pageNumber,
   title,
   totalPages,
@@ -157,6 +160,8 @@ export function RunningRegionControls({
   layout: PageLayout;
   metrics: PageMetrics;
   pageTopPx: number;
+  /** 2 ページ並びの右の列のページの左端 (表示座標)。1 列では 0。 */
+  pageLeftPx?: number;
   pageNumber: number;
   /** 差し込み (`{title}` `{page}` `{total}`) に見せる値。 */
   title: string;
@@ -208,7 +213,7 @@ export function RunningRegionControls({
 }) {
   const tEditorText = useT("editor");
   return (
-    <div className="page-layout-control-sheet" style={{ top: `${pageTopPx}px` }}>
+    <div className="page-layout-control-sheet" style={{ top: `${pageTopPx}px`, ...(pageLeftPx ? { left: `${pageLeftPx}px` } : {}) }}>
       {marginEditing && (
         <div
           className="page-content-guide"
@@ -406,6 +411,8 @@ export function RunningRegionBand({
   }
 
   const shownOnPage = isRunningRegionShownOnPage(region, pageNumber);
+  // `{page}` `{total}` に出す番号。表示するページの指定・ページ専用の中身は組版上のページ (`pageNumber`) のまま。
+  const fieldValues = createRunningRegionFieldValues(title, pageNumber, totalPages, layout.pageNumberStart);
   const bounds = getRunningRegionBoundsMm(layout, kind);
   const top = mmToPx(bounds.topMm);
   // Shared with `PageRunningRegionView`: the band used to subtract the page sheet's 2px border
@@ -463,7 +470,7 @@ export function RunningRegionBand({
           label={label}
           region={region}
           pageNumber={pageNumber}
-          fieldValues={{ title, page: pageNumber, total: totalPages }}
+          fieldValues={fieldValues}
           mathFractionSizing={mathFractionSizing}
           focusRequest={focusRequest}
           historyRevision={historyRevision}
@@ -526,7 +533,7 @@ export function RunningRegionBand({
         bandRef={bandRef}
         pageNumber={pageNumber}
         totalPages={totalPages}
-        title={title}
+        fieldValues={fieldValues}
         editing={editing}
         shownOnPage={shownOnPage}
         ownContent={hasRunningRegionPageContent(region, pageNumber)}

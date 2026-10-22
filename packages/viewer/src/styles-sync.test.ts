@@ -172,7 +172,9 @@ describe("viewer stylesheet size", () => {
   // Allow 4 KiB for them (84 KiB) while keeping the generated CSS cap unchanged.
   // 囲み文字に下線を引く規則 (囲みの区間は inline-flex で run の下線が届かないので区間自身が引き、
   // 枠の下に線の分の余白を足す) で約 1.8KB 増えた。印刷・viewer も同じ下線を描くので 86KiB へ上げた。
-  const MAX_AUTHORED_CSS_BYTES = 86 * 1024;
+  // 図中テキストの段落下余白 (`.overlay-text-shape-content` を既存の `spaceAfterPx` 3 規則へ足した)
+  // で約 0.3KB 増えた。印刷・viewer も同じ余白を描くので 87KiB へ上げた。
+  const MAX_AUTHORED_CSS_BYTES = 87 * 1024;
   const MAX_DIST_CSS_BYTES = 128 * 1024;
 
   it("keeps the authored CSS (viewer + shared document surface) small", () => {

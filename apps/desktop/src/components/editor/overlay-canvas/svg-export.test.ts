@@ -47,6 +47,20 @@ describe("overlay svg export", () => {
     const ordinarySvg = getOverlayPreviewSvg({ overlaySnapshot: { version: 1, shapes: [ordinary], assets: {} } });
     expect(ordinarySvg).toContain("white-space:pre-wrap");
   });
+  it("draws a paragraph's space after as inline padding, since the exported svg has no stylesheet", () => {
+    const shape: OverlayShape = { id: "spaced-text", type: "text", x: 0, y: 0,
+      props: { w: 200, h: 80, color: "#000000", size: "m",
+        blocks: [
+          { type: "paragraph", id: "p_spaced", spaceAfterPx: 18, children: [{ type: "text", text: "上" }] },
+          { type: "paragraph", id: "p_plain", children: [{ type: "text", text: "下" }] },
+        ] } };
+    const svg = getOverlayPreviewSvg({ overlaySnapshot: { version: 1, shapes: [shape], assets: {} } });
+
+    // 余白のある段落だけが padding を持つ。変数だけを書いても、スタイルシートの無い書き出しでは描かれない。
+    expect(svg).toMatch(/<p style="[^"]*padding-bottom:18px[^"]*">上<\/p>/);
+    expect(svg).toMatch(/<p style="[^"]*margin:0[^"]*">下<\/p>/);
+    expect((svg ?? "").match(/padding-bottom/g)).toHaveLength(1);
+  });
   it("derives a preview svg from snapshot-only overlays", () => {
     const overlaySnapshot: OverlaySnapshot = {
       version: 1,

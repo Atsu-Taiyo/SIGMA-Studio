@@ -2051,8 +2051,10 @@ li[data-list-marker-typography]::marker {
   margin: 2px 0;
 }
 
-/* spaceAfterPxは共有custom propertyからpaddingとして読み、ページ計測にも含める。 */
+/* spaceAfterPxは共有custom propertyからpaddingとして読み、ページ計測にも含める。
+   図中テキスト (.overlay-text-shape-content) も同じ規則: 編集面と静的描画がこの1枚を読む。 */
 .text-flow-editor :is(p, h1, h2, h3, ul, ol, hr),
+.overlay-text-shape-content :is(p, h1, h2, h3, ul, ol, hr),
 .print-paragraph,
 .print-heading,
 .print-section,
@@ -2063,6 +2065,7 @@ li[data-list-marker-typography]::marker {
 
 /* custom property は相続するので、リスト全体の余白が各項目へ降りないよう li で断ち切る。 */
 .text-flow-editor :is(ul, ol) > li,
+.overlay-text-shape-content :is(ul, ol) > li,
 .print-list > li {
   --sigma-doc-space-after: 0px;
   --sigma-doc-list-item-space-after: 0px;
@@ -2072,6 +2075,7 @@ li[data-list-marker-typography]::marker {
    その後ろに残るので、つまみの実測辺と保存後の見た目が一致する。専用変数に分けることで、
    先頭段落の通常ブロック余白と二重になる経路を構造的に持たない。 */
 .text-flow-editor :is(ul, ol) > li > :not(ul, ol):not(:has(~ :not(ul, ol))),
+.overlay-text-shape-content :is(ul, ol) > li > :not(ul, ol):not(:has(~ :not(ul, ol))),
 .print-list > li > :not(ul, ol):not(:has(~ :not(ul, ol))) {
   padding-bottom: var(--sigma-doc-list-item-space-after, 0px);
 }

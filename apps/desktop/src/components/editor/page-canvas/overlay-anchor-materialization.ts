@@ -14,6 +14,7 @@ import { isShapeEditPolicyLockedInTree } from "../overlay-canvas/grouping";
 import type { OverlayPoint,OverlayShape } from "../overlay-canvas/types";
 import { emptyProblemAreaEditorBlockId,PROBLEM_AREA_ORDER } from "./block-ops";
 import { calculateReserveSpaceGaps } from "./layout-measure";
+import { createBodyLayerRectReader } from "./page-arrangement-dom";
 
 export const BODY_MODE_OPEN_STROKE_HIT_MARGIN = 14;
 
@@ -215,11 +216,12 @@ export function elementRectToOverlayRect(
   canvasHeight: number,
 ): OverlayRect {
   const rect = element.getBoundingClientRect();
-  const scaleX = canvasWidth / layerRect.width;
-  const scaleY = canvasHeight / layerRect.height;
+  // 2 ページ並びでは、要素のページのずらしを引いてモデル座標で読む (`measureBlockTops` と同じ)。
+  const { scaleX, scaleY, shiftOf } = createBodyLayerRectReader(element, layerRect, canvasWidth, canvasHeight);
+  const shift = shiftOf(element);
   return {
-    x: (rect.left - layerRect.left) * scaleX,
-    y: (rect.top - layerRect.top) * scaleY,
+    x: (rect.left - layerRect.left) * scaleX - shift.x,
+    y: (rect.top - layerRect.top) * scaleY - shift.y,
     w: rect.width * scaleX,
     h: rect.height * scaleY,
   };

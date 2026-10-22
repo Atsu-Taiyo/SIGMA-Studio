@@ -297,6 +297,25 @@ describe("block space after round trip", () => {
     expect(restored[0]?.spaceAfterPx).toBeUndefined();
   });
 
+  it("lets the node attribute win when the surface edits the attribute itself (a figure's text)", () => {
+    // 図中テキストの編集面は余白を PM の属性へ直接書く。SigmaDoc 側 (前のブロック) に合わせ直すと、
+    // 書いたばかりの余白を次の打鍵が巻き戻す。
+    const node = textFlowBlockToTiptapNode(PARAGRAPH_WITH_SPACE);
+    const previous: TextFlowBlock[] = [{ type: "paragraph", id: "p_space", children: [], spaceAfterPx: 5 }];
+
+    expect(tiptapToTextFlow({ type: "doc", content: [node] }, previous, { spaceAfter: "node" })[0]?.spaceAfterPx).toBe(24);
+    // 既定 (本文) は従来どおり SigmaDoc 側が正。
+    expect(tiptapToTextFlow({ type: "doc", content: [node] }, previous)[0]?.spaceAfterPx).toBe(5);
+  });
+
+  it("lets the node attribute clear a space that SigmaDoc still holds (reset to 0)", () => {
+    const cleared = textFlowBlockToTiptapNode({ type: "paragraph", id: "p_space", children: [] });
+    const previous: TextFlowBlock[] = [{ type: "paragraph", id: "p_space", children: [], spaceAfterPx: 24 }];
+
+    expect(tiptapToTextFlow({ type: "doc", content: [cleared] }, previous, { spaceAfter: "node" })[0]?.spaceAfterPx)
+      .toBeUndefined();
+  });
+
   it("leaves the space on the first half when the block is split in two", () => {
     const editor = createEditor([PARAGRAPH_WITH_SPACE]);
     editor.commands.setTextSelection(1 + "下に余白".length);

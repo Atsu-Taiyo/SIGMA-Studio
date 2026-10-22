@@ -8,6 +8,7 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import type { SelectedInlineMath } from "@/components/editor/EditorSettings";
+import type { PageArrangementPreference } from "@/lib/page-arrangement-preference";
 import type { FontFamilyGroup } from "@/components/editor/editor-shell/constants";
 import type { DocumentOpenFailure } from "@/components/editor/editor-shell/document-open-failure";
 import type {
@@ -21,6 +22,7 @@ import type { ShapeTypeChangeCommand } from "@/components/editor/overlay-canvas/
 import type { SharedFillState } from "@/components/editor/overlay-canvas/style-patch";
 import type { OverlayPoint, OverlayTool } from "@/components/editor/overlay-canvas/types";
 import type { OverlayArrangeAction, OverlayCommand, OverlaySelectionStylePatch, OverlaySelectionSummary } from "@/components/editor/page-overlay-types";
+import type { TemplateGalleryMode } from "@/components/templates/TemplateGallery";
 import type { TooltipContent } from "@/components/ui/Tooltip";
 import type { BoxedVariant, InlineNode, SigmaBlock, SigmaDocument, TextAlign } from "@/features/document";
 import type { OverlayDash, OverlayTextSize } from "@/features/document/overlay-model";
@@ -278,6 +280,9 @@ export interface EditorChromeView {
   pageCount: number;
   zoom: number;
   zoomOptions: readonly [10, 15, 25, 33, 50, 67, 75, 90, 100, 125, 150, 200, 300, 400, 600, 800] | number[];
+  /** ページの並び (表示だけの設定)。ページの無い教材 (ホワイトボード) では null で、切り替えを出さない。 */
+  pageArrangement: PageArrangementPreference | null;
+  setPageArrangement: (next: PageArrangementPreference) => void;
 }
 
 /** メニューバー行（タイトル・アプリメニュー・教材タブ・保存状態・右側アクション・隠しinput）。 */
@@ -350,7 +355,8 @@ export interface EditorChromeAppMenu {
   setNewDocMenuOpen: Dispatch<SetStateAction<boolean>>;
   setOverlayEditing: Dispatch<SetStateAction<boolean>>;
   setPageSettingsOpen: Dispatch<SetStateAction<boolean>>;
-  setTemplateGalleryOpen: Dispatch<SetStateAction<boolean>>;
+  /** テンプレートギャラリーを開く。"use" は「テンプレートから新規」(新しい教材)、"insert" は「テンプレートを挿入」(開いている教材へ)。 */
+  setTemplateGalleryMode: Dispatch<SetStateAction<TemplateGalleryMode | null>>;
   setTexCommandReferenceOpen: Dispatch<SetStateAction<boolean>>;
   setTexEnvironmentSettingsOpen: Dispatch<SetStateAction<boolean>>;
   setTitleInputFocused: Dispatch<SetStateAction<boolean>>;

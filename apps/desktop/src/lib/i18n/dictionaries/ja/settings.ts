@@ -145,6 +145,9 @@ export const settings = {
     columnOption: "{{count}}段",
     regionOffsetFromBottomMm: "用紙の下端から",
     footerHint: "文字やページ番号は、ページ下部の帯をダブルクリックして入力します。ページごとに表示や内容を変えるときは、帯の右のボタンから設定します。",
+    pageNumbering: "ページ番号",
+    pageNumberStart: "ページ番号の開始",
+    pageNumberStartHint: "表紙を0ページにするときは0にします。総ページ数は最後のページの番号に合わせて数えます。",
     apply: "適用",
   },
   // --- ボックス設定ダイアログ (BoxSettingsDialog) ---
@@ -772,6 +775,7 @@ export const settings = {
       columns: "段組み column 段数 段間",
       header: "ヘッダー header 上部",
       footer: "フッター footer 下部",
+      pageNumber: "ページ番号 page number numbering 開始 表紙 cover 0ページ 総ページ数 total",
       math: "数式 math 分数 fraction 組版",
       shortcuts: "ショートカット shortcut キー割り当て key binding",
       customCommand: "カスタムコマンド custom command 追加コマンド",

@@ -173,7 +173,8 @@ test("typing or composing over a selection in math keeps the editor still sidewa
         await expect.poll(value).toBe(String.raw`\frac{\placeholder{}}{\placeholder{}}`);
         await expectScrollUnchanged(scroller, before, `${id} 分数を入れた`);
         await page.keyboard.type("a");
-        await expect.poll(value).toBe(String.raw`\frac{a}{\placeholder{}}`);
+        // 分数は分母から入る。
+        await expect.poll(value).toBe(String.raw`\frac{\placeholder{}}{a}`);
         await page.waitForTimeout(100);
         await expectScrollUnchanged(scroller, before, `${id} a`);
       } else {
@@ -199,7 +200,7 @@ test("typing or composing over a selection in math keeps the editor still sidewa
       await expect(field).toHaveCount(0);
     }
     await page.keyboard.press("ControlOrMeta+s");
-    await expect.poll(() => savedMath(page, fileId, "blank150")).toMatch(/^\\frac\{a\}/);
+    await expect.poll(() => savedMath(page, fileId, "blank150")).toMatch(/^\\frac\{\\placeholder\{\}\}\{a\}/);
     for (const id of ["range150", "range100"]) {
       // 選んでいた x+1 は変換した文字で置き換わる。
       await expect.poll(async () => {
@@ -209,7 +210,7 @@ test("typing or composing over a selection in math keeps the editor still sidewa
     }
     await page.reload();
     await expect(page.locator('.page-flow [data-sigma-doc-id="range150"] .inline-math-node').first()).toHaveAttribute("data-tex", /漢/);
-    await expect(page.locator('.page-flow [data-sigma-doc-id="blank150"] .inline-math-node').first()).toHaveAttribute("data-tex", /^\\frac\{a\}/);
+    await expect(page.locator('.page-flow [data-sigma-doc-id="blank150"] .inline-math-node').first()).toHaveAttribute("data-tex", /^\\frac\{\\placeholder\{\}\}\{a\}/);
   } finally {
     await close();
   }

@@ -19,7 +19,9 @@ import {
   type MeasureScope,
 } from "./incremental-layout";
 import type { EditorBoxBlockFragmentLayout, FlowUnitLayout } from "./types";
+import { readFlowPageShift } from "./page-arrangement-dom";
 import { isUndrawnElement, keepUndrawnBlock } from "./undrawn-blocks";
+import { IDENTITY_PAGE_SHIFT } from "@/features/rendering/core";
 
 interface LineMeasureCacheEntry {
   contentRevision: string;
@@ -150,8 +152,11 @@ export function measureFlowBlocks(
       return;
     }
     const containerId = findMeasurableContainerId(el, id);
-    const top = (rect.top - contentOriginY) / zoomFactor + marginTopPx;
-    const left = (rect.left - flowRect.left) / zoomFactor;
+    // 2 ページ並び (`page-arrangement.ts`) では、描かれた矩形からそのページのずらしを引いて
+    // ページ割り・図形のアンカーが使う紙面 (モデル) 座標で返す。1 列ではずらしは付いていない。
+    const pageShift = readFlowPageShift(el);
+    const top = (rect.top - contentOriginY) / zoomFactor + marginTopPx - pageShift.y;
+    const left = (rect.left - flowRect.left) / zoomFactor - pageShift.x;
     const width = rect.width / zoomFactor;
     const height = rect.height / zoomFactor;
 
@@ -179,6 +184,9 @@ export function measureFlowBlocks(
     } else {
       countPerformanceEvent("PageCanvasEditor.lineBoxMeasure");
       lines = measureElementLineBoxes(el, flowRect, 1 / zoomFactor, 1 / zoomFactor);
+      if (pageShift !== IDENTITY_PAGE_SHIFT) {
+        lines = lines.map((line) => ({ ...line, top: line.top - pageShift.y, left: (line.left ?? 0) - pageShift.x }));
+      }
       freshEntry = {
         contentRevision,
         element: el,

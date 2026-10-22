@@ -456,6 +456,65 @@ describe("PrintPreview layout modes", () => {
   });
 });
 
+describe("PrintPreview page number start", () => {
+  const footerLayout = (pageNumberStart?: number, region: Record<string, unknown> = {}): NonNullable<SigmaDocument["pageLayout"]> => ({
+    preset: "A4",
+    orientation: "portrait",
+    pageSize: { widthMm: 210, heightMm: 297 },
+    marginsMm: { top: 18, right: 17, bottom: 22, left: 17 },
+    flow: { type: "columns", columnCount: 1, columnGapMm: 8 },
+    footer: {
+      enabled: true,
+      heightMm: 10,
+      offsetMm: 5,
+      showOnFirstPage: true,
+      blocks: [{ type: "paragraph", id: "footer_numbers", align: "center", children: [{ type: "text", text: "{page}/{total}" }] }],
+      ...region,
+    },
+    ...(pageNumberStart === undefined ? {} : { pageNumberStart }),
+  });
+  const fivePages = [
+    paragraph("start_p1", "表紙"),
+    ...[2, 3, 4, 5].map((page) => paragraph(`start_p${page}`, `${page}ページ目`, { pagination: { break: true } })),
+  ];
+  const footerTexts = (html: string) => {
+    const preview = html.split('<div class="print-measure-layer"')[0] ?? html;
+    return Array.from(preview.matchAll(/data-sigma-doc-id="footer_numbers"[^>]*>([^<]*)</g), (match) => match[1]);
+  };
+
+  it("numbers the footer 1/5 .. 5/5 by default", () => {
+    const html = renderToStaticMarkup(<PrintPreview document={documentWithColumns(1, fivePages, footerLayout())} profile="teacher" />);
+
+    expect(footerTexts(html)).toEqual(["1/5", "2/5", "3/5", "4/5", "5/5"]);
+  });
+
+  it("starts a cover page at 0 and makes the total the last page's number", () => {
+    const html = renderToStaticMarkup(<PrintPreview document={documentWithColumns(1, fivePages, footerLayout(0))} profile="teacher" />);
+
+    expect(footerTexts(html)).toEqual(["0/4", "1/4", "2/4", "3/4", "4/4"]);
+  });
+
+  it("keeps which pages show the footer on the physical pages", () => {
+    // 「先頭ページのみ」は組版上の 1 ページ目。表示上の番号が 0 でも 1 でも、その 1 枚だけに出る。
+    const html = renderToStaticMarkup(
+      <PrintPreview document={documentWithColumns(1, fivePages, footerLayout(0, { showOnLaterPages: false }))} profile="teacher" />,
+    );
+    expect(footerTexts(html)).toEqual(["0/4"]);
+
+    // 「出さないページ」と「そのページだけの中身」も組版上の番号 (2 枚目 = 表示上の 1) で引く。
+    const exceptions = renderToStaticMarkup(
+      <PrintPreview
+        document={documentWithColumns(1, fivePages, footerLayout(0, {
+          hiddenPages: [3],
+          pageContents: [{ page: 2, blocks: [{ type: "paragraph", id: "footer_numbers", children: [{ type: "text", text: "p{page}" }] }] }],
+        }))}
+        profile="teacher"
+      />,
+    );
+    expect(footerTexts(exceptions)).toEqual(["0/4", "p1", "3/4", "4/4"]);
+  });
+});
+
 describe("PrintPreviewPageNavigator", () => {
   it("renders a selectable paper-like page list with the active page marked", () => {
     const html = renderToStaticMarkup(

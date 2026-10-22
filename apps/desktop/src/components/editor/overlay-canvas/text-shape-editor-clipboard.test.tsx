@@ -158,6 +158,86 @@ describe("OverlayTextShapeEditor clipboard", () => {
     expect(boxedMathNodes(children)).toEqual([]);
   });
 
+  /**
+   * 段落の下余白 (`spaceAfterPx`) も、本文と同じ経路で運ぶ (R16)。書き手 (payload・HTML) と読み手が別々の
+   * 形式を持つと、片方向だけ余白が落ちる。
+   */
+  describe("paragraph space after", () => {
+    const SPACED_BLOCKS = [
+      { type: "paragraph" as const, id: "p_spaced", spaceAfterPx: 14, children: [{ type: "text", text: "余白つき" }] as InlineNode[] },
+      {
+        type: "list" as const,
+        id: "list_spaced",
+        listType: "bullet" as const,
+        items: [{ type: "listItem" as const, id: "li_spaced", spaceAfterPx: 9, children: [{ type: "text", text: "項目" }] as InlineNode[] }],
+      },
+    ];
+
+    function spacedBodyCopy(withPayload: boolean): DataTransfer {
+      const wrapper = document.createElement("div");
+      const serializer = DOMSerializer.fromSchema(editor.schema);
+      for (const block of SPACED_BLOCKS) {
+        wrapper.append(serializer.serializeFragment(Fragment.from(editor.schema.nodeFromJSON(textFlowBlockToTiptapNode(block)))));
+      }
+      const clipboardData = new DataTransfer();
+      if (withPayload) {
+        writeEditorClipboardData(clipboardData, createTextFlowClipboardPayload(SPACED_BLOCKS), { html: wrapper.innerHTML });
+      } else {
+        // payload を持たない貼り付け (切り取り・別の編集面からのコピー) は HTML だけから読み戻す。
+        wrapper.firstElementChild?.setAttribute("data-pm-slice", "0 0 []");
+        clipboardData.setData("text/html", wrapper.innerHTML);
+        clipboardData.setData("text/plain", "余白つき\n項目");
+      }
+      return clipboardData;
+    }
+
+    function pastedSpacing() {
+      const [, ...rest] = lastBlocks;
+      const paragraph = lastBlocks.find((block) => block.type === "paragraph" && block.spaceAfterPx);
+      const list = rest.find((block) => block.type === "list");
+      return {
+        paragraph: paragraph?.spaceAfterPx,
+        item: list?.type === "list" ? list.items[0].spaceAfterPx : undefined,
+      };
+    }
+
+    it("keeps the space of a pasted body copy (payload)", () => {
+      editor.commands.focus("end");
+
+      paste(spacedBodyCopy(true));
+
+      expect(pastedSpacing()).toEqual({ paragraph: 14, item: 9 });
+    });
+
+    it("keeps the space of an HTML-only paste, read back from the schema's own serialization", () => {
+      editor.commands.focus("end");
+
+      paste(spacedBodyCopy(false));
+
+      expect(pastedSpacing()).toEqual({ paragraph: 14, item: 9 });
+    });
+
+    it("copies the space in the payload and in the HTML, as the body does", () => {
+      editor.commands.setContent({
+        type: "doc",
+        content: [
+          textFlowBlockToTiptapNode(SPACED_BLOCKS[0]),
+          textFlowBlockToTiptapNode(SPACED_BLOCKS[1]),
+        ],
+      });
+      editor.commands.selectAll();
+      const clipboardData = new DataTransfer();
+
+      editor.view.dom.dispatchEvent(new ClipboardEvent("copy", { bubbles: true, cancelable: true, clipboardData }));
+
+      const payload = readEditorClipboardPayload(clipboardData);
+      const blocks = payload?.kind === "textFlowBlocks" ? payload.blocks : [];
+      expect(blocks[0]).toMatchObject({ type: "paragraph", spaceAfterPx: 14 });
+      expect(blocks[1]?.type === "list" ? blocks[1].items[0].spaceAfterPx : undefined).toBe(9);
+      expect(clipboardData.getData("text/html")).toContain("--sigma-doc-space-after: 14px");
+    });
+  });
+
   it("copies a selection as the same SigmaDoc payload the body writes", () => {
     editor.commands.setContent({
       type: "doc",

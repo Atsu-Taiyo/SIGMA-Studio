@@ -5,6 +5,7 @@ import {
   type PageLayout,
 } from "@/features/document";
 
+import { displayCanvasSize, displayToModel, type PageArrangement } from "@/features/rendering/core";
 import type { PageMarginEdge, RunningRegionKind } from "./types";
 
 export interface PagePointerRect {
@@ -41,6 +42,22 @@ interface PagePointerInput {
   clientX: number;
   clientY: number;
   metrics: PageMetrics;
+  /**
+   * ページの並び (2 ページ並びのときだけ渡す)。紙面の要素は並べた大きさなので、表示座標に直して
+   * から、載るページのずらしを引いて紙面 (モデル) 座標にする。
+   */
+  arrangement?: PageArrangement | null;
+}
+
+/** 紙面の要素の左上からの画面 px → 紙面 (モデル) 座標。 */
+function canvasPointFromClient({ canvasRect, clientX, clientY, metrics, arrangement }: PagePointerInput): PagePointerPoint {
+  const displayWidth = arrangement ? displayCanvasSize(arrangement, 1).width : metrics.page.widthPx;
+  const scale = canvasRect.width / displayWidth || 1;
+  const x = (clientX - canvasRect.left) / scale;
+  const y = (clientY - canvasRect.top) / scale;
+  if (!arrangement) return { x, y };
+  const model = displayToModel(arrangement, { x, y });
+  return { x: model.x, y: model.y };
 }
 
 interface WhiteboardPointerInput {
@@ -67,22 +84,13 @@ interface PaginatedPagePointerInput extends PagePointerInput {
   pageHeightPx: number;
 }
 
-export function getPagePointerContext({
-  canvasRect,
-  clientX,
-  clientY,
-  metrics,
-  pageCount,
-  pageGapPx,
-  pageHeightPx,
-}: PaginatedPagePointerInput): PagePointerContext | null {
+export function getPagePointerContext(input: PaginatedPagePointerInput): PagePointerContext | null {
+  const { canvasRect, metrics, pageCount, pageGapPx, pageHeightPx } = input;
   if (canvasRect.width <= 0 || canvasRect.height <= 0) {
     return null;
   }
 
-  const scale = canvasRect.width / metrics.page.widthPx || 1;
-  const x = (clientX - canvasRect.left) / scale;
-  const y = (clientY - canvasRect.top) / scale;
+  const { x, y } = canvasPointFromClient(input);
   if (x < 0 || x > metrics.page.widthPx || y < 0) {
     return null;
   }
@@ -117,21 +125,12 @@ export function getPageOverlayPoint(input: PaginatedPagePointerInput): PagePoint
   };
 }
 
-export function getCanvasPointerPoint({
-  canvasRect,
-  clientX,
-  clientY,
-  metrics,
-}: PagePointerInput): PagePointerPoint | null {
-  if (canvasRect.width <= 0 || canvasRect.height <= 0) {
+export function getCanvasPointerPoint(input: PagePointerInput): PagePointerPoint | null {
+  if (input.canvasRect.width <= 0 || input.canvasRect.height <= 0) {
     return null;
   }
 
-  const scale = canvasRect.width / metrics.page.widthPx || 1;
-  return {
-    x: (clientX - canvasRect.left) / scale,
-    y: (clientY - canvasRect.top) / scale,
-  };
+  return canvasPointFromClient(input);
 }
 
 export function getWhiteboardPointerPoint({

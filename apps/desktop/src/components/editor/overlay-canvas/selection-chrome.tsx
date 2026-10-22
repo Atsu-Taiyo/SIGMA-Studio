@@ -6,7 +6,9 @@ import {
   getShapesVisualBounds,
   isSolidShape
 } from "@/features/drawing";
+import type { PageArrangement } from "@/features/rendering/core";
 import type { Translate } from "@/lib/i18n";
+import { OverlayPageShift } from "./page-shift";
 import { useT } from "@/lib/i18n/react";
 import {
   GripHorizontal,
@@ -87,9 +89,12 @@ export function getAnchorIndicatorAriaLabel(state: AnchorIndicatorState, t: Tran
 export function AnchorIndicators({
   indicators,
   onAnchorPointerDown,
+  arrangement = null,
 }: {
   indicators: AnchorIndicator[];
   onAnchorPointerDown: (event: ReactPointerEvent<HTMLButtonElement>, shape: OverlayShape, origin: OverlayPoint) => void;
+  /** ページの並び。印はアンカーの行が載るページのずらしで描く。 */
+  arrangement?: PageArrangement | null;
 }) {
   const tShape = useT("shape");
   const [revealedShapeId, setRevealedShapeId] = useState<OverlayShapeId | null>(null);
@@ -107,7 +112,7 @@ export function AnchorIndicators({
           indicator.below ? "" : "above",
         ].filter(Boolean).join(" ");
         return (
-          <Fragment key={`anchor-handle-${indicator.shape.id}`}>
+          <OverlayPageShift key={`anchor-handle-${indicator.shape.id}`} arrangement={arrangement} y={indicator.rule.y}>
             {revealed && indicator.targetRect && indicator.targetRect.height > 0 && (
               <div
                 className={`overlay-anchor-target${indicator.dragging ? " dragging" : ""}`}
@@ -156,7 +161,7 @@ export function AnchorIndicators({
                 <span className="overlay-anchor-tip-body">{copy.body}</span>
               </span>
             </button>
-          </Fragment>
+          </OverlayPageShift>
         );
       })}
     </>

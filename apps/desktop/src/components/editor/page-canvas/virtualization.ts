@@ -44,6 +44,7 @@ export function resolvePageVisibilityWindow({
   pageCount,
   pageGapPx,
   pageHeightPx,
+  pagesPerRow = 1,
   previousScrollSample,
   zoomScale,
 }: {
@@ -54,6 +55,8 @@ export function resolvePageVisibilityWindow({
   pageCount: number;
   pageGapPx: number;
   pageHeightPx: number;
+  /** 1 行に並ぶページ数 (2 ページ並びでは 2)。窓は行単位で数える。 */
+  pagesPerRow?: number;
   previousScrollSample: PageWindowScrollSample;
   zoomScale: number;
 }): PageVisibilityResolution {
@@ -90,6 +93,7 @@ export function resolvePageVisibilityWindow({
       pageCount,
       pageGapPx,
       pageHeightPx,
+      pagesPerRow,
       viewportRect: {
         bottom: measurement.viewportBottom,
         top: measurement.viewportTop,
@@ -109,6 +113,7 @@ export function calculateVisiblePageRange({
   pageCount,
   pageGapPx,
   pageHeightPx,
+  pagesPerRow = 1,
   viewportRect,
   zoomScale,
 }: {
@@ -117,6 +122,7 @@ export function calculateVisiblePageRange({
   pageCount: number;
   pageGapPx: number;
   pageHeightPx: number;
+  pagesPerRow?: number;
   viewportRect: { bottom: number; top: number };
   zoomScale: number;
 }): VisiblePageRange {
@@ -125,12 +131,14 @@ export function calculateVisiblePageRange({
   const pageStride = pageHeightPx + pageGapPx;
   const visibleTop = Math.max(0, (viewportRect.top - canvasRect.top) / safeZoom);
   const visibleBottom = Math.max(visibleTop, (viewportRect.bottom - canvasRect.top) / safeZoom);
-  const firstVisiblePage = Math.max(0, Math.floor(visibleTop / pageStride));
-  const lastVisiblePage = Math.max(firstVisiblePage, Math.floor(Math.max(0, visibleBottom - 1) / pageStride));
+  // 2 ページ並びでは縦の刻み 1 つが 1 行 (= pagesPerRow ページ)。
+  const perRow = Math.max(1, Math.floor(pagesPerRow));
+  const firstVisibleRow = Math.max(0, Math.floor(visibleTop / pageStride));
+  const lastVisibleRow = Math.max(firstVisibleRow, Math.floor(Math.max(0, visibleBottom - 1) / pageStride));
 
   return clampVisiblePageRange({
-    start: firstVisiblePage - safeOverscan,
-    end: lastVisiblePage + safeOverscan,
+    start: (firstVisibleRow - safeOverscan) * perRow,
+    end: (lastVisibleRow + safeOverscan) * perRow + perRow - 1,
     overscan: safeOverscan,
   }, pageCount);
 }

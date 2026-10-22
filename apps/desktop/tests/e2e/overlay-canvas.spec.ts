@@ -161,6 +161,12 @@ test("copies and pastes multiple selected overlay shapes", async ({ page }) => {
   await expect(page.locator(".overlay-shape.selected")).toHaveCount(2);
 
   await page.keyboard.press("ControlOrMeta+C");
+  // ポインタが編集領域の上にあれば、貼った図形はポインタの位置へ置かれる
+  // (`overlay-paste-at-pointer.spec.ts`)。ここは従来の「元の位置から少しずらす」を確かめるので、
+  // ポインタをメニューバーの上へ逃がしてから貼る。
+  const menubarBox = await page.locator(".editor-menubar").first().boundingBox();
+  expect(menubarBox).not.toBeNull();
+  await page.mouse.move(menubarBox!.x + menubarBox!.width / 2, menubarBox!.y + menubarBox!.height / 2);
   await page.keyboard.press("ControlOrMeta+V");
 
   await expect(page.locator(".overlay-shape-geo")).toHaveCount(4);

@@ -1,12 +1,13 @@
 "use client";
 import { type SigmaCommentThread,type SigmaTableSpec } from "@/features/document";
 import { getShapeBounds } from "@/features/drawing";
-import { getVisibleOverlayShapes,type OverlayPreviewStackLayer } from "@/features/rendering/core";
+import { getVisibleOverlayShapes,type OverlayPreviewStackLayer,type PageArrangement } from "@/features/rendering/core";
 import { getCommentThreadsForOverlayShape } from "@/lib/comments";
 import { countPerformanceEvent } from "@/lib/performance";
 import type { MouseEvent as ReactMouseEvent,PointerEvent as ReactPointerEvent } from "react";
 import { useMemo } from "react";
 import type { OverlayShapeDecoration } from "../overlay-canvas/editor-extension";
+import { OverlayPageShift } from "../overlay-canvas/page-shift";
 import type { OverlayAsset,OverlayShape } from "../overlay-canvas/types";
 import { type ResolvedOverlayView } from "../overlay-canvas/view-cache";
 import { OverlayShapeReadOnlyView } from "../OverlayCanvasEditorClient";
@@ -25,6 +26,7 @@ export function OverlayPreview({
   ghostShapes,
   onPointerDown,
   onDoubleClick,
+  arrangement,
 }: {
   resolvedView: ResolvedOverlayView;
   visiblePageRange: VisiblePageRange;
@@ -41,6 +43,8 @@ export function OverlayPreview({
   ghostShapes?: readonly { key: string; shape: OverlayShape; assets: Record<string, OverlayAsset>; className: string }[];
   onPointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onDoubleClick?: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  /** ページの並び。図形はモデル座標のまま持ち、載るページのずらしで描く。 */
+  arrangement?: PageArrangement | null;
 }) {
   countPerformanceEvent("OverlayPreview.render");
   const pinnedKey = pinnedShapeIds.join("\u0000");
@@ -90,41 +94,45 @@ export function OverlayPreview({
       onDoubleClick={onDoubleClick}
     >
       {regionThreads.map((thread) => thread.anchor.type === "canvasRegion" && (
-        <div
-          key={thread.id}
-          className={`overlay-comment-marker ${thread.id === highlightedCommentThreadId ? "active" : ""}`}
-          data-comment-thread-id={thread.id}
-          data-comment-count={1}
-          style={{ left: thread.anchor.bounds.x, top: thread.anchor.bounds.y,
-            width: thread.anchor.bounds.w, height: thread.anchor.bounds.h }}
-        />
+        <OverlayPageShift key={thread.id} arrangement={arrangement} y={thread.anchor.bounds.y}>
+          <div
+            className={`overlay-comment-marker ${thread.id === highlightedCommentThreadId ? "active" : ""}`}
+            data-comment-thread-id={thread.id}
+            data-comment-count={1}
+            style={{ left: thread.anchor.bounds.x, top: thread.anchor.bounds.y,
+              width: thread.anchor.bounds.w, height: thread.anchor.bounds.h }}
+          />
+        </OverlayPageShift>
       ))}
       {renderShapes && visibleShapes.map((shape) => (
-        <OverlayShapeReadOnlyView
-          key={shape.id}
-          shape={shape}
-          assets={resolvedView.assets}
-          chartSourceTable={chartSourceTables.get(shape.id) ?? null}
-          diffClassName={diffShapeClassNames?.get(shape.id)}
-          decoration={shapeDecorations?.get(shape.id) ?? null}
-        />
+        <OverlayPageShift key={shape.id} arrangement={arrangement} y={getShapeBounds(shape).y}>
+          <OverlayShapeReadOnlyView
+            shape={shape}
+            assets={resolvedView.assets}
+            chartSourceTable={chartSourceTables.get(shape.id) ?? null}
+            diffClassName={diffShapeClassNames?.get(shape.id)}
+            decoration={shapeDecorations?.get(shape.id) ?? null}
+          />
+        </OverlayPageShift>
       ))}
       {visibleShapes.map((shape) => (
-        <OverlayCommentMarker
-          key={`comment-${shape.id}`}
-          shape={shape}
-          threads={getCommentThreadsForOverlayShape(commentThreads, shape.id)}
-          activeThreadId={highlightedCommentThreadId}
-        />
+        <OverlayPageShift key={`comment-${shape.id}`} arrangement={arrangement} y={getShapeBounds(shape).y}>
+          <OverlayCommentMarker
+            shape={shape}
+            threads={getCommentThreadsForOverlayShape(commentThreads, shape.id)}
+            activeThreadId={highlightedCommentThreadId}
+          />
+        </OverlayPageShift>
       ))}
       {visibleGhostShapes.map(({ key, shape, assets, className }) => (
-        <OverlayShapeReadOnlyView
-          key={key}
-          shape={shape}
-          assets={assets}
-          chartSourceTable={chartSourceTables.get(shape.id) ?? null}
-          diffClassName={className}
-        />
+        <OverlayPageShift key={key} arrangement={arrangement} y={getShapeBounds(shape).y}>
+          <OverlayShapeReadOnlyView
+            shape={shape}
+            assets={assets}
+            chartSourceTable={chartSourceTables.get(shape.id) ?? null}
+            diffClassName={className}
+          />
+        </OverlayPageShift>
       ))}
     </div>
   );

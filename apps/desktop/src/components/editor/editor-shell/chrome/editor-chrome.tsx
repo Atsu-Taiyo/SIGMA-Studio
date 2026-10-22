@@ -47,7 +47,7 @@ import { INLINE_MATH_FONT_MENU_ATTRIBUTE } from "@/lib/math-font-style";
 import { SUPPORTED_OVERLAY_IMAGE_MIME_TYPES } from "@/lib/overlay-image-files";
 import { POWERPOINT_IMPORT_ACCEPT } from "@/lib/powerpoint-import";
 import { EXTENSION_ICON_COMPONENTS } from "@/components/editor/extensions/extension-icons";
-import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, Eye, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Puzzle, Quote, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Shapes, Share2, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
+import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, BookOpen, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, Eye, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Puzzle, Quote, RectangleVertical, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Shapes, Share2, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
 import { Fragment } from "react";
 import type { ReactNode } from "react";
 import type { DesktopUpdateState } from "@/types/desktop";
@@ -82,7 +82,7 @@ interface RibbonGroupDefinition {
 // Closed popovers return no DOM. Guard their JSX here as well so typing does
 // not build invisible font/shape catalogs on every document render.
 export function renderEditorChrome(chrome: EditorChromeValue) {
-  const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createDocumentTabInWorkspace, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, newMaterialTargets, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, extensionMenu = [], extensionsMenuButtonRef, runExtensionItem, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setExtensionsOpen, setNewDocMenuOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, toggleProblemDisplayPart, problemDisplay, problemDisplayAvailable, uiLayoutPreference, updateMetadata, versionHistoryOpen, workspaceTabsRow } = chrome.appMenu;
+  const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createDocumentTabInWorkspace, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, newMaterialTargets, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, extensionMenu = [], extensionsMenuButtonRef, runExtensionItem, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setExtensionsOpen, setNewDocMenuOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryMode, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, toggleProblemDisplayPart, problemDisplay, problemDisplayAvailable, uiLayoutPreference, updateMetadata, versionHistoryOpen, workspaceTabsRow } = chrome.appMenu;
   const { commandTooltip, renderMenuShortcut, fontFamilyShortcut } = chrome.commands;
   const { setMaterialLibraryOpen } = chrome.editing;
   const { ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption, activeTextFontSize, activeTextFontSizeMixed, applyBlockStructure, applyBoxedTextPaddingY, applyBoxedTextRoundness, applyInlineFormat, applyLineHeight, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef, boxedTextMenuOpen, boxedTextPaddingY, boxedTextRoundness, boxedTextVariant, canUseBlockStructure, canUseLineHeight, canUseTextAlign, canUseTextBlockStyle, canUseTextToolbar, textToolbarDisabledReason, fontFamily, fontFamilyButtonRef, fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery, handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef, lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen, moreBlocksMenuButtonRef, moreBlocksMenuOpen, orderedListMenuButtonRef, orderedListMenuOpen, setMoreBlocksMenuOpen, setOrderedListMenuOpen, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle, setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput, setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize, startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen, textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef, toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups, blockStyleButtonRef, blockStyleMenuOpen, fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput } = chrome.format;
@@ -91,7 +91,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   const { applyOverlayStyle, arrangeOverlayShapes, canChangeOverlayShapeType, changeOverlayShapeType, canArrangeOverlayShapes, canUseFillStyleControls, canUseLineEndpointControls, canUseLineStyleControls, canUseStrokeStyleControls, effectiveLineDashMenuOpen, effectiveLineEndpointMenu, effectiveLineWidthMenuOpen, fillColorButtonRef, fillColorPatch, lineDashButtonRef, lineWidthButtonRef, overlaySelection, selectedOverlayLineDash, selectedOverlayLineSize, selectionFill, selectionFillColor, selectionFillOpacity, setStrokeColor, strokeColor, strokeColorButtonRef } = chrome.shapeStyle;
   const { activeMenu, aiDocumentWriteInProgress, colorStylePanel, document, getActiveTextTarget, imageInputRef, insertInlineMath, isDesktopApp, isEmbedded, runEditCommand, runOverlayCommand, setStatusMessage, shapeGallerySections, lineToolItems, t, toggleMenu, versionHistoryPreviewActive } = chrome.shared;
   const { setActiveMenu, setBoxedTextMenuOpen, setColorStylePanel, setFontFamilyMenuOpen, setBlockStyleMenuOpen, setLineDashMenuOpen, setLineEndpointMenu, setLineHeightMenuOpen, setLineToolMenuOpen, setLineWidthMenuOpen, setShapeMenuOpen, setTextAlignMenuOpen } = chrome.toolbarMenus;
-  const { activePageNumber, applyZoom, pageCount, zoom, zoomOptions } = chrome.view;
+  const { activePageNumber, applyZoom, pageArrangement, pageCount, setPageArrangement, zoom, zoomOptions } = chrome.view;
   const { applyColumnCommand, backstage, closeBackstage, columnCommand, contextualTabVisible, ribbonCollapse, ribbonIdPrefix, ribbonTabState, selectBackstageSection, selectRibbonTab, toggleBackstage, toggleRibbonCollapse } = chrome.ribbon;
 
   // word を離れているのに state だけ open が残っていても、ここで必ず閉じた扱いにする。
@@ -716,9 +716,13 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                 <Square size={15} />
                 <span>{t("tabs.newWhiteboard")}</span>
               </button>
-              <button type="button" role="menuitem" onClick={() => { setNewDocMenuOpen(false); setTemplateGalleryOpen(true); }}>
+              <button type="button" role="menuitem" onClick={() => { setNewDocMenuOpen(false); setTemplateGalleryMode("use"); }}>
                 <LayoutTemplate size={15} />
                 <span>{t("tabs.newFromTemplate")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => { setNewDocMenuOpen(false); setTemplateGalleryMode("insert"); }}>
+                <ClipboardPaste size={15} />
+                <span>{t("tabs.insertTemplate")}</span>
               </button>
               {renderNewMaterialTargets("menu")}
             </div>
@@ -2594,8 +2598,42 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     </EditorToolbarIconButton>
   );
 
+  // ページの並び (表示だけの設定)。ツールバーでは 2 列の入/切を 1 つのアイコンで、リボンでは
+  // 「1列 / 2列」の 2 つで出す。ページの無い教材 (ホワイトボード) では出さない。
+  const pageArrangementToggle = pageArrangement && (
+    <EditorToolbarIconButton
+      tooltip={{ label: t("view.pageArrangementSpreadTooltip") }}
+      aria-label={`${t("view.pageArrangement")}: ${t("view.pageArrangementSpread")}`}
+      aria-pressed={pageArrangement === "spread"}
+      active={pageArrangement === "spread"}
+      onClick={() => setPageArrangement(pageArrangement === "spread" ? "single" : "spread")}
+    >
+      <BookOpen size={EDITOR_TOOLBAR_ICON_SIZE} />
+    </EditorToolbarIconButton>
+  );
+
+  const pageArrangementRibbonButtons = pageArrangement && ([
+    { value: "single", label: t("view.pageArrangementSingle"), title: t("view.pageArrangementSingleTooltip"), Icon: RectangleVertical },
+    { value: "spread", label: t("view.pageArrangementSpread"), title: t("view.pageArrangementSpreadTooltip"), Icon: BookOpen },
+  ] as const).map(({ value, label, title, Icon }) => (
+    <Fragment key={`page-arrangement-${value}`}>
+      <EditorToolbarIconButton
+        withText
+        title={title}
+        aria-label={`${t("view.pageArrangement")}: ${label}`}
+        aria-pressed={pageArrangement === value}
+        active={pageArrangement === value}
+        onClick={() => setPageArrangement(value)}
+      >
+        <Icon size={EDITOR_TOOLBAR_TEXT_ICON_SIZE} />
+        <span>{label}</span>
+      </EditorToolbarIconButton>
+    </Fragment>
+  ));
+
   const viewGroup = (
     <EditorToolbarGroup push ariaLabel={t("toolbar.group.view")}>
+    {pageArrangementToggle}
     {zoomOutButton}
     {zoomSelect}
     {zoomInButton}
@@ -2769,9 +2807,13 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               <Square size={18} aria-hidden="true" />
               <span>{t("tabs.newWhiteboard")}</span>
             </button>
-            <button type="button" className="ribbon-backstage-command" title={t("tabs.newFromTemplate")} aria-label={t("tabs.newFromTemplate")} disabled={isEmbedded} onClick={() => runBackstageCommand(() => setTemplateGalleryOpen(true))}>
+            <button type="button" className="ribbon-backstage-command" title={t("tabs.newFromTemplate")} aria-label={t("tabs.newFromTemplate")} disabled={isEmbedded} onClick={() => runBackstageCommand(() => setTemplateGalleryMode("use"))}>
               <LayoutTemplate size={18} aria-hidden="true" />
               <span>{t("tabs.newFromTemplate")}</span>
+            </button>
+            <button type="button" className="ribbon-backstage-command" title={t("tabs.insertTemplate")} aria-label={t("tabs.insertTemplate")} disabled={isEmbedded} onClick={() => runBackstageCommand(() => setTemplateGalleryMode("insert"))}>
+              <ClipboardPaste size={18} aria-hidden="true" />
+              <span>{t("tabs.insertTemplate")}</span>
             </button>
           </div>
         )}
@@ -3061,6 +3103,9 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           <Fragment key="show-1">{commentsToggleButton}</Fragment>,
         ],
       },
+      ...(pageArrangementRibbonButtons
+        ? [{ key: "pageArrangement", label: t("view.pageArrangement"), rows: pageArrangementRibbonButtons }]
+        : []),
       { key: "zoom", label: t("ribbon.group.zoom"), rows: [<>{zoomOutButton}{zoomSelect}{zoomInButton}</>] },
     ],
     shapeFormat: [

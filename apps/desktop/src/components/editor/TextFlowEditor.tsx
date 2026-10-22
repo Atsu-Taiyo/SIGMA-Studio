@@ -643,11 +643,11 @@ export function createColumnFlowLayoutDecorations(
   doc: ProseMirrorModelNode,
   layouts: Record<string, TextFlowColumnBlockLayout>,
   boxFragmentSourceLayouts: Record<string, TextFlowBoxFragmentSourceLayout>,
-  nodeDisplacements?: Readonly<Record<string, { dx: number; dy: number }>>,
+  nodeDisplacements?: Readonly<Record<string, { dx: number; dy: number; pageShiftX?: number; pageShiftY?: number }>>,
 ): DecorationSet {
   const decorations: Decoration[] = [];
   // ページ割りの変位。値の無いブロックは直前のブロックの値を継ぐ。
-  let inherited = { dx: 0, dy: 0 };
+  let inherited: { dx: number; dy: number; pageShiftX?: number; pageShiftY?: number } = { dx: 0, dy: 0 };
 
   doc.forEach((node, offset) => {
     const blockId = typeof node.attrs?.sigmaDocId === "string" ? node.attrs.sigmaDocId : "";
@@ -670,6 +670,11 @@ export function createColumnFlowLayoutDecorations(
       styles.push("position:relative", `top:${displacement.dy}px`, `left:${displacement.dx}px`);
       attributes["data-flow-dx"] = String(displacement.dx);
       attributes["data-flow-dy"] = String(displacement.dy);
+      // 2 ページ並びの表示で動かした量。計測がこれを引いて紙面 (モデル) 座標を読む。
+      if (displacement.pageShiftX || displacement.pageShiftY) {
+        attributes["data-flow-page-shift-x"] = String(displacement.pageShiftX ?? 0);
+        attributes["data-flow-page-shift-y"] = String(displacement.pageShiftY ?? 0);
+      }
     }
     if (fragmentSource && fragmentSource.totalHeight > fragmentSource.visibleHeight + 0.5) {
       const hiddenBottom = Math.max(0, fragmentSource.totalHeight - fragmentSource.visibleHeight);

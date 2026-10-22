@@ -10,6 +10,8 @@ import { createTranslator } from "@/lib/i18n";
 import * as storage from "@/lib/storage";
 import * as workspaceRepository from "@/lib/workspace-repository";
 import type { WorkspaceOverview } from "@/lib/workspace-repository";
+import type { TemplateItem } from "@/types/template";
+import { customPageSetupDocument } from "../../../../tests/helpers/template-fixtures";
 import { useWorkspaceDocumentCommands, type WorkspaceDocumentCommandOptions } from "./use-workspace-document-commands";
 
 let root: Root;
@@ -230,6 +232,90 @@ describe("workspace document commands", () => {
     await actions.createDocumentTabInWorkspace("viewer");
     expect(create).toHaveBeenCalledTimes(1);
     expect(f.options.setStatusMessage).toHaveBeenLastCalledWith(f.options.tEditor("status.creationNotAllowed"));
+  });
+
+  describe("new material from a template", () => {
+    function savedTemplate(): TemplateItem {
+      return { version: 1, id: "template", workspaceId: "template-source", name: "B5横プリント", document: customPageSetupDocument(), createdAt: stamp, updatedAt: stamp };
+    }
+
+    it("creates a file from the whole template in the previous material's folder and opens it as a tab", async () => {
+      const f = fixture();
+      f.options.documentMetadatas[0].folderId = "unit";
+      const overview = mockOverview({
+        folders: [{ id: "unit", workspaceId: "workspace", parentFolderId: null, name: "関数", fileCount: 1, createdAt: stamp, updatedAt: stamp }],
+      });
+      const template = savedTemplate();
+      const created = record("from-template");
+      created.metadata.folderId = "unit";
+      const fromDocument = vi.spyOn(storage, "createDocumentFromSigmaDocument").mockResolvedValue(created);
+      const blank = vi.spyOn(storage, "createNewDocument");
+      render(f.options);
+
+      await actions.createDocumentTabFromTemplate(template);
+
+      // 作成先はテンプレートを保存したワークスペース (template-source) ではなく、開いていた教材の場所。
+      expect(fromDocument).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ pageLayout: template.document.pageLayout, content: template.document.content }),
+        { workspaceId: "workspace", folderId: "unit" },
+      );
+      expect(fromDocument.mock.calls[0][0].docId).not.toBe(template.document.docId);
+      expect(fromDocument.mock.calls[0][0].metadata.title).toBe("B5横プリント");
+      expect(blank).not.toHaveBeenCalled();
+      // 開いていた教材を保存してから新しいタブへ移り、ワークスペースの開いているタブに足す。
+      expect(f.events).toEqual(["save", "remember", "reset", "workspace", "refresh"]);
+      expect(f.options.resetEditorDocument).toHaveBeenCalledWith(created.document, "restored", 7);
+      expect(f.options.setOpenFileIds).toHaveBeenCalledWith(["original", "from-template"]);
+      expect(f.options.setActiveFileId).toHaveBeenCalledWith("from-template");
+      expect(f.options.setStatusMessage).toHaveBeenLastCalledWith(f.options.tEditor("status.templateDocumentCreated"));
+      // 中身のある教材なので、何も書かずに閉じても消さない。
+      expect(f.options.untouchedNewDocumentsRef.current.size).toBe(0);
+      expect(overview).toHaveBeenCalled();
+      expect(f.options.showCreatedMaterialLocation).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        kind: "material", title: "from-template", workspaceName: "マイ教材", origin: "previous",
+      }));
+    });
+
+    it("falls back to the default local workspace like a blank material when the current folder is read-only", async () => {
+      const f = fixture();
+      f.options.documentMetadatas[0].workspaceId = "shared-items";
+      f.options.documentMetadatas[0].folderId = "catalog-shared-folder";
+      mockOverview({
+        workspaces: [{ id: "workspace", name: "マイ教材", createdAt: stamp, updatedAt: stamp }, { id: "shared-items", name: "共有アイテム", createdAt: stamp, updatedAt: stamp }],
+        folders: [{ id: "catalog-shared-folder", workspaceId: "shared-items", parentFolderId: null, name: "閲覧だけ", fileCount: 0, createdAt: stamp, updatedAt: stamp, sharing: sharedFolderSharing(false) }],
+      });
+      const fromDocument = vi.spyOn(storage, "createDocumentFromSigmaDocument").mockResolvedValue(record("from-template"));
+      render(f.options);
+
+      await actions.createDocumentTabFromTemplate(savedTemplate());
+
+      expect(fromDocument).toHaveBeenCalledExactlyOnceWith(expect.any(Object), { workspaceId: "workspace", folderId: null });
+      expect(f.options.showCreatedMaterialLocation).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ kind: "material", origin: "fallback" }));
+    });
+
+    it("opens nothing when the save boundary refuses, the host owns documents, or the destination refuses", async () => {
+      const f = fixture();
+      const fromDocument = vi.spyOn(storage, "createDocumentFromSigmaDocument");
+      mockOverview({});
+      render(f.options);
+
+      vi.mocked(f.options.saveCurrentDocumentBeforeReplacement).mockResolvedValueOnce(false);
+      await actions.createDocumentTabFromTemplate(savedTemplate());
+      expect(fromDocument).not.toHaveBeenCalled();
+
+      f.options.embeddedHostRef.current = { document: f.original.document, onChange: vi.fn() };
+      await actions.createDocumentTabFromTemplate(savedTemplate());
+      expect(fromDocument).not.toHaveBeenCalled();
+      expect(f.options.setStatusMessage).toHaveBeenLastCalledWith(f.options.tEditor("status.embeddedHostOwnsCreate"));
+      f.options.embeddedHostRef.current = undefined;
+
+      fromDocument.mockRejectedValueOnce(new Error("FORBIDDEN"));
+      await actions.createDocumentTabFromTemplate(savedTemplate());
+      expect(f.options.setStatusMessage).toHaveBeenLastCalledWith(f.options.tEditor("status.creationNotAllowed"));
+      expect(f.options.resetEditorDocument).not.toHaveBeenCalled();
+      expect(f.saveWorkspace).not.toHaveBeenCalled();
+      expect(f.options.showCreatedMaterialLocation).not.toHaveBeenCalled();
+    });
   });
 
   it("observes a host attached after render before running host-owned document commands", async () => {

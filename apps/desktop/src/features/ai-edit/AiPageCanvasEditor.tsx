@@ -45,6 +45,7 @@ import {
 } from "./model/proposal-content";
 import { resolveProposalMergePreview, retainProposalMergePreviewFallbacks } from "./model/proposal-merge-preview";
 import { AiRunAnchorLayer, type AiRunCardOpenRequest } from "@/components/editor/ai-run-anchor-layer";
+import { OverlayPageShift } from "@/components/editor/overlay-canvas/page-shift";
 import {
   getNarrowColumnBounds,
   placeCenteredWidget,
@@ -603,8 +604,9 @@ function useAiPageCanvasExtension({
     const widgets = floating.map(({ preview, conversationKey, displayState, summaryLines }, index) => {
       const placement = placements[index];
       return (
+        // 置き場所は紙面のモデル座標。2 ページ並びではそのページのずらしで描く。
+        <OverlayPageShift key={conversationKey} arrangement={context.pageArrangement} y={placement.top}>
         <AiEditOverlayApprovalWidget
-          key={conversationKey}
           preview={preview}
           applying={applying}
           placement={placement.placement}
@@ -624,6 +626,7 @@ function useAiPageCanvasExtension({
           onApply={onApply ? () => onApply(preview.proposalIds) : undefined}
           onDismiss={onDismiss ? (reason) => onDismiss(preview.proposalIds, reason) : undefined}
         />
+        </OverlayPageShift>
       );
     });
 
@@ -695,6 +698,7 @@ function useAiPageCanvasExtension({
         canvasElement={context.canvasElement}
         openCardRequest={activeRunCardOpenRequest}
         onFocusSession={onFocusSession}
+        pageArrangement={context.pageArrangement}
       />
     );
   }, [activeRunCardOpenRequest, documentIdentityKey, documentWorkspaceId, onFocusSession, roomIdsWithCards]);

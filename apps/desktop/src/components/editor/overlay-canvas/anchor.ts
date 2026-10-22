@@ -31,6 +31,7 @@ export type {
 } from "@/features/drawing";
 import { countPerformanceEvent } from "@/lib/performance";
 
+import { createBodyLayerRectReader } from "../page-canvas/page-arrangement-dom";
 import { isPickableAnchorBlock, isUndrawnElement, keepUndrawnBlock } from "../page-canvas/undrawn-blocks";
 
 const LINE_GROUP_TOLERANCE_PX = 2;
@@ -550,8 +551,8 @@ export function measureBlockTops(
     return { tops, rects, ordered };
   }
 
-  const scaleY = coordHeight / pageRect.height;
-  const scaleX = coordWidth / pageRect.width;
+  // 2 ページ並びでは、層は並べた紙面の大きさ。要素のページのずらしを引いてモデル座標で読む。
+  const { scaleX, scaleY, shiftOf } = createBodyLayerRectReader(pageRectEl, pageRect, coordWidth, coordHeight);
   const seen = new Set<string>();
   scope.querySelectorAll(MEASURABLE_BLOCK_SELECTOR).forEach((el) => {
     const id = el.getAttribute("data-sigma-doc-id") ?? el.id;
@@ -569,16 +570,20 @@ export function measureBlockTops(
       }
       return;
     }
-    const top = (rect.top - pageRect.top) * scaleY;
-    const left = (rect.left - pageRect.left) * scaleX;
+    const shift = shiftOf(el);
+    const top = (rect.top - pageRect.top) * scaleY - shift.y;
+    const left = (rect.left - pageRect.left) * scaleX - shift.x;
     const containerId = findMeasurableContainerId(el, id);
+    const lines = measureElementLineBoxes(el, pageRect, scaleX, scaleY);
     const measured = {
       id,
       top,
       left,
       width: rect.width * scaleX,
       height: rect.height * scaleY,
-      lines: measureElementLineBoxes(el, pageRect, scaleX, scaleY),
+      lines: shift.x === 0 && shift.y === 0
+        ? lines
+        : lines.map((line) => ({ ...line, top: line.top - shift.y, left: (line.left ?? 0) - shift.x })),
       ...(containerId ? { containerId } : {}),
       ...(isEditorOnlyBlockElement(el, id) ? { derived: true } : {}),
     };

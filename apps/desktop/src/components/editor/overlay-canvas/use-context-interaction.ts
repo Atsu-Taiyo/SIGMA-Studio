@@ -50,6 +50,9 @@ import {
 import {
   isOpenStrokeShape
 } from "./style-patch";
+import {
+  resolveDoubleClickTarget
+} from "./double-click-target";
 import type {
   OverlayPoint,
   OverlayShape,
@@ -83,6 +86,8 @@ interface Dependencies {
   modeRef: RefObject<OverlayInteractionMode>;
   getShapeAtPoint: (point: OverlayPoint, margin?: number) => OverlayShape | undefined;
   getOpenStrokeShapeAtPoint: (point: OverlayPoint) => OverlayShape | undefined;
+  /** 点の下にある、編集に入れる文章の図形のうち一番手前のもの (一番手前が別の図形でも拾う)。 */
+  getEditableTextShapeAtPoint: (point: OverlayPoint) => OverlayShape | undefined;
   setContextMenu: Dispatch<SetStateAction<OverlayContextMenuState | null>>;
   focusOverlayCanvas: () => void;
 }
@@ -113,6 +118,7 @@ export function useOverlayContextInteraction({
   modeRef,
   getShapeAtPoint,
   getOpenStrokeShapeAtPoint,
+  getEditableTextShapeAtPoint,
   setContextMenu,
   focusOverlayCanvas,
 }: Dependencies) {
@@ -236,49 +242,57 @@ export function useOverlayContextInteraction({
       return;
     }
 
-    const selectionIds = getShapeSelectionIds(shapesRef.current, targetShape.id, focusedGroupIdRef.current);
+    // 一番手前が文字を直さない図形 (画像・図・グラフ・四角形など) でも、その下に隠れた文章の図形が
+    // あれば、そちらの編集に入る。覆っている図形は触らない。下に無ければ従来どおり
+    // (画像ならトリミング)。クリックでの選択は一番手前が勝つままで、ここだけが抜ける。
+    const editTarget = resolveDoubleClickTarget(
+      targetShape,
+      () => getEditableTextShapeAtPoint(doubleClickPoint),
+    );
+
+    const selectionIds = getShapeSelectionIds(shapesRef.current, editTarget.id, focusedGroupIdRef.current);
     const selectedShape = selectionIds.length === 1
       ? shapesRef.current.find((shape) => shape.id === selectionIds[0])
       : null;
     if (selectedShape && isOverlayGroupShape(selectedShape) && focusedGroupIdRef.current !== selectedShape.id) {
       setFocusedGroupId(selectedShape.id);
-      setSelectedShapeIds(getShapeSelectionIds(shapesRef.current, targetShape.id, selectedShape.id));
+      setSelectedShapeIds(getShapeSelectionIds(shapesRef.current, editTarget.id, selectedShape.id));
       transitionMode({ type: "select" });
       return;
     }
 
-    selectShape(targetShape.id);
-    if (isShapeLockedInTree(shapesRef.current, targetShape)) {
+    selectShape(editTarget.id);
+    if (isShapeLockedInTree(shapesRef.current, editTarget)) {
       return;
     }
-    if (isOverlayRichTextShape(targetShape)) {
-      transitionMode({ type: "editText", shapeId: targetShape.id });
-    } else if (targetShape.type === "image") {
-      transitionMode({ type: "editImageCrop", shapeId: targetShape.id });
-    } else if (targetShape.type === "graph2dShape") {
+    if (isOverlayRichTextShape(editTarget)) {
+      transitionMode({ type: "editText", shapeId: editTarget.id });
+    } else if (editTarget.type === "image") {
+      transitionMode({ type: "editImageCrop", shapeId: editTarget.id });
+    } else if (editTarget.type === "graph2dShape") {
       event.preventDefault();
       event.stopPropagation();
-      transitionMode({ type: "editGraph", shapeId: targetShape.id });
-    } else if (targetShape.type === "graph3dShape") {
+      transitionMode({ type: "editGraph", shapeId: editTarget.id });
+    } else if (editTarget.type === "graph3dShape") {
       event.preventDefault();
       event.stopPropagation();
-      transitionMode({ type: "editGraph3D", shapeId: targetShape.id });
+      transitionMode({ type: "editGraph3D", shapeId: editTarget.id });
       window.dispatchEvent(new CustomEvent(OPEN_OVERLAY_GRAPH3D_SETTINGS_EVENT, {
-        detail: { shapeId: targetShape.id },
+        detail: { shapeId: editTarget.id },
       }));
-    } else if (targetShape.type === "tableShape") {
-      transitionMode({ type: "editTable", shapeId: targetShape.id });
-    } else if (targetShape.type === "chartShape") {
+    } else if (editTarget.type === "tableShape") {
+      transitionMode({ type: "editTable", shapeId: editTarget.id });
+    } else if (editTarget.type === "chartShape") {
       // A chart has no in-place editing mode — its settings live in the floating panel — so this
       // opens the panel instead of transitioning. `graph2d`/`graph3d` are handled at the capture
       // stage upstream; a chart is neither, so it arrives here in the ordinary stage.
       event.preventDefault();
       event.stopPropagation();
       window.dispatchEvent(new CustomEvent(OPEN_OVERLAY_CHART_SETTINGS_EVENT, {
-        detail: { shapeId: targetShape.id },
+        detail: { shapeId: editTarget.id },
       }));
     }
-  }, [focusedGroupIdRef, graphFillPickShapeId, handleCurveDrawingDoubleClick, pagePointFromClient, selectShape, setFocusedGroupId, setSelectedShapeIds, shapesRef, suppressNextShapeDoubleClickRef, transitionMode]);
+  }, [focusedGroupIdRef, getEditableTextShapeAtPoint, graphFillPickShapeId, handleCurveDrawingDoubleClick, pagePointFromClient, selectShape, setFocusedGroupId, setSelectedShapeIds, shapesRef, suppressNextShapeDoubleClickRef, transitionMode]);
 
   const handleCanvasDoubleClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     if (event.defaultPrevented) {

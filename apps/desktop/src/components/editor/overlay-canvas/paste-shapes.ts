@@ -7,6 +7,11 @@ import {
 } from "@/features/document";
 import { fitShapesWithinPage, getShapesSelectionBounds } from "@/features/drawing";
 import { cloneOverlayShapesForPaste, type EditorClipboardPayload } from "@/lib/editor-clipboard";
+import {
+  clampPasteCenterToNearestPage,
+  type ClientPoint,
+  type PointerPastePlacement,
+} from "./pointer-paste";
 
 /** 図形の貼り付けを紙面へ適用するときの追加の指定。 */
 export interface ApplyPastedOverlayShapesOptions {
@@ -25,6 +30,13 @@ export interface ApplyPastedOverlayShapesOptions {
    * (紙の外へ置かれた図形は、紙の中へ引き戻す)。
    */
   unbounded?: boolean;
+  /**
+   * ⌘V のとき、ポインタがいる画面上の点 (client 座標)。編集領域の上にあるときだけ呼び出し側が渡す。
+   * 貼り付けた図形全体の中心をその点へ置き、いちばん近いページの内側へ押し戻す。`centerAt` が
+   * あるときはそちらが優先で、ポインタは見ない。ページの並びを持たない面 (running region・
+   * 素材編集) は無視して、従来どおり元の位置から少しずらす。
+   */
+  pointerClient?: ClientPoint;
 }
 
 export interface PrepareOverlayShapesForPasteInput {
@@ -49,6 +61,12 @@ export interface PrepareOverlayShapesForPasteInput {
   centerAt?: OverlayPoint;
   /** 紙のサイズへ押し戻さない (ホワイトボード)。 */
   unbounded?: boolean;
+  /**
+   * ポインタの位置へ置く指定 (紙面の座標へ写した点とページの並び)。`centerAt` が無いときだけ効く。
+   * 図形はブロックのアンカーを外して置かれ、保存のときに、置いた位置から新しい図形と同じように
+   * 近い本文ブロックへ付け直される (ページ固定の図形は固定のまま)。
+   */
+  pointerPlacement?: PointerPastePlacement;
 }
 
 export interface PreparedOverlayPaste {
@@ -74,16 +92,25 @@ export function prepareOverlayShapesForPaste({
   anchorBlockIdMap,
   centerAt,
   unbounded = false,
+  pointerPlacement,
 }: PrepareOverlayShapesForPasteInput): PreparedOverlayPaste {
   const isSameDocument = Boolean(targetDocId) && payload.sourceDocId === targetDocId;
-  const bounds = centerAt ? getShapesSelectionBounds(payload.shapes) : null;
-  const placement = centerAt && bounds
-    ? { x: centerAt.x - (bounds.x + bounds.w / 2), y: centerAt.y - (bounds.y + bounds.h / 2) }
+  const bounds = centerAt || pointerPlacement ? getShapesSelectionBounds(payload.shapes) : null;
+  // ポインタの位置は、いちばん近いページの内側へ押し戻した中心にする (灰色の隙間なら近い方のページへ)。
+  const pointerCenter = !centerAt && pointerPlacement && bounds
+    ? clampPasteCenterToNearestPage(pointerPlacement.point, bounds, pointerPlacement.layout)
+    : null;
+  const center = centerAt ?? pointerCenter;
+  const placement = center && bounds
+    ? { x: center.x - (bounds.x + bounds.w / 2), y: center.y - (bounds.y + bounds.h / 2) }
     : offset;
   const pasted = cloneOverlayShapesForPaste(payload, placement, {
     // 置き場所を指定したものは、元のブロックから切り離して置いた場所に留める
     // (ブロックに掛かったままだと、解決のときに元の相対位置へ引き戻される)。
-    dropBlockAnchors: !isSameDocument || Boolean(centerAt && bounds),
+    // ただしポインタに置いたものは「ページに固定」ではなく「アンカー無し」にする: 新しく描いた図形と
+    // 同じく、保存のときに置いた位置から近い本文ブロックへ付け直され、本文に追従する。
+    dropBlockAnchors: !isSameDocument || Boolean(center && bounds),
+    droppedBlockAnchor: pointerCenter ? "unanchored" : "page",
     anchorBlockIdMap,
   });
   if (pasted.shapes.length === 0) {
