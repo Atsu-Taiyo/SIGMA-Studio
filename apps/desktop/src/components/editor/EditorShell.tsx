@@ -1,5 +1,7 @@
 "use client";
 
+import { PersistentWorkspaceEditors, PersistentWorkspaceCanvas, usePersistentWorkspacePane, usePersistentPaneLifecycle, workspacePersistenceState } from "./editor-shell/persistent-workspace";
+import { EditorInputContext } from "./editor-input-context";
 import { isTextPointerSelectionClick } from "@/components/editor/text-pointer-selection";
 import type { DocumentSessionHost } from "@/features/document-session/contracts";
 import { isDocumentWritable } from "@/features/document-session/writable";
@@ -107,7 +109,7 @@ import { TexCommandReferenceDialog } from "@/components/editor/TexCommandReferen
 import { TexEnvironmentSettingsDialog } from "@/components/editor/TexEnvironmentSettingsDialog";
 import { VersionHistoryPanel, type VersionHistorySelection } from "@/components/editor/VersionHistoryPanel";
 import { WindowCloseSaveDialog } from "@/components/editor/WindowCloseSaveDialog";
-import { WorkspaceTabGroupGrid,type WorkspacePaneHandoff,type WorkspacePaneView } from "@/components/editor/WorkspaceTabGroupGrid";
+import { type WorkspacePaneHandoff,type WorkspacePaneView } from "@/components/editor/WorkspaceTabGroupGrid";
 import { WorkspaceTabStrip } from "@/components/editor/WorkspaceTabStrip";
 import { OverlayImagePreviewContext } from "./overlay-canvas/image-preview-context";
 import { useTikzEditor } from "./tikz/use-tikz-editor";
@@ -456,6 +458,10 @@ interface EditorHistorySelection {
  * ストアの寿命はこの画面の寿命に一致させる。React の外から `getState()` で同期的に読めるため、
  * 保存や CAS のように「今この瞬間の値」が要る経路も ref の二重管理なしに書ける。
  */
+function EditorChromeSlot({ chrome }: { chrome: Parameters<typeof renderEditorChrome>[0] }) {
+  return renderEditorChrome(chrome);
+}
+
 function DocumentActionsSlot({ render, context }: {
   render: NonNullable<EditorShellProps["renderDocumentActions"]>;
   context: Parameters<NonNullable<EditorShellProps["renderDocumentActions"]>>[0];
@@ -463,7 +469,11 @@ function DocumentActionsSlot({ render, context }: {
   return render(context);
 }
 
-export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates, loadCommentPeople }: EditorShellProps = {}) {
+export function EditorShell(props: EditorShellProps = {}) {
+  return props.embeddedHost ? <EditorShellInstance {...props} /> : <PersistentWorkspaceEditors renderPane={() => <EditorShellInstance {...props} />} />;
+}
+
+function EditorShellInstance({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates, loadCommentPeople }: EditorShellProps = {}) {
   // **毎レンダーで呼ばない。** `createEmptyEditorDocument()` は文書 1 個分を
   // 組み立てる (旧 `emptyEditorDocument` は module 定数だった)。打鍵のたびに
   // 走ると perf 予算 `typing.longTasksPerChar` を割る。
@@ -607,6 +617,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     toggleSurface,
     runAiEditViaDesktopRuntime
   } = useEditorHost().assistance;
+  const persistent = usePersistentWorkspacePane();
+  const paneFocused = !persistent || persistent.workspace.isFocused(persistent.pane.id);
+  const ownsWorkspaceInput = useCallback(() => !persistent || persistent.workspace.isFocused(persistent.pane.id), [persistent]);
   countPerformanceEvent("EditorShell.render");
   // クロームの文言。`renderEditorChrome` は hook を呼べないので、ここで解決して
   // `chrome.shared.t` から配る。同一ロケール内では参照が変わらない。
@@ -676,7 +689,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setSaveState("warning");
     setStatusMessage(message);
   }, [setSaveState, setStatusMessage, tE]);
-  const { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY: reportedBoxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive: reportedBoxedTextActive, boldActive: reportedBoldActive, italicActive: reportedItalicActive, underlineActive: reportedUnderlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant: reportedBoxedTextVariant, setBoxedTextVariant, boxedTextRoundness: reportedBoxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, preferredFontFamily, getPreferredFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState();
+  const { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY: reportedBoxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive: reportedBoxedTextActive, boldActive: reportedBoldActive, italicActive: reportedItalicActive, underlineActive: reportedUnderlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant: reportedBoxedTextVariant, setBoxedTextVariant, boxedTextRoundness: reportedBoxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, preferredFontFamily, getPreferredFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState(ownsWorkspaceInput);
   // ツールバーの入力欄へフォーカスが移っても、本文の選択を見せ続ける (`HeldBodySelectionOverlay`)。
   const chromeHeldBodyEditor = useChromeHeldBodySelection();
   const zoom = useStore(editorStore, (state) => state.zoom);
@@ -699,7 +712,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const [documentMetadatas, setDocumentMetadatas] = useState<DocumentMetadata[]>([]);
   const documentMetadatasRef = useRef(documentMetadatas);
   useLayoutEffect(() => { documentMetadatasRef.current = documentMetadatas; }, [documentMetadatas]);
-  const [openFileIds, setOpenFileIds] = useState<string[]>(() => [initialDocument.docId]);
+  const [localOpenFileIds, setOpenFileIds] = useState<string[]>(() => [initialDocument.docId]);
+  const persistentLayout = persistent?.workspace.layout;
+  const openFileIds = useMemo(() => persistentLayout ? workspaceLayoutOpenFileIds(persistentLayout) : localOpenFileIds, [persistentLayout, localOpenFileIds]);
   const [activeFileId, setActiveFileId] = useState(initialDocument.docId);
   const cameraByFileIdRef = useRef(new Map<string, { zoom: number; panX: number; panY: number }>());
   const cameraFileIdRef = useRef(initialDocument.docId);
@@ -715,10 +730,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const documentSessionRef = useRef(documentSession);
   useLayoutEffect(() => { documentSessionRef.current = documentSession; }, [documentSession]);
   useEffect(() => {
-    if (!sessionHost?.setActiveFile) return;
+    if (!sessionHost?.setActiveFile || !paneFocused) return;
     void sessionHost.setActiveFile(workspaceReady ? activeFileId : null);
     return () => { void sessionHost.setActiveFile?.(null); };
-  }, [activeFileId, sessionHost, workspaceReady]);
+  }, [activeFileId, sessionHost, workspaceReady, paneFocused]);
+  useEffect(() => workspaceReady ? sessionHost?.retainVisibleFile?.(activeFileId) : undefined, [activeFileId, sessionHost, workspaceReady]);
   // A shared file is written only through its session: main rejects a JSON save of it
   // (SHARED_SESSION_WRITE_REQUIRED). Loading waits for the session, so this only covers the
   // moment a file is shared while open: edits wait for the session instead of collecting in
@@ -757,7 +773,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     editorTabViewStateByFileIdRef.current.set(fileId, { selectedId: saved?.selectedId ?? null, textSelection: handoff.point ? null : saved?.textSelection ?? null, scrollTop: handoff.scrollTop, scrollLeft: handoff.scrollLeft });
     pendingPaneCaretRef.current = handoff.point ? { fileId, ...handoff.point } : null;
   }, []);
-  const { workspaceLayout, getWorkspaceLayout, setWorkspaceLayout, activateWorkspaceGroupTab, moveWorkspaceGroupTab, splitWorkspaceGroupTab, closeWorkspaceGroupTab, resizeWorkspaceGroupSplit, focusWorkspaceGroup } = useWorkspaceTabCoordination({ initialDocumentId: initialDocument.docId, getActiveFileId: getActiveWorkspaceFileId, setOpenFileIds: installOpenWorkspaceFileIds, openDocumentInWorkspace: requestOpenWorkspaceDocument, closeDocumentTab: requestCloseWorkspaceDocument, rememberPaneHandoff: rememberWorkspacePaneHandoff });
+  const preparePaneReplacementRef = useRef<() => Promise<boolean>>(async () => true);
+  const preparePaneReplacement = useCallback(() => preparePaneReplacementRef.current(), []);
+  const { workspaceLayout, getWorkspaceLayout, setWorkspaceLayout, activateWorkspaceGroupTab, moveWorkspaceGroupTab, splitWorkspaceGroupTab, closeWorkspaceGroupTab, resizeWorkspaceGroupSplit, focusWorkspaceGroup } = useWorkspaceTabCoordination({ initialDocumentId: initialDocument.docId, getActiveFileId: getActiveWorkspaceFileId, setOpenFileIds: installOpenWorkspaceFileIds, openDocumentInWorkspace: requestOpenWorkspaceDocument, closeDocumentTab: requestCloseWorkspaceDocument, rememberPaneHandoff: rememberWorkspacePaneHandoff, prepareDocumentReplacement: preparePaneReplacement });
   const { shortcutOverrides, setShortcutOverrides, customCommands, setCustomCommands, commandSettingsLoaded, commandSettingsError, openCommandSettings } = useCommandSettingsController(setCommandSettingsOpen, setStatusMessage);
   const { customFonts, systemFonts, reloadCustomFonts } = useCustomFonts();
   const { searchOpen, setSearchOpen, replaceOpen, setReplaceOpen, searchQuery, setSearchQuery, replaceText, setReplaceText } = useDocumentSearchState();
@@ -1075,6 +1093,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const pendingAutoAppliedProposalIdsByFileRef = useRef(new Map<string, string[]>());
   const documentStorageChangeProcessorRef = useRef<((event: DocumentStorageChangeEvent) => void) | null>(null);
   const saveWorkspaceState = useCallback(async (state: { openFileIds: string[]; activeFileId: string }) => {
+    if (persistent?.workspace.layout && !persistent.workspace.isFocused(persistent.pane.id)) {
+      return persistWorkspaceState(workspacePersistenceState(persistent.workspace.layout));
+    }
     const layout = reconcileWorkspaceLayoutDocuments(
       getWorkspaceLayout(),
       state.openFileIds,
@@ -1082,7 +1103,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     );
     setWorkspaceLayout(layout);
     return persistWorkspaceState({ ...state, layout });
-  }, [getWorkspaceLayout, setWorkspaceLayout]);
+  }, [getWorkspaceLayout, setWorkspaceLayout, persistent]);
 
   const finishMcpPreviewBusy = useCallback(() => {
     mcpPreviewBusyRef.current = false;
@@ -1113,11 +1134,13 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
 
   useEffect(() => {
     const updateSelectionBookmark = (event: Event) => {
+      if (!ownsWorkspaceInput()) return;
       if (event instanceof CustomEvent) {
         textSelectionBookmarkRef.current = event.detail as TextFlowSelectionBookmark;
       }
     };
     const captureChangeStart = (event: Event) => {
+      if (!ownsWorkspaceInput()) return;
       pendingTextHistorySelectionRef.current = event instanceof CustomEvent
         ? event.detail as TextFlowSelectionBookmark | null
         : null;
@@ -1129,7 +1152,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       window.removeEventListener(TEXT_FLOW_SELECTION_BOOKMARK_EVENT, updateSelectionBookmark);
       window.removeEventListener(TEXT_FLOW_CHANGE_START_EVENT, captureChangeStart);
     };
-  }, []);
+  }, [ownsWorkspaceInput]);
   const [pendingDeletion, setPendingDeletion] = useState<{ revision: number; deletedIds: string[] } | null>(null);
   const deletionSeqRef = useRef(0);
   /** Web版 = ブラウザで直接開かれたアプリ。Electronでも埋め込みSDKでもないときだけ
@@ -1231,7 +1254,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         }
 
         const thread = documentRef.current.comments?.find((item) => item.id === targetThreadId);
-        const viewport = window.document.querySelector<HTMLElement>(".whiteboard-page-canvas");
+        const viewport = editorCanvasRef.current?.querySelector<HTMLElement>(".whiteboard-page-canvas");
         if (viewport && thread?.anchor.type === "canvasRegion") {
           const { bounds } = thread.anchor;
           const store = editorStore.getState();
@@ -1387,6 +1410,20 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       });
     }
   }, [activeFileId, documentInstanceRevision, workspaceReady]);
+
+  useEffect(() => {
+    if (!persistent || !paneFocused || !workspaceReady) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (!ownsWorkspaceInput()) return;
+      const active = window.document.activeElement;
+      if (!(active instanceof HTMLElement) || persistent.pane.canvas.contains(active)) return;
+      if (active !== window.document.body && !active.closest(".workspace-tabs-row, .workspace-document-editor")) return;
+      const bookmark = textSelectionBookmarkRef.current;
+      if (bookmark) deliverCaret(bookmark);
+      else editorCanvasRef.current?.querySelector<HTMLElement>('.page-flow [contenteditable="true"]')?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [ownsWorkspaceInput, paneFocused, persistent, workspaceReady]);
 
   // 外部変更 (AI提案の自動承認などによる保存) を mergeExternalDocumentChange で人間の未保存編集と
   // 3-wayマージできた場合に使う、resetEditorDocument より軽量な反映経路。全文リロードではないため
@@ -1646,6 +1683,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     autosave: { activeFileId, document, documentSession, workspaceReady, blocked: Boolean(ledgerFailure), isDesktopApp, openFileIds, setOpenFileIds, saveWorkspaceState, refreshDocumentMetadatas },
   });
 
+  useLayoutEffect(() => { preparePaneReplacementRef.current = saveCurrentDocumentBeforeReplacement; }, [saveCurrentDocumentBeforeReplacement]);
+
   const createUnsavedEditBackup = useCallback(async (source: SigmaDocument) => {
     const backup = repairDuplicateTopLevelIds(ensurePageLayout({
       ...structuredClone(source),
@@ -1688,7 +1727,18 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     return { ok: true };
   }, [deleteAiDataForDocument, sessionHost]);
 
-  const { windowCloseSaveDialog, attemptWindowCloseSave, finishWindowCloseSave } = useWindowCloseBoundary({ attemptBoundarySave, isCurrentDocumentDirty, cleanupUntouchedDraftsBeforeClose, tE });
+  const saveWorkspaceBoundary = useCallback(async (reason: "tab-switch" | "app-close") => {
+    const own = await attemptBoundarySave(reason);
+    if ((!own.ok || own.skipped) && isCurrentDocumentDirty()) return own;
+    return persistent ? persistent.workspace.saveOthers(persistent.pane.id, reason) : own;
+  }, [attemptBoundarySave, isCurrentDocumentDirty, persistent]);
+  const isWorkspaceDirty = useCallback(() => isCurrentDocumentDirty() || Boolean(persistent?.workspace.panes.some(pane => pane.dirty?.())), [isCurrentDocumentDirty, persistent]);
+  const cleanupWorkspaceBeforeClose = useCallback(async () => {
+    const own = await cleanupUntouchedDraftsBeforeClose();
+    if (!own.ok) return own;
+    return persistent ? persistent.workspace.cleanupOthers(persistent.pane.id) : own;
+  }, [cleanupUntouchedDraftsBeforeClose, persistent]);
+  const { windowCloseSaveDialog, attemptWindowCloseSave, finishWindowCloseSave } = useWindowCloseBoundary({ enabled: paneFocused, attemptBoundarySave: saveWorkspaceBoundary, isCurrentDocumentDirty: isWorkspaceDirty, cleanupUntouchedDraftsBeforeClose: cleanupWorkspaceBeforeClose, tE });
 
   const switchAwayFromDeletedFile = useCallback(async (deletedFileId: string) => {
     const backup = await saveUnsavedEditBackup();
@@ -2399,6 +2449,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
 
   useEffect(() => {
     const selectInlineMath = (event: Event) => {
+      if (!ownsWorkspaceInput()) return;
       if (!(event instanceof CustomEvent)) {
         return;
       }
@@ -2449,10 +2500,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
 
     window.addEventListener(SELECT_INLINE_MATH_EVENT, selectInlineMath);
     return () => window.removeEventListener(SELECT_INLINE_MATH_EVENT, selectInlineMath);
-  }, [setSelectedId, setSelectedInlineMath]);
+  }, [ownsWorkspaceInput, setSelectedId, setSelectedInlineMath]);
 
   const tikzEditor = useTikzEditor({
-    document, fileId: activeFileId, writable: sessionWritable, commit: commitDocumentChange,
+    ownsInput: ownsWorkspaceInput, document, fileId: activeFileId, writable: sessionWritable, commit: commitDocumentChange,
     getPasteAnchor: () => selectedIdRef.current,
     insertDocument: (imported, afterBlockId) => {
       return commitDocumentChange((current) => {
@@ -2476,7 +2527,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // ホワイトボードの見えている範囲の中央 (カメラを引いた座標)。ポケットのクリック挿入と、
   // ホワイトボードへの本文のコピーの貼り付けで、文章の図形を置く場所に使う。
   const getWhiteboardViewportCenter = useCallback(() => {
-    const viewport = window.document.querySelector<HTMLElement>(".whiteboard-page-canvas");
+    const viewport = editorCanvasRef.current?.querySelector<HTMLElement>(".whiteboard-page-canvas");
     if (!viewport) {
       return null;
     }
@@ -2486,6 +2537,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, [editorStore]);
 
   useEffect(() => registerEditorClipboardEvents({
+    ownsInput: ownsWorkspaceInput,
     pasteTikz: tikzEditor.pasteTikz,
     overlayEditing,
     selectedInlineMath,
@@ -2517,7 +2569,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setCanPasteProblem,
     setStatusMessage,
     translate: tEditor,
-  }), [tikzEditor.pasteTikz, materialEditingOpenRef, commitDocumentChange, overlayEditing, selectedInlineMath, setSelectedId, setSelectedInlineMath, setStatusMessage, isWhiteboardDocument, getWhiteboardViewportCenter]);
+  }), [ownsWorkspaceInput, tikzEditor.pasteTikz, materialEditingOpenRef, commitDocumentChange, overlayEditing, selectedInlineMath, setSelectedId, setSelectedInlineMath, setStatusMessage, isWhiteboardDocument, getWhiteboardViewportCenter]);
 
   // 画面のアウトラインは表示言語で引く (`t` を省略すると `collectOutline` の既定 =
   // 日本語になる。既定が日本語なのは AI / MCP の呼び出しを固定するため)。
@@ -3185,6 +3237,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // as an overlay image (the same pipeline as pasted/imported images).
   useEffect(() => {
     const handleQrCodeRequest = (event: Event) => {
+      if (!ownsWorkspaceInput()) return;
       const detail = event instanceof CustomEvent ? (event.detail as QrCodeRequestDetail | null) : null;
       const url = detail?.url?.trim();
       if (!url) {
@@ -3204,12 +3257,13 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
 
     window.addEventListener(QR_CODE_REQUEST_EVENT, handleQrCodeRequest);
     return () => window.removeEventListener(QR_CODE_REQUEST_EVENT, handleQrCodeRequest);
-  }, [requestOverlayImages, setSaveState, setStatusMessage]);
+  }, [ownsWorkspaceInput, requestOverlayImages, setSaveState, setStatusMessage]);
 
   // 本文のリンクを OS の既定のブラウザで開く。デスクトップ版は main の shell ブリッジ (http/https だけ通す)、
   // ブラウザ版は新しいタブ。Sigma 内で開く方は、タブを採用する右サイドバー (RightDockHost) が受ける。
   useEffect(() => {
     const handleOpenLinkRequest = (event: Event) => {
+      if (!ownsWorkspaceInput()) return;
       const url = readOpenLinkRequest(event, "browser");
       if (!url) {
         return;
@@ -3230,7 +3284,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
 
     window.addEventListener(OPEN_LINK_REQUEST_EVENT, handleOpenLinkRequest);
     return () => window.removeEventListener(OPEN_LINK_REQUEST_EVENT, handleOpenLinkRequest);
-  }, [setStatusMessage]);
+  }, [ownsWorkspaceInput, setStatusMessage]);
 
   const requestOverlayAction = useCallback((request: OverlayActionRequestInput) => {
     overlayActionRequestIdRef.current += 1;
@@ -3336,7 +3390,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
    * 「いま他の面が前に出ているか」。**キーボード経路とメニュー経路で同じ抑止を使う。**
    * 片方だけに書くと、メニューがダイアログを飛び越えて背後の文書を戻す。
    */
-  const isModalSurfaceOpen = commandSettingsOpen
+  const isModalSurfaceOpen = !paneFocused || commandSettingsOpen
     || texCommandReferenceOpen
     || pageSettingsOpen
     || documentListOpen
@@ -3373,6 +3427,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     // untrusted なのでブラウザの既定 undo を起こさない = PM 所有 DOM は書き換わらない)。
     // 変換中に文書を差し替えて未確定の文字列ごと壊すより、この 1 回を飲むほうがよい。
     const handleNativeHistoryCommand = (event: Event) => {
+      if (!ownsWorkspaceInput()) return;
       const detail = (event as CustomEvent<NativeHistoryCommandDetail>).detail;
       if (detail?.direction !== "undo" && detail?.direction !== "redo") {
         return;
@@ -3401,11 +3456,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     };
     window.addEventListener(NATIVE_HISTORY_COMMAND_EVENT, handleNativeHistoryCommand);
     return () => window.removeEventListener(NATIVE_HISTORY_COMMAND_EVENT, handleNativeHistoryCommand);
-  }, [closeTransientCommandSurfaces, isImeCompositionActive, isModalSurfaceOpen,
+  }, [closeTransientCommandSurfaces, isImeCompositionActive, isModalSurfaceOpen, ownsWorkspaceInput,
     redoDocumentChange, undoDocumentChange]);
 
   useEffect(() => {
     const handleOverlayShapesPasteRequest = (event: Event) => {
+      if (!ownsWorkspaceInput()) return;
       const detail = (event as CustomEvent<OverlayShapesPasteRequestDetail>).detail;
       if (
         materialEditingOpenRef.current
@@ -3424,10 +3480,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     };
     window.addEventListener(OVERLAY_SHAPES_PASTE_REQUEST_EVENT, handleOverlayShapesPasteRequest);
     return () => window.removeEventListener(OVERLAY_SHAPES_PASTE_REQUEST_EVENT, handleOverlayShapesPasteRequest);
-  }, [materialEditingOpenRef, requestOverlayAction, setStatusMessage]);
+  }, [ownsWorkspaceInput, materialEditingOpenRef, requestOverlayAction, setStatusMessage]);
 
   useEffect(() => {
     const handleBodySelectionShapesRequest = (event: Event) => {
+      if (!ownsWorkspaceInput()) return;
       const detail = (event as CustomEvent<BodySelectionShapesRequestDetail>).detail;
       if (materialEditingOpenRef.current || !detail?.source.closest(".page-flow")) {
         return;
@@ -3440,7 +3497,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     };
     window.addEventListener(BODY_SELECTION_SHAPES_REQUEST_EVENT, handleBodySelectionShapesRequest);
     return () => window.removeEventListener(BODY_SELECTION_SHAPES_REQUEST_EVENT, handleBodySelectionShapesRequest);
-  }, [materialEditingOpenRef, requestOverlayAction]);
+  }, [ownsWorkspaceInput, materialEditingOpenRef, requestOverlayAction]);
 
   const applyOverlayStyle = (style: OverlaySelectionStylePatch) => {
     if (!hasOverlaySelection) {
@@ -3674,12 +3731,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   });
 
   useLayoutEffect(() => { workspaceDocumentActionsRef.current = { open: openDocumentInWorkspace, close: closeDocumentTab }; }, [closeDocumentTab, openDocumentInWorkspace]);
-  useExternalDocumentOpen(isDesktopApp && workspaceReady, openExternalDocument, (error) => {
+  useExternalDocumentOpen(isDesktopApp && workspaceReady && paneFocused, openExternalDocument, (error) => {
     setStatusMessage(error instanceof Error ? error.message : tEditor("status.fileOpenFailed"));
   });
 
   useDesktopMenuActions({
-    isDesktopApp,
+    isDesktopApp: isDesktopApp && paneFocused,
     isModalSurfaceOpen,
     isImeCompositionActive,
     runShortcutCommandRef,
@@ -4113,6 +4170,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
 
   useEffect(() => {
     const handleInlineShortcut = (event: KeyboardEvent) => {
+      if (!ownsWorkspaceInput()) return;
       if (!isInlineToggleShortcut(event) || event.repeat) {
         return;
       }
@@ -4152,7 +4210,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     };
     window.addEventListener("keydown", handleInlineShortcut, true);
     return () => window.removeEventListener("keydown", handleInlineShortcut, true);
-  }, [aiDisplayMode, aiSidebarOpen, aiInlineOpen, applyAiSurface, closeAiSurface, openAiInline, commandSettingsOpen, texCommandReferenceOpen, commandSettingsError, commandSettingsLoaded, pageSettingsOpen, documentListOpen, previewOpen, aiSettingsOpen, desktopSettingsOpen, materialLibraryOpen, ribbonBackstageOpen, commandPaletteOpen, runtimeCommands, shortcutOverrides, isInlineToggleShortcut, toggleSurface]);
+  }, [ownsWorkspaceInput, aiDisplayMode, aiSidebarOpen, aiInlineOpen, applyAiSurface, closeAiSurface, openAiInline, commandSettingsOpen, texCommandReferenceOpen, commandSettingsError, commandSettingsLoaded, pageSettingsOpen, documentListOpen, previewOpen, aiSettingsOpen, desktopSettingsOpen, materialLibraryOpen, ribbonBackstageOpen, commandPaletteOpen, runtimeCommands, shortcutOverrides, isInlineToggleShortcut, toggleSurface]);
 
   // 導出は毎回新しい配列を作るので、useMemo の中で 1 回だけ呼ぶ。裸で呼ぶと本文と無関係な
   // 再レンダー (メニュー・選択・フォーカス) のたびに nodes の参照が変わり、タイトル・タブ・
@@ -4235,6 +4293,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     zoomFor: readPaneZoom,
   }), [commentAuthor, commentsPanelOpen, isDesktopApp, isEmbedded, readPaneScroll, readPaneZoom, showResolvedComments, zoom]);
 
+  usePersistentPaneLifecycle(activeFileId, workspaceReady, {
+    save: attemptBoundarySave, dirty: isCurrentDocumentDirty, cleanup: cleanupUntouchedDraftsBeforeClose, close: closeDocumentTab,
+  });
   const aiRoomTitles = useAiWorkspaceTabTitles();
   const workspaceTabsRow = isEmbedded ? null : (
     <WorkspaceTabStrip
@@ -4753,6 +4814,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   );
 
   return (
+    <EditorInputContext.Provider value={ownsWorkspaceInput}>
     <PreferredFontContext.Provider value={preferredFont}>
     <DocumentSessionContext.Provider value={documentSession}>
     <DocumentWritableContext.Provider value={sessionWritable}>
@@ -4764,6 +4826,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     <div
       ref={appShellRef}
       className="app-shell"
+      hidden={!paneFocused}
+      data-workspace-editor-file={activeFileId}
       data-ui-layout={uiLayoutPreference.mode}
       data-backstage-open={ribbonBackstageOpen ? "true" : undefined}
       data-ribbon-collapsed={ribbonCollapse.collapsed ? "true" : undefined}
@@ -4789,7 +4853,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       />
       {/* 図形を選んでいる間、フォーカスを失った本文の選択を描き直す帯。
           「本文も図形も同時に選ばれている」ことが画面から読めないと混在コピーは事故になる。 */}
-      <HeldBodySelectionOverlay active={overlaySelection.selectedCount > 0} heldEditor={chromeHeldBodyEditor} />
+      <HeldBodySelectionOverlay active={paneFocused && overlaySelection.selectedCount > 0} heldEditor={chromeHeldBodyEditor} />
       <CommandPalette
         open={commandPaletteOpen}
         entries={paletteEntries}
@@ -4846,9 +4910,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       )}
       {/* ヘッダーはリボン UI (`editor-shell/chrome`) が描く。保存状態のバッジとタブの点は
           リボンの中で葉が購読するので、ここで saveState を読む必要はない。 */}
-      {renderEditorChrome(chrome)}
+      {paneFocused && <EditorChromeSlot chrome={chrome} />}
 
-      {pocketVisible && <PocketBar addShortcut={commandTooltip("", "edit.pocketAdd").shortcut} />}
+      {paneFocused && pocketVisible && <PocketBar addShortcut={commandTooltip("", "edit.pocketAdd").shortcut} />}
 
       <main
         className={workspaceClassName}
@@ -4916,7 +4980,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           </aside>
         )}
 
-        <WorkspaceTabGroupGrid
+        <PersistentWorkspaceCanvas
           enabled={!isEmbedded}
           layout={workspaceLayout}
           metadata={documentMetadatas}
@@ -5030,13 +5094,14 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           )}
           {pageEditorMounted && <SelectionToolbarProvider value={selectionToolbarBinding}><OverlayImagePreviewContext.Provider value={tikzEditor.preview}><AiPageCanvasEditor
             key={`${activeFileId}:${documentInstanceRevision}`}
+            publishesSessionPresence={paneFocused}
             aiEnabled={!isEmbedded}
             onPageCountChange={setEditorPageCount}
             onMeasuredBlockRectsChange={captureMeasuredBodyBlockRects}
             // Backstage は本文を覆うので、その間は本文側の window ショートカットも降ろす。
             // capture の stopPropagation も <main inert> も window リスナーには効かない
             // （どちらも「window より下」しか止められない）ので、フラグで渡すしかない。
-            shortcutsSuppressed={ribbonBackstageOpen}
+            shortcutsSuppressed={ribbonBackstageOpen || !paneFocused}
             document={document}
             selectedId={selectedId}
             selectedInlineMath={selectedInlineMath}
@@ -5117,7 +5182,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             onOpenSourceDocument={openSourceReferenceDocument}
             // AI・コメントの入力欄を選んだところに浮かべている間は、その下で出る選択の操作を隠す
             // (コメントの入力欄に焦点が移ると本文の選択がカーソル扱いになり、右下のチップが重なる)。
-            suppressSelectionActions={(aiDisplayMode === "inline" && aiInlineOpen) || Boolean(pendingCommentAnchor && pendingCommentPlacement)}
+            suppressSelectionActions={!paneFocused || (aiDisplayMode === "inline" && aiInlineOpen) || Boolean(pendingCommentAnchor && pendingCommentPlacement)}
             renderSelectionActions={renderSelectionActions ? anchor => renderSelectionActions({ fileId: activeFileId, document, metadata: activeDocumentMetadata ?? undefined, anchor }) : undefined}
             selectionTools={selectionToolbarExtension}
             externalDrop={POCKET_PAGE_DROP}
@@ -5188,7 +5253,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             </div>
           )}
         </section>
-        </WorkspaceTabGroupGrid>
+        </PersistentWorkspaceCanvas>
 
         {/* インラインのAI入力。サイドチャットは右のサイドバー(下)に載る。パネルは常に1か所だけに描き、
             どちらの面でも実行中の状態を失わない。 */}
@@ -5411,6 +5476,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     </DocumentWritableContext.Provider>
     </DocumentSessionContext.Provider>
     </PreferredFontContext.Provider>
+    </EditorInputContext.Provider>
   );
 }
 

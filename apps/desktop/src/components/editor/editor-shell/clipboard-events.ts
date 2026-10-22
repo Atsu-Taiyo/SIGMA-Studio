@@ -28,6 +28,7 @@ type BlockPaste =
   | { kind: "textFlowBlocks"; blocks: ClipboardTextFlowBlock[] };
 
 interface EditorClipboardPorts {
+  ownsInput?: () => boolean;
   overlayEditing: boolean;
   pasteTikz?: (text: string) => boolean;
   selectedInlineMath: { tex: string; getCanonicalTex?: () => string } | null;
@@ -59,10 +60,12 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
   const { overlayEditing, selectedInlineMath, setStatusMessage, translate: t } = ports;
   let literalPasteRequested = false;
   const handleKeyDown = (event: KeyboardEvent) => {
+    if (ports.ownsInput && !ports.ownsInput()) return;
     literalPasteRequested = (event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "v";
   };
 
   const handleCopy = (event: ClipboardEvent) => {
+    if (ports.ownsInput && !ports.ownsInput()) return;
     if (
       !overlayEditing && selectedInlineMath && event.clipboardData
       && isInlineMathClipboardTarget(event.target) && !isNativeClipboardTarget(event.target)
@@ -130,6 +133,7 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
   };
 
   const handlePaste = (event: ClipboardEvent) => {
+    if (ports.ownsInput && !ports.ownsInput()) return;
     const literalPaste = literalPasteRequested;
     literalPasteRequested = false;
     if (event.defaultPrevented) return;

@@ -807,7 +807,12 @@ border を引く、running region のリストは region スコープ、静的�
   通知する前にキャッシュを無効化する。設定ごとの検証と保存失敗時の方針は各設定に残す。
 - Electronの `cli-child-env.ts` は環境変数の選別とPATH構築を共有する。
   認証を上書きする変数の禁止やプロバイダ固有の追加変数は各clientに残す。
-- `EditorShell` の正本文書・revision・Undo/Redo・commitは一つの所有者に保つ。
+- `EditorShell` の正本文書・revision・Undo/Redo・commitは教材ごとに一つの所有者に保つ。
+  `editor-shell/persistent-workspace.tsx` が表示中の教材のownerと分割レイアウトを保持する。
+  各紙面は固定のportal先に描き、左右のフォーカス移動では保存・再読込・再マウントを行わない。
+  フォーカスしたownerだけが共通のchrome、windowショートカット、clipboard、終了要求を受ける。
+  終了要求は全ownerの保存結果とdirtyを集約し、非表示になったownerも保存成功後にのみ解放する。
+  `EditorInputContext` は表示中の複数の紙面からwindow入力の所有者を同期的に判定する。
   復旧読込は `use-document-recovery.ts`、埋め込みhostの反響判定は `use-embedded-document-sync.ts`、
   終了時の保存と再試行は `use-window-close-boundary.ts` が所有する。遅延読込、timer、close要求の
   世代を各ownerが管理し、unmountや後続のキャンセル後に古い完了通知を採用しない。

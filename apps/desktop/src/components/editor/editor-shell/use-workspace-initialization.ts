@@ -5,7 +5,8 @@ import { clearRequestedFileId,getRequestedFileId,uniqueStringIds } from "@/compo
 import { ensurePageLayout,repairDuplicateTopLevelIds,type SigmaDocument } from "@/features/document";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { createNewDocument,initializeDocumentWorkspace,listSavedDocuments } from "@/lib/storage";
-import { normalizeWorkspaceLayout,type WorkspaceLayoutV2 } from "@/lib/workspace-tab-groups";
+import { workspaceLayoutOpenFileIds,normalizeWorkspaceLayout,type WorkspaceLayoutV2 } from "@/lib/workspace-tab-groups";
+import { usePersistentWorkspacePane } from "./persistent-workspace";
 import { useEffect } from "react";
 import { DOCUMENT_BLOCK_OPERATION_PORTS } from "./document-operation-ports";
 import { storageWarningOrStatus,tEditor } from "./editor-translations";
@@ -30,6 +31,9 @@ interface WorkspaceInitializationPorts {
   setStatusMessage: (message: string) => void;
 }
 export function useWorkspaceInitialization({ isEmbedded, workspaceReloadNonce, loadWorkspaceDocument, showRecordedDocumentOpenFailure, enterDocumentOpenFailureState, activateDocument, installLayout, refreshDocumentMetadatas, saveWorkspaceState, setLedgerFailure, setWorkspaceReady, setSaveState, setStatusMessage }: WorkspaceInitializationPorts) {
+  const persistent = usePersistentWorkspacePane();
+  const initialPaneFileId = persistent?.pane.initialFileId;
+  const persistentWorkspace = persistent?.workspace;
   useEffect(() => {
     if (isEmbedded) {
       return;
@@ -38,6 +42,26 @@ export function useWorkspaceInitialization({ isEmbedded, workspaceReloadNonce, l
     let cancelled = false;
 
     const timeoutId = window.setTimeout(() => {
+      if (initialPaneFileId) {
+        void (async () => {
+          const loaded = await loadWorkspaceDocument(initialPaneFileId);
+          if (cancelled) return;
+          const fileIds = persistentWorkspace?.layout ? workspaceLayoutOpenFileIds(persistentWorkspace.layout) : [initialPaneFileId];
+          if (loaded) {
+            activateDocument(repairDuplicateTopLevelIds(ensurePageLayout(loaded.document), DOCUMENT_BLOCK_OPERATION_PORTS), initialPaneFileId, fileIds, loaded.observedRevision);
+            await refreshDocumentMetadatas();
+            if (!cancelled) setWorkspaceReady(true);
+          } else {
+            const failure = showRecordedDocumentOpenFailure(initialPaneFileId);
+            if (failure) {
+              await enterDocumentOpenFailureState(failure, fileIds);
+              if (!cancelled) setWorkspaceReady(true);
+            }
+            if (!cancelled) { setSaveState("error"); setStatusMessage(tEditor("status.loadFailed")); }
+          }
+        })().catch(error => { if (!cancelled) { setSaveState("error"); setStatusMessage(String(error)); } });
+        return;
+      }
       initializeDocumentWorkspace()
         .then(async (workspace) => {
           if (cancelled) {
@@ -180,6 +204,6 @@ export function useWorkspaceInitialization({ isEmbedded, workspaceReloadNonce, l
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [enterDocumentOpenFailureState, isEmbedded, loadWorkspaceDocument, refreshDocumentMetadatas, activateDocument, installLayout, saveWorkspaceState, setSaveState, setStatusMessage, showRecordedDocumentOpenFailure, workspaceReloadNonce, setWorkspaceReady, setLedgerFailure]);
+  }, [initialPaneFileId, persistentWorkspace, enterDocumentOpenFailureState, isEmbedded, loadWorkspaceDocument, refreshDocumentMetadatas, activateDocument, installLayout, saveWorkspaceState, setSaveState, setStatusMessage, showRecordedDocumentOpenFailure, workspaceReloadNonce, setWorkspaceReady, setLedgerFailure]);
 
 }

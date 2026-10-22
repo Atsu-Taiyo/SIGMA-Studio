@@ -69,7 +69,7 @@ describe("EditorShell の Backstage 中のキー入力抑止", () => {
     expect(effect).toContain('window.addEventListener("keydown", handleShortcutKeyDown, true)');
     expect(effect.split("shortcutsSuppressed").length - 1).toBeGreaterThanOrEqual(2);
     // EditorShell が実際に渡していること（prop を足しただけで配線し忘れる事故を落とす）。
-    expect(source).toContain("shortcutsSuppressed={ribbonBackstageOpen}");
+    expect(source).toContain("shortcutsSuppressed={ribbonBackstageOpen || !paneFocused}");
   });
 
   it("Backstage 表示中は window の capture フェーズで Escape 以外を止める", () => {
