@@ -484,6 +484,7 @@ export function SigmaDocPrintSurface({
               title={printable.metadata.title}
               pageNumber={page.number}
               totalPages={pages.length}
+              pageNumberStart={layout.pageNumberStart}
               metrics={metrics}
               mathFractionSizing={mathFractionSizing}
             />
@@ -493,6 +494,7 @@ export function SigmaDocPrintSurface({
               title={printable.metadata.title}
               pageNumber={page.number}
               totalPages={pages.length}
+              pageNumberStart={layout.pageNumberStart}
               metrics={metrics}
               mathFractionSizing={mathFractionSizing}
             />
