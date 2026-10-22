@@ -843,16 +843,34 @@ function collectInlineMeasurements(
  *  mark span that stands in for `segmentCount` document targets. */
 export type BoxedRunWalkItem =
   | { kind: "loose"; rects: BoxedRunRect[] }
-  /** `segments[i]` are the rects of the i-th document target this span stands in for. */
-  | { kind: "boxed"; segments: BoxedRunRect[][]; resolveFallback: () => BoxedRunDomTarget };
+  | {
+    kind: "boxed";
+    /** `segments[i]` are the rects of the i-th measured box inside this span (one per math node view, else the span itself). */
+    segments: BoxedRunRect[][];
+    resolveFallback: () => BoxedRunDomTarget;
+    /**
+     * The document positions this span covers, when the surface can say. A span can stand in for
+     * more document targets than it has measured boxes, so the targets are claimed by position.
+     */
+    resolveRange?: () => { from: number; to: number } | undefined;
+  };
 
 /**
- * Pair the boxed boxes from an inline walk with their document targets, in order.
+ * Pair the boxed boxes from an inline walk with their document targets.
  *
- * This is the part that regresses whenever the boxed-run markup changes: a single
- * `.boxed-text` span can stand in for several document targets (coalesced math
- * atoms), so it must consume `segmentCount` target slots — not one. Kept pure (no
- * DOM) so the slot bookkeeping is unit tested without a browser/editor view.
+ * This is the part that regresses whenever the boxed-run markup changes. One `.boxed-text`
+ * span does not stand in for one document target: it can hold several math atoms, and it can
+ * hold several text nodes too — ProseMirror merges adjacent nodes whose boxed marks are equal
+ * into one span however the marks *inside* it differ, so a bold word next to plain text in the
+ * same box is two targets under one span. Pairing by order and count therefore shifts every
+ * later target by the surplus: the tail of the run is never decorated and shows up as a second,
+ * shorter frame drawn by the bare `.boxed-text` border.
+ *
+ * So when the span can say which positions it covers, it claims the targets inside that range.
+ * A target the span measured a box for takes that box; the targets of a span with a single
+ * measured box (several text nodes sharing it) all take that one box, which is the line box they
+ * share. Spans that cannot say (no editor view) keep the order pairing. Kept pure (no DOM) so
+ * the bookkeeping is unit tested without a browser/editor view.
  */
 export function assignBoxedRunTargets(
   items: BoxedRunWalkItem[],
@@ -860,20 +878,58 @@ export function assignBoxedRunTargets(
 ): Array<BoxedRunMeasurement<BoxedRunDomTarget>> {
   const measurements: Array<BoxedRunMeasurement<BoxedRunDomTarget>> = [];
   let documentTargetIndex = 0;
+  const measure = (rects: BoxedRunRect[], boxedTarget: BoxedRunDomTarget) => {
+    measurements.push(...rects.map((rect) => ({ ...rect, boxedTarget,
+      ...(boxedTarget.whitespaceOnly ? { whitespaceOnly: true } : {}),
+    })));
+  };
   for (const item of items) {
     if (item.kind === "loose") {
       measurements.push(...item.rects);
       continue;
     }
+    const claimed = claimTargetsInRange(documentTargets, documentTargetIndex, item.resolveRange?.());
+    if (claimed.targets.length > 0) {
+      documentTargetIndex = claimed.next;
+      const { segments } = item;
+      claimed.targets.forEach((boxedTarget, index) => {
+        const rects = segments[segments.length === claimed.targets.length ? index : Math.min(index, segments.length - 1)];
+        if (rects) measure(rects, boxedTarget);
+      });
+      continue;
+    }
     for (const segmentRects of item.segments) {
       const boxedTarget = documentTargets[documentTargetIndex] ?? item.resolveFallback();
       documentTargetIndex += 1;
-      measurements.push(...segmentRects.map((rect) => ({ ...rect, boxedTarget,
-        ...(boxedTarget.whitespaceOnly ? { whitespaceOnly: true } : {}),
-      })));
+      measure(segmentRects, boxedTarget);
     }
   }
   return measurements;
+}
+
+/** The document targets, from `start` on, that lie inside `range`; `next` is where the search resumes. */
+function claimTargetsInRange(
+  documentTargets: readonly BoxedRunDomTarget[],
+  start: number,
+  range: { from: number; to: number } | undefined,
+): { targets: BoxedRunDomTarget[]; next: number } {
+  const targets: BoxedRunDomTarget[] = [];
+  if (!range || range.to <= range.from) {
+    return { targets, next: start };
+  }
+  let index = start;
+  // A target that ends before this span starts has no span of its own to be measured from.
+  while (index < documentTargets.length && (documentTargets[index].to ?? Number.POSITIVE_INFINITY) <= range.from) {
+    index += 1;
+  }
+  const first = index;
+  while (index < documentTargets.length) {
+    const { from, to } = documentTargets[index];
+    if (from === undefined || to === undefined || from < range.from || to > range.to) break;
+    targets.push(documentTargets[index]);
+    index += 1;
+  }
+  return targets.length > 0 ? { targets, next: index } : { targets, next: first };
 }
 
 function collectBoxedRunWalkItems(container: HTMLElement, view?: EditorView): BoxedRunWalkItem[] {
@@ -905,6 +961,7 @@ function collectBoxedRunWalkItems(container: HTMLElement, view?: EditorView): Bo
           segments: collectOwnedBoxedRunSegments(child)
             .map((segment) => scaleBoxedRunRects(getElementRects(segment), zoom)),
           resolveFallback: () => getBoxedRunDomTarget(child, view),
+          resolveRange: view ? () => getBoxedRunDomRange(child, view) : undefined,
         });
         continue;
       }
@@ -1018,6 +1075,15 @@ function getBoxedRunDomTarget(element: HTMLElement, view?: EditorView): BoxedRun
     };
   } catch {
     return { element, styleKey: getBoxedRunDomStyleKey(element), ...(!hasBoxedRunFrameContent(element) ? { whitespaceOnly: true } : {}) };
+  }
+}
+
+/** The document positions a mark span covers, or undefined when the view cannot map it. */
+function getBoxedRunDomRange(element: HTMLElement, view: EditorView): { from: number; to: number } | undefined {
+  try {
+    return { from: view.posAtDOM(element, 0), to: view.posAtDOM(element, element.childNodes.length) };
+  } catch {
+    return undefined;
   }
 }
 
