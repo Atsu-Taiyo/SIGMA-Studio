@@ -51,15 +51,27 @@ function coverDocument(options: { pageNumberStart?: number; footer?: Record<stri
   } as SigmaDocument;
 }
 
-/** 紙 1 枚につき、フッターの差し込みの値 (`{page}` `{total}`) を並べた文字列。 */
+const FOOTER_VALUES = ".page-running-region.footer .running-field-value";
+
+/** 編集画面: 紙 1 枚につき、フッターの差し込みの値 (`{page}` `{total}`) を並べた文字列。 */
 async function footerTexts(page: Page, sheets: string): Promise<string[]> {
-  return page.locator(sheets).evaluateAll((elements) => elements.map((sheet) => (
-    Array.from(sheet.querySelectorAll(".page-running-region.footer .running-field-value"), (node) => node.textContent).join("/")
-  )));
+  return page.locator(sheets).evaluateAll((elements, selector) => elements.map((sheet) => (
+    Array.from(sheet.querySelectorAll(selector), (node) => node.textContent).join("/")
+  )), FOOTER_VALUES);
+}
+
+/**
+ * PDF (印刷) の面: ページごとの窓 (`.paged-surface-page`) は積み重ねた紙を丸ごと複製して切り出す。
+ * N 番目の窓で見えているのは N 番目の紙なので、その 1 枚だけを読む。
+ */
+async function printFooterTexts(page: Page): Promise<string[]> {
+  return page.locator(".paged-surface-page").evaluateAll((windows, selector) => windows.map((window, index) => (
+    Array.from(window.querySelectorAll(".a4-page-sheet")[index]?.querySelectorAll(selector) ?? [], (node) => node.textContent).join("/")
+  )), FOOTER_VALUES);
 }
 
 const EDITOR_SHEETS = ".page-backdrop .a4-page-sheet";
-const PRINT_SHEETS = ".paged-surface-page-slot .a4-page-sheet";
+const PRINT_WINDOWS = ".paged-surface-page";
 
 async function openEditor(page: Page, document: SigmaDocument): Promise<void> {
   await page.setViewportSize({ width: 1400, height: 1000 });
@@ -75,7 +87,7 @@ async function openPrint(page: Page, document: SigmaDocument): Promise<void> {
   await installDesktopRuntimeMock(page, document);
   await page.goto("/print?fileId=file_e2e_document&profile=teacher", { waitUntil: "domcontentloaded" });
   await waitForPagedSurfaceSettled(page);
-  await expect.poll(() => page.locator(PRINT_SHEETS).count()).toBe(PAGES);
+  await expect.poll(() => page.locator(PRINT_WINDOWS).count()).toBe(PAGES);
 }
 
 test.describe("ページ番号の開始", () => {
@@ -110,13 +122,13 @@ test.describe("ページ番号の開始", () => {
   test("PDF (印刷) の面も同じ番号を出す", async ({ page }) => {
     await openPrint(page, coverDocument({ pageNumberStart: 0 }));
 
-    await expect.poll(() => footerTexts(page, PRINT_SHEETS)).toEqual(["0/4", "1/4", "2/4", "3/4", "4/4"]);
+    await expect.poll(() => printFooterTexts(page)).toEqual(["0/4", "1/4", "2/4", "3/4", "4/4"]);
   });
 
   test("別の開始番号でも、ページと総ページ数が同じだけずれる", async ({ page }) => {
     await openPrint(page, coverDocument({ pageNumberStart: 10 }));
 
-    await expect.poll(() => footerTexts(page, PRINT_SHEETS)).toEqual(["10/14", "11/14", "12/14", "13/14", "14/14"]);
+    await expect.poll(() => printFooterTexts(page)).toEqual(["10/14", "11/14", "12/14", "13/14", "14/14"]);
   });
 
   test("表示するページの指定は番号が 0 でも組版上のページのまま (先頭ページのみ = 表紙だけ)", async ({ page }) => {

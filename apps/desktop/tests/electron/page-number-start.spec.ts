@@ -54,9 +54,14 @@ test("page number start of 0 numbers the footers 0..N-1 in the editor and the pr
     await page.locator(".startup-splash").waitFor({ state: "hidden" }).catch(() => undefined);
 
     const editorSheets = page.locator(".page-backdrop .a4-page-sheet");
-    const footers = (surface: string) => page.locator(surface).evaluateAll((sheets) => sheets.map((sheet) => (
-      Array.from(sheet.querySelectorAll(".page-running-region.footer .running-field-value"), (node) => node.textContent).join("/")
-    )));
+    const footerSelector = ".page-running-region.footer .running-field-value";
+    const footers = (surface: string) => page.locator(surface).evaluateAll((sheets, selector) => sheets.map((sheet) => (
+      Array.from(sheet.querySelectorAll(selector), (node) => node.textContent).join("/")
+    )), footerSelector);
+    // PDF の面は、ページごとの窓が積み重ねた紙を丸ごと複製して切り出す。N 番目の窓で見えているのは N 番目の紙。
+    const printFooters = () => page.locator(".paged-surface-page").evaluateAll((windows, selector) => windows.map((window, index) => (
+      Array.from(window.querySelectorAll(".a4-page-sheet")[index]?.querySelectorAll(selector) ?? [], (node) => node.textContent).join("/")
+    )), footerSelector);
     const savedStart = () => page.evaluate(async (id) => {
       const document = await window.desktopAPI!.storage.loadDocument(id);
       return document?.pageLayout && "pageNumberStart" in document.pageLayout ? document.pageLayout.pageNumberStart : null;
@@ -108,7 +113,7 @@ test("page number start of 0 numbers the footers 0..N-1 in the editor and the pr
     printUrl.search = new URLSearchParams({ fileId, profile: "teacher" }).toString();
     await page.goto(printUrl.href);
     await expect(page.locator(".paged-surface[data-paged-surface-state='ready']")).toHaveCount(1);
-    await expect.poll(() => footers(".paged-surface-page-slot .a4-page-sheet")).toEqual(expectedFromZero(pageCount));
+    await expect.poll(printFooters).toEqual(expectedFromZero(pageCount));
     await page.screenshot({ path: testInfo.outputPath("print-from-zero.png") });
 
     // 編集画面へ戻り、1 に戻すと値を持たなくなる。
