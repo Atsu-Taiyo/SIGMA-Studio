@@ -25,6 +25,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -74,6 +75,48 @@ function fixture() {
 }
 
 describe("document file commands", () => {
+  it("keeps a browser export readable after the click, then releases its URL", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    vi.spyOn(desktop, "getDesktopBridge").mockReturnValue(null);
+    const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:lesson-export");
+    const revokeUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.isConnected).toBe(true);
+      expect(this.download).toBe("旧タイトル.sigma");
+    });
+    render(f.options);
+    await act(async () => { await actions.exportJson(); });
+    expect(click).toHaveBeenCalledOnce();
+    const blob = createUrl.mock.calls[0][0];
+    if (!(blob instanceof Blob)) throw new Error("Expected a document Blob");
+    expect(JSON.parse(await blob.text())).toEqual(f.options.documentRef.current);
+    expect(revokeUrl).not.toHaveBeenCalled();
+    expect(document.querySelector('a[download]')).toBeNull();
+    vi.runAllTimers();
+    expect(revokeUrl).toHaveBeenCalledExactlyOnceWith("blob:lesson-export");
+    expect(f.options.setSaveState).not.toHaveBeenCalled();
+  });
+
+  it("reports browser download errors and cleans up without replacing the material", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const original = f.options.documentRef.current;
+    vi.spyOn(desktop, "getDesktopBridge").mockReturnValue(null);
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:failed-export");
+    const revokeUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => { throw new Error("download failed"); });
+    render(f.options);
+    await act(async () => { await actions.exportJson(); });
+    expect(f.options.setSaveState).toHaveBeenLastCalledWith("error");
+    expect(f.options.setStatusMessage).toHaveBeenLastCalledWith("download failed");
+    expect(f.options.documentRef.current).toBe(original);
+    expect(f.options.resetEditorDocument).not.toHaveBeenCalled();
+    expect(document.querySelector('a[download]')).toBeNull();
+    vi.runAllTimers();
+    expect(revokeUrl).toHaveBeenCalledExactlyOnceWith("blob:failed-export");
+  });
+
   it("keeps an OS request pending if saving fails, then imports a separate library copy on retry", async () => {
     const f = fixture();
     const original = f.options.documentRef.current;
