@@ -35,6 +35,8 @@ export interface CaretSurfaceId {
 }
 
 export interface CaretSurfaceHandle {
+  /** Mounted panes can contain the same block IDs; global caret commands belong to one input owner. */
+  ownsInput?: () => boolean;
   editor: Editor;
   surface: CaretSurfaceId;
   /** 文書順を表すタプル。空配列は「順番を持たない面」= 上下移動の行き先にしない。 */
@@ -458,7 +460,7 @@ export function getCaretSurface(editor: Editor): CaretSurfaceHandle | null {
 }
 
 export function getCaretSurfaces(): CaretSurfaceHandle[] {
-  return [...surfaces.values()].filter((handle) => !handle.editor.isDestroyed);
+  return [...surfaces.values()].filter((handle) => !handle.editor.isDestroyed && (handle.ownsInput?.() ?? true));
 }
 
 export function getCaretSurfaceByViewDom(viewDom: Element): CaretSurfaceHandle | null {

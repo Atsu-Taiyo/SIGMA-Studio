@@ -1,4 +1,5 @@
 "use client";
+import { useOwnsEditorInput } from "@/components/editor/editor-input-context";
 import {
   getCurveDrawingPreviewPoints,
   mergeShapesById,
@@ -114,8 +115,10 @@ export function useOverlayKeyboardController({
   mode,
 }: Dependencies) {
 
+  const ownsEditorInput = useOwnsEditorInput();
   useEffect(() => {
     const handleOverlayKeyboard = (event: KeyboardEvent) => {
+      if (!ownsEditorInput()) return;
       if (document.querySelector("[data-modal-backdrop]")) {
         return;
       }
@@ -337,7 +340,7 @@ export function useOverlayKeyboardController({
 
     window.addEventListener("keydown", handleOverlayKeyboard);
     return () => window.removeEventListener("keydown", handleOverlayKeyboard);
-  }, [arrangeSelectedShapes, cancelTablePlacement, deleteSelectedShapes, duplicateSelectedShapes, finishCurveDrawing, groupSelectedShapes, clearSnapGuides, notifyEditPolicyBlocked, queueDirtyImageCropSave, refreshAnchorMeasurements, restoreTransientInteraction, setSelectedShapeIds, setSolidEdge, transitionMode, ungroupSelectedShapes, updateModifierDrivenInteraction, textCompositionRef, modeRef, activeTextEditorRef, solidEdgeRef, focusedGroupIdRef, selectedIdsRef, snapDisabledRef, setFocusedGroupId, shapesRef, editPolicyLockedShapeIdsRef, setShapes]);
+  }, [ownsEditorInput, arrangeSelectedShapes, cancelTablePlacement, deleteSelectedShapes, duplicateSelectedShapes, finishCurveDrawing, groupSelectedShapes, clearSnapGuides, notifyEditPolicyBlocked, queueDirtyImageCropSave, refreshAnchorMeasurements, restoreTransientInteraction, setSelectedShapeIds, setSolidEdge, transitionMode, ungroupSelectedShapes, updateModifierDrivenInteraction, textCompositionRef, modeRef, activeTextEditorRef, solidEdgeRef, focusedGroupIdRef, selectedIdsRef, snapDisabledRef, setFocusedGroupId, shapesRef, editPolicyLockedShapeIdsRef, setShapes]);
 
   useEffect(() => {
     const cropShapeId = getImageCropModeShapeId(mode);
@@ -364,6 +367,7 @@ export function useOverlayKeyboardController({
 
   useEffect(() => {
     const handleOverlayKeyUp = (event: KeyboardEvent) => {
+      if (!ownsEditorInput()) return;
       if (isSnapDisableKey(event.key)) {
         snapDisabledRef.current = false;
         if (
@@ -393,5 +397,5 @@ export function useOverlayKeyboardController({
 
     window.addEventListener("keyup", handleOverlayKeyUp);
     return () => window.removeEventListener("keyup", handleOverlayKeyUp);
-  }, [activeTextEditorRef, modeRef, snapDisabledRef, textCompositionRef, updateModifierDrivenInteraction]);
+  }, [ownsEditorInput, activeTextEditorRef, modeRef, snapDisabledRef, textCompositionRef, updateModifierDrivenInteraction]);
 }

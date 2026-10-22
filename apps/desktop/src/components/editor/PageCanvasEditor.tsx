@@ -1,4 +1,5 @@
 "use client";
+import { useOwnsEditorInput } from "@/components/editor/editor-input-context";
 
 import { isTextPointerSelectionClick } from "@/components/editor/text-pointer-selection";
 import { isSvgImageAsset } from "@/lib/svg-to-sigma";
@@ -379,6 +380,7 @@ function PageCanvasEditorImpl({
   problemDisplay,
   publishesSessionPresence: publishesSessionPresenceProp,
 }: PageCanvasEditorProps) {
+  const ownsEditorInput = useOwnsEditorInput();
   const tEditorText = useT("editor");
   const isPagedRender = presentation === "paged";
   const publishesSessionPresence = !isPagedRender && publishesSessionPresenceProp !== false;
@@ -984,9 +986,9 @@ const {
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const unpublish = canvas ? publishLayoutSnapshot(canvas, layoutViewState) : undefined;
-    setFragmentTables(layoutViewState.boxFragmentSourceLayouts, layoutViewState.boxBlockFragmentLayouts);
+    if (ownsEditorInput()) setFragmentTables(layoutViewState.boxFragmentSourceLayouts, layoutViewState.boxBlockFragmentLayouts);
     return unpublish;
-  }, [layoutViewState]);
+  }, [layoutViewState, ownsEditorInput, shortcutsSuppressed]);
   /**
    * 今この瞬間、断片へ分割されて描かれているブロックの id。
    *
@@ -1149,6 +1151,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
   useEffect(() => {
     const handleShortcutKeyDown = (event: KeyboardEvent) => {
+      if (!ownsEditorInput()) return;
       if (!isInsertTextShapeAtCursorShortcut(event) || runningRegionEditKind || shortcutsSuppressed) {
         return;
       }
@@ -1166,7 +1169,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
     window.addEventListener("keydown", handleShortcutKeyDown, true);
     return () => window.removeEventListener("keydown", handleShortcutKeyDown, true);
-  }, [requestShortcutOverlayAction, runningRegionEditKind, shortcutsSuppressed]);
+  }, [ownsEditorInput, requestShortcutOverlayAction, runningRegionEditKind, shortcutsSuppressed]);
 
   // 座標変換はポインタイベントの中でしか呼ばれない。ページ数や寸法を deps に入れると
   // ページ割りのたびに識別子が変わり、これに依存する `handleMaterialInsert` 経由で
@@ -1688,6 +1691,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (!ownsEditorInput()) return;
       if (event.key === "Escape") {
         setBlockSelection(EMPTY_BLOCK_SELECTION);
         return;
@@ -1718,7 +1722,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeBlockSelection, onDeleteBlocks]);
+  }, [ownsEditorInput, activeBlockSelection, onDeleteBlocks]);
 
   // グリップ選択のままキーボードで動かしたあと、選択の面を新しい位置で測り直すための予約。
   const blockSelectionRefreshRef = useRef(false);
@@ -1730,6 +1734,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       return;
     }
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (!ownsEditorInput()) return;
       if (
         !event.altKey || !event.shiftKey || event.metaKey || event.ctrlKey
         || (event.key !== "ArrowUp" && event.key !== "ArrowDown")
@@ -1774,7 +1779,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [blockAffordancesEnabled, onMoveBlocksByStep]);
+  }, [ownsEditorInput, blockAffordancesEnabled, onMoveBlocksByStep]);
 
   useEffect(() => {
     if (!blockSelectionRefreshRef.current) {
@@ -1811,6 +1816,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
   useEffect(() => {
     const handleImagePaste = (event: ClipboardEvent) => {
+      if (!ownsEditorInput()) return;
       if (runningRegionEditKind || !event.clipboardData) {
         return;
       }
@@ -1833,7 +1839,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
     window.addEventListener("paste", handleImagePaste, true);
     return () => window.removeEventListener("paste", handleImagePaste, true);
-  }, [requestBodyOverlayImages, runningRegionEditKind]);
+  }, [ownsEditorInput, requestBodyOverlayImages, runningRegionEditKind]);
 
   const handlePageDragOver = useCallback((event: ReactDragEvent<HTMLDivElement>) => {
     if (runningRegionEditKind) {

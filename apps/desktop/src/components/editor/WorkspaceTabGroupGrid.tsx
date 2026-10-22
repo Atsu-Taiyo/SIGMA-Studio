@@ -53,7 +53,7 @@ export interface WorkspacePaneHandoff {
   point: { x: number; y: number } | null;
 }
 
-interface WorkspaceTabGroupGridProps {
+export interface WorkspaceTabGroupGridProps {
   enabled?: boolean;
   sessionHost?: DocumentSessionHost;
   layout: WorkspaceLayoutV2;
@@ -61,6 +61,7 @@ interface WorkspaceTabGroupGridProps {
   activeFileId: string;
   paneView: WorkspacePaneView;
   children: ReactNode;
+  renderDocumentPane?(fileId: string): ReactNode;
   onFocusGroup(groupId: string, handoff?: WorkspacePaneHandoff): void;
   onMoveTab(tabId: string, targetGroupId: string, targetIndex?: number): void;
   onSplitTab(tabId: string, targetGroupId: string, edge: WorkspaceDropEdge): void;
@@ -162,7 +163,7 @@ function GroupView(props: SplitNodeViewProps & { group: TabGroupState }) {
   const focused = props.layout.focusedGroupId === group.id;
   const grouped = props.layout.groups.length > 1;
   const splittable = canSplitWorkspaceLayout(props.layout);
-  const live = focused && activeTab?.kind === "document" && activeTab.fileId === props.activeFileId;
+  const live = activeTab?.kind === "document" && (Boolean(props.renderDocumentPane) || (focused && activeTab.fileId === props.activeFileId));
 
   const readIntent = (event: React.DragEvent<HTMLElement>): WorkspaceDropIntent => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -175,7 +176,8 @@ function GroupView(props: SplitNodeViewProps & { group: TabGroupState }) {
       data-group-id={group.id}
       data-focused={focused ? "true" : undefined}
       data-live={live ? "true" : undefined}
-      onPointerDown={(event) => {
+      onFocusCapture={() => { if (!focused) props.onFocusGroup(group.id); }}
+      onPointerDownCapture={(event) => {
         if (focused) return;
         const scroller = event.currentTarget.querySelector<HTMLElement>(".workspace-passive-editor");
         const target = event.target instanceof Element ? event.target : null;
@@ -214,7 +216,7 @@ function GroupView(props: SplitNodeViewProps & { group: TabGroupState }) {
       )}
       <div className="workspace-tab-group-content">
         {live
-          ? props.children
+          ? (activeTab?.kind === "document" && props.renderDocumentPane ? props.renderDocumentPane(activeTab.fileId) : props.children)
           : activeTab
             ? <BackgroundTabContent
                 sessionHost={props.sessionHost}

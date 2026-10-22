@@ -6,12 +6,14 @@ import { uniqueStringIds } from "@/components/editor/editor-shell/workspace-requ
 import { ensurePageLayout,repairDuplicateTopLevelIds,type SigmaDocument } from "@/features/document";
 import { type TextFlowSelectionBookmark } from "@/features/text-editing";
 import type { StorageResult } from "@/lib/storage";
+import { focusWorkspaceTab, reconcileWorkspaceLayoutDocuments } from "@/lib/workspace-tab-groups";
 import { useCallback } from "react";
 import { DOCUMENT_BLOCK_OPERATION_PORTS } from "./document-operation-ports";
 import { type DocumentTabOpenOptions } from "./document-tab-commands";
 import { tEditor } from "./editor-translations";
 import type { SaveState } from "./types";
 
+import { usePersistentWorkspacePane } from "./persistent-workspace";
 import { useEditorOwnerLifetime } from "./use-editor-owner-lifetime";
 
 interface WorkspaceNavigationPorts {
@@ -36,6 +38,7 @@ interface WorkspaceNavigationPorts {
 }
 export function useWorkspaceDocumentNavigation({ openFileIds, workspaceReady, getActiveFileId, setLoadingFileId, saveCurrentDocumentBeforeReplacement, rememberLeavingEditorTabViewState, loadWorkspaceDocument, showRecordedDocumentOpenFailure, enterDocumentOpenFailureState, prepareIncomingEditorTabViewState, resetEditorDocument, restoreTextSelection, setOpenFileIds, setActiveFileId, saveWorkspaceState, refreshDocumentMetadatas, setSaveState, setStatusMessage }: WorkspaceNavigationPorts) {
   const captureLifetime = useEditorOwnerLifetime();
+  const persistent = usePersistentWorkspacePane();
   const openDocumentInWorkspace = useCallback(async (
     fileId: string,
     options?: DocumentTabOpenOptions,
@@ -44,6 +47,23 @@ export function useWorkspaceDocumentNavigation({ openFileIds, workspaceReady, ge
     if (!isCurrent()) return;
     const nextOpenFileIds = uniqueStringIds([...(options?.nextOpenFileIds ?? openFileIds), fileId]);
 
+    if (persistent?.workspace.findFile(fileId) && fileId !== getActiveFileId()) {
+      // Closing a pane still crosses a save boundary; focusing one does not.
+      if (options?.nextOpenFileIds && !options.nextOpenFileIds.includes(getActiveFileId()) && options.saveCurrent !== false) {
+        if (!(await saveCurrentDocumentBeforeReplacement()) || !isCurrent()) return;
+      }
+      const currentLayout = persistent.workspace.layout;
+      if (currentLayout) {
+        let layout = reconcileWorkspaceLayoutDocuments(currentLayout, nextOpenFileIds, fileId);
+        const group = layout.groups.find(group => group.tabs.some(tab => tab.kind === "document" && tab.fileId === fileId));
+        if (group) layout = focusWorkspaceTab(layout, group.id, `document:${fileId}`);
+        persistent.workspace.setLayout(layout);
+      }
+      setOpenFileIds(nextOpenFileIds);
+      options?.onOpened?.();
+      await saveWorkspaceState({ openFileIds: nextOpenFileIds, activeFileId: fileId });
+      return;
+    }
     setLoadingFileId(fileId);
     try {
       if (workspaceReady && options?.saveCurrent !== false) {
@@ -93,6 +113,7 @@ export function useWorkspaceDocumentNavigation({ openFileIds, workspaceReady, ge
     }
   }, [
     captureLifetime,
+    persistent,
     enterDocumentOpenFailureState,
     loadWorkspaceDocument,
     openFileIds,

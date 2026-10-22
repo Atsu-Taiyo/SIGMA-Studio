@@ -24,6 +24,7 @@ interface Request {
 }
 
 export function useTikzEditor(ports: TexTikzPastePorts & {
+  ownsInput?: () => boolean;
   commit: (change: (current: SigmaDocument) => SigmaDocument) => boolean;
   insert: (payload: Extract<EditorClipboardPayload, { kind: "overlayShapes" }>) => void;
 }) {
@@ -56,6 +57,7 @@ export function useTikzEditor(ports: TexTikzPastePorts & {
 
   useEffect(() => {
     const open = (event: Event) => {
+      if (live.current.ownsInput && !live.current.ownsInput()) return;
       const current = live.current;
       const detail = (event as CustomEvent<{ documentId: string; shapeId: string }>).detail;
       if (!detail || !current.writable || detail.documentId !== current.document.docId) return;

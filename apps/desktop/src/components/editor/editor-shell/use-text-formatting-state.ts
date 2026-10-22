@@ -8,7 +8,9 @@ import { DEFAULT_BOXED_ROUNDNESS,normalizeBoxedRoundness,normalizeLineHeight,typ
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { useCallback,useEffect,useRef,useState } from "react";
 
-export function useTextFormattingState() {
+const alwaysOwnInput = () => true;
+
+export function useTextFormattingState(ownsInput: () => boolean = alwaysOwnInput) {
   /** `null` = 現在の選択の実効サイズが未取得。推測の値を表示しない。 */
   const [textFontSize, setTextFontSize] = useState<number | null>(null);
   const [textFontSizeMixed, setTextFontSizeMixed] = useState(false);
@@ -97,6 +99,7 @@ export function useTextFormattingState() {
 
   useEffect(() => {
     const handleTextFormatState = (event: Event) => {
+      if (!ownsInput()) return;
       const detail = event instanceof CustomEvent ? event.detail : null;
       if (!detail) {
         return;
@@ -167,7 +170,7 @@ export function useTextFormattingState() {
 
     window.addEventListener(TEXT_FORMAT_STATE_EVENT, handleTextFormatState);
     return () => window.removeEventListener(TEXT_FORMAT_STATE_EVENT, handleTextFormatState);
-  }, []);
+  }, [ownsInput]);
 
   return { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive, setBoxedTextActive, boldActive, setBoldActive, italicActive, setItalicActive, underlineActive, setUnderlineActive, blockStyleState, setBlockStyleState, documentTextFormatTarget, setDocumentTextFormatTarget, hasMultiEditorTextRunSpan, setHasMultiEditorTextRunSpan, boxedTextVariant, setBoxedTextVariant, boxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, preferredFontFamily, getPreferredFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference };
 }

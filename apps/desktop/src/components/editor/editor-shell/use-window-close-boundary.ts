@@ -8,12 +8,13 @@ import { useCallback,useEffect,useRef,useState } from "react";
 import type { DocumentBoundarySkipReason } from "./workspace-request";
 
 interface WindowClosePorts {
+  enabled?: boolean;
   attemptBoundarySave: (reason: "tab-switch" | "app-close") => Promise<{ ok: boolean; error?: string; skipped?: boolean; skippedReason?: DocumentBoundarySkipReason }>;
   isCurrentDocumentDirty: () => boolean;
   cleanupUntouchedDraftsBeforeClose: () => Promise<{ ok: boolean; error?: string }>;
   tE: ReturnType<typeof createTranslator<"editor">>;
 }
-export function useWindowCloseBoundary({ attemptBoundarySave, isCurrentDocumentDirty, cleanupUntouchedDraftsBeforeClose, tE }: WindowClosePorts) {
+export function useWindowCloseBoundary({ enabled = true, attemptBoundarySave, isCurrentDocumentDirty, cleanupUntouchedDraftsBeforeClose, tE }: WindowClosePorts) {
   const [windowCloseSaveDialog, setWindowCloseSaveDialog] = useState<{
     error: string;
     saving: boolean;
@@ -113,6 +114,7 @@ export function useWindowCloseBoundary({ attemptBoundarySave, isCurrentDocumentD
   }, [attemptWindowCloseSave]);
 
   useEffect(() => {
+    if (!enabled) return;
     const desktopApp = getDesktopBridge()?.app;
     const handleVisibilityChange = () => {
       if (windowCloseResolvedRef.current) return;
@@ -137,7 +139,7 @@ export function useWindowCloseBoundary({ attemptBoundarySave, isCurrentDocumentD
       window.removeEventListener("pagehide", handlePageHide);
       unsubscribeClose?.();
     };
-  }, [attemptBoundarySave, attemptWindowClose]);
+  }, [enabled, attemptBoundarySave, attemptWindowClose]);
 
   useEffect(() => {
     disposedRef.current = false;

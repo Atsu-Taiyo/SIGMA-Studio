@@ -3402,3 +3402,29 @@ nav.app-menu-list[inert] *,
   justify-content: center;
   padding: 16px 0 8px;
 }
+
+/* Visible documents keep their editor and history while another pane owns the chrome. */
+.app-shell[hidden] {
+  display: none !important;
+}
+
+.workspace-persistent-grid-slot,
+.workspace-persistent-grid,
+.workspace-document-mount,
+.workspace-document-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+/* Keep the shared paper DOM attached while focus changes the surrounding chrome. */
+.workspace-panes-frame.app-shell {
+  display: contents;
+}
+.workspace-persistent-grid {
+  position: fixed;
+  z-index: 1;
+}

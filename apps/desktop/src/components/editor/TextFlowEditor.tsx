@@ -1,4 +1,5 @@
 "use client";
+import { useOwnsEditorInput } from "./editor-input-context";
 
 import { registerTextPointerSelectionCommit } from "./text-pointer-selection";
 import { resolveTextSelectionBlockId } from "./text-flow/text-selection-block";
@@ -797,6 +798,9 @@ function TextFlowEditorImpl({
   textRunScopeContainer,
   textRunPreserveEmpty = false,
 }: TextFlowEditorProps) {
+  const ownsEditorInput = useOwnsEditorInput();
+  const ownsEditorInputRef = useRef(ownsEditorInput);
+  useLayoutEffect(() => { ownsEditorInputRef.current = ownsEditorInput; }, [ownsEditorInput]);
   const { preferredFont, seedPreferredFont, rememberFontFamily } = usePreferredFontSeed();
   const documentSession = useDocumentSession();
   const documentWritable = useDocumentWritable();
@@ -2557,7 +2561,7 @@ function TextFlowEditorImpl({
     if (!editor || editor.isDestroyed || !facets || !caretSurfaceRef.current) {
       return;
     }
-    const unregister = registerCaretSurface({ editor, ...facets });
+    const unregister = registerCaretSurface({ editor, ...facets, ownsInput: () => ownsEditorInputRef.current() });
     refreshTextRunSpanSurfaces();
     refreshBoxFragmentSelectionSurfaces();
     return unregister;
