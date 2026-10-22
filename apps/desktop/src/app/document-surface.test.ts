@@ -360,6 +360,40 @@ describe("the running region keeps the list geometry it had under .print-list", 
   });
 });
 
+describe("a figure's text draws the block space-after the way the body and the PDF do", () => {
+  // 図中テキストの段落下余白は、編集面 (ProseMirror) も静的描画も `.overlay-text-shape-content` の
+  // 子として同じ custom property を書く。padding にする規則が本文・印刷と別になると、編集を抜けた
+  // 瞬間・PDF・viewer で段落の間隔が食い違う。3 つの規則 (padding・li の遮断・項目の縁) が揃って
+  // いることを、本文の宣言と並べて固定する。
+  const selectorsOf = (declaration: string, property: string): string[] => {
+    const rules = documentSurfaceCode.split("}").filter((rule) => rule.includes(`${property}:`));
+    return rules
+      .filter((rule) => rule.includes(declaration))
+      .flatMap((rule) => splitSelectors(rule.slice(0, rule.indexOf("{")).trim()));
+  };
+
+  it("pads the same blocks as the body, from the same variable", () => {
+    const selectors = selectorsOf("var(--sigma-doc-space-after, 0px)", "padding-bottom");
+
+    expect(selectors).toContain(".text-flow-editor :is(p, h1, h2, h3, ul, ol, hr)");
+    expect(selectors).toContain(".overlay-text-shape-content :is(p, h1, h2, h3, ul, ol, hr)");
+  });
+
+  it("stops a list's space from inheriting into its items, as in the body", () => {
+    const selectors = selectorsOf("--sigma-doc-list-item-space-after: 0px", "--sigma-doc-space-after");
+
+    expect(selectors).toContain(".text-flow-editor :is(ul, ol) > li");
+    expect(selectors).toContain(".overlay-text-shape-content :is(ul, ol) > li");
+  });
+
+  it("draws an item's space once, under its last owned line", () => {
+    const selectors = selectorsOf("var(--sigma-doc-list-item-space-after, 0px)", "padding-bottom");
+
+    expect(selectors).toContain(".text-flow-editor :is(ul, ol) > li > :not(ul, ol):not(:has(~ :not(ul, ol)))");
+    expect(selectors).toContain(".overlay-text-shape-content :is(ul, ol) > li > :not(ul, ol):not(:has(~ :not(ul, ol)))");
+  });
+});
+
 describe("document-surface.css stays embeddable", () => {
   // packages/viewer/scripts/build.mjs が全セレクタを `.sigma-viewer` 配下へ書き換えるため、
   // 以下は埋め込み先を壊す。viewer 側 (styles-sync.test.ts) と両側から縛る。

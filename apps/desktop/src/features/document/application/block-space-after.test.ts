@@ -5,9 +5,11 @@ import { estimateBlockHeightPx } from "./page-layout";
 import {
   blockSpaceAfterPx,
   blockSpaceAfterStyleVars,
+  clampBlockSpaceAfterPx,
   MAX_BLOCK_SPACE_AFTER_PX,
   normalizeBlockSpaceAfterPx,
   rendersBlockSpaceAfter,
+  resolveBlockSpaceAfterKeyAction,
 } from "./block-space-after";
 
 describe("normalizeBlockSpaceAfterPx", () => {
@@ -147,5 +149,41 @@ describe("estimateBlockHeightPx counts the space below the block", () => {
 
   it("leaves an untouched block's estimate unchanged", () => {
     expect(estimateBlockHeightPx(paragraph)).toBe(estimateBlockHeightPx({ ...paragraph }));
+  });
+});
+
+describe("clampBlockSpaceAfterPx", () => {
+  it("rounds to whole px and keeps 0 as a number (a drag passes through 0)", () => {
+    expect(clampBlockSpaceAfterPx(12.4)).toBe(12);
+    expect(clampBlockSpaceAfterPx(0.3)).toBe(0);
+  });
+
+  it("stops at 0 and at the maximum", () => {
+    expect(clampBlockSpaceAfterPx(-40)).toBe(0);
+    expect(clampBlockSpaceAfterPx(MAX_BLOCK_SPACE_AFTER_PX + 50)).toBe(MAX_BLOCK_SPACE_AFTER_PX);
+  });
+
+  it("treats a non-finite value as 0 rather than propagating NaN into the document", () => {
+    expect(clampBlockSpaceAfterPx(Number.NaN)).toBe(0);
+    expect(clampBlockSpaceAfterPx(Number.POSITIVE_INFINITY)).toBe(0);
+  });
+});
+
+describe("resolveBlockSpaceAfterKeyAction", () => {
+  it("steps 1px with the arrows and 10px with Shift (down grows the space)", () => {
+    expect(resolveBlockSpaceAfterKeyAction({ key: "ArrowDown", shiftKey: false })).toEqual({ kind: "delta", deltaPx: 1 });
+    expect(resolveBlockSpaceAfterKeyAction({ key: "ArrowUp", shiftKey: false })).toEqual({ kind: "delta", deltaPx: -1 });
+    expect(resolveBlockSpaceAfterKeyAction({ key: "ArrowDown", shiftKey: true })).toEqual({ kind: "delta", deltaPx: 10 });
+    expect(resolveBlockSpaceAfterKeyAction({ key: "ArrowUp", shiftKey: true })).toEqual({ kind: "delta", deltaPx: -10 });
+  });
+
+  it("resets on Backspace and Delete", () => {
+    expect(resolveBlockSpaceAfterKeyAction({ key: "Backspace", shiftKey: false })).toEqual({ kind: "reset" });
+    expect(resolveBlockSpaceAfterKeyAction({ key: "Delete", shiftKey: false })).toEqual({ kind: "reset" });
+  });
+
+  it("leaves every other key alone", () => {
+    expect(resolveBlockSpaceAfterKeyAction({ key: "Enter", shiftKey: false })).toBeNull();
+    expect(resolveBlockSpaceAfterKeyAction({ key: "ArrowLeft", shiftKey: false })).toBeNull();
   });
 });

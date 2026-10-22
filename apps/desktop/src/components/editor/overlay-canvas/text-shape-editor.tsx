@@ -30,6 +30,7 @@ import type { TiptapDoc, TiptapNode } from "@/lib/tiptap-adapter";
 
 import { createTranslator, getAppLocale } from "@/lib/i18n";
 import { OverlayTextBlockAttrs } from "./overlay-text-block-attrs";
+import { OverlayTextShapeSpaceHandle } from "./text-shape-space-after-handle";
 import {
   measureOverlayTextContentHeight,
   OVERLAY_TEXT_HEIGHT_ATTRIBUTES,
@@ -62,7 +63,11 @@ export function OverlayTextShapeEditor({
   editing: boolean;
   onFocus: (editor: TiptapEditor, shapeId: OverlayShapeId) => void;
   onCancel: (shapeId: OverlayShapeId) => void;
-  onMeasuredHeight: (shapeId: OverlayShapeId, height: number) => void;
+  /**
+   * 測った箱の高さ。`preview` は文書へ保存しない仮の値 (段落の下余白をドラッグしている間: 箱は
+   * 追従させるが、確定の 1 手に混ぜるため履歴にも保存にも積まない)。
+   */
+  onMeasuredHeight: (shapeId: OverlayShapeId, height: number, options?: { preview?: boolean }) => void;
   onChange: (shapeId: OverlayShapeId, blocks: OverlayTextBlock[]) => void;
 }) {
   const { preferredFont, seedPreferredFont } = usePreferredFontSeed();
@@ -70,6 +75,8 @@ export function OverlayTextShapeEditor({
   const contentRef = useRef(shape.props.blocks);
   const previousExternalRevisionRef = useRef(externalRevision);
   const mathEnvironment = useMathEnvironment();
+  // 段落の下余白つまみを掴んでいる間は true。箱の高さの測り直しを「仮の値」として流す。
+  const spaceAfterDraggingRef = useRef(false);
   // コピー・貼り付けは本文と同じ関数を通す。図中テキストだけの特別な経路は持たない。
   const [clipboardSession] = useState(() => new TextFlowClipboardSession());
   const editor = useEditor({
@@ -169,14 +176,22 @@ export function OverlayTextShapeEditor({
         // (`document-surface.css` の `.overlay-text-shape` に family 指定は無い)。
         { state: activeEditor.state, view: activeEditor.view, documentFontFamily: DEFAULT_BODY_FONT_FAMILY },
       );
-      const json = activeEditor.getJSON() as TiptapDoc;
-      // Hand the previous blocks in so a keystroke keeps each block's identity: the editor JSON
-      // carries no ids, and reissuing them every update would re-key everything downstream.
-      const blocks = tiptapDocToOverlayTextBlocks(json, contentRef.current);
-      contentRef.current = blocks;
-      onChange(shape.id, blocks);
+      commitEditorBlocks(activeEditor);
     },
   });
+
+  /**
+   * 編集面の内容を図形の blocks へ確定する。打鍵と、段落の下余白つまみの確定の両方がここを通る。
+   *
+   * Hand the previous blocks in so a keystroke keeps each block's identity: the editor JSON
+   * carries no ids, and reissuing them every update would re-key everything downstream.
+   */
+  function commitEditorBlocks(activeEditor: TiptapEditor) {
+    const json = activeEditor.getJSON() as TiptapDoc;
+    const blocks = tiptapDocToOverlayTextBlocks(json, contentRef.current);
+    contentRef.current = blocks;
+    onChange(shape.id, blocks);
+  }
 
   useEffect(() => {
     if (editor?.isFocused) seedPreferredFont(editor);
@@ -220,6 +235,8 @@ export function OverlayTextShapeEditor({
   const isCallout = shape.type === "callout";
   const lineHeightPx = getTextShapeRenderedLineHeightPx(shape);
   const rotation = getShapeRotation(shape);
+  // 図形を選んだだけでは出さない (編集中のみ)。裏返した図形は縦軸の向きが逆になるので出さない。
+  const showsSpaceHandle = editing && !shape.flipX && !shape.flipY;
   const measuredShapeRef = useRef(shape);
   useLayoutEffect(() => {
     measuredShapeRef.current = shape;
@@ -236,7 +253,12 @@ export function OverlayTextShapeEditor({
       // would jump at the moment the editor mounts and again when it unmounts.
       const contentHeight = measureOverlayTextContentHeight(content, { rotated: rotation !== 0 });
       const currentShape = measuredShapeRef.current;
-      onMeasuredHeight(currentShape.id, overlayTextBoxHeightForContent(currentShape, contentHeight));
+      const boxHeight = overlayTextBoxHeightForContent(currentShape, contentHeight);
+      if (spaceAfterDraggingRef.current) {
+        onMeasuredHeight(currentShape.id, boxHeight, { preview: true });
+      } else {
+        onMeasuredHeight(currentShape.id, boxHeight);
+      }
     };
 
     measure();
@@ -282,6 +304,8 @@ export function OverlayTextShapeEditor({
       ref={wrapperRef}
       className={`overlay-text-shape ${isCallout ? "embedded-callout" : ""} ${shape.type === "text" && shape.props.textWrap === "none" ? "no-auto-wrap" : ""}`}
       style={{
+        // 下余白つまみ (`OverlayTextShapeSpaceHandle`) を箱の座標系で置く。編集中だけ位置指定にする。
+        ...(showsSpaceHandle ? { position: "relative" as const } : {}),
         width: isCallout ? "100%" : shape.props.w,
         ...(shape.type === "text" ? overlayTextScale(shape) : {}),
         minWidth: isCallout ? 0 : MIN_TEXT_SHAPE_WIDTH,
@@ -297,6 +321,15 @@ export function OverlayTextShapeEditor({
       }}
     >
       <EditorContent editor={editor} />
+      {showsSpaceHandle && editor ? (
+        <OverlayTextShapeSpaceHandle
+          editor={editor}
+          wrapperRef={wrapperRef}
+          rotation={rotation}
+          draggingRef={spaceAfterDraggingRef}
+          onCommit={() => commitEditorBlocks(editor)}
+        />
+      ) : null}
     </div>
   );
 }

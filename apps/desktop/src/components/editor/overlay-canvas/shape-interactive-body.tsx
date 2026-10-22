@@ -49,7 +49,7 @@ interface OverlayShapeEditorHandlers {
   onTableFirstCellReady?: (editor: TiptapEditor, shapeId: OverlayShapeId) => void;
   onTableEditorFocus: (editor: TiptapEditor, shapeId: OverlayShapeId) => void;
   onTableResize: (shapeId: OverlayShapeId, patch: TableShapeResizePatch) => void;
-  onTextMeasuredHeight: (shapeId: OverlayShapeId, height: number) => void;
+  onTextMeasuredHeight: (shapeId: OverlayShapeId, height: number, options?: { preview?: boolean }) => void;
   onTextChange: (shapeId: OverlayShapeId, blocks: OverlayTextBlock[]) => void;
   onTextEditorCancel: (shapeId: OverlayShapeId) => void;
   onTextEditorFocus: (editor: TiptapEditor, shapeId: OverlayShapeId) => void;

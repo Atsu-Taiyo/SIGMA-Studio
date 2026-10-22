@@ -47,6 +47,7 @@ import {
   MM_TO_PX,
   normalizeOverlaySnapshot,
   PAGE_GAP_PX,
+  resolveBlockSpaceAfterKeyAction,
   roundHalfMm,
   type PageOverlay,
   type ProblemAreaKind,
@@ -3636,16 +3637,16 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   }}
                   onKeyDown={(event) => {
                     // ドラッグでは出しにくい 1px 刻み。Shift で 10px、Backspace/Delete で 0 に戻す。
-                    const step = event.shiftKey ? 10 : 1;
-                    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      adjustBlockSpaceAfter(handle.blockId, event.key === "ArrowDown" ? step : -step);
+                    // 刻みは図中テキストのつまみと共有する (`resolveBlockSpaceAfterKeyAction`)。
+                    const action = resolveBlockSpaceAfterKeyAction(event);
+                    if (!action) {
                       return;
                     }
-                    if (event.key === "Backspace" || event.key === "Delete") {
-                      event.preventDefault();
-                      event.stopPropagation();
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (action.kind === "delta") {
+                      adjustBlockSpaceAfter(handle.blockId, action.deltaPx);
+                    } else {
                       resetBlockSpaceAfter(handle.blockId);
                     }
                   }}

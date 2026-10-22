@@ -1,5 +1,11 @@
 import { Extension } from "@tiptap/core";
 
+import {
+  BLOCK_SPACE_AFTER_ATTRIBUTE,
+  LIST_ITEM_LEADING_SPACE_AFTER_ATTRIBUTE,
+  LIST_ITEM_SPACE_AFTER_ATTRIBUTE,
+} from "@/components/tiptap/block-space-after-attributes";
+
 /**
  * The block attributes a shape's editing surface has to carry, and where each of them belongs.
  *
@@ -14,6 +20,12 @@ import { Extension } from "@tiptap/core";
  * anchor candidates and pagination measurement, and the page-window index — and a paragraph drawn
  * inside a figure is not one. The static twin omits it for the same reason (`omitBlockIds`), so
  * the editing and display surfaces agree on that too.
+ *
+ * `spaceAfterPx` (the space under a block) is the other attribute that has to ride along: the
+ * converters keep it per block, so an editor that dropped it would erase the spacing the author
+ * set the first time the shape is typed in. Unlike the id it *does* reach the DOM, as the same
+ * inline custom property the static twin writes — `document-surface.css` turns it into padding for
+ * both. The definitions are the body's (`block-space-after-attributes.ts`), not a copy.
  */
 export const OverlayTextBlockAttrs = Extension.create({
   name: "overlayTextBlockAttrs",
@@ -33,6 +45,22 @@ export const OverlayTextBlockAttrs = Extension.create({
             default: null,
             renderHTML: () => ({}),
           },
+          spaceAfterPx: BLOCK_SPACE_AFTER_ATTRIBUTE,
+        },
+      },
+      {
+        // A list item keeps its space on the leading paragraph (it owns the item id) and draws it
+        // through the `li`'s own variable — the same split the body uses, so a copied item and a
+        // reloaded one agree.
+        types: ["listItem"],
+        attributes: {
+          spaceAfterPx: LIST_ITEM_SPACE_AFTER_ATTRIBUTE,
+        },
+      },
+      {
+        types: ["paragraph", "heading"],
+        attributes: {
+          listItemSpaceAfterPx: LIST_ITEM_LEADING_SPACE_AFTER_ATTRIBUTE,
         },
       },
       {

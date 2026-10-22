@@ -60,6 +60,46 @@ export function normalizeBlockSpaceAfterPx(value: unknown): number | undefined {
   return px > 0 ? px : undefined;
 }
 
+/**
+ * つまみ (ドラッグ・キー) が出す下余白の丸めと範囲。保存値 ({@link normalizeBlockSpaceAfterPx}) と
+ * 違って 0 を `undefined` に落とさない — 操作中は数として扱い、0 の保存規約は書き込み側が持つ。
+ * 本文のつまみと図中テキストのつまみが **同じ刻み・同じ上下限** で動くよう、1 か所に置く。
+ */
+export function clampBlockSpaceAfterPx(px: number): number {
+  if (!Number.isFinite(px)) {
+    return 0;
+  }
+  return Math.min(MAX_BLOCK_SPACE_AFTER_PX, Math.max(0, Math.round(px)));
+}
+
+/** つまみにフォーカスがあるときの矢印キーの刻み (px)。Shift で大きい刻み。 */
+export const BLOCK_SPACE_AFTER_KEY_STEP_PX = 1;
+export const BLOCK_SPACE_AFTER_KEY_STEP_LARGE_PX = 10;
+
+export type BlockSpaceAfterKeyAction =
+  | { kind: "delta"; deltaPx: number }
+  | { kind: "reset" };
+
+/**
+ * つまみのキー操作。ドラッグでは出しにくい 1px 刻みと、Backspace/Delete での 0 戻し。
+ * 対象外のキーは null (呼び出し側はイベントを止めない)。
+ */
+export function resolveBlockSpaceAfterKeyAction(
+  event: { key: string; shiftKey: boolean },
+): BlockSpaceAfterKeyAction | null {
+  const step = event.shiftKey ? BLOCK_SPACE_AFTER_KEY_STEP_LARGE_PX : BLOCK_SPACE_AFTER_KEY_STEP_PX;
+  if (event.key === "ArrowDown") {
+    return { kind: "delta", deltaPx: step };
+  }
+  if (event.key === "ArrowUp") {
+    return { kind: "delta", deltaPx: -step };
+  }
+  if (event.key === "Backspace" || event.key === "Delete") {
+    return { kind: "reset" };
+  }
+  return null;
+}
+
 /** その種別が下余白を描くか。描かない種別は計測側でも余白を勘定しない (実測に入らないため)。 */
 export function rendersBlockSpaceAfter(type: string | undefined): boolean {
   return type !== undefined && SPACE_AFTER_RENDERED_TYPES.has(type);
