@@ -4,6 +4,7 @@ import { overlayStrokeWidth } from "./overlay-render-attrs";
 /** Paint behind glyphs without affecting wrapping, selection or measured height. */
 export function getTextBoxDecoration(shape: OverlayTextShape) {
   const { fill, fillColor, fillOpacity, color, strokeColor, strokeOpacity, dash, strokeWidth } = shape.props;
+  if (fill !== "solid" && !dash) return null;
   return {
     fill: fill === "solid" ? fillColor ?? color : "none",
     fillOpacity: fillOpacity ?? 1,

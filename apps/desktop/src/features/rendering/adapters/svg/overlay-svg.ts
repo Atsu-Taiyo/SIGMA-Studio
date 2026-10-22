@@ -438,7 +438,7 @@ function shapeToSvg(
     );
     const decoration = getTextBoxDecoration(shape);
     const paint = (color: string) => color === "none" ? "none" : escapeAttr(safeTextColor(color));
-    const frame = `<rect x="${shape.x}" y="${shape.y}" width="${bounds.w}" height="${bounds.h}" fill="${paint(decoration.fill)}" fill-opacity="${decoration.fillOpacity}" stroke="${paint(decoration.stroke)}" stroke-opacity="${decoration.strokeOpacity}" stroke-width="${decoration.strokeWidth}"${decoration.strokeDasharray ? ` stroke-dasharray="${decoration.strokeDasharray}"` : ""} />`;
+    const frame = decoration ? `<rect x="${shape.x}" y="${shape.y}" width="${bounds.w}" height="${bounds.h}" fill="${paint(decoration.fill)}" fill-opacity="${decoration.fillOpacity}" stroke="${paint(decoration.stroke)}" stroke-opacity="${decoration.strokeOpacity}" stroke-width="${decoration.strokeWidth}"${decoration.strokeDasharray ? ` stroke-dasharray="${decoration.strokeDasharray}"` : ""} />` : "";
     return withShapeOpacity(shape, withShapeRotation(shape, frame + svg));
   }
 

@@ -137,7 +137,7 @@ describe("headless overlay SVG serializer", () => {
     expect(svg!.indexOf('<rect x="20"')).toBeLessThan(svg!.indexOf("<foreignObject"));
     const undecorated = { ...shape, props: { ...shape.props, fill: undefined, dash: undefined } };
     const plain = serializeOverlaySvg([undecorated], {}, { width: 300, height: 200 }, renderers);
-    expect(plain).toContain('fill="none" fill-opacity="0.4" stroke="none"');
+    expect(plain).not.toContain('<rect x="20"');
   });
 
   it("delegates only math markup while retaining the canonical text frame", () => {
