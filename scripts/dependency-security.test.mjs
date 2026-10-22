@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -18,6 +19,21 @@ const cacheRequire = createRequire(gotRequire.resolve("cacheable-request/package
 const CachePolicy = cacheRequire("http-cache-semantics");
 const pluginRequire = createRequire(require.resolve("@next/eslint-plugin-next/package.json"));
 const { getRootDirs } = pluginRequire("./dist/utils/get-root-dirs.js");
+
+test("the MCP rate-limit IPv6 parser bounds malformed zone identifiers and preserves valid addresses", () => {
+  const sdkRequire = createRequire(require.resolve("@modelcontextprotocol/sdk/package.json"));
+  const rateLimitRequire = createRequire(sdkRequire.resolve("express-rate-limit"));
+  const addressModule = rateLimitRequire.resolve("ip-address");
+  const result = spawnSync(process.execPath, ["--input-type=commonjs", "-e", `
+    const assert = require("node:assert/strict");
+    const { Address6 } = require(process.argv[1]);
+    assert.equal(new Address6("2001:db8::1").correctForm(), "2001:db8::1");
+    assert.equal(new Address6("fe80::1%eth0").zone, "%eth0");
+    assert.equal(Address6.isValid("%".repeat(1024 * 1024) + "\\n!"), false);
+  `, addressModule], { timeout: 5000, killSignal: "SIGKILL", encoding: "utf8" });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+});
 
 const request = { url: "https://cache.example.invalid/account", headers: { host: "cache.example.invalid" } };
 for (const [name, headers] of Object.entries({
