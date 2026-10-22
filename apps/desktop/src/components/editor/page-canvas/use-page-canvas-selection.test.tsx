@@ -2,11 +2,16 @@
 import { act, useLayoutEffect, type RefObject } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import type { Editor } from "@tiptap/core";
+import { Schema } from "@tiptap/pm/model";
+import { EditorState, NodeSelection, TextSelection } from "@tiptap/pm/state";
 
+import type { SigmaCommentAnchor } from "@/features/document";
 import type { OverlayShape } from "@/components/editor/overlay-canvas/types";
 import type { OverlayModeStatus, OverlaySelectionSummary } from "@/components/editor/page-overlay-types";
 import { createBlankDocument } from "@/lib/blank-document";
 
+import { registerCaretSurface, type CaretSurfaceHandle } from "../text-flow/caret-router";
 import type { PageCanvasSelectionExtension } from "./editor-extension";
 import { usePageCanvasSelectionActions } from "./use-page-canvas-selection";
 
@@ -21,8 +26,13 @@ const canvas = document.createElement("div");
 canvas.getBoundingClientRect = () => new DOMRect(0, 0, 2000, 4000);
 const canvasRef: RefObject<HTMLDivElement | null> = { current: canvas };
 
-function Probe({ suppressed, status = null, widthPx, selected = selection, math = null, layoutRevision = 1, selectionExtension = extension, comments = false }: {
+function Probe({ suppressed, status = null, widthPx, selected = selection, math = null, layoutRevision = 1, selectionExtension = extension, comments = false, selectedId = null, overlayEditing = !math, blockHandleSelected, onCandidate, sigmaDocument = document_ }: {
+  sigmaDocument?: typeof document_;
   suppressed: boolean;
+  selectedId?: string | null;
+  overlayEditing?: boolean;
+  blockHandleSelected?: boolean;
+  onCandidate?: (anchor: SigmaCommentAnchor | null) => void;
   status?: OverlayModeStatus | null;
   widthPx?: number;
   selected?: OverlaySelectionSummary;
@@ -34,10 +44,10 @@ function Probe({ suppressed, status = null, widthPx, selected = selection, math 
   const current = usePageCanvasSelectionActions({
     overlaySelection: selected,
     suppressSelectionActions: suppressed,
-    pageOverlayEditing: !math,
+    pageOverlayEditing: overlayEditing,
     selectionExtension,
-    selectedId: null,
-    document: document_,
+    selectedId,
+    document: sigmaDocument,
     bodyOverlayModeStatus: status,
     overlayCommentAnchor: null,
     canvasRef,
@@ -45,14 +55,15 @@ function Probe({ suppressed, status = null, widthPx, selected = selection, math 
     isWhiteboard: true,
     whiteboardPanX: 0,
     whiteboardPanY: 0,
-    onCommentAnchorCandidateChange: undefined,
-    isOverlayEditing: !math,
+    onCommentAnchorCandidateChange: onCandidate,
+    isOverlayEditing: overlayEditing,
     onCommentAnchorRequest: comments ? () => {} : undefined,
     renderSelectionActions: undefined,
     selectedInlineMath: math,
     totalHeight: 4000,
     layoutRevision,
     overlayPopoverWidthPx: widthPx,
+    blockHandleSelected,
   });
   useLayoutEffect(() => { owner = current; });
   return null;
@@ -170,4 +181,109 @@ it("hands a retained range back to the editing math's current draft", async () =
   } finally {
     window.getSelection()!.removeAllRanges(); block.remove(); canvas.remove();
   }
+});
+
+// カーソルを置いただけでは何も浮かべない。画像などを丸ごと選んだとき・つまみで選んだブロックは今までどおり。
+const bodySchema = new Schema({
+  nodes: {
+    doc: { content: "block+" },
+    paragraph: { group: "block", content: "text*", attrs: { sigmaDocId: { default: "" } } },
+    figure: { group: "block", atom: true, selectable: true, attrs: { sigmaDocId: { default: "" } } },
+    text: {},
+  },
+});
+const bodyState = () => EditorState.create({
+  doc: bodySchema.node("doc", null, [
+    bodySchema.node("paragraph", { sigmaDocId: "p1" }, [bodySchema.text("hello world")]),
+    bodySchema.node("figure", { sigmaDocId: "fig1" }),
+    bodySchema.node("paragraph", { sigmaDocId: "p2" }, [bodySchema.text("second")]),
+  ]),
+});
+const trailingAnchor = () => (owner.selectionActionPopover?.position as { trailing?: unknown } | undefined)?.trailing;
+const caretAt = (position: number) => {
+  const state = bodyState();
+  return state.apply(state.tr.setSelection(TextSelection.create(state.doc, position)));
+};
+const nodeSelected = () => {
+  const state = bodyState();
+  return state.apply(state.tr.setSelection(NodeSelection.create(state.doc, state.doc.child(0).nodeSize)));
+};
+
+async function withBodyBlocks(run: (editor: { state: EditorState }) => Promise<void>, state: EditorState) {
+  const paragraph = document.createElement("p");
+  paragraph.dataset.sigmaDocId = "p1";
+  paragraph.getBoundingClientRect = () => new DOMRect(100, 200, 400, 24);
+  const figure = document.createElement("div");
+  figure.dataset.sigmaDocId = "fig1";
+  figure.getBoundingClientRect = () => new DOMRect(100, 300, 200, 100);
+  const view = document.createElement("div");
+  view.append(paragraph, figure);
+  canvas.append(view);
+  document.body.append(canvas);
+  const editor = { isDestroyed: false, isFocused: true, state, view: { dom: view, hasFocus: () => true } };
+  const unregister = registerCaretSurface({ editor: editor as unknown as Editor, addressAt: () => null } as unknown as CaretSurfaceHandle);
+  try {
+    await run(editor);
+  } finally {
+    unregister();
+    view.remove();
+    canvas.remove();
+  }
+}
+
+const bodyDocument = { ...document_, content: [
+  { type: "paragraph", id: "p1", children: [{ type: "text", text: "hello world" }] },
+  { type: "paragraph", id: "fig1", children: [{ type: "text", text: "" }] },
+  { type: "paragraph", id: "p2", children: [{ type: "text", text: "second" }] },
+] } as typeof document_;
+
+it("floats no AI/comment chip for a caret alone, but still offers the block as the comment candidate", async () => {
+  const candidates: Array<SigmaCommentAnchor | null> = [];
+  await withBodyBlocks(async () => {
+    const props = { suppressed: false, sigmaDocument: bodyDocument, selectedId: "p1", overlayEditing: false, comments: true, onCandidate: (anchor: SigmaCommentAnchor | null) => candidates.push(anchor) };
+    await render(props);
+    expect(owner.selectionActionPopover).toBeNull();
+    // コメント欄の「コメントを追加」は、カーソルのあるブロックを付け先にする (浮かぶ操作だけを消す)。
+    expect(candidates.at(-1)).toMatchObject({ type: "block", blockId: "p1" });
+  }, caretAt(3));
+});
+
+it("keeps the trailing chip for a whole-block (node) selection and for a block picked with the handle", async () => {
+  await withBodyBlocks(async () => {
+    await render({ suppressed: false, sigmaDocument: bodyDocument, selectedId: "fig1", overlayEditing: false, comments: true });
+    expect(owner.selectionActionPopover?.extensionAction?.key).toBe("ai");
+    expect(trailingAnchor()).toBeDefined();
+    expect(owner.selectionActionPopover?.commentAnchor).toMatchObject({ type: "block", blockId: "fig1" });
+  }, nodeSelected());
+
+  // つまみで選ぶとフォーカスは外れるが、編集面の選択はカーソルのまま残る。それでもチップは出す。
+  await withBodyBlocks(async () => {
+    await render({ suppressed: false, sigmaDocument: bodyDocument, selectedId: "p1", overlayEditing: false, comments: true });
+    expect(owner.selectionActionPopover).toBeNull();
+    await render({ suppressed: false, sigmaDocument: bodyDocument, selectedId: "p1", overlayEditing: false, comments: true, blockHandleSelected: true });
+    expect(trailingAnchor()).toBeDefined();
+    await render({ suppressed: false, sigmaDocument: bodyDocument, selectedId: "p1", overlayEditing: false, comments: true, blockHandleSelected: false });
+    expect(owner.selectionActionPopover).toBeNull();
+  }, caretAt(3));
+});
+
+it("re-reads the editor selection when it moves without the selected block changing", async () => {
+  await withBodyBlocks(async (editor) => {
+    await render({ suppressed: false, sigmaDocument: bodyDocument, selectedId: "p1", overlayEditing: false, comments: true });
+    expect(owner.selectionActionPopover).toBeNull();
+    // 同じ p1 を選んだまま、カーソルが別のブロックへ移った (選んだブロックはカーソルのあるブロックではなくなる)。
+    editor.state = caretAt(20);
+    await act(async () => {
+      document.dispatchEvent(new Event("selectionchange"));
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+    expect(trailingAnchor()).toBeDefined();
+    // カーソルが p1 へ戻れば、また浮かべない。
+    editor.state = caretAt(2);
+    await act(async () => {
+      document.dispatchEvent(new Event("selectionchange"));
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+    expect(owner.selectionActionPopover).toBeNull();
+  }, caretAt(3));
 });
