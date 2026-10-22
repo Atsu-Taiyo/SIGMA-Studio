@@ -7,6 +7,7 @@ import {
   runningRegionFieldToken,
   type PageRunningRegion,
   type RunningRegionFieldName,
+  type RunningRegionFieldValues,
   type RunningRegionPageRange,
 } from "@/features/document";
 import { useT } from "@/lib/i18n/react";
@@ -60,7 +61,7 @@ export function RunningRegionOptions({
   bandRef,
   pageNumber,
   totalPages,
-  title,
+  fieldValues,
   editing,
   shownOnPage,
   ownContent,
@@ -73,9 +74,11 @@ export function RunningRegionOptions({
   label: string;
   region: PageRunningRegion;
   bandRef: { current: HTMLElement | null };
+  /** 組版上のページ (1 始まり) と総ページ数。表示するページの指定・ページ専用の中身に使う。 */
   pageNumber: number;
   totalPages: number;
-  title: string;
+  /** 差し込みで紙面に出る値 (開始番号を反映した `{page}` `{total}`)。 */
+  fieldValues: RunningRegionFieldValues;
   editing: boolean;
   shownOnPage: boolean;
   /** このページが、ページ専用の中身を持っているか。 */
@@ -120,10 +123,10 @@ export function RunningRegionOptions({
   }, [open]);
 
   const values: Record<RunningRegionInsert, string> = {
-    page: String(pageNumber),
-    total: String(totalPages),
-    pageOfTotal: `${pageNumber} / ${totalPages}`,
-    title,
+    page: String(fieldValues.page),
+    total: String(fieldValues.total),
+    pageOfTotal: `${fieldValues.page} / ${fieldValues.total}`,
+    title: fieldValues.title,
   };
 
   return (

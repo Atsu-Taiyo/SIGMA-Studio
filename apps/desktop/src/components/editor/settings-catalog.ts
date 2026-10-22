@@ -143,6 +143,13 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     labelKey: "page.footer",
     keywordsKey: "catalog.keywords.footer",
   },
+  {
+    id: "settings.page.numbering",
+    surface: "page",
+    anchorId: "page-settings-numbering",
+    labelKey: "page.pageNumbering",
+    keywordsKey: "catalog.keywords.pageNumber",
+  },
   // --- ショートカット設定 (CommandSettingsDialog) ---
   {
     id: "settings.commands.shortcuts",

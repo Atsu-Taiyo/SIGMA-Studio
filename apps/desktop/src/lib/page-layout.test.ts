@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
+import { parseSigmaDocument, recoverSigmaDocument } from "@/lib/sigma-doc-schema";
 import {
   ensurePageLayout,
   expandMarginsForRunningRegions,
@@ -536,5 +536,51 @@ describe("page background", () => {
         background: "lines",
       },
     })).toThrow();
+  });
+});
+
+describe("page number start", () => {
+  const withLayout = (pageLayout: Record<string, unknown> | undefined): SigmaDocument => ({
+    ...sampleDocument,
+    pageLayout: pageLayout as SigmaDocument["pageLayout"],
+  });
+
+  it("leaves the field out when it is the default, so existing documents keep their bytes", () => {
+    expect("pageNumberStart" in normalizePageLayout()).toBe(false);
+    expect("pageNumberStart" in normalizePageLayout({ pageNumberStart: 1 })).toBe(false);
+    expect("pageNumberStart" in getDefaultPageLayout("A4")).toBe(false);
+    const parsed = parseSigmaDocument(ensurePageLayout(withLayout({ ...getDefaultPageLayout(), pageNumberStart: 1 })));
+    expect("pageNumberStart" in (parsed.pageLayout ?? {})).toBe(false);
+    expect(JSON.stringify(parsed)).not.toContain("pageNumberStart");
+  });
+
+  it("keeps 0 and other valid starts through normalization, ensure and a JSON round trip", () => {
+    expect(normalizePageLayout({ pageNumberStart: 0 }).pageNumberStart).toBe(0);
+    expect(normalizePageLayout({ pageNumberStart: 9999 }).pageNumberStart).toBe(9999);
+    expect(ensurePageLayout(withLayout({ ...getDefaultPageLayout(), pageNumberStart: 0 })).pageLayout?.pageNumberStart).toBe(0);
+    const saved = JSON.stringify(parseSigmaDocument(withLayout({ ...getDefaultPageLayout(), pageNumberStart: 0 })));
+    expect(parseSigmaDocument(JSON.parse(saved)).pageLayout?.pageNumberStart).toBe(0);
+    // 再正規化 (用紙設定の適用・印刷の切り出し) を通っても落ちない。
+    expect(normalizePageLayout(normalizePageLayout({ pageNumberStart: 3 })).pageNumberStart).toBe(3);
+  });
+
+  it("recovers an invalid start to the default instead of refusing to open the document", () => {
+    for (const invalid of [-1, 10000, 1.5, "0", null, false]) {
+      const parsed = parseSigmaDocument(withLayout({ ...getDefaultPageLayout(), pageNumberStart: invalid }));
+      expect("pageNumberStart" in (parsed.pageLayout ?? {})).toBe(false);
+      expect(normalizePageLayout({ pageNumberStart: invalid as number }).pageNumberStart).toBeUndefined();
+    }
+  });
+
+  it("survives the file-load recovery path, and a junk value there is not reported as lost content", () => {
+    const kept = recoverSigmaDocument(JSON.parse(JSON.stringify(withLayout({ ...getDefaultPageLayout(), pageNumberStart: 0 }))));
+    expect(kept.ok && kept.document.pageLayout?.pageNumberStart).toBe(0);
+    const junk = recoverSigmaDocument(JSON.parse(JSON.stringify(withLayout({ ...getDefaultPageLayout(), pageNumberStart: "abc" }))));
+    expect(junk.ok && junk.issues).toEqual([]);
+    expect(junk.ok && "pageNumberStart" in (junk.document.pageLayout ?? {})).toBe(false);
+  });
+
+  it("does not carry the start onto a whiteboard, which has no header or footer", () => {
+    expect(normalizePageLayout({ preset: "whiteboard", pageNumberStart: 0 }).pageNumberStart).toBeUndefined();
   });
 });

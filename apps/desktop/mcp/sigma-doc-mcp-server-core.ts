@@ -1746,6 +1746,8 @@ function summarizeDocument(document: SigmaDocument, options?: { includeBlockRect
       pageSize: pageLayout.pageSize,
       marginsMm: pageLayout.marginsMm,
       flow: pageLayout.flow,
+      // `{page}` の数え始め。省略 (= 1) のときは出さない。hiddenPages などの番号は、これと関係なく組版上のページ (1 始まり)。
+      ...(pageLayout.pageNumberStart !== undefined ? { pageNumberStart: pageLayout.pageNumberStart } : {}),
       header: pageLayout.header ? {
         enabled: pageLayout.header.enabled,
         heightMm: pageLayout.header.heightMm,
