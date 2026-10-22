@@ -244,8 +244,8 @@ export const workspace = {
     updatedAt: "{{date}} {{time}} 更新",
   },
   template: {
-    insertHint: "選ぶと現在の文書に挿入します",
-    createHint: "選ぶとテンプレートから新しい教材を作成します",
+    insertHint: "選ぶと現在の文書にテンプレートの内容を挿入します（用紙設定は変わりません）",
+    createHint: "選ぶと用紙設定ごとテンプレートから新しい教材を作成します",
     workspaces: "ワークスペース",
     searchPlaceholder: "テンプレート・ワークスペースを検索",
     noMatches: "一致するテンプレートがありません",

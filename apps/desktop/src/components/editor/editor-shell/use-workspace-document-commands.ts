@@ -26,6 +26,8 @@ import { uniqueStringIds } from "./workspace-request";
 import { duplicateNoticeOrigin, loadCreatedMaterialNotice, resolveNewMaterialDestination, type CreatedMaterialNotice } from "./new-material-destination";
 import { duplicateFailureMessage } from "./duplicate-failure-message";
 import { flushNewDocumentPageSetup } from "./new-document-page-setup-memory";
+import { createMaterialFromTemplate } from "./create-material-from-template";
+import type { TemplateItem } from "@/types/template";
 
 export interface WorkspaceDocumentCommandOptions {
   deleteAiDataForDocument(fileId: string): Promise<void>;
@@ -126,8 +128,13 @@ export function useWorkspaceDocumentCommands({
    * 新規教材・新規ホワイトボード。そのまま押したときは直前の教材と同じワークスペース (同じフォルダ) に、
    * メニューでワークスペースを選んだときはそこに作り、作った場所をダイアログで示す
    * (決め方は `new-material-destination.ts`)。
+   * `template` を渡すと、空の教材ではなくそのテンプレートの教材 (用紙設定ごと) から作る。作成先の決め方は同じ。
    */
-  const createMaterialTab = async (kind: Exclude<CreatedMaterialNotice["kind"], "duplicate">, chosenWorkspaceId?: string) => {
+  const createMaterialTab = async (
+    kind: Exclude<CreatedMaterialNotice["kind"], "duplicate">,
+    chosenWorkspaceId?: string,
+    template?: TemplateItem,
+  ) => {
     setActiveMenu(null);
     setDocumentListOpen(false);
     if (embeddedHostRef.current) {
@@ -142,16 +149,21 @@ export function useWorkspaceDocumentCommands({
       if (workspaceReady && !current) throw new Error("TARGET_UNAVAILABLE");
       const destination = await resolveNewMaterialDestination(current, chosenWorkspaceId);
       // 新しい教材は、いま開いている教材の用紙設定で作る (main が覚えた値を当てる)。
-      if (kind === "material") await flushNewDocumentPageSetup();
-      const created = kind === "whiteboard"
-        ? await createDocumentFromSigmaDocument({
-          ...createBlankDocument(t("tabs.untitledWhiteboard")),
-          content: [],
-          pageLayout: getDefaultPageLayout("whiteboard"),
-        }, destination.location)
-        : await createNewDocument(undefined, destination.location);
-      untouchedNewDocumentsRef.current.set(created.fileId, created.document);
-      await openDocumentAsTab(created, tEditor(kind === "whiteboard" ? "status.whiteboardCreated" : "status.documentCreated"));
+      // テンプレートからのときは、テンプレート自身の用紙設定をそのまま使うので覚えた値は渡さない。
+      if (kind === "material" && !template) await flushNewDocumentPageSetup();
+      const created = template
+        ? await createMaterialFromTemplate(template, destination.location)
+        : kind === "whiteboard"
+          ? await createDocumentFromSigmaDocument({
+            ...createBlankDocument(t("tabs.untitledWhiteboard")),
+            content: [],
+            pageLayout: getDefaultPageLayout("whiteboard"),
+          }, destination.location)
+          : await createNewDocument(undefined, destination.location);
+      // 何も書かずに閉じた空の教材は消す。テンプレートから作った教材は中身があるので、閉じても残す
+      // (ワークスペース画面から作ったときと同じ)。
+      if (!template) untouchedNewDocumentsRef.current.set(created.fileId, created.document);
+      await openDocumentAsTab(created, tEditor(template ? "status.templateDocumentCreated" : kind === "whiteboard" ? "status.whiteboardCreated" : "status.documentCreated"));
       showCreatedMaterialLocation(await loadCreatedMaterialNotice(created.metadata, { kind, origin: destination.origin }));
     } catch (error) {
       setSaveState("error");
@@ -163,6 +175,8 @@ export function useWorkspaceDocumentCommands({
   /** ホバーで開くメニューから、作成先のワークスペースを選んで空の教材を作る。 */
   const createDocumentTabInWorkspace = (workspaceId: string) => createMaterialTab("material", workspaceId);
   const createWhiteboardDocumentTab = () => createMaterialTab("whiteboard");
+  /** 「テンプレートから新規」。用紙設定・ヘッダー/フッター・図形ごと、テンプレートの教材を新しいタブで開く。 */
+  const createDocumentTabFromTemplate = (template: TemplateItem) => createMaterialTab("material", undefined, template);
 
   /**
    * 複製して開く。共有教材の複製が複製元と違う場所や保存先 (このPC) になったときは、作った場所を示す (#250)。
@@ -274,6 +288,6 @@ export function useWorkspaceDocumentCommands({
     await deleteDocumentFromList(activeFileId);
   };
   return {
-    openWorkspaceScreen, openDocumentAsTab, createDocumentTab, createDocumentTabInWorkspace, createWhiteboardDocumentTab, duplicateActiveDocument, openDocumentListDialog, closeDocumentTab, openDocumentFromList, duplicateDocumentFromList, deleteDocumentFromList, deleteActiveDocument
+    openWorkspaceScreen, openDocumentAsTab, createDocumentTab, createDocumentTabInWorkspace, createWhiteboardDocumentTab, createDocumentTabFromTemplate, duplicateActiveDocument, openDocumentListDialog, closeDocumentTab, openDocumentFromList, duplicateDocumentFromList, deleteDocumentFromList, deleteActiveDocument
   };
 }

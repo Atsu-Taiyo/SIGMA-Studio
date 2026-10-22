@@ -174,7 +174,7 @@ import { LedgerSchemaFailurePanel } from "@/components/ledger/LedgerSchemaFailur
 import { PdfExportSuccessDialog } from "@/components/print/PdfExportSuccessDialog";
 import { PrintPreviewPageNavigator } from "@/components/print/PrintPreview";
 import { PagedRenderSurface } from "@/components/print/paged-render/PagedRenderSurface";
-import { TemplateGallery } from "@/components/templates/TemplateGallery";
+import { TemplateGallery, type TemplateGalleryMode } from "@/components/templates/TemplateGallery";
 import { SELECT_INLINE_MATH_EVENT,updateInlineMathDraft } from "@/components/tiptap/inline-math-extension";
 import { NATIVE_HISTORY_COMMAND_EVENT,type NativeHistoryCommandDetail } from "@/components/tiptap/native-history-guard";
 import { QR_CODE_REQUEST_EVENT,type QrCodeRequestDetail } from "@/components/tiptap/url-detection-extension";
@@ -761,7 +761,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const { shortcutOverrides, setShortcutOverrides, customCommands, setCustomCommands, commandSettingsLoaded, commandSettingsError, openCommandSettings } = useCommandSettingsController(setCommandSettingsOpen, setStatusMessage);
   const { customFonts, systemFonts, reloadCustomFonts } = useCustomFonts();
   const { searchOpen, setSearchOpen, replaceOpen, setReplaceOpen, searchQuery, setSearchQuery, replaceText, setReplaceText } = useDocumentSearchState();
-  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
+  // 開いているテンプレートギャラリーの用途 (閉じているときは null)。"use" は新規作成、"insert" は開いている教材へ挿入。
+  const [templateGalleryMode, setTemplateGalleryMode] = useState<TemplateGalleryMode | null>(null);
+  const closeTemplateGallery = useCallback(() => setTemplateGalleryMode(null), []);
   const [canPasteProblem, setCanPasteProblem] = useState(false);
   const preferredFont = useMemo(() => ({ fontFamily: preferredFontFamily, getFontFamily: getPreferredFontFamily, rememberFontFamily: saveEditorFontFamilyPreference }), [preferredFontFamily, getPreferredFontFamily, saveEditorFontFamilyPreference]);
   const [fontFamilyQuery, setFontFamilyQuery] = useState("");
@@ -2952,8 +2954,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
 
   const insertTemplate = useCallback((template: TemplateItem) => {
     insertContentAt(templateInsertContent(template), null, { x: 24, y: 24 }, tEditor("status.templateInserted"));
-    setTemplateGalleryOpen(false);
-  }, [insertContentAt, setTemplateGalleryOpen]);
+    closeTemplateGallery();
+  }, [insertContentAt, closeTemplateGallery]);
 
   const openNewDocMenu = useCallback(() => {
     if (newDocMenuCloseTimerRef.current !== null) {
@@ -3344,7 +3346,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     || aiSettingsOpen
     || desktopSettingsOpen
     || materialLibraryOpen
-    || templateGalleryOpen
+    || templateGalleryMode !== null
     || materialAddDialogOpen
     || ribbonBackstageOpen
     || commandPaletteOpen
@@ -3585,6 +3587,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     createDocumentTab,
     createDocumentTabInWorkspace,
     createWhiteboardDocumentTab,
+    createDocumentTabFromTemplate,
     duplicateActiveDocument,
     openDocumentListDialog,
     closeDocumentTab,
@@ -4681,7 +4684,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       openVersionHistory, openWorkspaceScreen, promoteAiToSidebar, reportIssue, requestOverlayImages,
       resolvedDocumentTitle, scheduleCloseNewDocMenu,
       setAiSettingsOpen, setDesktopSettingsOpen: openDesktopSettingsFromChrome, setExtensionsOpen, setExportMenuOpen, setNewDocMenuOpen,
-      setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen,
+      setOverlayEditing, setPageSettingsOpen, setTemplateGalleryMode,
       setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused,
       settingsMenuButtonRef, showRichTitle,
       showTitleUpdateButton, titleInputValue, titleRichNodes, workspaceTabsRow,
@@ -5304,12 +5307,13 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       <MaterialLibraryDialogs controller={materialLibrary} />
 
       <TemplateGallery
-        open={templateGalleryOpen}
-        onClose={() => setTemplateGalleryOpen(false)}
-        mode="insert"
+        open={templateGalleryMode !== null}
+        onClose={closeTemplateGallery}
+        mode={templateGalleryMode ?? "use"}
         activeWorkspaceId={documentMetadatas.find((meta) => meta.fileId === activeFileId)?.workspaceId ?? null}
         currentDocument={document}
         onInsert={insertTemplate}
+        onUse={createDocumentTabFromTemplate}
       />
 
       {problemLibraryOpen && (
