@@ -2090,7 +2090,13 @@ function InlineMathLiveField({
         });
         return;
       }
-      commit(event.target);
+      const mathField = event.currentTarget as InlineMathFieldElement;
+      // MathLive's Tab command focuses its next target, then finishes using its
+      // model. A synchronous commit here unmounts the field and disposes that
+      // model before the command returns (including stopCoalescingUndo).
+      queueMicrotask(() => {
+        if (mathField.isConnected && mathField.ownerDocument.activeElement !== mathField) commit(mathField);
+      });
     },
     onInput: (event: Event) => {
       onInput(syncInlineMathFieldLineBreaks(event.target as InlineMathFieldElement));

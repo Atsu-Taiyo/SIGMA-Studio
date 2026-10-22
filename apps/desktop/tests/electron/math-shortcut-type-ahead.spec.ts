@@ -92,6 +92,57 @@ async function savedParagraphs(page: Page, fileId: string) {
   ]));
 }
 
+for (const key of ["Tab", "Shift+Tab"] as const) {
+  test(`Tab navigation preserves a bare integral without disposing MathLive during its command (${key})`, async () => {
+    const { app, page, fileId, profile } = await launch();
+    let activeApp = app;
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    try {
+      const paragraph = await caretAtParagraphEnd(page, "p0");
+      await page.keyboard.press("Control+m");
+      await page.keyboard.type("\\int");
+      await expect(paragraph.locator("math-field")).toBeVisible();
+      await page.keyboard.press(key);
+      // Backward navigation may stay within MathLive's own tab stops. Commit
+      // normally afterwards; do not require a different focus order here.
+      if (key === "Shift+Tab" && await paragraph.locator("math-field").count()) await page.keyboard.press("Enter");
+      await expect(paragraph.locator("math-field")).toHaveCount(0);
+      await expect.poll(() => savedParagraphs(page, fileId)).toMatchObject({ p0: "段落0$\\int$" });
+      expect(errors).toEqual([]);
+      await activeApp.close();
+      const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+      env.SIGMA_STUDIO_USER_DATA_DIR = profile;
+      delete env.ELECTRON_RUN_AS_NODE;
+      delete env.SIGMA_STUDIO_DEV_SERVER_URL;
+      activeApp = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
+      const restoredPage = await activeApp.firstWindow();
+      await restoredPage.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+      expect(await savedParagraphs(restoredPage, fileId)).toMatchObject({ p0: "段落0$\\int$" });
+    } finally { await activeApp.close(); rmSync(profile, { recursive: true, force: true }); }
+  });
+}
+
+test("Tab navigation still moves between fraction placeholders before committing", async () => {
+  const { app, page, fileId, profile } = await launch();
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  try {
+    const paragraph = await caretAtParagraphEnd(page, "p0");
+    await page.keyboard.press("Control+m");
+    const field = paragraph.locator("math-field");
+    await expect(field).toBeFocused();
+    await field.evaluate(element => (element as MathfieldElement).insert("\\frac{#?}{#?}", { format: "latex", selectionMode: "placeholder" }));
+    await page.keyboard.type("a");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("b");
+    await expect.poll(() => editingState(paragraph).then(state => state.value)).toBe("\\frac{a}{b}");
+    await page.keyboard.press("Enter");
+    await expect.poll(() => savedParagraphs(page, fileId)).toMatchObject({ p0: "段落0$\\frac{a}{b}$" });
+    expect(errors).toEqual([]);
+  } finally { await app.close(); rmSync(profile, { recursive: true, force: true }); }
+});
+
 test("keys typed right after Ctrl+M land inside the new formula and keep their order through save/reload", async () => {
   const { app, page, fileId, profile } = await launch();
   try {
