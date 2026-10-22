@@ -23,7 +23,7 @@ import {
   type OverlaySolidEdgeSelection
 } from "../page-overlay-types";
 import { getAllSelectableShapeIds, getShapeIdsAnchoredToBlocks } from "./anchored-shape-selection";
-import { isOverlayShapeUnselectable } from "./edit-policy";
+import { filterSelectableShapeIds, isOverlayShapeUnselectable } from "./edit-policy";
 import {
   getSelectedShapesInStackOrder,
   getShapeSelectionIds,
@@ -42,6 +42,7 @@ import {
 } from "./reanchor-model";
 import type { ApplyPastedOverlayShapesOptions } from "./paste-shapes";
 import { readRememberedShapeStyle } from "./remembered-shape-style";
+import { getMarqueeSelectionIds } from "./marquee-selection";
 import { type OverlayArrangeAction } from "./reorder-shapes";
 import { getStyleTargetIds } from "./selection-command-model";
 import {
@@ -240,6 +241,28 @@ export function useOverlayExternalRequests({
 
     if (request.startMarquee) {
       focusOverlayCanvas();
+      if (request.dragEndPoint) {
+        const end = request.dragEndPoint;
+        if (Math.hypot(end.x - request.point.x, end.y - request.point.y) >= 3) {
+          setSelectedShapeIds(filterSelectableShapeIds(getMarqueeSelectionIds({
+            shapes: shapesRef.current,
+            marquee: {
+              x: Math.min(request.point.x, end.x), y: Math.min(request.point.y, end.y),
+              w: Math.abs(end.x - request.point.x), h: Math.abs(end.y - request.point.y),
+            },
+            focusedGroupId: focusedGroupIdRef.current,
+            currentIds: selectedIdsRef.current,
+            additive: true,
+          }), editPolicyUnselectableShapeIdsRef?.current));
+        } else {
+          const hit = getShapeAtPoint(end, 8) ?? getOpenStrokeShapeAtPoint(end);
+          if (hit) selectShape(hit.id);
+          else setSelectedShapeIds([]);
+        }
+        transitionMode({ type: "select" });
+        onSelectPointHandled(request.id, true);
+        return;
+      }
       transitionMode({
         type: "startMarquee",
         start: request.point,
@@ -310,7 +333,7 @@ export function useOverlayExternalRequests({
       transitionMode({ type: "select" });
       onSelectPointHandled(request.id, false);
     }
-  }, [handledSelectPointRequestIdRef, shapesRef, getShapeAtPoint, getOpenStrokeShapeAtPoint, focusOverlayCanvas, transitionMode, onSelectPointHandled, activeTextEditorRef, selectShape, editPolicyLockedShapeIdsRef, editPolicyUnselectableShapeIdsRef, focusedGroupIdRef, refreshAnchorMeasurements, setSelectedShapeIds, setShapes, queueOverlaySave, documentId, openShapeContextMenu]);
+  }, [handledSelectPointRequestIdRef, shapesRef, getShapeAtPoint, getOpenStrokeShapeAtPoint, focusOverlayCanvas, transitionMode, onSelectPointHandled, activeTextEditorRef, selectShape, editPolicyLockedShapeIdsRef, editPolicyUnselectableShapeIdsRef, focusedGroupIdRef, refreshAnchorMeasurements, setSelectedShapeIds, setShapes, queueOverlaySave, documentId, openShapeContextMenu, selectedIdsRef]);
 
   useEffect(() => {
     if (selectPointRequest) {

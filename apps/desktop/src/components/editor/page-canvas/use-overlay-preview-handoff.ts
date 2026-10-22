@@ -4,10 +4,17 @@ import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent 
 import { flushSync } from "react-dom";
 import type { ClientPoint } from "./caret-focus";
 
+export interface OverlayPreviewProgress {
+  bounds: DOMRect;
+  start: ClientPoint;
+  current: ClientPoint;
+}
+
 /** Owns the native pointer lifecycle while a static preview becomes an editable overlay. */
 export function useOverlayPreviewHandoff(
   onComplete: (bounds: DOMRect, start: ClientPoint, end: ClientPoint, targetShapeId?: string) => void,
   onActivate: () => void,
+  onProgress?: (progress: OverlayPreviewProgress | null) => void,
 ) {
   const cleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => { cleanupRef.current?.(); cleanupRef.current = null; }, []);
@@ -25,9 +32,11 @@ export function useOverlayPreviewHandoff(
       window.removeEventListener("pointerup", up, true);
       window.removeEventListener("pointercancel", up, true);
       if (cleanupRef.current === finish) cleanupRef.current = null;
+      onProgress?.(null);
     };
     function move(native: PointerEvent) {
       if (!matches(native)) return;
+      onProgress?.({ bounds, start, current: { x: native.clientX, y: native.clientY } });
       native.preventDefault();
       native.stopPropagation();
     }
@@ -45,6 +54,7 @@ export function useOverlayPreviewHandoff(
     window.addEventListener("pointermove", move, true);
     window.addEventListener("pointerup", up, true);
     window.addEventListener("pointercancel", up, true);
+    onProgress?.({ bounds, start, current: start });
     flushSync(onActivate);
-  }, [onActivate, onComplete]);
+  }, [onActivate, onComplete, onProgress]);
 }

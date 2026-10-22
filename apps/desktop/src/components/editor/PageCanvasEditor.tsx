@@ -2670,6 +2670,10 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     if (target?.closest(".page-running-direct-editor, .page-running-options, .page-context-menu, .problem-context-menu, .selection-action-popover")) {
       return;
     }
+    // A running-region band owns its Ctrl/Cmd selection gesture, including entry from body mode.
+    if ((event.ctrlKey || event.metaKey) && target?.closest(".page-running-editor-band")) {
+      return;
+    }
 
     const targetIsLayoutControl = !!target?.closest(".page-margin-ruler, .page-running-edge");
     const point = getPagePointerContext({

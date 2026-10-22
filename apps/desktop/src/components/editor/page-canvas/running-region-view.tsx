@@ -40,7 +40,7 @@ import { formatMm } from "./page-layout-format";
 import { RunningRegionOptions } from "./running-region-options";
 import { pageRunningRegionToTextFlowBlocks } from "./running-region-text-model";
 import type { PageMarginEdge,RunningRegionEdge,RunningRegionKind } from "./types";
-import { useOverlayPreviewHandoff } from "./use-overlay-preview-handoff";
+import { useOverlayPreviewHandoff, type OverlayPreviewProgress } from "./use-overlay-preview-handoff";
 
 const NOOP = () => {};
 
@@ -381,6 +381,26 @@ export function RunningRegionBand({
 }) {
   const tEditor = useT("editor");
   const bandRef = useRef<HTMLDivElement | null>(null);
+  const [initialSelectPointRequest, setInitialSelectPointRequest] = useState<OverlaySelectPointRequest | null>(null);
+  const [marqueeProgress, setMarqueeProgress] = useState<OverlayPreviewProgress | null>(null);
+  const handleInitialSelectPointHandled = useCallback((requestId: number) => {
+    setInitialSelectPointRequest((current) => current?.id === requestId ? null : current);
+  }, []);
+  const completeMarqueeHandoff = useCallback((bounds: DOMRect, start: ClientPoint, end: ClientPoint) => {
+    const scale = metrics.content.widthPx / bounds.width;
+    setInitialSelectPointRequest({
+      id: Date.now(),
+      point: { x: (start.x - bounds.left) * scale, y: (start.y - bounds.top) * scale },
+      dragEndPoint: { x: (end.x - bounds.left) * scale, y: (end.y - bounds.top) * scale },
+      startMarquee: true,
+      focusTextOnMiss: false,
+    });
+  }, [metrics.content.widthPx]);
+  const activateMarqueeEditing = useCallback(() => {
+    if (!editing) onEdit(kind, pageNumber);
+    onOverlayEditingChange(true);
+  }, [editing, kind, onEdit, onOverlayEditingChange, pageNumber]);
+  const startMarqueeHandoff = useOverlayPreviewHandoff(completeMarqueeHandoff, activateMarqueeEditing, setMarqueeProgress);
   if (!region?.enabled) {
     return null;
   }
@@ -416,6 +436,16 @@ export function RunningRegionBand({
         width: `${width}px`,
         height: `${height}px`,
       }}
+      onPointerDownCapture={(event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (overlayEditing || event.button !== 0 || (!event.ctrlKey && !event.metaKey)
+          || target?.closest("button, .page-running-options")) {
+          return;
+        }
+        const rect = event.currentTarget.getBoundingClientRect();
+        if (rect.width <= 0 || width <= 0) return;
+        startMarqueeHandoff(event, rect);
+      }}
       onMouseDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.preventDefault();
@@ -440,12 +470,15 @@ export function RunningRegionBand({
           onBlocksChange={onBlocksChange}
           onContentHeightChange={onContentHeightChange}
           overlayEditing={overlayEditing}
+          resizing={resizingEdge !== null}
           overlayCommandRequest={overlayCommandRequest}
           overlayImageRequest={overlayImageRequest}
           overlayActionRequest={overlayActionRequest}
           overlayArrangeShortcutLabels={overlayArrangeShortcutLabels}
           overlayWidth={width}
           overlayHeight={height}
+          initialSelectPointRequest={initialSelectPointRequest}
+          onInitialSelectPointHandled={handleInitialSelectPointHandled}
           onOverlayEditingChange={onOverlayEditingChange}
           onOverlayChange={onOverlayChange}
           onOverlayCommandHandled={onOverlayCommandHandled}
@@ -454,6 +487,19 @@ export function RunningRegionBand({
           onOverlayModeStatusChange={onOverlayModeStatusChange}
           onOverlaySelectionSummaryChange={onOverlaySelectionSummaryChange}
           onOverlayActiveToolChange={onOverlayActiveToolChange}
+        />
+      )}
+      {marqueeProgress && (
+        <div
+          className="overlay-marquee-box"
+          aria-hidden="true"
+          style={{
+            zIndex: 8,
+            left: (Math.min(marqueeProgress.start.x, marqueeProgress.current.x) - marqueeProgress.bounds.left) * width / marqueeProgress.bounds.width,
+            top: (Math.min(marqueeProgress.start.y, marqueeProgress.current.y) - marqueeProgress.bounds.top) * width / marqueeProgress.bounds.width,
+            width: Math.abs(marqueeProgress.current.x - marqueeProgress.start.x) * width / marqueeProgress.bounds.width,
+            height: Math.abs(marqueeProgress.current.y - marqueeProgress.start.y) * width / marqueeProgress.bounds.width,
+          }}
         />
       )}
       {editing && (
@@ -511,12 +557,15 @@ export function RunningRegionDirectEditor({
   onBlocksChange,
   onContentHeightChange,
   overlayEditing,
+  resizing = false,
   overlayCommandRequest,
   overlayImageRequest,
   overlayActionRequest,
   overlayArrangeShortcutLabels,
   overlayWidth,
   overlayHeight,
+  initialSelectPointRequest = null,
+  onInitialSelectPointHandled,
   onOverlayEditingChange,
   onOverlayChange,
   onOverlayCommandHandled,
@@ -539,12 +588,15 @@ export function RunningRegionDirectEditor({
   onBlocksChange: (kind: RunningRegionKind, nextBlocks: TextFlowBlock[]) => void;
   onContentHeightChange: (kind: RunningRegionKind, contentHeightPx: number) => void;
   overlayEditing: boolean;
+  resizing?: boolean;
   overlayCommandRequest: OverlayCommandRequest | null;
   overlayImageRequest: OverlayImageRequest | null;
   overlayActionRequest: OverlayActionRequest | null;
   overlayArrangeShortcutLabels?: Partial<Record<OverlayArrangeAction, string>>;
   overlayWidth: number;
   overlayHeight: number;
+  initialSelectPointRequest?: OverlaySelectPointRequest | null;
+  onInitialSelectPointHandled?: (requestId: number) => void;
   onOverlayEditingChange: (editing: boolean) => void;
   onOverlayChange: (kind: RunningRegionKind, overlay: PageOverlay, options?: OverlayChangeOptions) => void;
   onOverlayCommandHandled: (requestId: number) => void;
@@ -641,16 +693,18 @@ export function RunningRegionDirectEditor({
     startCrop: boolean,
     dragEndScreenPoint?: ClientPoint,
   ) => {
-    if (bounds.width <= 0 || bounds.height <= 0 || overlayWidth <= 0 || overlayHeight <= 0) {
+    if (bounds.width <= 0 || overlayWidth <= 0) {
       return;
     }
 
+    // Zoom is uniform; deriving both axes from width also supports a zero-height band.
+    const scale = overlayWidth / bounds.width;
     onOverlayEditingChange(true);
     setRunningSelectPointRequest({
       id: nextRunningSelectPointRequestId(),
       point: {
-        x: ((clientX - bounds.left) / bounds.width) * overlayWidth,
-        y: ((clientY - bounds.top) / bounds.height) * overlayHeight,
+        x: (clientX - bounds.left) * scale,
+        y: (clientY - bounds.top) * scale,
       },
       screenPoint: {
         x: clientX,
@@ -658,14 +712,14 @@ export function RunningRegionDirectEditor({
       },
       dragEndPoint: dragEndScreenPoint
         ? {
-            x: ((dragEndScreenPoint.x - bounds.left) / bounds.width) * overlayWidth,
-            y: ((dragEndScreenPoint.y - bounds.top) / bounds.height) * overlayHeight,
+            x: (dragEndScreenPoint.x - bounds.left) * scale,
+            y: (dragEndScreenPoint.y - bounds.top) * scale,
           }
         : undefined,
       startCrop,
       focusTextOnMiss: false,
     });
-  }, [nextRunningSelectPointRequestId, onOverlayEditingChange, overlayHeight, overlayWidth]);
+  }, [nextRunningSelectPointRequestId, onOverlayEditingChange, overlayWidth]);
 
   const completeRunningPreviewHandoff = useCallback((bounds: DOMRect, start: ClientPoint, end: ClientPoint) => {
     requestRunningRegionOverlaySelection(bounds, start.x, start.y, false, end);
@@ -695,11 +749,12 @@ export function RunningRegionDirectEditor({
 
   const handleRunningRegionSelectPointHandled = useCallback((requestId: number, hitShape: boolean) => {
     setRunningSelectPointRequest((current) => current?.id === requestId ? null : current);
+    onInitialSelectPointHandled?.(requestId);
     if (!hitShape) {
       onOverlayEditingChange(false);
       focusRunningRegionTextEditor();
     }
-  }, [focusRunningRegionTextEditor, onOverlayEditingChange]);
+  }, [focusRunningRegionTextEditor, onInitialSelectPointHandled, onOverlayEditingChange]);
 
   return (
     <div
@@ -729,14 +784,14 @@ export function RunningRegionDirectEditor({
           editPolicy={textFlowEditPolicy}
         />
       </div>
-      {overlayEditing ? (
-        <div className="page-running-direct-overlay editing">
+      {overlayEditing && !resizing ? (
+        <div className="page-running-direct-overlay editing" style={{ height: Math.max(1, overlayHeight) }}>
           <OverlayCanvasEditor
             key={`${kind}-running-overlay`}
             externalRevision={historyRevision}
             overlay={region.overlay ?? {}}
             canvasWidth={overlayWidth}
-            canvasHeight={overlayHeight}
+            canvasHeight={Math.max(1, overlayHeight)}
             bleedValues={{ x: 0, top: 0 }}
             imageInsertAreaWidth={overlayWidth}
             imageInsertAreaHeight={overlayHeight}
@@ -744,7 +799,7 @@ export function RunningRegionDirectEditor({
             imageRequest={overlayImageRequest}
             actionRequest={overlayActionRequest}
             arrangeShortcutLabels={overlayArrangeShortcutLabels}
-            selectPointRequest={runningSelectPointRequest}
+            selectPointRequest={runningSelectPointRequest ?? initialSelectPointRequest}
             editPolicy={overlayEditPolicy}
             shapeDecorations={overlayShapeDecorations}
             onCommandHandled={onOverlayCommandHandled}
