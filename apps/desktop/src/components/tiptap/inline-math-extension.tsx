@@ -1614,7 +1614,7 @@ function InlineMathLiveField({
   const pendingLatexCommandTimeoutRef = useRef(0);
   const committedRef = useRef(false);
   const armedEdgeRef = useRef<"left" | "right" | null>(null);
-  const tabNavigationInProgressRef = useRef(false);
+  const tabNavigationEventRef = useRef<globalThis.KeyboardEvent | null>(null);
   /** フォントメニューへ焦点が移って確定を待っている間の見張り (`watchInlineMathFontMenuFocus`)。 */
   const stopFontMenuWatchRef = useRef<(() => void) | null>(null);
 
@@ -1992,8 +1992,7 @@ function InlineMathLiveField({
     onMouseDown,
     onKeyDownCapture: (event: KeyboardEvent) => {
       if (event.key === "Tab") {
-        tabNavigationInProgressRef.current = true;
-        queueMicrotask(() => { tabNavigationInProgressRef.current = false; });
+        tabNavigationEventRef.current = event.nativeEvent;
       }
       // 上付きと下付きを両方持つ原子 (∫_a^b・Σ) の中で ↓/↑ を押すと、上下の枠を行き来する。
       // MathLive は分数と配列でしか動かない (`mathlive-script-navigation.ts`)。MathLive の処理より前に行う。
@@ -2098,7 +2097,11 @@ function InlineMathLiveField({
       const mathField = event.currentTarget as InlineMathFieldElement;
       // Pointer-driven selection can unmount an overlay editor immediately.
       // Preserve its synchronous commit; only defer an active Tab command.
-      if (!tabNavigationInProgressRef.current) {
+      // A capture-listener microtask can run before MathLive's target listener.
+      // The native event stays in a dispatch phase until that listener returns,
+      // then becomes NONE without a timer leaking into a later pointer gesture.
+      const tabEvent = tabNavigationEventRef.current;
+      if (!tabEvent || tabEvent.eventPhase === Event.NONE) {
         commit(mathField);
         return;
       }

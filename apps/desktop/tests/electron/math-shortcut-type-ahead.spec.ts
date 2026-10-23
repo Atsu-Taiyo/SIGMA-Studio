@@ -123,25 +123,28 @@ for (const key of ["Tab", "Shift+Tab"] as const) {
   });
 }
 
-test("Tab navigation still moves between fraction placeholders before committing", async () => {
-  const { app, page, fileId, profile } = await launch();
-  const errors: string[] = [];
-  page.on("pageerror", error => errors.push(error.message));
-  try {
-    const paragraph = await caretAtParagraphEnd(page, "p0");
-    await page.keyboard.press("Control+m");
-    const field = paragraph.locator("math-field");
-    await expect(field).toBeFocused();
-    await field.evaluate(element => (element as MathfieldElement).insert("\\frac{#?}{#?}", { format: "latex", selectionMode: "placeholder" }));
-    await page.keyboard.type("a");
-    await page.keyboard.press("Tab");
-    await page.keyboard.type("b");
-    await expect.poll(() => editingState(paragraph).then(state => state.value)).toBe("\\frac{a}{b}");
-    await page.keyboard.press("Enter");
-    await expect.poll(() => savedParagraphs(page, fileId)).toMatchObject({ p0: "段落0$\\frac{a}{b}$" });
-    expect(errors).toEqual([]);
-  } finally { await app.close(); rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
-});
+for (const exit of ["Enter", "click"] as const) {
+  test(`Tab navigation still moves between fraction placeholders before committing (${exit})`, async () => {
+    const { app, page, fileId, profile } = await launch();
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    try {
+      const paragraph = await caretAtParagraphEnd(page, "p0");
+      await page.keyboard.press("Control+m");
+      const field = paragraph.locator("math-field");
+      await expect(field).toBeFocused();
+      await field.evaluate(element => (element as MathfieldElement).insert("\\frac{#?}{#?}", { format: "latex", selectionMode: "placeholder" }));
+      await page.keyboard.type("a");
+      await page.keyboard.press("Tab");
+      await page.keyboard.type("b");
+      await expect.poll(() => editingState(paragraph).then(state => state.value)).toBe("\\frac{a}{b}");
+      if (exit === "Enter") await page.keyboard.press("Enter");
+      else await caretAtParagraphEnd(page, "p1");
+      await expect.poll(() => savedParagraphs(page, fileId)).toMatchObject({ p0: "段落0$\\frac{a}{b}$" });
+      expect(errors).toEqual([]);
+    } finally { await app.close(); rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+  });
+}
 
 test("keys typed right after Ctrl+M land inside the new formula and keep their order through save/reload", async () => {
   const { app, page, fileId, profile } = await launch();
