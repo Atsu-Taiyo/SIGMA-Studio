@@ -538,13 +538,18 @@ code {
 }
 
 .page-running-options-card {
-  position: absolute;
-  right: -32px;
-  z-index: 9;
+  position: fixed;
+  z-index: 247;
+  box-sizing: border-box;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   width: 304px;
+  max-width: calc(100vw - 2 * var(--space-lg));
+  max-height: calc(100vh - 2 * var(--space-lg));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   gap: 4px;
-  padding: 6px;
+  padding: var(--space-sm);
   border: 1px solid var(--border-subtle);
   border-radius: 14px;
   background: var(--background);
@@ -553,19 +558,11 @@ code {
   font-size: 12px;
   line-height: 1.5;
   text-align: left;
-  animation: ui-dialog-in 150ms ease both;
-}
-
-.page-running-options.header .page-running-options-card {
-  top: calc(100% + 10px);
-}
-
-.page-running-options.footer .page-running-options-card {
-  bottom: calc(100% + 10px);
 }
 
 .page-running-options-section {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
 }
 
@@ -645,12 +642,23 @@ code {
 }
 
 .page-running-options-value {
+  flex: 0 1 45%;
   min-width: 0;
   overflow: hidden;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.page-running-options-item > span:first-child,
+.page-running-options-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.page-running-options-row > [role="switch"] {
+  flex-shrink: 0;
 }
 
 .page-running-options-hint {
@@ -1821,8 +1829,16 @@ body.page-block-dragging * {
 }
 
 .overlay-canvas-editor.inserting,
+.overlay-insertion-surface,
 .overlay-canvas-editor.inserting .overlay-shape {
   cursor: crosshair;
+}
+
+/* The input area may extend beyond a header/footer without changing the canvas's origin or
+   dimensions. It exists only while inserting, so ordinary text clicks keep their owner. */
+.overlay-insertion-surface {
+  position: absolute;
+  pointer-events: auto;
 }
 
 .overlay-insert-preview-frame {

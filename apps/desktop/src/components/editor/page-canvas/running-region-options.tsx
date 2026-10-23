@@ -13,7 +13,8 @@ import {
 import { useT } from "@/lib/i18n/react";
 import type { Editor } from "@tiptap/core";
 import { PanelBottom, PanelTop } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import type { RunningRegionKind } from "./types";
 
 /**
@@ -91,6 +92,9 @@ export function RunningRegionOptions({
   const t = useT("editor");
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
+  const [cardStyle, setCardStyle] = useState<CSSProperties | null>(null);
   const cardId = useId();
   const range = getRunningRegionPageRange(region);
   const exceptions = describeRunningRegionPageExceptions(region, totalPages);
@@ -99,12 +103,42 @@ export function RunningRegionOptions({
   const Icon = kind === "header" ? PanelTop : PanelBottom;
   const optionsLabel = t("running.options", { replace: { region: label } });
 
+  // The paper is zoomed and clipped by the editor's scroll container. Position the card in
+  // viewport pixels so neither paper zoom nor scrolling can push its controls off screen.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const updatePosition = () => {
+      const anchor = toggleRef.current?.getBoundingClientRect();
+      const card = cardRef.current;
+      if (!anchor || !card) return;
+      const margin = 16;
+      const gap = 8;
+      const height = Math.min(card.scrollHeight + card.offsetHeight - card.clientHeight, window.innerHeight - margin * 2);
+      const preferredTop = kind === "header" ? anchor.bottom + gap : anchor.top - gap - height;
+      setCardStyle({
+        left: Math.max(margin, Math.min(anchor.right - card.offsetWidth, window.innerWidth - margin - card.offsetWidth)),
+        top: Math.max(margin, Math.min(preferredTop, window.innerHeight - margin - height)),
+      });
+    };
+    updatePosition();
+    const observer = new ResizeObserver(updatePosition);
+    if (cardRef.current) observer.observe(cardRef.current);
+    if (bandRef.current) observer.observe(bandRef.current);
+    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [bandRef, kind, open]);
+
   useEffect(() => {
     if (!open) {
       return;
     }
     const closeOnOutsidePress = (event: MouseEvent) => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) {
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target) && !cardRef.current?.contains(event.target)) {
         setOpen(false);
       }
     };
@@ -139,6 +173,7 @@ export function RunningRegionOptions({
       onDoubleClick={(event) => event.stopPropagation()}
     >
       <button
+        ref={toggleRef}
         type="button"
         className="page-running-options-toggle"
         aria-label={optionsLabel}
@@ -149,8 +184,15 @@ export function RunningRegionOptions({
       >
         <Icon size={15} aria-hidden="true" />
       </button>
-      {open && (
-        <div className="page-running-options-card" id={cardId} role="group" aria-label={optionsLabel}>
+      {open && createPortal(
+        <div
+          ref={cardRef}
+          className="page-running-options page-running-options-card"
+          style={cardStyle ?? { visibility: "hidden" }}
+          id={cardId}
+          role="group"
+          aria-label={optionsLabel}
+        >
           {editing && (
             <section className="page-running-options-section">
               <p className="page-running-options-caption">{t("running.insertCaption")}</p>
@@ -231,7 +273,8 @@ export function RunningRegionOptions({
               </>
             )}
           </section>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
