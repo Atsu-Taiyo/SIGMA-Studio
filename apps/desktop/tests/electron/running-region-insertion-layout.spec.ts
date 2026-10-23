@@ -142,6 +142,33 @@ test("running drawings start outside the band and retain their coordinates after
   }
 });
 
+test("keyboard users enter the portaled settings and return to the toggle on Escape", async () => {
+  const { page, cleanup } = await openMaterial();
+  try {
+    for (const [kind, label, key] of [["header", "ヘッダー", "Enter"], ["footer", "フッター", "Space"]] as const) {
+      const band = page.locator(`.page-running-editor-band.${kind}`);
+      await band.scrollIntoViewIfNeeded();
+      await band.dblclick({ position: { x: 120, y: 14 } });
+      const toggle = band.getByRole("button", { name: `${label}の設定`, exact: true });
+      await toggle.focus();
+      await page.keyboard.press(key);
+      const card = page.getByRole("group", { name: `${label}の設定`, exact: true });
+      await expect(card).toBeVisible();
+      await expect(card.getByRole("button").first()).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(card.getByRole("button").nth(1)).toBeFocused();
+      await page.keyboard.press("Shift+Tab");
+      await expect(card.getByRole("button").first()).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(card).toHaveCount(0);
+      await expect(toggle).toBeFocused();
+      await expect(band).toHaveClass(/editing/);
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
 async function chooseShape(page: Page, name: string, command: string) {
   await page.getByRole("button", { name: command === "polyline" ? "線" : "図形", exact: true }).click();
   await page.getByRole("menu").getByRole("menuitem", { name, exact: true }).click();

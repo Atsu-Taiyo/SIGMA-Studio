@@ -94,6 +94,7 @@ export function RunningRegionOptions({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
+  const focusCardOnOpenRef = useRef(false);
   const [cardStyle, setCardStyle] = useState<CSSProperties | null>(null);
   const cardId = useId();
   const range = getRunningRegionPageRange(region);
@@ -133,6 +134,15 @@ export function RunningRegionOptions({
     };
   }, [bandRef, kind, open]);
 
+  useLayoutEffect(() => {
+    // The portal follows the app root in DOM order. Enter it after positioning
+    // makes it visible, while pointer opening keeps the editor's caret intact.
+    if (open && cardStyle && focusCardOnOpenRef.current) {
+      focusCardOnOpenRef.current = false;
+      cardRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus({ preventScroll: true });
+    }
+  }, [cardStyle, open]);
+
   useEffect(() => {
     if (!open) {
       return;
@@ -145,6 +155,9 @@ export function RunningRegionOptions({
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.stopPropagation();
+        if (cardRef.current?.contains(document.activeElement)) {
+          toggleRef.current?.focus({ preventScroll: true });
+        }
         setOpen(false);
       }
     };
@@ -180,7 +193,10 @@ export function RunningRegionOptions({
         aria-expanded={open}
         aria-controls={open ? cardId : undefined}
         title={optionsLabel}
-        onClick={() => setOpen((current) => !current)}
+        onClick={(event) => {
+          focusCardOnOpenRef.current = event.detail === 0;
+          setOpen((current) => !current);
+        }}
       >
         <Icon size={15} aria-hidden="true" />
       </button>
