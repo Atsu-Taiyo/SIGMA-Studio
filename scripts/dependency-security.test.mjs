@@ -19,6 +19,16 @@ const CachePolicy = cacheRequire("http-cache-semantics");
 const pluginRequire = createRequire(require.resolve("@next/eslint-plugin-next/package.json"));
 const { getRootDirs } = pluginRequire("./dist/utils/get-root-dirs.js");
 
+test("the desktop runtime retains the compromised-certificate mitigation baseline", () => {
+  // The 2026-10-24 npm audit did not report Electron's GHSA-jr5w-w6x2-84p9.
+  // Packaging/lockfile consistency is checked separately by dependencies:check.
+  const version = require("electron/package.json").version;
+  assert.match(version, /^\d+\.\d+\.\d+$/, "Use an exact stable Electron runtime");
+  const [major, minor, patch] = version.split(".").map(Number);
+  assert.ok(major > 44 || (major === 44 && (minor > 9 || (minor === 9 && patch >= 1))),
+    `Electron ${version} is below the desktop security baseline 44.9.1 (GHSA-jr5w-w6x2-84p9)`);
+});
+
 const request = { url: "https://cache.example.invalid/account", headers: { host: "cache.example.invalid" } };
 for (const [name, headers] of Object.entries({
   "shared Set-Cookie": { "set-cookie": "session=fixture; HttpOnly" },
