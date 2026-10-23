@@ -191,6 +191,8 @@ describe("official skills", () => {
 
     // スキルが「分解されない」と書く形は、実際に SVG のまま残る。変換器が対応したら、スキルの規約も書き換える。
     const leftAsSvg: [string, string][] = [
+      ["円の直径または楕円の片方の径が1px未満", figure('<circle cx="40" cy="40" r="0.4"/>')],
+      ["円の直径または楕円の片方の径が1px未満", figure('<ellipse cx="40" cy="40" rx="4" ry="0.4"/>')],
       ["円弧 `A`", figure('<path d="M20,100 A80,80 0 0 1 180,100" fill="none" stroke="#111111"/>')],
       ["3次ベジェ（`C` `S`）", figure('<path d="M20,100 C60,20 140,20 180,100" fill="none" stroke="#111111"/>')],
       ["Q の連続", figure('<path d="M20,100 Q60,20 100,100 Q140,180 180,100" fill="none" stroke="#111111"/>')],
