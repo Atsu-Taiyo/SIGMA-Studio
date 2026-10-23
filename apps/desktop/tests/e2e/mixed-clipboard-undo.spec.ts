@@ -6,6 +6,7 @@ import type { SigmaDocument } from "@/types/sigma-doc";
 
 import { grabShapeFromBody } from "./body-overlay-entry";
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
+import { placeClipboardCaret } from "./clipboard-caret";
 
 /**
  * 本文と図形が混ざったペースト / カットが **⌘Z 1 回**で戻ること。
@@ -169,23 +170,17 @@ async function dragShape(page: Page, shapeId: string, dx: number, dy: number): P
   await shape.scrollIntoViewIfNeeded();
   const targetBox = await shape.boundingBox();
   if (!targetBox) throw new Error(`${shapeId} is not visible`);
-  // 中央は直前に貼った別図形の浮遊ボタンと重なることがある。矩形の露出した右下を掴む。
-  const point = { x: targetBox.x + targetBox.width * 0.85, y: targetBox.y + targetBox.height * 0.85 };
+  // 右側は浮遊ツールバーと重なるので、矩形の左寄りを掴む。
+  const point = { x: targetBox.x + targetBox.width * 0.15, y: targetBox.y + targetBox.height * 0.5 };
   // 掴むのは共有ヘルパ経由 (本文モードからの入り方は `body-overlay-entry.ts` が唯一の規約)。
   await grabShapeFromBody(page, point);
   const box = await page.locator(`.overlay-canvas-editor [data-overlay-shape-id="${shapeId}"]`).first().boundingBox();
   if (!box) throw new Error(`${shapeId} is not visible in the overlay editor`);
-  const from = { x: box.x + box.width * 0.85, y: box.y + box.height * 0.85 };
+  const from = { x: box.x + box.width * 0.15, y: box.y + box.height * 0.5 };
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(from.x + dx, from.y + dy, { steps: 10 });
   await page.mouse.up();
-}
-
-async function clickAtEndOfBlock(page: Page, block: Locator): Promise<void> {
-  const box = await block.boundingBox();
-  if (!box) throw new Error("destination paragraph is not visible");
-  await page.mouse.click(box.x + box.width - 4, box.y + box.height / 2);
 }
 
 /** 混在ペーストを 1 回行い、図形側の保存が着地するまで待つ。 */
@@ -194,9 +189,8 @@ async function pasteMixedSelection(page: Page): Promise<Locator> {
   await page.keyboard.press("ControlOrMeta+C");
 
   const destination = page.locator(`[data-sigma-doc-id="${DESTINATION_BLOCK_ID}"]`).first();
-  await clickAtEndOfBlock(page, destination);
+  await placeClipboardCaret(page, destination);
   await expect(page.locator(".page-mode").first()).toHaveAttribute("data-overlay-editing", "false");
-  await page.keyboard.press("End");
   await page.keyboard.press("ControlOrMeta+V");
 
   await expect(destination).toContainText(COPIED_TEXT);

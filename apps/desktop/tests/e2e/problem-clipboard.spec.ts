@@ -1,9 +1,10 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { sampleDocument } from "@/lib/sample-document";
 import type { SigmaDocument } from "@/types/sigma-doc";
 
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
+import { placeClipboardCaret } from "./clipboard-caret";
 
 interface SavedBlock {
   id: string;
@@ -74,21 +75,13 @@ async function dragSelectRange(page: Page, fromBlockId: string, toBlockId: strin
   await page.mouse.up();
 }
 
-async function clickAtEndOfBlock(page: Page, block: Locator): Promise<void> {
-  await block.scrollIntoViewIfNeeded();
-  const box = await block.boundingBox();
-  if (!box) throw new Error("destination paragraph is not visible");
-  await page.mouse.click(box.x + box.width - 4, box.y + box.height / 2);
-}
-
 test("問題を含む範囲をコピーすると問題のまま貼られる", async ({ page }) => {
   await openEditor(page);
 
   await dragSelectRange(page, "p_before", "p_after");
   await page.keyboard.press("ControlOrMeta+C");
 
-  await clickAtEndOfBlock(page, page.locator('[data-sigma-doc-id="p_target"]').first());
-  await page.keyboard.press("End");
+  await placeClipboardCaret(page, page.locator('[data-sigma-doc-id="p_target"]').first());
   await page.keyboard.press("ControlOrMeta+V");
 
   await expect.poll(async () => (await savedBlocks(page)).filter((block) => block.type === "problem").length)
@@ -105,11 +98,10 @@ test("問題を含む範囲をコピーすると問題のまま貼られる", as
 test("問題ブロックを選んで ⌘C / ⌘V でコピペできる", async ({ page }) => {
   await openEditor(page);
 
-  // ブロックハンドル (ホバーで出る) で問題そのものを選ぶ。本文の上では中の段落のグリップが
-  // 出るので、問題ごと掴むときは左ガター (余白) から寄る。
-  const promptBlock = page.locator('[data-sigma-doc-id="prob_prompt"]').first();
-  const promptBox = (await promptBlock.boundingBox())!;
-  await page.mouse.move(promptBox.x - 40, promptBox.y + promptBox.height / 2, { steps: 3 });
+  // 問題全体の上端帯でホバーする。領域の本文の高さでは内側の段落のグリップになる。
+  const problem = page.locator('[data-problem-id="prob_1"]').first();
+  const problemBox = (await problem.boundingBox())!;
+  await page.mouse.move(problemBox.x + 6, problemBox.y + 2, { steps: 3 });
   const handle = page.locator('.page-block-handle[data-block-id="prob_1"]').first();
   await expect(handle).toBeVisible();
   await handle.click();
@@ -118,8 +110,7 @@ test("問題ブロックを選んで ⌘C / ⌘V でコピペできる", async (
   await page.keyboard.press("ControlOrMeta+C");
   await expect(page.locator(".save-state").first()).toContainText("問題をコピーしました", { timeout: 5_000 });
 
-  await clickAtEndOfBlock(page, page.locator('[data-sigma-doc-id="p_target"]').first());
-  await page.keyboard.press("End");
+  await placeClipboardCaret(page, page.locator('[data-sigma-doc-id="p_target"]').first());
   await page.keyboard.press("ControlOrMeta+V");
 
   await expect.poll(async () => (await savedBlocks(page)).filter((block) => block.type === "problem").length)

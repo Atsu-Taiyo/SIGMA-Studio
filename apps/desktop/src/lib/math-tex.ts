@@ -2,6 +2,7 @@ import katex from "katex";
 import { convertLatexToMarkup, validateLatex } from "mathlive";
 import { normalizeMathLiveBoxMarkup } from "@/lib/mathlive-box-layout";
 import { withMathLiveDefaultMacros } from "@/lib/mathlive-default-macros";
+import { readMathTextFormat } from "@/lib/math-text-format";
 
 import { applyMathTypesetStyle } from "@/features/rendering/core";
 import { mathRenderEnvironmentCacheKey, type MathRenderEnvironment } from "@/lib/math-environment";
@@ -149,6 +150,14 @@ export function isMathTexCommandSupported(command: string): boolean {
 }
 
 export function toMathLivePreviewTex(tex: string): string {
+  // Match the editor's whole-formula bold mark without MathLive's boldsymbol
+  // switching italic variables to an upright face. Keep this preview-only:
+  // overriding the command with a macro would make its contents atomic in the field.
+  const format = readMathTextFormat(tex);
+  if (format.bold) {
+    const body = format.italic ? `\\mathit{${format.tex}}` : format.tex;
+    tex = `\\htmlStyle{font-weight:bold}{${body}}`;
+  }
   return normalizeMathTextRuns(normalizeMathLiveLineBreakTex(tex))
     .replace(/\\placeholder(?:\[([^\]]*)\])?\{\s*\}/g, (_match, id: string | undefined) => {
       return `\\placeholder[${id || "?"}]{\\square}`;

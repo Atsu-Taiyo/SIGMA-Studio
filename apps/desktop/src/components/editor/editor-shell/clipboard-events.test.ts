@@ -199,6 +199,51 @@ describe("editor copy ownership", () => {
 });
 
 describe("editor paste ownership", () => {
+  it.each([
+    createDocumentBlocksClipboardPayload([problem]),
+    createTextFlowClipboardPayload([paragraph]),
+    createInlineMathClipboardPayload("x^2"),
+  ])("does not paste cached $kind over another application's current clipboard", (payload) => {
+    const target = mount();
+    const ports = install();
+    clipboardData(payload);
+    const external = clipboardData();
+    external.setData("text/plain", "別のアプリからコピーした文章");
+    expect(dispatch(target, "paste", external).defaultPrevented).toBe(false);
+    expect(ports.insertBlocks).not.toHaveBeenCalled();
+    expect(ports.setStatusMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '<input data-target>',
+    '<textarea data-target></textarea>',
+    '<math-field><span data-target></span></math-field>',
+    '<div contenteditable="true"><span data-target>下書き</span></div>',
+    '<div role="dialog"><div data-target></div></div>',
+    '<div class="running-region-editor"><div contenteditable="true" data-target></div></div>',
+  ])("keeps a copied problem inside the focused text surface: %s", (html) => {
+    const target = mount(html);
+    const ports = install();
+    const receive = vi.fn();
+    target.addEventListener("paste", receive);
+    expect(dispatch(target, "paste", clipboardData(createDocumentBlocksClipboardPayload([problem]))).defaultPrevented).toBe(false);
+    expect(receive).toHaveBeenCalledOnce();
+    expect(ports.insertBlocks).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    createDocumentBlocksClipboardPayload([problem]),
+    createOverlayClipboardPayload([shape], {}),
+    createTextAndShapesClipboardPayload({ slice: {}, text: "本文" }, [shape], {}),
+  ])("leaves paste without formatting to the text editor for $kind", (payload) => {
+    const target = mount('<div class="page-flow"><div contenteditable="true" data-target></div></div>');
+    const ports = install();
+    target.dispatchEvent(new KeyboardEvent("keydown", { key: "v", ctrlKey: true, shiftKey: true, bubbles: true }));
+    expect(dispatch(target, "paste", clipboardData(payload)).defaultPrevented).toBe(false);
+    expect(ports.insertBlocks).not.toHaveBeenCalled();
+    expect(ports.pasteShapes).not.toHaveBeenCalled();
+  });
+
   it("captures a cross-tab shape paste before the body editor receives it", () => {
     const target = mount('<div class="page-flow"><div contenteditable="true" data-target></div></div>');
     const bodyPaste = vi.fn();
@@ -312,7 +357,7 @@ describe("editor paste ownership", () => {
   });
 
   it("inserts cloned document blocks while preserving the original clipboard ids", () => {
-    const target = mount('<div contenteditable="true" data-target></div>');
+    const target = mount('<div class="page-flow"><div contenteditable="true" data-target></div></div>');
     const ports = install();
     const payload = createDocumentBlocksClipboardPayload([problem]);
     const data = clipboardData(payload);

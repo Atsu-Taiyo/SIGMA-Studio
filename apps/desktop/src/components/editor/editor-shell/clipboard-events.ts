@@ -156,9 +156,13 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
     const literalPaste = literalPasteRequested;
     literalPasteRequested = false;
     if (event.defaultPrevented) return;
-    if (!literalPaste && event.clipboardData && !ports.isMaterialEditing() && !isPlainTextClipboardTarget(event.target)
-      && !(event.target instanceof Element && event.target.closest('[role="dialog"], pre, .running-region-editor'))
-      && !readEditorClipboardPayload(event.clipboardData)) {
+    // Text-only surfaces own their paste, including document-block payloads.
+    // The shell must not insert into the paper behind a title, dialog, or header.
+    if (literalPaste || ports.isMaterialEditing() || isPlainTextClipboardTarget(event.target)
+      || (event.target instanceof Element && event.target.closest('[role="dialog"], pre, .running-region-editor'))) {
+      return;
+    }
+    if (event.clipboardData && !readEditorClipboardPayload(event.clipboardData)) {
       const spreadsheet = readSpreadsheetClipboard(event.clipboardData);
       if (spreadsheet) {
         event.preventDefault();
@@ -171,9 +175,7 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
         return;
       }
     }
-    if (event.clipboardData && !ports.isMaterialEditing() && !isPlainTextClipboardTarget(event.target)
-      && !(event.target instanceof Element && event.target.closest('[role="dialog"]'))
-      && !readEditorClipboardPayload(event.clipboardData)
+    if (event.clipboardData && !readEditorClipboardPayload(event.clipboardData)
       && ports.pasteTikz?.(event.clipboardData.getData("text/plain"))) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -187,7 +189,9 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
     }
 
     const eventPayload = readEditorClipboardPayload(event.clipboardData);
-    const payload = eventPayload ?? getLocalEditorClipboardPayload();
+    // An actual clipboard item supersedes the last in-app copy, even if it has
+    // no Sigma payload. Keep the menu fallback only when no clipboard item exists.
+    const payload = eventPayload ?? (event.clipboardData.types.length === 0 ? getLocalEditorClipboardPayload() : null);
     const nativeClipboardTarget = isNativeClipboardTarget(event.target);
 
     // 図形だけはイベントの payload を使う。最後の Sigma コピーを保持する fallback を

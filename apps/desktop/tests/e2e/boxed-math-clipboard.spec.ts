@@ -5,6 +5,7 @@ import type { SigmaDocument } from "@/types/sigma-doc";
 
 import { grabShapeFromBody } from "./body-overlay-entry";
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
+import { placeClipboardCaret } from "./clipboard-caret";
 
 /**
  * 枠で囲んだ数式を含む文章を、本文と図中テキストの間でコピー・切り取り・貼り付けする。
@@ -86,16 +87,6 @@ async function savedBlocks(page: Page): Promise<Record<string, SavedInline[]>> {
   });
 }
 
-async function savedBodyParagraphs(page: Page): Promise<SavedInline[][]> {
-  return page.evaluate(() => {
-    const raw = localStorage.getItem("sigma-studio:e2e-document");
-    const document = raw ? JSON.parse(raw) as { content?: Array<{ type?: string; children?: SavedInline[] }> } : {};
-    return (document.content ?? [])
-      .filter((block) => block.type === "paragraph")
-      .map((block) => block.children ?? []);
-  });
-}
-
 function plainTextOf(children: SavedInline[] | undefined): string {
   return (children ?? []).map((child) => child.type === "mathInline" ? `$${child.tex}$` : child.text ?? "").join("");
 }
@@ -130,12 +121,7 @@ async function selectSourceLine(page: Page): Promise<void> {
 
 async function caretAtEndOfDestination(page: Page): Promise<void> {
   const destination = page.locator('[data-sigma-doc-id="p_dst"]').first();
-  // 図中テキストの編集で紙面がスクロールしていることがあるので、押す前に見える位置へ戻す。
-  await destination.scrollIntoViewIfNeeded();
-  const box = await destination.boundingBox();
-  if (!box) throw new Error("destination paragraph is not visible");
-  await page.mouse.click(box.x + box.width - 4, box.y + box.height / 2);
-  await page.keyboard.press("End");
+  await placeClipboardCaret(page, destination);
 }
 
 /** 本文からオーバーレイ編集を始め、図中テキストの末尾へキャレットを置く。 */
@@ -146,7 +132,7 @@ async function caretAtEndOfShapeText(page: Page): Promise<void> {
   await grabShapeFromBody(page, point);
   await page.mouse.click(point.x, point.y);
   await expect(page.locator(".overlay-text-shape-content.ProseMirror-focused")).toBeVisible();
-  await page.keyboard.press("End");
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowRight" : "End");
 }
 
 test("keeps a boxed formula when body text is copied and pasted into body text", async ({ page }) => {
@@ -197,12 +183,10 @@ test("copies text shape content with its formulas back into the body", async ({ 
   await expect(page.locator(".page-mode").first()).toHaveAttribute("data-overlay-editing", "false");
   await page.keyboard.press("ControlOrMeta+V");
 
-  // Select All produces a closed paragraph slice, so pasting it creates a new body paragraph.
-  // Read the saved body content: the shape also contains identical text and must not satisfy this check.
-  await expect.poll(async () => (await savedBodyParagraphs(page)).map(plainTextOf))
-    .toContain(`図${EXPECTED_TEXT}`);
-  const pasted = (await savedBodyParagraphs(page)).find((children) => plainTextOf(children) === `図${EXPECTED_TEXT}`);
-  expect(boxedMath(pasted)).toEqual([MATH_TEX, "|x|=\\frac{1}{1+h}"]);
+  // The shape's selected text is inserted at the body caret, preserving the destination text.
+  await expect.poll(async () => plainTextOf((await savedBlocks(page)).p_dst))
+    .toBe(`貼り付け先図${EXPECTED_TEXT}`);
+  expect(boxedMath((await savedBlocks(page)).p_dst)).toEqual([MATH_TEX, "|x|=\\frac{1}{1+h}"]);
 });
 
 test("paints the selection color on a formula inside a box like on the text around it", async ({ page }) => {
