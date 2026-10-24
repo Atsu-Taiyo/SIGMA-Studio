@@ -19,6 +19,8 @@ test("spread separator controls and gutter menus address the right-hand pages", 
     const page = await app.firstWindow();
     await page.setViewportSize({ width: 1500, height: 1000 });
     await page.waitForFunction(() => Boolean(window.desktopAPI));
+    await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible();
+    await expect(page.locator(".startup-splash")).toBeHidden();
     const source = createBlankDocument("2列の段間線");
     source.content = Array.from({ length: 8 }, (_, index) => ({ type: "paragraph", id: `spread-${index}`,
       pagination: { break: index > 0 }, children: [{ type: "text", text: `本文${index}` }],
@@ -28,7 +30,9 @@ test("spread separator controls and gutter menus address the right-hand pages", 
       await window.desktopAPI!.settings!.setUiLocale!("ja");
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
       localStorage.setItem("sigma-studio:page-arrangement-preference", "spread");
-      return window.desktopAPI!.storage.createFileFromDocument({ document });
+      const created = await window.desktopAPI!.storage.createFileFromDocument({ document });
+      await window.desktopAPI!.storage.saveWorkspace({ openFileIds: [created.file.fileId], activeFileId: created.file.fileId });
+      return created;
     }, source);
     await page.reload();
     await expect(page.locator(".startup-splash")).toBeHidden();
@@ -72,6 +76,8 @@ test("page separator overrides and text-box decoration survive saving and reopen
   try {
     let page = await app.firstWindow();
     await page.waitForFunction(() => Boolean(window.desktopAPI));
+    await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible();
+    await expect(page.locator(".startup-splash")).toBeHidden();
     await page.evaluate(async () => {
       await window.desktopAPI!.settings!.setUiLocale!("ja");
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));

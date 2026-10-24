@@ -113,7 +113,10 @@ test("bold math keeps its face and copied body/figure fonts survive paste and re
     const savedMath = () => page.evaluate(async id => {
       const document = await window.desktopAPI!.storage.loadDocument(id);
       const shape = document?.pageLayout?.overlay?.overlaySnapshot?.shapes.find(item => item.id === "font_figure");
-      return shape?.type === "text" ? (shape.props.blocks[1] as { children: { tex: string }[] }).children[0].tex : null;
+      const mathBlock = shape?.type === "text" ? shape.props.blocks[1] : undefined;
+      return mathBlock?.type === "paragraph"
+        ? mathBlock.children.find(child => child.type === "mathInline")?.tex ?? null
+        : null;
     }, ids[0]);
     await expect.poll(savedMath).toBe(String.raw`\boldsymbol{f}`);
     const glyph = figure.locator(".ML__mathit").filter({ hasText: "f" }).first();
@@ -131,6 +134,8 @@ test("bold math keeps its face and copied body/figure fonts survive paste and re
     await page.keyboard.press("Escape");
     await expect.poll(savedMath).toBe(String.raw`\boldsymbol{f+x}`);
     await mathRow.locator(".inline-math-node").dblclick();
+    await expect(figure.locator("math-field")).toHaveJSProperty("value", "f+x");
+    await expect(figure.locator("math-field")).toBeFocused();
     await page.keyboard.press("End");
     await page.keyboard.press("Backspace");
     await page.keyboard.press("Backspace");
