@@ -81,6 +81,20 @@ function measureFractionGlyphs(locator: Locator) {
   });
 }
 
+// Blink LayoutUnit uses 1/64 CSS px. Text/font identity remains exact; allow only
+// one layout quantum when comparing independent MathLive and static DOM boxes.
+type MathGeometry = { x: number; y: number; w: number; h: number; text?: string; font?: string };
+function expectSameMathGeometry(actual: MathGeometry[], expected: MathGeometry[]) {
+  expect(actual).toHaveLength(expected.length);
+  expected.forEach((wanted, index) => {
+    expect(actual[index].text).toBe(wanted.text);
+    expect(actual[index].font).toBe(wanted.font);
+    for (const axis of ["x", "y", "w", "h"] as const) {
+      expect(Math.abs(actual[index][axis] - wanted[axis]), `${index}.${axis}`).toBeLessThanOrEqual(1 / 64 + 1e-7);
+    }
+  });
+}
+
 test("fraction glyphs keep their size and position while editing", async ({}, info) => {
   for (const id of ["frac", "frac_styled"]) {
   const math = page.locator(`.page-flow [data-id="${id}"]`).first();
@@ -107,7 +121,7 @@ test("fraction glyphs keep their size and position while editing", async ({}, in
   await expect(field).toHaveCount(0);
   const committed = await measureFractionGlyphs(math);
   expect(typed.length).toBeGreaterThan(0);
-  expect(committed).toEqual(typed);
+  expectSameMathGeometry(committed, typed);
   for (let i = 0; i < before.length; i++) {
     expect(Math.abs(before[i].w - during[i].w)).toBeLessThan(1);
     expect(Math.abs(before[i].h - during[i].h)).toBeLessThan(1);
@@ -147,11 +161,11 @@ test("incomplete fraction geometry matches for large and framed math", async () 
       const glyphs = await measureFractionGlyphs(field);
       const bar = await measureFractionLayout(field);
       expect(glyphs).toHaveLength(2);
-      expect(await measureFractionGlyphs(math.locator(".math-preview"))).toEqual(glyphs);
-      expect(await measureFractionLayout(math.locator(".math-preview"))).toEqual(bar);
+      expectSameMathGeometry(await measureFractionGlyphs(math.locator(".math-preview")), glyphs);
+      expectSameMathGeometry(await measureFractionLayout(math.locator(".math-preview")), bar);
       await field.press("Enter"); await expect(field).toHaveCount(0);
-      expect(await measureFractionGlyphs(math)).toEqual(glyphs);
-      expect(await measureFractionLayout(math)).toEqual(bar);
+      expectSameMathGeometry(await measureFractionGlyphs(math), glyphs);
+      expectSameMathGeometry(await measureFractionLayout(math), bar);
     }
   }
 });
@@ -171,8 +185,8 @@ for (const entry of ["shortcut", "frac command"] as const) {
     const preview = math.locator(".math-preview");
     const assertSameLayout = async () => {
       await settleMathRendering(field);
-      expect(await measureFractionGlyphs(preview)).toEqual(await measureFractionGlyphs(field));
-      expect(await measureFractionLayout(preview)).toEqual(await measureFractionLayout(field));
+      expectSameMathGeometry(await measureFractionGlyphs(preview), await measureFractionGlyphs(field));
+      expectSameMathGeometry(await measureFractionLayout(preview), await measureFractionLayout(field));
     };
     await assertSameLayout();
     // Fraction insertion starts in the denominator; leave the numerator empty.
@@ -183,8 +197,8 @@ for (const entry of ["shortcut", "frac command"] as const) {
     const bar = await measureFractionLayout(field);
     expect(typed.map(glyph => glyph.text).sort()).toEqual(["3", "4", "▢"]);
     await field.press("Enter"); await expect(field).toHaveCount(0);
-    expect(await measureFractionGlyphs(math)).toEqual(typed);
-    expect(await measureFractionLayout(math)).toEqual(bar);
+    expectSameMathGeometry(await measureFractionGlyphs(math), typed);
+    expectSameMathGeometry(await measureFractionLayout(math), bar);
     // The visible empty slot remains clickable and reopens the real placeholder.
     await math.locator(".ML__prompt-atom").click();
     await expect(field).toBeFocused(); await assertSameLayout();
