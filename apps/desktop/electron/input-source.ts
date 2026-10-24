@@ -14,7 +14,7 @@ export type DesktopInputSourceRestoreResult =
 type ExecFileLike = (
   file: string,
   args: string[],
-  options: { timeout: number },
+  options: { timeout: number; windowsHide: boolean },
   callback: (error: Error | null, stdout: string, stderr: string) => void,
 ) => void;
 
@@ -26,7 +26,8 @@ type MacRestoreState = {
 };
 
 type WindowsRestoreState = {
-  imeOpen: boolean | null;
+  imeOpen: boolean;
+  windowHandle: string;
   platform: "win32";
 };
 
@@ -99,91 +100,138 @@ function run(argv) {
 }
 `;
 
-const WINDOWS_ASCII_INPUT_SOURCE_SCRIPT = `
+// HIMC belongs to the target process. A PowerShell helper must send commands to
+// that thread's IME window instead of calling ImmGetContext across processes.
+// https://learn.microsoft.com/windows/win32/api/imm/nf-imm-immgetdefaultimewnd
+const WINDOWS_IME_HELPER_SCRIPT = `
+$ErrorActionPreference = 'Stop'
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 
 public static class SigmaStudioIme {
+  [StructLayout(LayoutKind.Sequential)]
+  private struct Rect {
+    public int left, top, right, bottom;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct GuiThreadInfo {
+    public uint cbSize, flags;
+    public IntPtr hwndActive, hwndFocus, hwndCapture, hwndMenuOwner, hwndMoveSize, hwndCaret;
+    public Rect rcCaret;
+  }
+
   [DllImport("user32.dll")]
   public static extern IntPtr GetForegroundWindow();
 
-  [DllImport("imm32.dll")]
-  public static extern IntPtr ImmGetContext(IntPtr hWnd);
+  [DllImport("user32.dll")]
+  private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+  [DllImport("user32.dll")]
+  private static extern bool GetGUIThreadInfo(uint threadId, ref GuiThreadInfo info);
 
   [DllImport("imm32.dll")]
-  public static extern bool ImmGetOpenStatus(IntPtr hIMC);
+  private static extern IntPtr ImmGetDefaultIMEWnd(IntPtr hWnd);
 
-  [DllImport("imm32.dll")]
-  public static extern bool ImmSetOpenStatus(IntPtr hIMC, bool fOpen);
+  [DllImport("user32.dll", SetLastError = true)]
+  private static extern IntPtr SendMessageTimeoutW(
+    IntPtr hWnd, uint message, UIntPtr wParam, IntPtr lParam,
+    uint flags, uint timeout, out UIntPtr result);
 
-  [DllImport("imm32.dll")]
-  public static extern bool ImmReleaseContext(IntPtr hWnd, IntPtr hIMC);
+  public static IntPtr GetImeWindow(IntPtr foreground, uint expectedProcessId) {
+    uint processId;
+    uint threadId = GetWindowThreadProcessId(foreground, out processId);
+    // The helper starts asynchronously. Never change another app's IME if the
+    // user switched windows while PowerShell was starting.
+    if (processId != expectedProcessId) {
+      throw new InvalidOperationException("Sigma Studio is no longer the foreground application.");
+    }
+    var info = new GuiThreadInfo();
+    info.cbSize = (uint)Marshal.SizeOf(typeof(GuiThreadInfo));
+    if (threadId == 0 || !GetGUIThreadInfo(threadId, ref info) || info.hwndFocus == IntPtr.Zero) {
+      throw new InvalidOperationException("Focused input window was not found.");
+    }
+    IntPtr imeWindow = ImmGetDefaultIMEWnd(info.hwndFocus);
+    if (imeWindow == IntPtr.Zero) {
+      throw new InvalidOperationException("IME window was not found.");
+    }
+    return imeWindow;
+  }
+
+  private static ulong SendImeCommand(IntPtr imeWindow, uint command, int value) {
+    UIntPtr result;
+    // WM_IME_CONTROL; SMTO_ABORTIFHUNG | SMTO_ERRORONEXIT, bounded to 200ms.
+    if (SendMessageTimeoutW(imeWindow, 0x0283, new UIntPtr(command), new IntPtr(value),
+        0x0022, 200, out result) == IntPtr.Zero) {
+      throw new InvalidOperationException("IME control request failed or timed out.");
+    }
+    return result.ToUInt64();
+  }
+
+  public static bool GetOpenStatus(IntPtr imeWindow) {
+    return SendImeCommand(imeWindow, 0x0005, 0) != 0; // IMC_GETOPENSTATUS
+  }
+
+  public static void SetOpenStatus(IntPtr imeWindow, bool open) {
+    SendImeCommand(imeWindow, 0x0006, open ? 1 : 0); // IMC_SETOPENSTATUS
+    if (GetOpenStatus(imeWindow) != open) {
+      throw new InvalidOperationException("IME did not switch to the requested input mode.");
+    }
+  }
 }
 "@
-
-$hwnd = [SigmaStudioIme]::GetForegroundWindow()
-if ($hwnd -eq [IntPtr]::Zero) {
-  throw "Foreground window was not found."
-}
-
-$context = [SigmaStudioIme]::ImmGetContext($hwnd)
-if ($context -eq [IntPtr]::Zero) {
-  @{ imeOpen = $null } | ConvertTo-Json -Compress
-  exit 0
-}
-
-$wasOpen = [SigmaStudioIme]::ImmGetOpenStatus($context)
-[void][SigmaStudioIme]::ImmSetOpenStatus($context, $false)
-[void][SigmaStudioIme]::ImmReleaseContext($hwnd, $context)
-@{ imeOpen = $wasOpen } | ConvertTo-Json -Compress
 `;
 
-const WINDOWS_RESTORE_INPUT_SOURCE_SCRIPT = `
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-
-public static class SigmaStudioIme {
-  [DllImport("user32.dll")]
-  public static extern IntPtr GetForegroundWindow();
-
-  [DllImport("imm32.dll")]
-  public static extern IntPtr ImmGetContext(IntPtr hWnd);
-
-  [DllImport("imm32.dll")]
-  public static extern bool ImmSetOpenStatus(IntPtr hIMC, bool fOpen);
-
-  [DllImport("imm32.dll")]
-  public static extern bool ImmReleaseContext(IntPtr hWnd, IntPtr hIMC);
-}
-"@
-
-$targetOpen = [System.Boolean]::Parse($args[0])
+const WINDOWS_ASCII_INPUT_SOURCE_SCRIPT = `${WINDOWS_IME_HELPER_SCRIPT}
 $hwnd = [SigmaStudioIme]::GetForegroundWindow()
 if ($hwnd -eq [IntPtr]::Zero) {
   throw "Foreground window was not found."
 }
 
-$context = [SigmaStudioIme]::ImmGetContext($hwnd)
-if ($context -eq [IntPtr]::Zero) {
+$imeWindow = [SigmaStudioIme]::GetImeWindow($hwnd, ${process.pid})
+$wasOpen = [SigmaStudioIme]::GetOpenStatus($imeWindow)
+if ([SigmaStudioIme]::GetForegroundWindow() -ne $hwnd) {
+  throw "Foreground window changed before switching input mode."
+}
+if ($wasOpen) {
+  [SigmaStudioIme]::SetOpenStatus($imeWindow, $false)
+}
+@{ imeOpen = $wasOpen; ascii = $true; windowHandle = $hwnd.ToInt64().ToString() } | ConvertTo-Json -Compress
+`;
+
+function windowsRestoreInputSourceScript(state: WindowsRestoreState): string {
+  // windowHandle is validated as a decimal integer before retaining the state.
+  // Embed typed values: powershell.exe -Command does not bind trailing CLI
+  // arguments to $args the way -File does.
+  return `${WINDOWS_IME_HELPER_SCRIPT}
+$targetOpen = $${state.imeOpen}
+$expectedWindow = [long]${state.windowHandle}
+$hwnd = [SigmaStudioIme]::GetForegroundWindow()
+if ($hwnd.ToInt64() -ne $expectedWindow) {
   @{ restored = $false } | ConvertTo-Json -Compress
   exit 0
 }
 
-$currentOpen = [SigmaStudioIme]::ImmGetOpenStatus($context)
+$imeWindow = [SigmaStudioIme]::GetImeWindow($hwnd, ${process.pid})
+$currentOpen = [SigmaStudioIme]::GetOpenStatus($imeWindow)
 if ($currentOpen -ne $false) {
-  [void][SigmaStudioIme]::ImmReleaseContext($hwnd, $context)
   @{ restored = $false } | ConvertTo-Json -Compress
   exit 0
 }
 
-[void][SigmaStudioIme]::ImmSetOpenStatus($context, $targetOpen)
-[void][SigmaStudioIme]::ImmReleaseContext($hwnd, $context)
+if ([SigmaStudioIme]::GetForegroundWindow() -ne $hwnd) {
+  @{ restored = $false } | ConvertTo-Json -Compress
+  exit 0
+}
+[SigmaStudioIme]::SetOpenStatus($imeWindow, $targetOpen)
 @{ restored = $true } | ConvertTo-Json -Compress
 `;
+}
 
 const DEFAULT_SWITCH_TIMEOUT_MS = 1200;
+// Windows PowerShell cold start and Add-Type compilation can exceed 1.2s.
+const WINDOWS_SWITCH_TIMEOUT_MS = 5000;
 
 let nextRestoreToken = 1;
 const restoreStates = new Map<string, RestoreState>();
@@ -204,7 +252,7 @@ export function switchToAsciiInputSource(options: {
   }
 
   const execFile = options.execFile ?? nodeExecFile;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_SWITCH_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? (platform === "win32" ? WINDOWS_SWITCH_TIMEOUT_MS : DEFAULT_SWITCH_TIMEOUT_MS);
   return platform === "darwin"
     ? switchMacInputSourceToAscii({ execFile, timeoutMs })
     : switchWindowsInputSourceToAscii({ execFile, timeoutMs });
@@ -229,7 +277,7 @@ export function restorePreviousInputSource(
 
   restoreStates.delete(restoreToken);
   const execFile = options.execFile ?? nodeExecFile;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_SWITCH_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? (state.platform === "win32" ? WINDOWS_SWITCH_TIMEOUT_MS : DEFAULT_SWITCH_TIMEOUT_MS);
   return state.platform === "darwin"
     ? restoreMacInputSource(state, { execFile, timeoutMs })
     : restoreWindowsInputSource(state, { execFile, timeoutMs });
@@ -283,8 +331,13 @@ function switchWindowsInputSourceToAscii({
     }
 
     const parsed = parseRestoreState(result.stdout);
+    if (typeof parsed?.imeOpen !== "boolean" || parsed.ascii !== true
+      || typeof parsed.windowHandle !== "string" || !/^[1-9]\d*$/.test(parsed.windowHandle)) {
+      return { ok: false, platform: "win32" as const, error: te("electron.inputSource.switchFailed") };
+    }
     const restoreToken = rememberRestoreState({
-      imeOpen: typeof parsed?.imeOpen === "boolean" ? parsed.imeOpen : null,
+      imeOpen: parsed.imeOpen,
+      windowHandle: parsed.windowHandle,
       platform: "win32",
     });
     return { ok: true, platform: "win32" as const, restoreToken };
@@ -328,7 +381,7 @@ function restoreWindowsInputSource(
     timeoutMs: number;
   },
 ): Promise<DesktopInputSourceRestoreResult> {
-  if (state.imeOpen === null) {
+  if (!state.imeOpen) {
     return Promise.resolve({ ok: true, platform: "win32", restored: false });
   }
 
@@ -339,8 +392,7 @@ function restoreWindowsInputSource(
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
-      WINDOWS_RESTORE_INPUT_SOURCE_SCRIPT,
-      String(state.imeOpen),
+      windowsRestoreInputSourceScript(state),
     ],
     execFile,
     file: "powershell.exe",
@@ -348,7 +400,7 @@ function restoreWindowsInputSource(
     timeoutMs,
   }).then((result) => (
     result.ok
-      ? { ok: true, platform: "win32" as const, restored: getRestoredFlag(result.stdout) }
+      ? { ok: true, platform: "win32" as const, restored: parseRestoreState(result.stdout)?.restored === true }
       : result
   ));
 }
@@ -401,7 +453,7 @@ function runInputSourceCommand({
     execFile(
       file,
       args,
-      { timeout: timeoutMs },
+      { timeout: timeoutMs, windowsHide: true },
       (error, stdout, stderr) => {
         if (!error) {
           resolve({ ok: true, platform, stdout });
