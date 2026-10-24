@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -27,6 +28,21 @@ test("the desktop runtime retains the compromised-certificate mitigation baselin
   const [major, minor, patch] = version.split(".").map(Number);
   assert.ok(major > 44 || (major === 44 && (minor > 9 || (minor === 9 && patch >= 1))),
     `Electron ${version} is below the desktop security baseline 44.9.1 (GHSA-jr5w-w6x2-84p9)`);
+});
+
+test("the MCP rate-limit IPv6 parser bounds malformed zone identifiers and preserves valid addresses", () => {
+  const sdkRequire = createRequire(require.resolve("@modelcontextprotocol/sdk/package.json"));
+  const rateLimitRequire = createRequire(sdkRequire.resolve("express-rate-limit"));
+  const addressModule = rateLimitRequire.resolve("ip-address");
+  const result = spawnSync(process.execPath, ["--input-type=commonjs", "-e", `
+    const assert = require("node:assert/strict");
+    const { Address6 } = require(process.argv[1]);
+    assert.equal(new Address6("2001:db8::1").correctForm(), "2001:db8::1");
+    assert.equal(new Address6("fe80::1%eth0").zone, "%eth0");
+    assert.equal(Address6.isValid("%".repeat(1024 * 1024) + "\\n!"), false);
+  `, addressModule], { timeout: 5000, killSignal: "SIGKILL", encoding: "utf8" });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
 });
 
 const request = { url: "https://cache.example.invalid/account", headers: { host: "cache.example.invalid" } };
