@@ -251,11 +251,12 @@ export async function dropPocketItem(
   if (!item) {
     return "missing";
   }
-  if (location.pagePoint && getPocketPageHost()?.placeOnPage(item, location.pagePoint)) {
+  const host = getPocketPageHost(location);
+  if (location.pagePoint && host?.placeOnPage(item, location.pagePoint)) {
     return "inserted";
   }
   if (item.transferTarget === "caret") {
-    getPocketPageHost()?.beforePlaceCaret?.();
+    host?.beforePlaceCaret?.();
   }
   const editable = item.transferTarget === "page" ? null : placeCaretAtPoint(location.clientX, location.clientY);
   if (!editable) {

@@ -736,9 +736,13 @@ test("pocket shape cards follow focus between persistent split panes and keep th
     await expect.poll(counts).toEqual([initial[0] + 2, initial[1] + 1]);
     await page.keyboard.press("ControlOrMeta+z");
     await expect.poll(counts).toEqual([initial[0] + 1, initial[1] + 1]);
+    // Dropping has a destination even when another pane still owns keyboard input.
+    const destination = (await right.locator('.page-canvas').first().boundingBox())!;
+    await dragCardTo(page, card, destination.x + 100, destination.y + 200);
+    await expect.poll(counts).toEqual([initial[0] + 1, initial[1] + 2]);
     await page.reload();
     await expect(page.locator(".startup-splash")).toBeHidden();
-    expect(await counts()).toEqual([initial[0] + 1, initial[1] + 1]);
+    expect(await counts()).toEqual([initial[0] + 1, initial[1] + 2]);
   } finally {
     await closeApp(app);
     rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

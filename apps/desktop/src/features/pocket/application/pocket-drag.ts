@@ -38,6 +38,8 @@ export interface PocketScreenRect {
 export interface PocketPageHost {
   /** 判定は挿入時に行う。マウント順ではなく、いま入力を所有する教材を選ぶ。 */
   ownsInput?(): boolean;
+  /** ドロップではフォーカスではなく、実際に落とされた編集面が所有する。 */
+  ownsDropLocation?(location: PocketDropLocation): boolean;
   /**
    * 項目を紙面へ置く。置いたら true、置かない (本文のキャレットへ貼る) なら false。
    * `point` が null のときは置き場所の指定が無い挿入 (クリック) で、紙面が見えている範囲の
@@ -83,6 +85,8 @@ export function registerPocketPageHost(host: PocketPageHost): () => void {
   };
 }
 
-export function getPocketPageHost(): PocketPageHost | null {
-  return [...pageHosts].reverse().find(host => host.ownsInput?.() ?? true) ?? null;
+export function getPocketPageHost(location?: PocketDropLocation): PocketPageHost | null {
+  return [...pageHosts].reverse().find(host => location && host.ownsDropLocation
+    ? host.ownsDropLocation(location)
+    : host.ownsInput?.() ?? true) ?? null;
 }

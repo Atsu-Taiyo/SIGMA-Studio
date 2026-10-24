@@ -24,7 +24,7 @@ describe("pocket page host", () => {
   const getViewportCenter = vi.fn(() => ({ x: 400, y: 500 }));
 
   function Host({ bodyless = false }: { bodyless?: boolean }) {
-    usePocketPageHost({ ownsInput: () => true, bodyless, requestOverlayAction, getViewportCenter });
+    usePocketPageHost({ ownsInput: () => true, ownsDropLocation: () => true, bodyless, requestOverlayAction, getViewportCenter });
     return null;
   }
 
@@ -85,7 +85,7 @@ describe("pocket page host", () => {
     let focused = "left";
     const left = vi.fn(), right = vi.fn();
     function Pane({ id, request }: { id: string; request: typeof left }) {
-      usePocketPageHost({ ownsInput: () => focused === id, bodyless: false, requestOverlayAction: request, getViewportCenter });
+      usePocketPageHost({ ownsInput: () => focused === id, ownsDropLocation: location => (location.clientX < 100 ? "left" : "right") === id, bodyless: false, requestOverlayAction: request, getViewportCenter });
       return null;
     }
     await act(async () => root.render(<><Pane id="left" request={left} /><Pane id="right" request={right} /></>));
@@ -94,9 +94,12 @@ describe("pocket page host", () => {
     expect(insertPocketItem(item.item.id)).toBe("inserted");
     expect(left).toHaveBeenCalledTimes(1);
     expect(right).not.toHaveBeenCalled();
+    const dropHost = getPocketPageHost({ clientX: 150, clientY: 20, pagePoint: { x: 50, y: 20 } });
+    expect(dropHost?.placeOnPage(item.item, { x: 50, y: 20 })).toBe(true);
+    expect(right).toHaveBeenCalledTimes(1);
     focused = "right";
     expect(insertPocketItem(item.item.id)).toBe("inserted");
-    expect(right).toHaveBeenCalledTimes(1);
+    expect(right).toHaveBeenCalledTimes(2);
     focused = "left";
     await act(async () => root.render(<Pane id="left" request={left} />));
     expect(insertPocketItem(item.item.id)).toBe("inserted");
