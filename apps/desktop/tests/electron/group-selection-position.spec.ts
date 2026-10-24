@@ -4,10 +4,12 @@ import path from "node:path";
 import { _electron as electron, expect, test, type Page } from "@playwright/test";
 import { sampleDocument } from "@/lib/sample-document";
 import type { OverlayShape } from "@/features/document";
+import { grabShapeFromBody } from "../e2e/body-overlay-entry";
+import { selectUiOption } from "../e2e/ui-select";
 
 const root = path.resolve(__dirname, "../..");
 const ids = ["a", "b", "nearby"];
-const rect = (id: string, x: number, y: number): OverlayShape => ({
+const rect = (id: string, x: number, y: number): Extract<OverlayShape, { type: "geo" }> => ({
   id, type: "geo", x, y, anchor: { type: "page" },
   props: { w: 90, h: 55, geo: "rectangle", fill: "solid", color: "black", labelColor: "black", dash: "solid", size: "m" },
 });
@@ -112,13 +114,77 @@ test("grouping and selecting members preserve display and saved positions near s
     await expect.poll(async () => (await loadShapes()).find(item => item.id === "a")!.x).not.toBe(160);
     const moved = await positions(page);
     expect(moved.a.x - before.a.x).toBeGreaterThan(15);
-    expect(moved.b).toEqual(before.b);
+    // Re-anchoring can introduce <0.001 model-pixel roundoff. Check saved geometry
+    // more tightly than DOM subpixels, and keep all other neighbour fields exact.
+    const savedB = (await loadShapes()).find(item => item.id === "b")!;
+    const beforeB = grouped.find(item => item.id === "b")!;
+    const anchor = beforeB.anchor;
+    expect(savedB).toEqual({
+      ...beforeB, x: expect.closeTo(beforeB.x, 3), y: expect.closeTo(beforeB.y, 3),
+      ...(anchor?.type === "block" ? { anchor: {
+        ...anchor, dx: typeof anchor.dx === "number" ? expect.closeTo(anchor.dx, 3) : anchor.dx, dy: expect.closeTo(anchor.dy, 3),
+        ...(anchor.line ? { line: { ...anchor.line, dy: expect.closeTo(anchor.line.dy, 3) } } : {}),
+      } } : {}),
+    });
+    expect(Math.abs(moved.b.x - before.b.x)).toBeLessThan(0.1);
+    expect(Math.abs(moved.b.y - before.b.y)).toBeLessThan(0.1);
     await page.reload();
     await expect(page.locator(".startup-splash")).toBeHidden();
     await expect(shape(page, "a")).toBeVisible();
     const reopened = await positions(page);
     expect(Math.abs(reopened.a.x - moved.a.x)).toBeLessThan(0.1);
     expect(Math.abs(reopened.a.y - moved.a.y)).toBeLessThan(0.1);
+  } finally {
+    await app.close();
+    await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+});
+
+test("a twenty pixel drag at 800 percent commits a small model move and survives undo and reload", async () => {
+  const profile = await mkdtemp(path.join(tmpdir(), "sigma-zoom-drag-"));
+  const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.SIGMA_STUDIO_DEV_SERVER_URL;
+  env.SIGMA_STUDIO_USER_DATA_DIR = profile;
+  if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
+  const app = await electron.launch({ args: [root], cwd: root, env });
+  try {
+    const page = await app.firstWindow();
+    await (await app.browserWindow(page)).evaluate(win => win.setContentSize(1400, 1000));
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+    await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible();
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    const source = structuredClone(sampleDocument);
+    source.docId = "zoom_drag";
+    source.content = [{ type: "paragraph", id: "zoom_p", children: [{ type: "text", text: "高倍率の移動" }] }];
+    source.pageLayout = { ...source.pageLayout!, overlay: { overlaySnapshot: { version: 1, assets: {}, shapes: [{ ...rect("zoom_shape", 40, 60), props: { ...rect("zoom_shape", 40, 60).props, w: 20, h: 20 } }] } } };
+    const id = await page.evaluate(async document => {
+      localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      const created = await window.desktopAPI!.storage.createFileFromDocument({ document });
+      await window.desktopAPI!.storage.saveWorkspace({ openFileIds: [created.file.fileId], activeFileId: created.file.fileId });
+      return created.file.fileId;
+    }, source);
+    await page.reload();
+    await selectUiOption(page.getByRole("combobox", { name: "ズーム", exact: true }).first(), "800");
+    const target = shape(page, "zoom_shape");
+    await expect(target).toBeVisible();
+    await grabShapeFromBody(page, target);
+    await target.scrollIntoViewIfNeeded();
+    const box = (await target.boundingBox())!;
+    const x = box.x + box.width / 2, y = box.y + box.height / 2;
+    const savedX = () => page.evaluate(async id => (await window.desktopAPI!.storage.loadDocument(id))?.pageLayout?.overlay?.overlaySnapshot?.shapes.find(shape => shape.id === "zoom_shape")?.x, id);
+    const before = (await savedX())!;
+    await page.mouse.move(x, y); await page.mouse.down();
+    await page.mouse.move(x + 20, y, { steps: 5 }); await page.mouse.up();
+    await expect.poll(savedX).toBeCloseTo(before + 2.5, 1);
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(savedX).toBeCloseTo(before, 1);
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect.poll(savedX).toBeCloseTo(before + 2.5, 1);
+    await page.reload();
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    await expect(target).toBeVisible();
+    expect(await savedX()).toBeCloseTo(before + 2.5, 1);
   } finally {
     await app.close();
     await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

@@ -14,7 +14,7 @@ const rect = (id: string, x: number, y: number): OverlayShape => ({
 });
 
 describe("selection click and move preview", () => {
-  it.each(["shape", "group", "member"])("keeps a %s still during click jitter near a snap target", async (scope) => {
+  it.each(["shape", "group", "member"].flatMap(scope => [1, 8].map(zoom => ({ scope, zoom }))))("keeps a $scope still during click jitter at zoom $zoom", async ({ scope, zoom }) => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     const members = [rect("a", 100, 100), rect("b", 230, 200)];
     const shapes = scope === "shape" ? members : groupOverlayShapes(members, ["a", "b"], () => "group").shapes;
@@ -33,7 +33,7 @@ describe("selection click and move preview", () => {
       transforms = useOverlayPointerTransforms({
         session: { transitionMode, lastInteractionPointRef: { current: null }, resizePaddingRef: { current: { left: 0, top: 0, right: 0, bottom: 0 } } },
         editing: { shapesRef, setShapes, assetsRef: { current: {} }, replaceShape: vi.fn() },
-        geometry: { createSnapGeometry, getOverlaySnapThreshold: () => 8, anchorMeasurementsRef: { current: { rects: new Map(), ordered: [] } } },
+        geometry: { clientPointFromPage: point => ({ x: point.x * zoom, y: point.y * zoom }), createSnapGeometry, getOverlaySnapThreshold: () => 8 / zoom, anchorMeasurementsRef: { current: { rects: new Map(), ordered: [] } } },
         snapDisabledRef: { current: false }, setSnapGuides: vi.fn(), clearSnapGuides,
         lastCalloutCornerRadiusRef: { current: 0 }, imageCropDirtyRef: { current: false },
       });
@@ -48,7 +48,7 @@ describe("selection click and move preview", () => {
         if (modeRef.current.id !== "overlay.move") throw new Error("Expected move mode");
         transforms.applyMoveInteractionAtPoint(modeRef.current, point);
       };
-      for (const point of [start, { x: 121, y: 121 }, { x: 122, y: 120 }]) applyAt(point);
+      for (const point of [start, { x: 120 + 1 / zoom, y: 120 + 1 / zoom }, { x: 120 + 2 / zoom, y: 120 }]) applyAt(point);
       expect(createSnapGeometry).not.toHaveBeenCalled();
       if (modeRef.current.id !== "overlay.move") throw new Error("Expected move mode");
       expect(modeRef.current.offset).toBeNull();
@@ -57,11 +57,11 @@ describe("selection click and move preview", () => {
       expect(shapesRef.current).toEqual(before);
 
       // Crossing the click threshold enables real snapping and uses the same offset on release.
-      applyAt({ x: 125, y: 120 });
+      applyAt({ x: 120 + 5 / zoom, y: 120 });
       expect(createSnapGeometry).toHaveBeenCalledOnce();
       if (modeRef.current.id !== "overlay.move") throw new Error("Expected move mode");
-      expect(modeRef.current.offset?.x).toBe(6);
-      expect(resolveMovePointerUp(modeRef.current, { x: 125, y: 120 })).toEqual({ kind: "commit", offset: modeRef.current.offset });
+      expect(modeRef.current.offset?.x).toBe(zoom === 1 ? 6 : 5 / zoom);
+      expect(resolveMovePointerUp({ ...modeRef.current, start: { x: 120 * zoom, y: 120 * zoom } }, { x: 120 * zoom + 5, y: 120 * zoom })).toEqual({ kind: "commit", offset: modeRef.current.offset });
 
       // Returning to the click area also removes the visual preview.
       applyAt(start);
