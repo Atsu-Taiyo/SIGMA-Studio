@@ -24,7 +24,7 @@ describe("pocket page host", () => {
   const getViewportCenter = vi.fn(() => ({ x: 400, y: 500 }));
 
   function Host({ bodyless = false }: { bodyless?: boolean }) {
-    usePocketPageHost({ bodyless, requestOverlayAction, getViewportCenter });
+    usePocketPageHost({ ownsInput: () => true, bodyless, requestOverlayAction, getViewportCenter });
     return null;
   }
 
@@ -78,6 +78,30 @@ describe("pocket page host", () => {
     expect(getPocketPageHost()!.placeOnPage(textItem, null)).toBe(true);
     expect(requestOverlayAction.mock.lastCall?.[0]).toMatchObject({ centerAt: { x: 400, y: 500 }, unbounded: true });
     await act(async () => root.render(null));
+    expect(getPocketPageHost()).toBeNull();
+  });
+
+  it("routes to the focused pane at insertion time and keeps other hosts after unmount", async () => {
+    let focused = "left";
+    const left = vi.fn(), right = vi.fn();
+    function Pane({ id, request }: { id: string; request: typeof left }) {
+      usePocketPageHost({ ownsInput: () => focused === id, bodyless: false, requestOverlayAction: request, getViewportCenter });
+      return null;
+    }
+    await act(async () => root.render(<><Pane id="left" request={left} /><Pane id="right" request={right} /></>));
+    const item = addToPocket(clipOf(createOverlayClipboardPayload([fixtures.shapes.tableShape], fixtures.assets)));
+    if (!item.ok) throw new Error(item.reason);
+    expect(insertPocketItem(item.item.id)).toBe("inserted");
+    expect(left).toHaveBeenCalledTimes(1);
+    expect(right).not.toHaveBeenCalled();
+    focused = "right";
+    expect(insertPocketItem(item.item.id)).toBe("inserted");
+    expect(right).toHaveBeenCalledTimes(1);
+    focused = "left";
+    await act(async () => root.render(<Pane id="left" request={left} />));
+    expect(insertPocketItem(item.item.id)).toBe("inserted");
+    expect(left).toHaveBeenCalledTimes(2);
+    focused = "none";
     expect(getPocketPageHost()).toBeNull();
   });
 });

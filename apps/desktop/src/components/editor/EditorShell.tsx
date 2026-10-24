@@ -3337,6 +3337,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, []);
   // ポケットの項目を紙面へ置く窓口。ホワイトボードは本文が無いので、本文のコピーも文章の図形として置く。
   usePocketPageHost({
+    ownsInput: ownsWorkspaceInput,
     bodyless: isWhiteboardDocument,
     getViewportCenter: getWhiteboardViewportCenter,
     requestOverlayAction,

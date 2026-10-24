@@ -169,6 +169,7 @@ test("the pocket carries text and a shape to another material in the real app, o
       return null;
     }, { sourceFileId, carried: CARRIED_TEXT });
     await expect.poll(async () => (await savedCarrier(created.file.fileId)) !== null).toBe(true);
+    await expect.poll(async () => JSON.stringify((await savedCarrier(created.file.fileId))?.pageLayout?.overlay?.overlaySnapshot?.shapes ?? [])).toContain("rectangle");
     const carrier = await savedCarrier(created.file.fileId);
     expect(JSON.stringify(carrier?.pageLayout?.overlay?.overlaySnapshot?.shapes ?? [])).toContain("rectangle");
     expect(JSON.stringify(carrier)).not.toContain(POCKET_ONLY_TEXT);
@@ -683,5 +684,63 @@ test("table pocket copies remain independent through editing, repeated insertion
   } finally {
     await closeApp(app);
     rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});
+
+test("pocket shape cards follow focus between persistent split panes and keep the other document unchanged", async () => {
+  const profile = mkdtempSync(path.join(tmpdir(), "sigma-pocket-split-"));
+  const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.SIGMA_STUDIO_DEV_SERVER_URL;
+  env.SIGMA_STUDIO_USER_DATA_DIR = profile;
+  if (devUrl) env.SIGMA_STUDIO_DEV_SERVER_URL = devUrl;
+  const app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
+  try {
+    const page = await prepare(app);
+    const source = sourceDocument();
+    source.metadata.title = "ポケット左";
+    const target = sourceDocument();
+    target.docId = "pocket_right";
+    target.metadata.title = "ポケット右";
+    target.content[0].id = "pocket_right_body";
+    target.pageLayout!.overlay!.overlaySnapshot!.shapes = [];
+    const ids = await page.evaluate(async documents => {
+      const files = [];
+      for (const document of documents) files.push((await window.desktopAPI!.storage.createFileFromDocument({ document })).file.fileId);
+      await window.desktopAPI!.storage.saveWorkspace({ openFileIds: files, activeFileId: files[0] });
+      return files;
+    }, [source, target]);
+    await page.reload();
+    const shape = page.locator('[data-overlay-shape-id="shape_pocket"]').first();
+    await expect(shape).toBeVisible();
+    await grabShapeFromBody(page, shape);
+    await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+    const card = page.locator("[data-pocket-item] button[data-kind]").first();
+    await expect(card).toBeVisible();
+    await page.getByRole("tab", { name: "ポケット右", exact: true }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "右に並べて開く" }).click();
+    await expect(page.locator(".workspace-tab-group")).toHaveCount(2);
+    const left = page.locator('.workspace-tab-group').filter({ has: page.locator('[data-sigma-doc-id="body_carried"]') });
+    const right = page.locator('.workspace-tab-group').filter({ has: page.locator('[data-sigma-doc-id="pocket_right_body"]') });
+    const counts = () => page.evaluate(async ids => Promise.all(ids.map(async id =>
+      (await window.desktopAPI!.storage.loadDocument(id))?.pageLayout?.overlay?.overlaySnapshot?.shapes.length ?? 0)), ids);
+    const initial = await counts();
+    await left.locator('.page-canvas').first().click({ position: { x: 15, y: 100 } });
+    await card.click();
+    await expect.poll(counts).toEqual([initial[0] + 1, initial[1]]);
+    await right.locator('.page-canvas').first().click({ position: { x: 15, y: 100 } });
+    await card.click();
+    await expect.poll(counts).toEqual([initial[0] + 1, initial[1] + 1]);
+    await left.locator('.page-canvas').first().click({ position: { x: 15, y: 100 } });
+    await card.click();
+    await expect.poll(counts).toEqual([initial[0] + 2, initial[1] + 1]);
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(counts).toEqual([initial[0] + 1, initial[1] + 1]);
+    await page.reload();
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    expect(await counts()).toEqual([initial[0] + 1, initial[1] + 1]);
+  } finally {
+    await closeApp(app);
+    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });

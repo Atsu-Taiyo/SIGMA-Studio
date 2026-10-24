@@ -49,6 +49,7 @@ export function measureSelectionRect(): PocketScreenRect | null {
 }
 
 interface PocketPageHostPorts {
+  ownsInput: () => boolean;
   /** 本文を持たない紙面 (ホワイトボード) か。本文のコピーを貼る場所が無いので、図形として置く。 */
   bodyless: boolean;
   /** 置き場所を指定しない挿入 (クリック) の置き場所。紙面の見えている範囲の中央。無ければ null。 */
@@ -71,6 +72,7 @@ export function usePocketPageHost(ports: PocketPageHostPorts): void {
   }, [ports]);
 
   useEffect(() => registerPocketPageHost({
+    ownsInput: () => portsRef.current.ownsInput(),
     placeOnPage: (item: PocketItem, point: PocketPagePoint | null): boolean => {
       const { bodyless, getViewportCenter, requestOverlayAction } = portsRef.current;
       const shapesOnly = item.transferTarget === "page";
