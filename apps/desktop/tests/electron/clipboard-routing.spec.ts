@@ -24,7 +24,7 @@ test("native cut/paste preserves its destination, formatting, undo and saved con
   env.SIGMA_STUDIO_USER_DATA_DIR = profile;
   if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
   const app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
-  const originalClipboard = await app.evaluateHandle(async ({ clipboard, ClipboardItem }) => Promise.all((await clipboard.read()).map(async item =>
+  const originalClipboard = await app.evaluateHandle(async ({ clipboard, ClipboardItem }) => Promise.all((await clipboard.read()).filter(item => item.types.length > 0).map(async item =>
     new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async type => [type, await item.getType(type)])))),
   )));
   try {

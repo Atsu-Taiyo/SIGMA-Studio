@@ -20,7 +20,7 @@ test("bold math keeps its face and copied body/figure fonts survive paste and re
   try {
     await app.evaluate(async ({ clipboard, ClipboardItem }) => {
       const state = globalThis as typeof globalThis & { sigmaFontTestClipboard?: Awaited<ReturnType<typeof clipboard.read>> };
-      state.sigmaFontTestClipboard = await Promise.all((await clipboard.read()).map(async item =>
+      state.sigmaFontTestClipboard = await Promise.all((await clipboard.read()).filter(item => item.types.length > 0).map(async item =>
         new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async type => [type, await item.getType(type)])))),
       ));
     });
