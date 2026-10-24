@@ -52,6 +52,15 @@ describe("math template TeX helpers", () => {
     expect(toMathLivePreviewTex("\\placeholder{}")).toBe("\\placeholder[?]{\\square}");
   });
 
+  it("keeps explicit typefaces and partial bold commands intact when preparing whole-formula bold previews", () => {
+    expect(toMathLivePreviewTex(String.raw`\boldsymbol{\mathit{f+1}}`))
+      .toBe(String.raw`\htmlStyle{font-weight:bold}{\mathit{f+1}}`);
+    for (const tex of [String.raw`\mathbf{f}`, String.raw`\boldsymbol{f}+x`]) {
+      expect(toMathLivePreviewTex(tex)).toBe(tex);
+    }
+    expect(toKatexPreviewTex(String.raw`\boldsymbol{f}`)).toBe(String.raw`\boldsymbol{f}`);
+  });
+
   it.each(["cases", "dcases", "rcases"])("keeps %s rows inside their own environment", (environment) => {
     const tex = `m(a)=\\begin{${environment}}f(a+1)=a^2-1\\\\f(1)=-1\\\\f(a)=a^2-2a\\end{${environment}}`;
     expect(toMathLivePreviewTex(tex)).toBe(tex);

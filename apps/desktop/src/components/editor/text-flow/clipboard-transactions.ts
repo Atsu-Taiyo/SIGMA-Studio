@@ -314,6 +314,12 @@ export function pasteTextFlowBlocksFromClipboard(
       // 見出し・リスト等の明示的な Markdown は独立したブロックとして挿入する。
       preservePastedBlockStructure = markdownBlocks.some((block) => block.type !== "paragraph");
     } else {
+      // Native cut and HTML-only copies carry the current formatting in parsedSlice.
+      // Matching plain text does not prove the cached copy has the same font or marks.
+      // Let ProseMirror paste that HTML; the local fallback is only for plain-text events.
+      if (clipboardData.getData("text/html").trim()) {
+        return false;
+      }
       const localPayload = getLocalEditorClipboardPayload();
       if (
         localPayload?.kind !== "textFlowBlocks"

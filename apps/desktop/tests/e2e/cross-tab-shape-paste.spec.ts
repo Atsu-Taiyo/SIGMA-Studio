@@ -168,7 +168,7 @@ async function openSourceTab(page: Page): Promise<void> {
 /** ids of every shape currently drawn, deduplicated across the editing and preview layers. */
 async function shapeIds(page: Page): Promise<string[]> {
   return page.evaluate(() => [...new Set(
-    Array.from(window.document.querySelectorAll<HTMLElement>("[data-overlay-shape-id]"))
+    Array.from(window.document.querySelectorAll<HTMLElement>(".overlay-shape:not(.overlay-shape-group):not(.overlay-shape-hit-target)[data-overlay-shape-id]"))
       .map((element) => element.dataset.overlayShapeId ?? "")
       .filter(Boolean),
   )]);
@@ -233,7 +233,7 @@ test("pastes a multi-shape selection with its group structure intact", async ({ 
   await openSecondTab(page);
   await page.keyboard.press("ControlOrMeta+KeyV");
 
-  // グループ自体は DOM 要素を持たないので、描画されるのは子を含む 6 個。
+  // グループの編集用の枠を除き、描画される図形は子を含む 6 個。
   // グループ構造そのもの (parentId の張り替えと、選択がトップレベルだけになること) は
   // `overlay-canvas/paste-shapes.test.ts` が固定している。
   await expect.poll(() => shapeIds(page)).toHaveLength(6);
@@ -278,7 +278,7 @@ test("keeps pasting inside the same tab working", async ({ page }) => {
   await page.keyboard.press("ControlOrMeta+KeyC");
   await page.keyboard.press("ControlOrMeta+KeyV");
 
-  // 元の 6 個 (グループは DOM に出ない) + 貼り付けた 1 個。
+  // 元の 6 個 (グループの編集枠を除く) + 貼り付けた 1 個。
   await expect.poll(() => shapeIds(page)).toHaveLength(7);
   expect(await shapeIds(page)).toContain("cross_tab_rect");
 });
@@ -297,6 +297,6 @@ test("leaves a paste into a text field to that field", async ({ page }) => {
   await title.press("ControlOrMeta+KeyA");
   await title.press("ControlOrMeta+KeyV");
 
-  await expect(title).toHaveValue("図形 1個");
+  await expect(title).toHaveValue("図形 1");
   expect(await shapeIds(page)).toEqual(before);
 });

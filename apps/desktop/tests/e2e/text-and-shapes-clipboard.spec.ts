@@ -1,10 +1,11 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import type { OverlayShape } from "@/features/document";
 import { sampleDocument } from "@/lib/sample-document";
 import type { SigmaDocument } from "@/types/sigma-doc";
 
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
+import { placeClipboardCaret } from "./clipboard-caret";
 import { installDocumentTabMock } from "./document-tab-mock";
 
 const TARGET_BLOCK_ID = "p_mixed_target";
@@ -139,12 +140,6 @@ async function savedShapes(page: Page): Promise<OverlayShape[]> {
   });
 }
 
-async function clickAtEndOfBlock(page: Page, block: Locator): Promise<void> {
-  const box = await block.boundingBox();
-  if (!box) throw new Error("destination paragraph is not visible");
-  await page.mouse.click(box.x + box.width - 4, box.y + box.height / 2);
-}
-
 /** 描画中の図形 id (編集レイヤとプレビューレイヤの重複を除く)。 */
 async function shapeIds(page: Page): Promise<string[]> {
   return page.evaluate(() => [...new Set(
@@ -169,9 +164,8 @@ test("pastes mixed text and shapes at a body caret and remaps the block anchor",
   // リトライするので座標で押す (`body-overlay-entry.ts` と同じ規約)。図形に当たらない素の
   // クリックはオーバーレイ編集を降りて本文にキャレットを置く。
   const destination = page.locator('[data-sigma-doc-id="p_mixed_filler_3"]').first();
-  await clickAtEndOfBlock(page, destination);
+  await placeClipboardCaret(page, destination);
   await expect(page.locator(".page-mode").first()).toHaveAttribute("data-overlay-editing", "false");
-  await page.keyboard.press("End");
   await page.keyboard.press("ControlOrMeta+V");
 
   await expect(destination).toContainText(COPIED_TEXT);
@@ -207,8 +201,7 @@ test("does not add a shape for a body-only text copy", async ({ page }) => {
   await selectBodyText(page);
   await page.keyboard.press("ControlOrMeta+C");
   const destination = page.locator('[data-sigma-doc-id="p_mixed_filler_2"]').first();
-  await clickAtEndOfBlock(page, destination);
-  await page.keyboard.press("End");
+  await placeClipboardCaret(page, destination);
   await page.keyboard.press("ControlOrMeta+V");
 
   await expect(destination).toContainText(COPIED_TEXT);
@@ -231,7 +224,7 @@ test("pastes the mixed copy into another material tab and anchors the shape to t
   const sourceOffsetY = original!.y - sourceLine!.y;
 
   // 図形から離れた本文を押してオーバーレイ編集を降りてからタブを増やす (cross-tab-shape-paste.spec と同じ規約)。
-  await clickAtEndOfBlock(page, page.locator('[data-sigma-doc-id="p_mixed_filler_3"]').first());
+  await placeClipboardCaret(page, page.locator('[data-sigma-doc-id="p_mixed_filler_3"]').first());
   await expect(page.locator(".page-mode").first()).toHaveAttribute("data-overlay-editing", "false");
   await page.getByRole("button", { name: "新規教材", exact: true }).click();
   await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
@@ -241,7 +234,6 @@ test("pastes the mixed copy into another material tab and anchors the shape to t
   await expect.poll(() => shapeIds(page)).toEqual([]);
 
   await destination.click();
-  await page.keyboard.press("End");
   await page.keyboard.press("ControlOrMeta+V");
 
   await expect(destination).toContainText(COPIED_TEXT);
@@ -281,9 +273,8 @@ test("carries inline math through the mixed copy", async ({ page }) => {
   await page.keyboard.press("ControlOrMeta+C");
 
   const destination = page.locator('[data-sigma-doc-id="p_mixed_filler_3"]').first();
-  await clickAtEndOfBlock(page, destination);
+  await placeClipboardCaret(page, destination);
   await expect(page.locator(".page-mode").first()).toHaveAttribute("data-overlay-editing", "false");
-  await page.keyboard.press("End");
   await page.keyboard.press("ControlOrMeta+V");
 
   await expect(destination).toContainText("を含む本文");
