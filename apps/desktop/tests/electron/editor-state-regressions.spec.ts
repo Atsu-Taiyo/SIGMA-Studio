@@ -230,8 +230,10 @@ test("font size follows typing out of lists and recent fonts lead the menu", asy
   await page.keyboard.press("ControlOrMeta+Shift+ArrowLeft");
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? "")).not.toBe("");
   const size = page.getByRole("textbox", { name: "フォントサイズ", exact: true });
-  await size.fill("24"); await size.press("Enter");
-  await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest(".ProseMirror")))).toBe(true);
+  await size.click(); await size.fill("24"); await size.press("Tab");
+  await expect(item.locator('span[style*="font-size"]').first()).toHaveCSS("font-size", "32px");
+  await item.click();
+  await page.keyboard.press("End");
   await page.keyboard.type("large");
   await page.locator('.page-flow [data-sigma-doc-id="empty"]').first().click();
   await page.keyboard.type("body24");
