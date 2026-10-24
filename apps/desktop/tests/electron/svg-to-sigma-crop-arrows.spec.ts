@@ -76,8 +76,8 @@ test("a cropped SVG with arrows converts to the part the canvas shows, with real
     expect(heads.map((shape) => shape.type === "line" ? [shape.props.kind, shape.props.arrowheadEnd] : null)).toEqual([["polyline", "triangle"], ["curve", "triangle"]]);
     // The rectangle crosses the crop edge, so only it stays SVG, cropped to what shows. The circle the crop hides is gone.
     expect(converted.shapes.filter((shape) => shape.type === "image")).toHaveLength(1);
-    // Only the circle that shows is left: its box is the outline's plus the editor's 1px inset on each side.
-    expect(converted.shapes.filter((shape) => shape.type === "geo" && shape.props.geo === "ellipse")).toMatchObject([{ props: { w: 32, h: 32, size: "l" } }]);
+    // The visible circle uses its true diameter; ellipses have no outline inset.
+    expect(converted.shapes.filter((shape) => shape.type === "geo" && shape.props.geo === "ellipse")).toMatchObject([{ props: { w: 30, h: 30, size: "l" } }]);
     await page.screenshot({ path: testInfo.outputPath("crop-arrows-converted.png") });
     await page.waitForTimeout(500);
     const after = await page.screenshot({ clip });

@@ -16,6 +16,8 @@ export * from "./overlay-text-box";
 const POINT_SHAPE_PADDING = 10;
 
 export const MIN_ARC_RADIUS = 0.5;
+/** Minimum width/height supported by box-shape resizing, in document pixels. */
+export const MIN_BOX_SHAPE_SIZE = 1;
 
 export function getShapeBounds(shape: OverlayShape): OverlayBounds {
   if (shape.type === "graph2dShape") {

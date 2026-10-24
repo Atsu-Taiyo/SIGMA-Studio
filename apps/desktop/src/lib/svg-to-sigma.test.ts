@@ -163,6 +163,19 @@ describe("SVG to SigmaDoc shapes", () => {
     expect(result.snapshot.shapes[2]).toMatchObject({ type: "image", x: 120, y: 120, props: { w: 60, h: 30 } });
     expect(isValidOverlaySnapshot(result.snapshot)).toBe(true);
   });
+
+  it("pads a subpixel residual's frame to document pixels without changing its SVG geometry", () => {
+    const before = fixture('<ellipse cx="20" cy="30" rx="0.8" ry="8"/><circle cx="60" cy="30" r="5"/>');
+    const image = before.shapes[0];
+    if (image.type !== "image") throw new Error("fixture");
+    image.props.w = 100; image.props.h = 60;
+    const result = convertSvgImageToSigma(before, "image", undefined, () => ({ x: 16.2, y: 18, w: 7.6, h: 24 }));
+    expect(result).toMatchObject({ convertedCount: 1, preservedCount: 1 });
+    expect(result.snapshot.shapes[1]).toMatchObject({ type: "image", x: 38, y: 59, props: { w: 4, h: 12 } });
+    const source = decodeSvgDataUrl(Object.values(result.snapshot.assets)[0].props.src);
+    expect(source).toContain('viewBox="16 18 8 24"');
+    expect(source).toContain('<ellipse cx="20" cy="30" rx="0.8" ry="8"');
+  });
 });
 
 const HEAD = '<defs><marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#111111"/></marker></defs>';
@@ -333,12 +346,55 @@ describe("a cropped image converts the part that shows", () => {
   });
 });
 
-describe("a geo shape's box is the outline's box plus the editor's 1px inset", () => {
+describe("geo conversion follows each shape's rendered outline", () => {
   it("makes a circle's drawn centre line the SVG circle, at the same centre", () => {
     const result = convertSvgImageToSigma(fixture('<circle cx="100" cy="60" r="15" stroke="#000" fill="#fff"/><circle cx="50" cy="30" r="2.5" fill="#111"/>'), "image");
-    // The canvas draws an ellipse with rx = w / 2 - 1, so r = 15 needs a 32px box and r = 2.5 a 7px one.
-    expect(result.snapshot.shapes.slice(1)).toMatchObject([{ type: "geo", x: 114, y: 94, props: { geo: "ellipse", w: 32, h: 32 } },
-      { type: "geo", x: 76.5, y: 76.5, props: { geo: "ellipse", w: 7, h: 7 } }]);
+    expect(result.snapshot.shapes.slice(1)).toMatchObject([{ type: "geo", x: 115, y: 95, props: { geo: "ellipse", w: 30, h: 30 } },
+      { type: "geo", x: 77.5, y: 77.5, props: { geo: "ellipse", w: 5, h: 5 } }]);
+  });
+
+  it.each([1, 0.5, 2])("keeps undersized circles and ellipses as SVG at display scale %s, in stack order and after reload", (scale) => {
+    const before = fixture(`<circle cx="20" cy="20" r="${0.4 / scale}" fill="#123456"/>
+      <circle cx="60" cy="20" r="${0.5 / scale}" fill="#123456"/>
+      <g transform="translate(100,50) rotate(30) scale(0.5)"><ellipse rx="${4 / scale}" ry="${0.8 / scale}" fill="#abcdef"/></g>
+      <ellipse cx="150" cy="70" rx="${0.5 / scale}" ry="${3 / scale}" fill="#123456"/>`);
+    const image = before.shapes[0];
+    if (image.type !== "image") throw new Error("fixture");
+    image.props.w *= scale; image.props.h *= scale;
+    const result = convertSvgImageToSigma(before, "image");
+    expect(result).toMatchObject({ convertedCount: 2, preservedCount: 2 });
+    expect(result.snapshot.shapes.map(shape => shape.type)).toEqual(["group", "image", "geo", "image", "geo"]);
+    expect(result.snapshot.shapes[2]).toMatchObject({ x: 30 + 60 * scale - 0.5, y: 50 + 20 * scale - 0.5, props: { w: 1, h: 1 } });
+    expect(result.snapshot.shapes[4]).toMatchObject({ props: { w: 1, h: 6 } });
+    const fragments = Object.values(result.snapshot.assets).map(asset => decodeSvgDataUrl(asset.props.src));
+    expect(fragments[0]).toContain(`r="${0.4 / scale}"`);
+    expect(fragments[1]).toContain('rotate(30) scale(0.5)');
+    expect(before.shapes[0].type).toBe("image");
+    expect(isValidOverlaySnapshot(result.snapshot)).toBe(true);
+    expect(normalizeOverlaySnapshot(JSON.parse(JSON.stringify(result.snapshot)))).toEqual(result.snapshot);
+  });
+
+  it("retains an image made entirely of undersized dots", () => {
+    const before = fixture('<circle cx="20" cy="20" r="0.4"/><ellipse cx="60" cy="30" rx="0.4" ry="3"/>');
+    const copy = structuredClone(before);
+    expect(() => convertSvgImageToSigma(before, "image")).toThrow("unsupported");
+    expect(before).toEqual(copy);
+  });
+
+  it("does not classify the minimum diameter as too small due to rotation rounding", () => {
+    const result = convertSvgImageToSigma(fixture('<g transform="translate(60,50) rotate(4)"><circle r="0.5"/><circle cx="20" r="0.49999"/></g>'), "image");
+    expect(result).toMatchObject({ convertedCount: 1, preservedCount: 1 });
+    expect(result.snapshot.shapes[1]).toMatchObject({ type: "geo", props: { w: expect.closeTo(1), h: expect.closeTo(1) } });
+  });
+
+  it("uses viewBox and nested transforms to decide the final circle size", () => {
+    const before = fixture('<circle cx="60" cy="40" r="0.75"/><g transform="translate(180,80) rotate(30) scale(2)"><circle r="0.75"/></g>', 'preserveAspectRatio="none"');
+    before.assets.svg_asset.props.src = before.assets.svg_asset.props.src.replace('200%20120', '400%20240');
+    const result = convertSvgImageToSigma(before, "image");
+    expect(result).toMatchObject({ convertedCount: 1, preservedCount: 1 });
+    const circle = result.snapshot.shapes[2];
+    expect(circle).toMatchObject({ type: "geo", x: 119.25, y: 89.25, props: { w: 1.5, h: 1.5 } });
+    expect(circle.rotation).toBeCloseTo(Math.PI / 6);
   });
 
   it("insets a triangle's apex with the box", () => {

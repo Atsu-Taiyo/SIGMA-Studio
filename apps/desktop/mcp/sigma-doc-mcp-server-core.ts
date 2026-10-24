@@ -4684,7 +4684,7 @@ registerTool(
   "convert_svg_image",
   {
     title: "SVG画像を図形に変換",
-    description: "SVG画像を、画面の「図形に変換」と同じ変換器で線・図形・文字・数式に分解する承認待ち提案を作ります。画像はそのID・重なり順・アンカーのままグループ(部品が1つならその図形)になり、部品ごとに動かして編集できます。部品ごとに編集したいと頼まれた図に使います(insert_svg_imageで変換しやすい書き方で描き、previewで確かめてから呼ぶ)。shapeIdはSVG画像のID(get_document_outlineのoverlayShapes、または同じ会話で挿入した画像)。文字と数式はアプリの描画環境で測ります。使えないときは推定で変換し、toolResult.data.conversion.measurementが\"estimate\"になります。その場合は完了報告で、文字の位置は推定なので、ずれていたら画面の「図形に変換」(SVG画像を右クリック)で分解し直せることを伝えてください。線の太さは細(1.25)以上に切り上げます(極細0.75は細になる)。分解できない部分(円弧A・3次ベジェ・グラデーション等)は小さなSVG画像として残り、その数はkeptAsSvgCountです。変換後の図はSVG画像ではないのでupdate_svg_imageでは直せません。部品はupdate_shape / align_shapes / delete_shapesで直します。PNGなどの画像、固定された画像は変換できません。",
+    description: "SVG画像を、画面の「図形に変換」と同じ変換器で線・図形・文字・数式に分解する承認待ち提案を作ります。画像はそのID・重なり順・アンカーのままグループ(部品が1つならその図形)になり、部品ごとに動かして編集できます。部品ごとに編集したいと頼まれた図に使います(insert_svg_imageで変換しやすい書き方で描き、previewで確かめてから呼ぶ)。shapeIdはSVG画像のID(get_document_outlineのoverlayShapes、または同じ会話で挿入した画像)。文字と数式はアプリの描画環境で測ります。使えないときは推定で変換し、toolResult.data.conversion.measurementが\"estimate\"になります。その場合は完了報告で、文字の位置は推定なので、ずれていたら画面の「図形に変換」(SVG画像を右クリック)で分解し直せることを伝えてください。線の太さは細(1.25)以上に切り上げます(極細0.75は細になる)。最小サイズ未満の円・楕円(表示倍率とtransformを反映した径が1px未満)や分解できない部分(円弧A・3次ベジェ・グラデーション等)は小さなSVG画像として残り、その数はkeptAsSvgCountです。見た目を守るために残した部分を、数を0にする目的で拡大・作り直さないでください。変換後の図はSVG画像ではないのでupdate_svg_imageでは直せません。部品はupdate_shape / align_shapes / delete_shapesで直します。PNGなどの画像、固定された画像は変換できません。",
     inputSchema: {
       fileId: DocumentTargetSchema.fileId,
       ...DraftConvertSvgImageArgsSchema.extend({ shapeId: z.string().min(1).describe("図形に変換するSVG画像のshapeId。") }).shape,

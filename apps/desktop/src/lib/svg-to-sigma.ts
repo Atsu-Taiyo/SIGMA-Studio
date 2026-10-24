@@ -154,8 +154,15 @@ export function convertSvgImageShape(
     const measured = measureFragment?.(measurementNode(fragmentRoot));
     const bounds = measured && [measured.x, measured.y, measured.w, measured.h].every(Number.isFinite) && measured.w > 0 && measured.h > 0
       ? { left: measured.x, top: measured.y, right: measured.x + measured.w, bottom: measured.y + measured.h } : visible;
-    const clipped = { left: Math.max(visible.left, bounds.left), top: Math.max(visible.top, bounds.top),
-      right: Math.min(visible.right, bounds.right), bottom: Math.min(visible.bottom, bounds.bottom) };
+    // Keep the fragment's raster origin on the document pixel grid. Fractional image frames
+    // resample subpixel dots even though the SVG geometry itself has not changed.
+    const originX = image.x + layout.x, originY = image.y + layout.y;
+    const clipped = {
+      left: Math.max(visible.left, (Math.floor(originX + bounds.left * kx) - originX) / kx),
+      top: Math.max(visible.top, (Math.floor(originY + bounds.top * ky) - originY) / ky),
+      right: Math.min(visible.right, (Math.ceil(originX + bounds.right * kx) - originX) / kx),
+      bottom: Math.min(visible.bottom, (Math.ceil(originY + bounds.bottom * ky) - originY) / ky),
+    };
     pending = [];
     if (clipped.right <= clipped.left || clipped.bottom <= clipped.top) return;
     const w = clipped.right - clipped.left, h = clipped.bottom - clipped.top;
