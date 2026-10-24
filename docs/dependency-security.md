@@ -1,6 +1,6 @@
-# 開発用依存のセキュリティ補修
+# 依存のセキュリティ補修
 
-2026-10-05時点の依存監査で検出された2種類の問題への対処。
+依存監査で検出された問題と、上流の公式advisoryから確認した対策の記録。
 通常の `npm ci` で再現でき、`npm run security:audit` は再現・互換性テストとnpm監査を両方実行する。
 警告の除外や監査対象の縮小は行っていない。
 
@@ -35,3 +35,16 @@
 `scripts/dependency-security.test.mjs` は実際にビルドツールが解決する依存を使用する。
 ローカルHTTP経由のartifact取得、SHA-256検証、artifactキャッシュ再利用も確認する。
 このテストは本番の外部サービスや署名・公開処理には接続しない。
+
+## Electronの証明書失効対策
+
+- 対象: [GHSA-jr5w-w6x2-84p9](https://github.com/electron/electron/security/advisories/GHSA-jr5w-w6x2-84p9)
+- 2026-10-24のnpm監査は、このElectron公式のhigh指摘を返さなかった。npm監査だけを安全性の根拠にせず、上流の公式advisoryも確認する。
+- 44.9.0は影響範囲に含まれる。侵害された中間証明書と通信経路の傍受を組み合わせると、TLS接続先を偽装される条件がある。
+  SIGMAの共同編集・認証はElectron mainのfetchで通信するため、ネットワークを使わないアプリという例外には当たらない。
+  実際の傍受・認証情報の流出を確認したという意味ではない。
+- 同じ44系の修正版44.9.3へ更新する。公式の最低修正版は44.9.1で、Chromiumの通信と同梱Node.jsのtls/https/fetchの両方に対策が入る。
+  [44.9.3](https://releases.electronjs.org/release/v44.9.3) は追加のChromium等の補修も含む。メジャー更新やアプリ側での証明書検証の無効化は行わない。
+- `dependency-security.test.mjs` は実際に解決されるElectronの安定版が44.9.1以上であることを要求する。
+  `dependencies:check` がmanifest・lockfile・インストール済みruntime・配布設定の一致を検査するため、検査用と配布用の版を分けない。
+  このバージョン検査は、侵害された証明書による攻撃を実行する検査や、すべての新しいadvisoryを自動検出する機能ではない。

@@ -26,6 +26,10 @@ test("a long floating answer keeps approval reachable after resizing and saves t
   try {
     let page = await app.firstWindow();
     await page.waitForFunction(() => Boolean(window.desktopAPI));
+    // The bridge appears before the initial workspace finishes opening. Creating
+    // the fixture earlier lets that startup load restore the blank active tab.
+    await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible();
+    await expect(page.locator(".startup-splash")).toBeHidden();
     await page.evaluate(async () => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
       await window.desktopAPI!.settings!.setUiLocale!("ja");
