@@ -4,6 +4,7 @@ import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { grabShapeFromBody } from "../e2e/body-overlay-entry";
 import { sampleDocument } from "@/lib/sample-document";
+import { createTableShapeProps } from "@/components/editor/overlay-canvas/shapes/table";
 import { ensurePageLayout, type SigmaDocument } from "@/features/document";
 
 const APP_ROOT = path.resolve(__dirname, "../..");
@@ -544,6 +545,8 @@ test("a pocket body drop into an empty paragraph is one undo step", async ({}, t
     const card = page.locator("[data-pocket-item] button[data-kind]").first();
     await expect(card).toHaveAttribute("data-kind", "blocks");
     await expect(card).toContainText("数式と文章");
+    // 開く途中の紙面の座標を採ると、ドロップまでに空行が移動して外れる。
+    await expect.poll(() => page.locator("[data-pocket-root]").evaluate(element => element.getBoundingClientRect().height)).toBe(88);
     await expect(page.locator("[data-pocket-flyer]")).toHaveCount(0);
     const saved = () => page.evaluate((id) => window.desktopAPI!.storage.loadDocument(id), created.file.fileId);
     const original = (await saved())!.content;
@@ -615,6 +618,68 @@ test("consecutive pocket body drops are separately undoable", async () => {
     await page.reload();
     await expect(target).toContainText(CARRIED_TEXT);
     await expect(target).not.toContainText(CARRIED_TEXT.repeat(2));
+  } finally {
+    await closeApp(app);
+    rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});
+
+test("table pocket copies remain independent through editing, repeated insertion, undo and reload", async ({}, testInfo) => {
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
+  const userData = mkdtempSync(path.join(tmpdir(), "sigma-pocket-table-"));
+  const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  env.SIGMA_STUDIO_USER_DATA_DIR = userData;
+  delete env.ELECTRON_RUN_AS_NODE;
+  if (devUrl) env.SIGMA_STUDIO_DEV_SERVER_URL = devUrl;
+  const app = await electron.launch({ args: [APP_ROOT, `--user-data-dir=${userData}`], cwd: APP_ROOT, env });
+  try {
+    const page = await prepare(app);
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    const source = sourceDocument();
+    source.pageLayout!.overlay!.overlaySnapshot!.shapes = [{
+      id: "table_source", type: "tableShape", x: 100, y: 320, rotation: 0,
+      props: createTableShapeProps("plain"),
+    }];
+    const created = await page.evaluate(document => window.desktopAPI!.storage.createFileFromDocument({ document }), source);
+    await page.reload();
+    await expect(page.locator('[data-sigma-doc-id="body_carried"]').first()).toBeVisible();
+    await grabShapeFromBody(page, page.locator('[data-overlay-shape-id="table_source"]').first());
+    await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+    const card = page.locator("[data-pocket-item] button[data-kind]").first();
+    await expect(card).toHaveAttribute("data-kind", "shapes");
+    await expect(card.locator("img")).toBeVisible();
+    // ポケットを開いてもセルの編集が続く。カードの挿入はその編集面に奪われてはいけない。
+    const originalTable = page.locator('[data-overlay-shape-id="table_source"] .overlay-table-shape');
+    await originalTable.dblclick();
+    const cell = originalTable.locator('[contenteditable="true"]').first();
+    await expect(cell).toBeVisible();
+    await cell.click();
+    await page.keyboard.type("original edited");
+    const saved = () => page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), created.file.fileId);
+    const tables = async () => (await saved())!.pageLayout!.overlay!.overlaySnapshot!.shapes.filter(shape => shape.type === "tableShape");
+    for (let count = 2; count <= 3; count++) {
+      await card.click();
+      await expect.poll(async () => (await tables()).length).toBe(count);
+    }
+    const insertedTables = await tables();
+    expect(JSON.stringify(insertedTables.find(table => table.id === "table_source"))).toContain("original edited");
+    const copies = insertedTables.filter(table => table.id !== "table_source");
+    expect(JSON.stringify(copies)).not.toContain("original edited");
+    const rowIds = insertedTables.flatMap(table => table.props.table.rows.map(row => row.id));
+    expect(new Set(rowIds).size).toBe(rowIds.length);
+    await page.keyboard.press("ControlOrMeta+KeyZ");
+    await expect.poll(async () => (await tables()).length).toBe(2);
+    await page.keyboard.press("ControlOrMeta+Shift+KeyZ");
+    await expect.poll(async () => (await tables()).length).toBe(3);
+    expect(errors).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath("table-pocket.png") });
+    await page.reload();
+    await expect(page.locator('[data-sigma-doc-id="body_carried"]').first()).toBeVisible();
+    expect(await tables()).toHaveLength(3);
+    expect(await tables()).toEqual(insertedTables);
+    expect(errors).toEqual([]);
   } finally {
     await closeApp(app);
     rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
