@@ -171,7 +171,8 @@ jobs:
               tests/electron/selection-links.spec.ts tests/electron/workspace-body-search.spec.ts \
               tests/electron/comment-composer.spec.ts tests/electron/comment-profiles.spec.ts \
               tests/electron/list-items.spec.ts tests/electron/preferred-font.spec.ts \
-              tests/electron/running-region-resize.spec.ts tests/electron/new-document-page-setup.spec.ts
+              tests/electron/running-region-resize.spec.ts tests/electron/new-document-page-setup.spec.ts \
+              tests/electron/running-region-insertion-layout.spec.ts
           '
       - uses: actions/upload-artifact@v7
         if: failure()
