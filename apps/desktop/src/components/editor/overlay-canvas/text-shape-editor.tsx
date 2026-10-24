@@ -182,7 +182,7 @@ export function OverlayTextShapeEditor({
     if (editor?.isFocused) seedPreferredFont(editor);
   }, [editor, preferredFont, seedPreferredFont]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!editor) {
       return;
     }
@@ -198,16 +198,12 @@ export function OverlayTextShapeEditor({
     if (serializedCurrent !== serializedNext) {
       contentRef.current = shape.props.blocks;
       const nextContent = overlayTextBlocksToTiptapDoc(shape.props.blocks);
-      const timeoutId = window.setTimeout(() => {
-        if (!editor.isDestroyed && (!editor.isFocused || isExternalRestore)) {
-          editor.commands.setContent(nextContent, { emitUpdate: false });
-          if (isExternalRestore && editing) {
-            editor.commands.focus("end");
-          }
-        }
-      }, 0);
-
-      return () => window.clearTimeout(timeoutId);
+      // Apply before paint. Updating contentRef before a deferred timer let a rerender
+      // cancel the DOM restore while marking that content as already synchronized.
+      if (!editor.isDestroyed) {
+        editor.commands.setContent(nextContent, { emitUpdate: false });
+        if (isExternalRestore && editing) editor.commands.focus("end");
+      }
     }
   }, [editing, editor, externalRevision, shape.props.blocks]);
 

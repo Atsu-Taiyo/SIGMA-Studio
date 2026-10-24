@@ -292,6 +292,8 @@ export interface BoxBlockNode extends BaseNode {
 }
 
 export interface BoxFrameSpec {
+  /** Hide the heading while retaining its text for later use. */
+  titleVisible?: boolean;
   borderWidthPx?: number;
   borderColor?: string;
   borderStyle?: "solid" | "dashed" | "dotted" | "double" | "none";

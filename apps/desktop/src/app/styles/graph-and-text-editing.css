@@ -1098,47 +1098,39 @@
 .sigma-doc-box-title:empty,
 .sigma-doc-box-title:has(> br.ProseMirror-trailingBreak:only-child) {
   position: absolute;
-  top: 2px;
+  top: -12px;
   left: var(--sigma-doc-box-padding-left, 14px);
   z-index: 3;
-  box-sizing: border-box;
-  min-width: 4em;
-  height: 18px;
-  min-height: 18px;
+  min-width: 8em;
+  height: 24px;
+  min-height: 24px;
   margin: 0;
-  padding: 0;
-  overflow: visible;
-  background: transparent;
+  padding: 0 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--background, white);
+  font-size: 13px;
+  line-height: 24px;
   cursor: text;
   pointer-events: auto;
 }
 
 .sigma-doc-box-title:empty::before,
 .sigma-doc-box-title:has(> br.ProseMirror-trailingBreak:only-child)::before {
+  content: attr(data-placeholder);
   position: absolute;
-  top: 0;
-  left: 0;
-  display: block;
-  box-sizing: border-box;
-  min-width: 4em;
-  height: 18px;
-  padding: 0 3px;
-  border-radius: 3px;
-  color: color-mix(in srgb, var(--text-disabled) 82%, transparent);
-  content: "タイトル";
-  cursor: text;
-  font-family: var(--font-sans);
-  font-size: 11px;
+  inset-inline-start: 6px;
+  color: var(--text-muted);
   font-weight: 400;
-  line-height: 18px;
   pointer-events: none;
-  white-space: nowrap;
 }
 
 .sigma-doc-box-title:empty:focus::before,
 .sigma-doc-box-title:has(> br.ProseMirror-trailingBreak:only-child):focus::before {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
+
+.box-frame--no-title .sigma-doc-box-split-handle { display: none; }
 
 .sigma-doc-box-title > br.ProseMirror-trailingBreak:only-child {
   display: none;
@@ -1146,6 +1138,7 @@
 
 :is(.box-frame--title-band, .box-frame--title-band > .sigma-doc-box-content) > .sigma-doc-box-title:empty,
 :is(.box-frame--title-band, .box-frame--title-band > .sigma-doc-box-content) > .sigma-doc-box-title:has(> br.ProseMirror-trailingBreak:only-child) {
+  top: 2px;
   min-height: var(--sigma-doc-box-title-band-height, 32px);
 }
 
@@ -1164,6 +1157,11 @@
   left: auto;
   height: auto;
   min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--sigma-doc-box-title-background, transparent);
+  font-size: inherit;
+  line-height: inherit;
   min-height: var(--sigma-doc-box-title-band-height, 32px);
   margin-top: calc(max(var(--sigma-doc-box-padding-top, 42px), var(--sigma-doc-box-title-band-height, 32px)) * -1);
   margin-bottom: 10px;

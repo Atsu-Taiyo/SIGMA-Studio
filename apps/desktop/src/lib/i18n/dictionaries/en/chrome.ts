@@ -322,6 +322,7 @@ export const chrome = {
       mixed: "Font: multiple",
       search: "Search fonts",
       currentGroup: "Current font",
+      recentGroup: "Recently used fonts",
       customGroup: "Added fonts",
       empty: "No matching fonts.",
       local: {

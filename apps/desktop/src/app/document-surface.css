@@ -2332,3 +2332,17 @@ u:has(.math-preview) .inline-math-node {
   border-left: var(--column-rule-width, 1px) var(--column-rule-style, none) var(--column-rule-color, #111111);
   pointer-events: none;
 }
+
+/* A hidden heading keeps its text in SigmaDoc and occupies no output space. */
+.box-frame--no-title > :is(.sigma-doc-box-title, .print-box-title),
+.box-frame--no-title > .sigma-doc-box-content > :is(.sigma-doc-box-title, .print-box-title) {
+  display: none !important;
+}
+
+.document-reference {
+  color: var(--accent, #2563eb);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}

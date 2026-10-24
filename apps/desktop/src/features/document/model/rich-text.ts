@@ -5,7 +5,10 @@ export type LineHeight = string;
 
 export type InlineNode = TextInlineNode | MathInlineNode;
 
+export interface DocumentReference { kind: "document" | "material"; id: string }
+
 export interface TextInlineNode {
+  reference?: DocumentReference;
   type: "text";
   text: string;
   /** Stable recipient identity for a collaborator mention in a comment. */

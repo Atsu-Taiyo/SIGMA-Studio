@@ -34,3 +34,13 @@ it.each(["javascript:alert(1)", "file:///private", "data:text/html,unsafe"])("ne
   expect(gate.pending()).toBeNull();
   expect(openExternal).not.toHaveBeenCalled();
 });
+
+it("routes valid shared links through the in-app invitation queue", async () => {
+  const confirm = vi.fn(async () => true);
+  const openSharedLink = vi.fn((url: string) => url === "sigma-studio://share/document/00000000-0000-4000-8000-000000000001");
+  registerShellIpc({ confirm, openSharedLink });
+  expect(await handlers.get("shell:open-external")!({}, "sigma-studio://share/document/00000000-0000-4000-8000-000000000001")).toEqual({ ok: true });
+  expect(confirm).not.toHaveBeenCalled();
+  expect(openExternal).not.toHaveBeenCalled();
+  expect((await handlers.get("shell:open-external")!({}, "sigma-studio://untrusted/other")).ok).toBe(false);
+});

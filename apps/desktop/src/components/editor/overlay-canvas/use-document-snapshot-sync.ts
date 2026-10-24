@@ -4,7 +4,7 @@ import { isOverlayRichTextShape } from "@/features/drawing";
 import { areStructurallyEqual } from "@/lib/structural-equality";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import type { Dispatch, RefObject, SetStateAction } from "react";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useLayoutEffect } from "react";
 import { type OverlaySelectionStylePatch } from "../page-overlay-types";
 import { normalizeOverlayGroups } from "./grouping";
 import { type OverlayInteractionAction, type OverlayInteractionMode } from "./interaction-mode";
@@ -150,7 +150,7 @@ export function useDocumentSnapshotSync({
   }, [applyExternalSnapshot, assetsRef, lastEmittedSnapshotRef, modeRef, overlay.overlaySnapshot, pendingOverlayHistoryRef, reconciledDocumentSnapshotRef, saveTimeoutRef, shapesRef]);
 
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const documentSnapshot = overlay.overlaySnapshot;
     const revisionChanged = externalRevisionRef.current !== externalRevision;
     const snapshotChanged = seenDocumentSnapshotRef.current !== documentSnapshot;
