@@ -17,14 +17,15 @@ const source: SigmaDocument = {
   }],
 };
 
-test("number geometry and area insets are editable, saved and retained after restart", async ({}, testInfo) => {
+for (const scaleFactor of [1, 2]) {
+test(`number geometry and area insets are editable, saved and retained after restart at DPR ${scaleFactor}`, async ({}, testInfo) => {
   const profile = mkdtempSync(path.join(tmpdir(), "sigma-problem-layout-"));
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.SIGMA_STUDIO_DEV_SERVER_URL;
   env.SIGMA_STUDIO_USER_DATA_DIR = profile;
   if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
-  const launch = () => electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
+  const launch = () => electron.launch({ args: [APP_ROOT, `--force-device-scale-factor=${scaleFactor}`], cwd: APP_ROOT, env });
   let app = await launch();
   try {
     let page = await app.firstWindow();
@@ -61,29 +62,41 @@ test("number geometry and area insets are editable, saved and retained after res
     await page.getByTestId("problem-area-min-height").fill("15");
     await page.getByTestId("problem-area-width").fill("70");
     await page.getByTestId("problem-frame-borderWidthPx").fill("0.5");
+    // Escape dismisses without a blur: the last visible edit must already be canonical.
+    await page.getByTestId("problem-number-font-family").fill('"Noto Serif JP", serif');
     await page.screenshot({ path: testInfo.outputPath("problem-layout-settings.png") });
     await page.keyboard.press("Escape");
     async function checkGeometry(p: Page) {
+      expect(await p.evaluate(() => window.devicePixelRatio)).toBe(scaleFactor);
       const marker = p.locator('[data-problem-id="q"] .problem-number-marker');
       await expect(marker).toHaveText("１");
       await expect(marker).toHaveCSS("width", "24px");
       await expect(marker).toHaveCSS("height", "22px");
+      await expect(marker).toHaveCSS("font-family", '"Noto Serif JP", serif');
       await expect(marker).toHaveCSS("border-radius", "0px");
-      await expect(marker).toHaveCSS("outline-width", "0.5px");
+      // Chromium snaps nonzero rules to at least one device pixel. Keep the authored
+      // half CSS pixel exact, then check its used width at both display densities.
+      const ruleWidth = `${Math.max(1, 0.5 * scaleFactor) / scaleFactor}px`;
+      await expect(marker).toHaveCSS("--problem-number-outline-width", "0.5px");
+      await expect(marker).toHaveCSS("--problem-number-border-width", "0.5px");
+      await expect(marker).toHaveCSS("outline-width", ruleWidth);
+      await expect(marker).toHaveCSS("border-left-width", ruleWidth);
       await expect(marker).toHaveCSS("padding-left", "2.5px");
       const prompt = p.locator('section[data-problem-id="q"][data-problem-area="prompt"]');
       await expect(prompt).toHaveCSS("padding-top", "2px");
       await expect(prompt).toHaveCSS("padding-left", "3px");
       await expect(prompt).toHaveCSS("margin-bottom", "0px");
-      await expect(prompt).toHaveCSS("border-left-width", "0.5px");
+      await expect(prompt).toHaveCSS("--problem-frame-border-width", "0.5px");
+      await expect(prompt).toHaveCSS("border-left-width", ruleWidth);
       const width = await prompt.evaluate(e => e.getBoundingClientRect().width);
       expect(Math.abs(width - 70 * 96 / 25.4)).toBeLessThan(0.1);
     }
     const load = () => page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), fileId);
     await expect.poll(async () => ((await load())?.content[0] as ProblemNode).areaLayout?.prompt?.widthMm).toBe(70);
     const saved = (await load())!.content[0] as ProblemNode;
-    expect(saved.numbering).toMatchObject({ fontSize: 10, widthPx: 24, heightPx: 22, gapPx: 3, format: "fullwidth" });
+    expect(saved.numbering).toMatchObject({ fontSize: 10, widthPx: 24, heightPx: 22, gapPx: 3, format: "fullwidth", borderWidthPx: 0.5, outlineWidthPx: 0.5, fontFamily: '"Noto Serif JP", serif' });
     expect(saved.areaLayout?.prompt?.paddingPx).toEqual({ top: 2, right: 5, bottom: 4, left: 3 });
+    expect(saved.frame).toMatchObject({ borderWidthPx: 0.5 });
     expect(saved.prompt).toEqual((source.content[0] as ProblemNode).prompt);
     await checkGeometry(page);
     await page.screenshot({ path: testInfo.outputPath("problem-layout.png") });
@@ -113,3 +126,4 @@ test("number geometry and area insets are editable, saved and retained after res
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
+}

@@ -1966,6 +1966,18 @@ describe("paginateMeasuredPrintBlocks problem-area reservations and nested secti
     return first;
   }
 
+  it("budgets explicit outer margins only at the first and last problem fragments", () => {
+    const unit = { ...problemArea("margins", "prompt", [
+      richParagraph("margin_1", "first"), richParagraph("margin_2", "middle"), richParagraph("margin_3", "last"),
+    ]), areaLayout: { marginTopPx: 24, marginBottomPx: 32 } };
+    const pages = paginateTwice([unit], [176], measured({ margin_1: 40, margin_2: 40, margin_3: 40 }));
+    const fragments = pages.flatMap(page => page.columns.flatMap(column => column.blocks))
+      .filter((block): block is Extract<PrintContentUnit, { type: "problemAreaFragment" }> => block.type === "problemAreaFragment");
+    expect(fragments.map(fragment => fragment.fragmentRole)).toEqual(["first", "middle", "last"]);
+    expect(fragments.map(fragment => fragment.estimatedHeightPx)).toEqual([64, 40, 72]);
+    expect(pages.every(page => page.columns.every(column => column.estimatedContentHeightPx <= 100))).toBe(true);
+  });
+
   it("automatically fragments a framed area taller than one page", () => {
     const blocks = [
       richParagraph("auto_frame_1", "first"),

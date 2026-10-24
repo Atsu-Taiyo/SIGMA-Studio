@@ -29,8 +29,8 @@ export function ProblemNumberLayoutSettings({ problem, onChange }: Props) {
   }
   return <details className={styles.layoutDetails}><summary>{t("problem.numberLayout")}</summary><div className={styles.numberingGrid}>
     <label className={styles.field}><span>{t("problem.numberFont")}</span><input data-testid="problem-number-font-family"
-      key={problem.id} defaultValue={n?.fontFamily ?? ""} placeholder={t("problem.inheritFont")}
-      onBlur={event => { const value = event.target.value.trim(); if (!value || isSafeCssFontFamily(value)) set("fontFamily", value || undefined); else event.target.value = n?.fontFamily ?? ""; }} /></label>
+      value={n?.fontFamily ?? ""} placeholder={t("problem.inheritFont")}
+      onChange={event => { const value = event.target.value; if (!value.trim() || isSafeCssFontFamily(value)) set("fontFamily", value.trim() ? value : undefined); }} /></label>
     <label className={styles.field}><span>{t("problem.numberFormat")}</span><select data-testid="problem-number-format" value={n?.format ?? "decimal"}
       onChange={event => set("format", event.target.value as ProblemNumbering["format"])}><option value="decimal">1, 2, 3</option><option value="fullwidth">１, ２, ３</option></select></label>
     <Dimension label={t("problem.numberWeight")} testId="problem-number-font-weight" min={100} max={900} value={n?.fontWeight} onChange={v => set("fontWeight", v === undefined ? undefined : Math.round(v))} />
