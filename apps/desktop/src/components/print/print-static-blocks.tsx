@@ -392,7 +392,7 @@ export function PrintBoxBlock({
   const hasTitle = boxBlockTitleText(block).length > 0;
   // 2 欄の見出しは、どちらかに文字があれば両方の欄を出す (欄が欠けると grid の列がずれる)。
   const hasSubtitleCell = boxFrameHasSubtitle(frame);
-  const hasHeader = hasTitle || (hasSubtitleCell && boxBlockSubtitleText(block).length > 0);
+  const hasHeader = frame.titleVisible !== false && (hasTitle || (hasSubtitleCell && boxBlockSubtitleText(block).length > 0));
   const blocks = fragmentBlocks ?? block.blocks;
   const fragmentClass = fragmentRole ? ` print-box-fragment print-box-fragment-${fragmentRole}` : "";
   const style = {

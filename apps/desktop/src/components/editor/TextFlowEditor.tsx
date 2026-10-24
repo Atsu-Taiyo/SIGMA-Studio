@@ -119,6 +119,7 @@ import  {
   type TextFormatSelectionRange,
   type TextFormatStateContext,
 } from "@/components/tiptap/text-format-controller";
+import { DocumentReferenceSuggestions } from "@/components/tiptap/document-reference-extension";
 import { UrlDetectionExtension } from "@/components/tiptap/url-detection-extension";
 import  {
   normalizeCodeBlockTheme,
@@ -1294,6 +1295,7 @@ function TextFlowEditorImpl({
       }),
       ExternalTextRangeHighlightExtension,
       UrlDetectionExtension,
+      DocumentReferenceSuggestions,
       // getGuards/onBlockedAttempt are stable ref-backed
       // callbacks read by the plugin when it runs (decorations) or a
       // transaction is dispatched (filterTransaction), not during render.
@@ -3026,7 +3028,9 @@ function TextFlowEditorImpl({
       return;
     }
 
-    const selection = TextSelection.near(editor.state.doc.resolve(target.pos + boxHeaderNodeSize(target.node)), -1);
+    const titleHidden = isRecord(target.node.attrs.frame) && target.node.attrs.frame.titleVisible === false;
+    const position = target.pos + boxHeaderNodeSize(target.node) + (titleHidden ? 2 : 0);
+    const selection = TextSelection.near(editor.state.doc.resolve(position), titleHidden ? 1 : -1);
     editor.view.focus();
     editor.view.dispatch(editor.state.tr.setSelection(selection).scrollIntoView());
   }, [editor]);

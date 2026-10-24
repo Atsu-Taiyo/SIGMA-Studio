@@ -189,13 +189,18 @@ export function BoxSettingsDialog({
           <Stack gap="xl" className={styles.controls}>
             <Stack as="section" gap="sm" aria-labelledby="box-settings-title-heading">
               <SectionHeading id="box-settings-title-heading" title={t("box.titleSection")} />
-              <BoxTitleEditor
+              <label className={styles.fieldHint}>
+                <input type="checkbox" checked={boxBlock.frame?.titleVisible !== false}
+                  onChange={event => onFrameChange({ titleVisible: event.target.checked })} />
+                {t("box.showTitle")}
+              </label>
+              {boxBlock.frame?.titleVisible !== false && <BoxTitleEditor
                 value={title}
                 mathFractionSizing={mathFractionSizing}
                 autoFocus={autoFocusTitle}
                 onChange={onTitleChange}
-              />
-              {hasSubtitle ? (
+              />}
+              {hasSubtitle && boxBlock.frame?.titleVisible !== false ? (
                 <>
                   <SectionHeading id="box-settings-subtitle-heading" title={t("box.subtitleSection")} />
                   <BoxTitleEditor

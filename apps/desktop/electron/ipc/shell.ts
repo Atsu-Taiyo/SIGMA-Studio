@@ -4,9 +4,11 @@ import { createCurrentLocaleTranslator } from "@/lib/i18n";
 
 const te = createCurrentLocaleTranslator("error");
 
-export function registerShellIpc({ confirm }: { confirm(url: string): Promise<boolean> }): void {
+export function registerShellIpc({ confirm, openSharedLink }: { confirm(url: string): Promise<boolean>; openSharedLink?: (url: string) => boolean }): void {
   ipcMain.handle("shell:open-external", async (_event, url: string) => {
     try {
+      if (typeof url !== "string") return { ok: false };
+      if (openSharedLink?.(url)) return { ok: true };
       const parsed = new URL(url);
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
         return { ok: false, error: te("electron.shell.invalidExternalUrl") };

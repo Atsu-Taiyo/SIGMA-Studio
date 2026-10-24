@@ -160,6 +160,7 @@ export const settings = {
 
     title: "ボックス設定",
     description: "変更はすぐに教材へ反映されます",
+    showTitle: "タイトルを表示",
     titleSection: "タイトル",
     subtitleSection: "サブタイトル",
     titlePlaceholder: "タイトルを入力",

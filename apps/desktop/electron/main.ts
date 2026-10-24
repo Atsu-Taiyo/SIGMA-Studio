@@ -1650,7 +1650,7 @@ function registerIpc() {
   ipcMain.handle("link-confirmation:respond", (_event, id: unknown, approved: unknown) => {
     if (typeof id === "string" && typeof approved === "boolean") linkConfirmation.respond(id, approved);
   });
-  registerShellIpc({ confirm: url => linkConfirmation.confirm(url, "external") });
+  registerShellIpc({ confirm: url => linkConfirmation.confirm(url, "external"), openSharedLink: url => shareLinkQueue.enqueue(url) });
   registerBrowserIpc({
     getMainWindow: () => mainWindow,
     confirmLink: (url, signal) => linkConfirmation.confirm(url, "browser", signal),

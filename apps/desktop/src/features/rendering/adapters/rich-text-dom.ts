@@ -236,6 +236,10 @@ function buildInlinePieceDom(
   if (boxed) {
     children = [boxedElement(boxed, `${key}-boxed`, children, options, boxedUnderline)];
   }
+  if (child.kind === "text" && child.reference) {
+    children = [{ kind: "element", tag: "span", key: `${key}-reference`, className: "document-reference",
+      attrs: { "data-document-reference-kind": child.reference.kind, "data-document-reference-id": child.reference.id, role: "link", tabindex: "0" }, children }];
+  }
   if (style) {
     return { kind: "element", tag: "span", key: `${key}-styled`, style, children };
   }

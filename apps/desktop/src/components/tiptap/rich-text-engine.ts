@@ -30,6 +30,9 @@ import {
   type MathRenderEnvironment,
 } from "@/lib/math-environment";
 
+import { DocumentReferenceMark } from "./document-reference-extension";
+import { RememberedTypingStyle } from "./remembered-typing-style";
+
 const DEFAULT_HEADING_LEVELS: [1, 2, 3] = [1, 2, 3];
 
 interface ListShortcutEditor {
@@ -177,6 +180,8 @@ export function createRichTextEngineExtensions({
   textBlockStyle = false,
 }: RichTextEngineOptions = {}): Extensions {
   return [
+    DocumentReferenceMark,
+    ...(!localHistory ? [RememberedTypingStyle] : []),
     // Underline before StarterKit so its schema rank is outer to bold/italic.
     // (Also set priority: 1000 on the mark itself; see UnderlineExtension.)
     UnderlineExtension,

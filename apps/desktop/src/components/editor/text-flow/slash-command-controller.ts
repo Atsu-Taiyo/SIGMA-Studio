@@ -1,3 +1,4 @@
+import { scheduleEditorBlockFocus } from "@/components/editor/editor-shell/editor-focus";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
@@ -432,6 +433,7 @@ function replaceQueryWithBox(
   }
   view.dispatch(transaction.scrollIntoView());
   view.focus();
+  scheduleEditorBlockFocus(boxBlock.id, { boxTitle: true });
   setSlashCommandQuery(null);
 }
 

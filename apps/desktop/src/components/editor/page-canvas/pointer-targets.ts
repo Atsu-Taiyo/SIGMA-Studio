@@ -20,7 +20,7 @@ import  {
   type ProblemAreaEndBox,
   type TopLevelBlockBox,
 } from "./block-affordances";
-import { resolveHoverDragUnitAt, resolveInnerAffordanceProbe, type DragIndex } from "./block-drag-dom";
+import { resolveHoverDragUnitAt, resolveInnerAffordanceProbe, measureDragUnit, type DragIndex } from "./block-drag-dom";
 import { visibleBlockClientRect } from "./visible-block-rect";
 import { pickContiguousSelectedSiblingIds } from "./block-ops";
 import { pageShiftAtCanvasPoint, readCanvasPageArrangement } from "./page-arrangement-dom";
@@ -261,9 +261,33 @@ export function hitTestTopLevelBlock(
     ? measureProblemAreaEnds(canvas, ownerBlock)
     : [];
 
+  // The owner can be a whole layout section. Its edge is unrelated to a box
+  // ending inside one column, so resolve that box's own visible boundary.
+  const ancestry = hoveredUnit ? dragIndex.units.get(hoveredUnit.id) : null;
+  let nestedInsertPoint: HoveredTopLevelBlock["nestedInsertPoint"] = null;
+  const hitBoxIds = canvas.ownerDocument.elementsFromPoint(clientX, clientY).flatMap(element => {
+    const box = element.closest<HTMLElement>("[data-sigma-doc-type='boxBlock']");
+    const id = box?.getAttribute("data-sigma-doc-id");
+    return box && canvas.contains(box) && id ? [id] : [];
+  });
+  const pointerCanvasY = (clientY - canvasRect.top) / scale;
+  for (const id of new Set([...hitBoxIds, ...(ancestry ? [ancestry.id, ...[...ancestry.ancestors].reverse()] : [])])) {
+    const info = dragIndex.units.get(id);
+    if (!info || info.type !== "boxBlock" || id === content[index].id) continue;
+    const geometry = measureDragUnit(canvas, id, info.type, clientY);
+    if (!geometry) continue;
+    const bounds = geometry.ownBox;
+    if (Math.abs(pointerCanvasY - bounds.bottom) <= 7 && geometry.hasVisibleEnd !== false) {
+      nestedInsertPoint = { anchorBlockId: id, position: "after", container: { kind: "blockSibling" }, top: bounds.bottom, left: bounds.left, width: bounds.right - bounds.left };
+      break;
+    }
+
+  }
+
   return {
     box,
     nextBlockId: content[index + 1]?.id ?? null,
+    nestedInsertPoint,
     // A continuation boundary is not a document insertion boundary.
     isAtomic: !owner.element.matches(".editor-box-fragment-viewport") && isAtomicTopLevelBlock(content[index]),
     aboveKind: owner.element.matches(".editor-box-fragment-viewport") ? "body" : neighborKind(index > 0 ? content[index - 1] : null),

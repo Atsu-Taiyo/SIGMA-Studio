@@ -4080,3 +4080,34 @@ button:disabled {
 .workspace-tab-menu {
   width: 208px;
 }
+
+.document-reference-suggestions {
+  position: fixed;
+  z-index: 210;
+  width: 280px;
+  max-height: min(320px, 60vh);
+  overflow: auto;
+  padding: var(--space-xs);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: 0 8px 24px #00000012;
+}
+.document-reference-suggestions button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  text-align: start;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.document-reference-suggestions button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.document-reference-suggestions small { color: var(--text-muted); flex-shrink: 0; }
+.document-reference-suggestions button[aria-selected="true"],
+.document-reference-suggestions button:hover { background: var(--surface-muted); }

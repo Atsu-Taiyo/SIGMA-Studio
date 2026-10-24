@@ -20,7 +20,7 @@ export interface DetectedUrl {
 // reserved character set, so the match stops at whitespace and at CJK or other
 // prose characters. Trailing punctuation is trimmed separately so sentences
 // like "see https://example.com." work.
-const URL_PATTERN = /https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/gi;
+const URL_PATTERN = /(?:https?|sigma-studio):\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/gi;
 
 // Punctuation that commonly follows a URL in prose and should not be part of it.
 const TRAILING_PUNCTUATION = /[.,;:!?'")\]}>。、，．！？」』）】〕》〉]+$/;
@@ -78,7 +78,7 @@ export function findUrls(text: string): DetectedUrl[] {
       continue;
     }
     // A bare scheme like "https://" is not a usable URL.
-    if (!/https?:\/\/\S/i.test(trimmed) || /^https?:\/\/$/i.test(trimmed)) {
+    if (!/(?:https?|sigma-studio):\/\/\S/i.test(trimmed) || /^(?:https?|sigma-studio):\/\/$/i.test(trimmed)) {
       continue;
     }
     matches.push({

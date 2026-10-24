@@ -1,4 +1,4 @@
-import { resolveDocumentFontFamily, type InlineNode, type UnderlineStyle } from "@/features/document";
+import { resolveDocumentFontFamily, type InlineNode, type DocumentReference, type UnderlineStyle } from "@/features/document";
 
 import {
   annotateBoxedInlineRuns,
@@ -47,6 +47,7 @@ export type RichTextInlineRenderNode =
   | {
       decorations: RichTextRenderDecoration[];
       kind: "text";
+      reference?: DocumentReference;
       sourceIndex?: number;
       text: string;
     }
@@ -191,6 +192,7 @@ function createInlineNodeRenderModel(
   return {
     kind: "text",
     text: child.text,
+    ...(child.reference ? { reference: child.reference } : {}),
     decorations,
     sourceIndex,
   };

@@ -55,7 +55,7 @@ function runLinkAction(action: UrlLinkCardAction, url: string): void {
     requestQrCodeFromUrl(url);
     return;
   }
-  requestOpenLink(url, action === "sigma" && hasSigmaBrowser() ? "sigma" : "browser");
+  requestOpenLink(url, !url.startsWith("sigma-studio:") && action === "sigma" && hasSigmaBrowser() ? "sigma" : "browser");
 }
 
 /**

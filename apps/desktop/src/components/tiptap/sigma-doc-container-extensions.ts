@@ -169,6 +169,8 @@ export const BoxBlockTitleExtension = TiptapNodeExtension.create<BoxBlockTitleOp
       {
         class: "sigma-doc-box-title",
         "data-box-title-region": "true",
+        "data-placeholder": createTranslator(getAppLocale(), "settings")("box.titlePlaceholder"),
+        "aria-label": createTranslator(getAppLocale(), "settings")("box.titleSection"),
         ...(this.options.readOnly ? {
           contenteditable: "false",
           "aria-readonly": "true",

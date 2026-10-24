@@ -160,6 +160,12 @@ export function toMathLivePreviewTex(tex: string): string {
   }
   return normalizeMathTextRuns(normalizeMathLiveLineBreakTex(tex))
     .replace(/\\placeholder(?:\[([^\]]*)\])?\{\s*\}/g, (_match, id: string | undefined) => {
+      // An anonymous slot is a MathLive PlaceholderAtom, not a framed PromptAtom.
+      // SSR hides PlaceholderAtoms, so render its default symbol with the same
+      // metrics. Adding a prompt frame here enlarges incomplete fractions and
+      // moves their denominator when the live field is closed. Keep the class
+      // used to locate the clicked slot without introducing that frame.
+      if (!id) return "\\class{ML__prompt-atom}{▢}";
       return `\\placeholder[${id || "?"}]{\\square}`;
     })
     .replace(/\\placeholder\{([^{}]+)\}/g, (_match, body: string) => {

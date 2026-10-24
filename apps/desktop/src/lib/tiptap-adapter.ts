@@ -5,6 +5,7 @@ import {
   type BoxedVariant,
   type HeadingNode,
   type InlineNode,
+  type DocumentReference,
   type LineHeight,
   type OverlayTextBlock,
   type ParagraphNode,
@@ -17,6 +18,7 @@ import {
 import { parseCssFontSizeToPt } from "@/lib/font-size-units";
 import { createId } from "@/lib/id";
 import { readMathTextFormat, writeMathTextFormat } from "@/lib/math-text-format";
+import { readDocumentReference } from "@/lib/document-reference";
 
 export {
   inlineNodesToPlainText,
@@ -150,6 +152,7 @@ export function inlineNodesToTiptapNodes(children: InlineNode[]): TiptapNode[] {
       const attrs = boxedMarkAttrs(child);
       return Object.keys(attrs).length ? { type: mark, attrs } : { type: mark };
     }) ?? [];
+    if (child.reference) marks.push({ type: "documentReference", attrs: { reference: child.reference } });
     if (child.mentionUserId) {
       marks.push({ type: "commentMention", attrs: { userId: child.mentionUserId } });
     }
@@ -192,6 +195,7 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
         getCommentMentionUserId(node),
         getUnderlineStyle(node),
         getBoxedTextRoundness(node),
+        readDocumentReference(node.marks?.find(mark => mark.type === "documentReference")?.attrs?.reference),
       );
       continue;
     }
@@ -306,6 +310,7 @@ function pushText(
   mentionUserId?: string,
   underlineStyle?: UnderlineStyle,
   boxedRoundness?: number,
+  reference?: DocumentReference,
 ): void {
   const previous = nodes[nodes.length - 1];
   const normalizedMarks = marks?.length ? marks : undefined;
@@ -327,7 +332,8 @@ function pushText(
     previous.boxedTone === normalizedBoxedTone &&
     previous.boxedRoundness === normalizedBoxedRoundness &&
     previous.underlineStyle === underlineStyle &&
-    previous.mentionUserId === mentionUserId
+    previous.mentionUserId === mentionUserId &&
+    previous.reference?.kind === reference?.kind && previous.reference?.id === reference?.id
   ) {
     previous.text += text;
     return;
@@ -337,6 +343,7 @@ function pushText(
     type: "text",
     text,
     ...(mentionUserId ? { mentionUserId } : {}),
+    ...(reference ? { reference } : {}),
     ...(normalizedMarks ? { marks: normalizedMarks } : {}),
     ...(underlineStyle && normalizedMarks?.includes("underline") ? { underlineStyle } : {}),
     ...(color ? { color } : {}),

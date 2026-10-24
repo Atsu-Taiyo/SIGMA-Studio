@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import { getExtensionBridge } from "@/lib/extension-contracts";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import type { DesktopCustomFont } from "@/types/desktop";
 import { getLocalFontBridge, type LocalFontFace } from "@/lib/local-font-contracts";
@@ -18,11 +19,13 @@ export function useCustomFonts(): {
   const [systemFonts, setSystemFonts] = useState<LocalFontFace[] | null>(null);
   const [browserFontAccess, setBrowserFontAccess] = useState<BrowserFontAccess | null>(null);
 
+  const loadRevision = useRef(0);
   const reloadCustomFonts = useCallback(() => {
+    const revision = ++loadRevision.current;
     const local = getLocalFontBridge();
     if (local) {
       void local.list().then(result => {
-        if (result.ok) { setCustomFonts(result.fonts); setSystemFonts(result.systemFonts); }
+        if (revision === loadRevision.current && result.ok) { setCustomFonts(result.fonts); setSystemFonts(result.systemFonts); }
       }).catch(error => console.warn("Failed to load local fonts", error));
       return;
     }
@@ -33,7 +36,7 @@ export function useCustomFonts(): {
     }
     bridge.fonts.list()
       .then((result) => {
-        if (result.ok) {
+        if (revision === loadRevision.current && result.ok) {
           setCustomFonts(result.fonts);
         }
       })
@@ -61,8 +64,13 @@ export function useCustomFonts(): {
 
   useEffect(() => {
     reloadCustomFonts();
+    const unsubscribe = getExtensionBridge()?.onMenuChange(() => reloadCustomFonts());
     window.addEventListener("focus", reloadCustomFonts);
-    return () => window.removeEventListener("focus", reloadCustomFonts);
+    return () => {
+      loadRevision.current += 1;
+      unsubscribe?.();
+      window.removeEventListener("focus", reloadCustomFonts);
+    };
   }, [reloadCustomFonts]);
 
   useEffect(() => {

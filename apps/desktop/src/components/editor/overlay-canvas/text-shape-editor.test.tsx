@@ -288,3 +288,21 @@ describe("OverlayTextShapeEditor height measurement", () => {
     expect(onMeasuredHeight.mock.calls.at(-1)?.[1]).not.toBe(Math.ceil(rotatedAabbSize));
   });
 });
+
+it("shows history restores immediately even when another render arrives before timers", async () => {
+  const shape: Extract<OverlayShape, { type: "text" }> = {
+    id: "undo_text", type: "text", x: 0, y: 0,
+    props: { w: 200, h: 40, size: "m", color: "black", blocks: [
+      { type: "paragraph", id: "undo_body", children: [{ type: "text", text: "編集後" }] },
+    ] },
+  };
+  const callbacks = { onFocus: vi.fn(), onCancel: vi.fn(), onMeasuredHeight: vi.fn(), onChange: vi.fn() };
+  await act(async () => { root.render(<OverlayTextShapeEditor shape={shape} externalRevision={0} editing={true} {...callbacks} />); });
+  const restored = { ...shape, props: { ...shape.props, blocks: [{ type: "paragraph" as const, id: "undo_body", children: [{ type: "text" as const, text: "編集前" }] }] } };
+  await act(async () => { root.render(<OverlayTextShapeEditor shape={restored} externalRevision={1} editing={true} {...callbacks} />); });
+  expect(container.textContent).toContain("編集前");
+  await act(async () => { root.render(<OverlayTextShapeEditor shape={{ ...restored, x: 10 }} externalRevision={1} editing={true} {...callbacks} />); });
+  expect(container.textContent).toContain("編集前");
+  expect(container.textContent).not.toContain("編集後");
+  expect(callbacks.onChange).not.toHaveBeenCalled();
+});

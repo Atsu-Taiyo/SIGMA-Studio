@@ -260,6 +260,8 @@ export interface BoxBlockNode extends BaseNode {
 }
 
 export interface BoxFrameSpec {
+    /** Hide the heading while retaining its text for later use. */
+    titleVisible?: boolean;
     borderWidthPx?: number;
     borderColor?: string;
     borderStyle?: "solid" | "dashed" | "dotted" | "double" | "none";
@@ -1333,7 +1335,13 @@ export type LineHeight = string;
 
 export type InlineNode = TextInlineNode | MathInlineNode;
 
+export interface DocumentReference {
+    kind: "document" | "material";
+    id: string;
+}
+
 export interface TextInlineNode {
+    reference?: DocumentReference;
     type: "text";
     text: string;
     /** Stable recipient identity for a collaborator mention in a comment. */

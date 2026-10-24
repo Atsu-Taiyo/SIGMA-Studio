@@ -206,3 +206,11 @@ describe("InlineContent", () => {
     expect(html).toContain("rich-inline-content");
   });
 });
+
+it("renders saved references with their stable destination and keyboard affordance", () => {
+  const html = renderToStaticMarkup(<InlineContent nodes={[{ type: "text", text: "@教材", reference: { kind: "document", id: "file_one" } }]} />);
+  expect(html).toContain('data-document-reference-id="file_one"');
+  expect(html).toContain('data-document-reference-kind="document"');
+  expect(html).toContain('role="link"');
+  expect(html).toContain('tabindex="0"');
+});

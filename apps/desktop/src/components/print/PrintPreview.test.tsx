@@ -223,6 +223,16 @@ describe("PrintPreview layout modes", () => {
     expect(html).toContain('data-tex="x^2+y^2"');
   });
 
+  it("keeps a hidden box title in the document while omitting it from previews", () => {
+    const box = createBoxBlock("bandbox", "非表示の見出し", { id: "hidden_heading", bodyText: "表示する本文" });
+    box.frame = { ...box.frame, titleVisible: false };
+    const html = renderToStaticMarkup(<PrintPreview document={documentWithColumns(1, [box])} profile="teacher" />);
+    expect(html).not.toContain('class="print-box-title"');
+    expect(html).not.toContain("非表示の見出し");
+    expect(html).toContain("表示する本文");
+    expect(box.title).toEqual([{ type: "text", text: "非表示の見出し" }]);
+  });
+
   it("does not render a print title element for an empty box title", () => {
     const html = renderToStaticMarkup(
       <PrintPreview
