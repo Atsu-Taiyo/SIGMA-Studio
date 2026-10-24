@@ -1260,6 +1260,11 @@ export interface PageLayout {
         columnCount: number;
         columnGapMm: number;
         columnRule?: ColumnRule;
+        /** 1-based page-specific separator styling. Pages without an entry inherit columnRule. */
+        pageColumnRules?: {
+            page: number;
+            rule: ColumnRule;
+        }[];
     };
     header?: PageRunningRegion;
     footer?: PageRunningRegion;
@@ -1854,6 +1859,14 @@ export type OverlayLineShape = OverlayBaseShape<"line", {
 }>;
 
 export type OverlayTextShape = OverlayBaseShape<"text", {
+    /** Text-box decoration; independent of glyph colour and font size. Omitted = transparent. */
+    fill?: "none" | "solid";
+    fillColor?: string;
+    fillOpacity?: number;
+    strokeColor?: string;
+    strokeOpacity?: number;
+    dash?: OverlayDash;
+    strokeWidth?: OverlayTextSize;
     /** Fixed horizontal glyph scale for imported condensed text. Width remains user controlled. */
     textScaleX?: number;
     /** Keep explicit breaks while suppressing automatic wrapping (used by imported source lines). */

@@ -150,6 +150,7 @@ jobs:
               tests/electron/small-shape-handles.spec.ts \
               tests/electron/ai-chat-merge-recovery.spec.ts tests/electron/shared-ai-read-merge.spec.ts \
               tests/electron/page-column-side-notes.spec.ts \
+              tests/electron/page-separators-text-box.spec.ts \
               tests/electron/shared-split-pane-save.spec.ts \
               tests/electron/shared-version-history.spec.ts \
               tests/electron/svg-to-sigma.spec.ts tests/electron/box-custom-frame.spec.ts \

@@ -18,10 +18,11 @@ const widths = [
   { value: "xl", strokeWidth: 4 },
 ] as const;
 
-export function ColumnRuleControls({ value, onChange, columnCount }: {
+export function ColumnRuleControls({ value, onChange, columnCount, showPreview = true }: {
   value?: ColumnRule;
   onChange: (rule: ColumnRule) => void;
   columnCount: number;
+  showPreview?: boolean;
 }) {
   const t = useT("settings");
   const chrome = useT("chrome");
@@ -75,11 +76,11 @@ export function ColumnRuleControls({ value, onChange, columnCount }: {
         </ToolbarPopover>
       </div>
     </div>
-    <div className="column-rule-preview" aria-label={t("columnRule.preview")} style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}>
+    {showPreview && <div className="column-rule-preview" aria-label={t("columnRule.preview")} style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}>
       {Array.from({ length: columnCount }, (_, index) => <div key={index}>
         {index > 0 && <span className="column-rule-preview-line" style={{ borderLeft: `${rule.widthPx}px ${rule.style} ${rule.color}` }} />}
         <i /><i /><i />
       </div>)}
-    </div>
+    </div>}
   </div>;
 }

@@ -183,6 +183,13 @@ export function isOverlayShape(value: unknown): value is OverlayShape {
         (value.props.label === undefined || typeof value.props.label === "string");
     case "text":
       return isFiniteNumber(value.props.w) &&
+        (value.props.fill === undefined || value.props.fill === "none" || value.props.fill === "solid") &&
+        (value.props.fillColor === undefined || typeof value.props.fillColor === "string") &&
+        (value.props.strokeColor === undefined || typeof value.props.strokeColor === "string") &&
+        (value.props.fillOpacity === undefined || (isFiniteNumber(value.props.fillOpacity) && value.props.fillOpacity >= 0 && value.props.fillOpacity <= 1)) &&
+        (value.props.strokeOpacity === undefined || (isFiniteNumber(value.props.strokeOpacity) && value.props.strokeOpacity >= 0 && value.props.strokeOpacity <= 1)) &&
+        (value.props.dash === undefined || isOverlayDash(value.props.dash)) &&
+        (value.props.strokeWidth === undefined || isOverlayTextSize(value.props.strokeWidth)) &&
         (value.props.textScaleX === undefined || (isFiniteNumber(value.props.textScaleX)
           && value.props.textScaleX >= 0.1 && value.props.textScaleX <= 10)) &&
         (value.props.textWrap === undefined || value.props.textWrap === "none") &&

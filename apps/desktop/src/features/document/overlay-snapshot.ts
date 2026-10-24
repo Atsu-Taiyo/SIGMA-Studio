@@ -31,7 +31,7 @@ const SHAPE_PROP_KEYS: Record<OverlayShape["type"], readonly string[]> = {
   arc: ["strokeScale", "kind", "r", "rx", "ry", "startAngle", "endAngle", "arrowheadScale", "arrowheadStart", "arrowheadEnd", "fill", "fillColor", "fillOpacity", "fillPattern", "color", "strokeOpacity", "dash", "dashPattern", "size"],
   arrow: ["strokeScale", "start", "end", "arrowheadScale", "arrowheadStart", "arrowheadEnd", "fill", "color", "strokeOpacity", "labelColor", "dash", "dashPattern", "size", "label"],
   line: ["strokeScale", "hitTestMode", "kind", "points", "closed", "arrowheadScale", "arrowheadStart", "arrowheadEnd", "fill", "fillColor", "fillOpacity", "fillPattern", "color", "strokeOpacity", "labelColor", "dash", "dashPattern", "size", "label"],
-  text: ["w", "h", "blocks", "color", "fontSize", "size", "textScaleX", "textWrap"],
+  text: ["w", "h", "blocks", "color", "fontSize", "size", "textScaleX", "textWrap", "fill", "fillColor", "fillOpacity", "strokeColor", "strokeOpacity", "dash", "strokeWidth"],
   image: ["assetId", "w", "h", "crop", "tikz"],
   callout: ["w", "h", "radius", "tail", "blocks", "color", "fontSize", "size", "dash", "strokeWidth"],
   graph2dShape: ["boundsMode", "w", "h", "spec", "preserveSpecSize", "axisLabelTextShapeIds", "pointLabelTextShapeIdsByPointId", "annotationTextShapeIdsByAnnotationId", "labelTextShapeIds", "labelTextShapeIdsByCurveId"],
@@ -281,6 +281,7 @@ const REQUIRED_SHAPE_COLOR_PROPS: Partial<Record<OverlayShape["type"], readonly 
 };
 
 const OPTIONAL_SHAPE_COLOR_PROPS: Partial<Record<OverlayShape["type"], readonly string[]>> = {
+  text: ["fillColor", "strokeColor"],
   geo: ["fillColor"],
   arc: ["fillColor"],
   line: ["fillColor", "labelColor"],

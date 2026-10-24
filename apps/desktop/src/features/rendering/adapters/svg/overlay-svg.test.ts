@@ -126,6 +126,20 @@ describe("headless overlay SVG serializer", () => {
     );
   });
 
+  it("paints text-box decoration behind glyphs with unchanged text bounds", () => {
+    const shape: OverlayShape = { id: "box-text", type: "text", x: 20, y: 30, props: {
+      w: 180, h: 40, blocks: [], color: "#111111", size: "m",
+      fill: "solid", fillColor: "#ffffff", fillOpacity: 0.4,
+      strokeColor: "#123456", strokeOpacity: 0.7, strokeWidth: "l", dash: "dashed",
+    } };
+    const svg = serializeOverlaySvg([shape], {}, { width: 300, height: 200 }, renderers);
+    expect(svg).toContain('fill="#ffffff" fill-opacity="0.4" stroke="#123456" stroke-opacity="0.7" stroke-width="3" stroke-dasharray="8 6"');
+    expect(svg!.indexOf('<rect x="20"')).toBeLessThan(svg!.indexOf("<foreignObject"));
+    const undecorated = { ...shape, props: { ...shape.props, fill: undefined, dash: undefined } };
+    const plain = serializeOverlaySvg([undecorated], {}, { width: 300, height: 200 }, renderers);
+    expect(plain).not.toContain('<rect x="20"');
+  });
+
   it("delegates only math markup while retaining the canonical text frame", () => {
     const text: OverlayShape = {
       id: "shape_text",

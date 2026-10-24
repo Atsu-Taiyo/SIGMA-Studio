@@ -3,8 +3,8 @@ import type { PageMetrics } from "@/features/document";
 import { createColumnRuleStyle } from "../column-rule-style";
 
 /** Output content shared by the editor's PageCanvas and static Viewer. */
-export function PageColumnRules({ metrics }: { metrics: PageMetrics }) {
-  const rule = metrics.flow.columnRule;
+export function PageColumnRules({ metrics, pageNumber = 1 }: { metrics: PageMetrics; pageNumber?: number }) {
+  const rule = metrics.flow.pageColumnRules?.find(entry => entry.page === pageNumber)?.rule ?? metrics.flow.columnRule;
   if (!rule || rule.style === "none" || metrics.flow.columnCount <= 1) return null;
   return <div className="page-column-rules" aria-hidden="true" style={{
     ...createColumnRuleStyle(rule), position: "absolute", inset: 0, pointerEvents: "none",

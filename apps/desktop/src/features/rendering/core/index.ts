@@ -29,5 +29,6 @@ export * from "./problem-display-filter";
 export * from "./problem-display-targets";
 export * from "./rich-text-render-model";
 export * from "./text-block-typography";
+export * from "./text-box-decoration";
 
 export { resolveGraph2DParameters, resolveGraphParameterCurve, resolveGraphParameterExpression } from "./graph-parameters";

@@ -12,6 +12,7 @@ import {
   overlayLabelFontSize,
   overlayStrokeWidth,
   overlayTextScale,
+  getTextBoxDecoration,
   projectGraph3DLabel,
   resolveTableLineBorder,
   type ArrowheadEndpointPlan,
@@ -435,7 +436,10 @@ function shapeToSvg(
       ].join(""),
       { overflowVisible: true },
     );
-    return withShapeOpacity(shape, withShapeRotation(shape, svg));
+    const decoration = getTextBoxDecoration(shape);
+    const paint = (color: string) => color === "none" ? "none" : escapeAttr(safeTextColor(color));
+    const frame = decoration ? `<rect x="${shape.x}" y="${shape.y}" width="${bounds.w}" height="${bounds.h}" fill="${paint(decoration.fill)}" fill-opacity="${decoration.fillOpacity}" stroke="${paint(decoration.stroke)}" stroke-opacity="${decoration.strokeOpacity}" stroke-width="${decoration.strokeWidth}"${decoration.strokeDasharray ? ` stroke-dasharray="${decoration.strokeDasharray}"` : ""} />` : "";
+    return withShapeOpacity(shape, withShapeRotation(shape, frame + svg));
   }
 
   if (shape.type === "tableShape") {

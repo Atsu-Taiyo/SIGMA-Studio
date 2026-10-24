@@ -477,7 +477,7 @@ export function SigmaDocPrintSurface({
             className="print-a4-page"
             style={pageStyle}
           >
-            <PageColumnRules metrics={metrics} />
+            <PageColumnRules metrics={metrics} pageNumber={page.number} />
             <PageRunningRegionView
               region={layout.header}
               kind="header"

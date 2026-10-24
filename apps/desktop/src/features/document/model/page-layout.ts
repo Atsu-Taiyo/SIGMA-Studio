@@ -42,6 +42,8 @@ export interface PageLayout {
     columnCount: number;
     columnGapMm: number;
     columnRule?: ColumnRule;
+    /** 1-based page-specific separator styling. Pages without an entry inherit columnRule. */
+    pageColumnRules?: { page: number; rule: ColumnRule }[];
   };
   header?: PageRunningRegion;
   footer?: PageRunningRegion;

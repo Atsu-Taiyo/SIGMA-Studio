@@ -300,6 +300,7 @@ function getOverlayLineStyleDash(
   shape: OverlayShape,
   solidEdge?: OverlaySolidEdgeSelection,
 ): OverlayDash | "mixed" | null {
+  if (shape.type === "text") return shape.props.dash ?? "solid";
   if (isSolidShape(shape)) {
     if (solidEdge?.shapeId === shape.id) {
       return getSolidEdgeDash(shape, solidEdge.index);
@@ -345,6 +346,7 @@ function getOverlayLineStyleSize(
   shape: OverlayShape,
   solidEdge?: OverlaySolidEdgeSelection,
 ): OverlayTextSize | "mixed" | null {
+  if (shape.type === "text") return shape.props.strokeWidth ?? "s";
   if (isSolidShape(shape)) {
     if (solidEdge?.shapeId === shape.id) {
       return getSolidEdgeSize(shape, solidEdge.index);

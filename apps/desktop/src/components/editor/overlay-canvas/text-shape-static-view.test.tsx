@@ -171,6 +171,16 @@ describe("the static view's height write-back", () => {
 });
 
 describe("the static view's box", () => {
+  it("adds a decoration frame only to text that specifies a fill or border", async () => {
+    await render(<OverlayShapeReadOnlyView shape={textShape()} assets={{}} />);
+    expect(container.querySelector(".overlay-text-box-decoration")).toBeNull();
+    await render(<OverlayShapeReadOnlyView shape={textShape({ fill: "solid", fillColor: "#ffffff", dash: "dotted", strokeColor: "#123456" })} assets={{}} />);
+    const frame = container.querySelector(".overlay-text-box-decoration rect")!;
+    expect(frame.getAttribute("fill")).toBe("#ffffff");
+    expect(frame.getAttribute("stroke")).toBe("#123456");
+    expect(frame.getAttribute("stroke-dasharray")).toBe("1 6");
+    expect(container.querySelector(".overlay-text-shape")?.textContent).toBe("本文");
+  });
   it("marks only saved source lines as no-auto-wrap and keeps ordinary text wrapping", async () => {
     await render(<OverlayTextShapeStaticView shape={textShape({ textWrap: "none" })} />);
     expect(container.querySelector(".overlay-text-shape")?.classList.contains("no-auto-wrap")).toBe(true);
