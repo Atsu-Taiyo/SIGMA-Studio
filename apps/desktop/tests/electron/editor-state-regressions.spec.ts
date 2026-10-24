@@ -38,6 +38,8 @@ test.beforeEach(async () => {
   await native.evaluate(win => win.setContentSize(1280, 900));
   await page.waitForURL(process.env.SIGMA_STUDIO_E2E_BASE_URL ? /http:\/\/127\.0\.0\.1/ : /file:/);
   await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+  await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible();
+  await expect(page.locator(".startup-splash")).toBeHidden();
   fileId = await page.evaluate(async document => {
     localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
     await window.desktopAPI!.settings!.setUiLocale!("ja");
@@ -249,6 +251,42 @@ test("font size follows typing out of lists and recent fonts lead the menu", asy
   await expect.poll(async () => JSON.stringify((await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), fileId))?.content)).toContain("body24");
   await page.reload();
   await expect(page.locator('.page-flow [data-sigma-doc-id="empty"] span').first()).toHaveCSS("font-size", "32px");
+});
+
+test("a box keeps its declared body font after a different font was used outside it", async () => {
+  const document = fixture();
+  document.content = [document.content[0], {
+    ...createBoxBlock("plain", "", { id: "font_box", bodyId: "font_box_body" }),
+    frame: { bodyFontFamily: "monospace" },
+  }];
+  fileId = await page.evaluate(async document => {
+    const created = await window.desktopAPI!.storage.createFileFromDocument({ document });
+    await window.desktopAPI!.storage.saveWorkspace({ openFileIds: [created.file.fileId], activeFileId: created.file.fileId });
+    return created.file.fileId;
+  }, document);
+  await page.reload();
+  const first = page.locator('.page-flow [data-sigma-doc-id="first"]').first();
+  await first.click();
+  await page.locator('button[aria-label^="フォント:"]').first().click();
+  await page.getByRole("menu", { name: "フォント", exact: true })
+    .getByRole("menuitemradio", { name: "Noto Serif JP", exact: true }).first().click();
+  await page.keyboard.type("A");
+  const body = page.locator('.page-flow [data-sigma-doc-id="font_box_body"]').first();
+  await body.click();
+  await page.keyboard.type("box-font");
+  await expect(body).toHaveText("box-font");
+  const readBox = () => page.evaluate(async id => {
+    const saved = await window.desktopAPI!.storage.loadDocument(id);
+    return saved?.content.find(block => block.id === "font_box");
+  }, fileId);
+  await expect.poll(readBox).toMatchObject({ frame: { bodyFontFamily: "monospace" }, blocks: [{ children: [{ text: "box-font" }] }] });
+  const box = await readBox();
+  expect(box?.type === "boxBlock" && box.blocks[0]?.type === "paragraph" ? box.blocks[0].children[0] : null)
+    .not.toHaveProperty("fontFamily");
+  await expect.poll(() => body.evaluate(el => getComputedStyle(el.querySelector("span") ?? el).fontFamily)).toBe("monospace");
+  await page.reload();
+  await expect(body).toHaveText("box-font");
+  await expect.poll(() => body.evaluate(el => getComputedStyle(el.querySelector("span") ?? el).fontFamily)).toBe("monospace");
 });
 
 test("@ references persist and open their destination document", async () => {
