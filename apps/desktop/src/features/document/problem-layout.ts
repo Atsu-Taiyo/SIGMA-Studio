@@ -35,10 +35,12 @@ export function getProblemAreaLayoutStyle(layout: ProblemAreaLayout | undefined,
   }
   if (finite(layout.widthMm, 0.01, 1000)) {
     style.width = `min(${layout.widthMm}mm, 100%)`;
+    style.boxSizing = "border-box";
   }
   if (finite(layout.offsetXPx, -256, 256)) {
     const base = typeof baseLeft === "number" ? `${baseLeft}px` : baseLeft;
     style.left = `calc(${base} + ${layout.offsetXPx}px)`;
+    style.position = "relative";
   }
   return style;
 }

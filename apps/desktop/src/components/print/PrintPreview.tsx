@@ -986,7 +986,8 @@ export function paginateMeasuredPrintBlocks(
     const fragmentSpacingPxForRole = (role: ProblemFrameFragmentRole) =>
       (unit.hasFrame
         ? getPrintProblemFrameFragmentChromeHeightMm(unit.frameStyleId, role, unit.frameCustom, unit.areaLayout, unit.frame) * MM_TO_PX
-        : 0) + marginHeightPxForRole(role);
+        : ((role === "single" || role === "first") ? unit.areaLayout?.paddingPx?.top ?? 0 : 0)
+          + (unit.areaLayout?.paddingPx?.bottom ?? 0)) + marginHeightPxForRole(role);
     if (
       unit.isFirstProblemArea
       &&
@@ -1229,7 +1230,7 @@ export function paginateMeasuredPrintBlocks(
       const childExceedsFragmentCapacity = childHeight + frameChromeHeightPx > contentHeightPx + 0.5;
       if (childExceedsFragmentCapacity) {
         flushRun();
-        if (unit.hasFrame || marginHeightPxForRole("single") > 0) {
+        if (unit.hasFrame || fragmentSpacingPxForRole("single") > 0) {
           placeFramedOverTallChild(child, childHeight, isLastAreaChild);
         } else if (childHeight > contentHeightPx + 0.5) {
           if (fragments.length === 0) {

@@ -17,7 +17,7 @@ describe("problem dimensions", () => {
     expect(restored).toEqual(problem);
     expect(formatProblemNumberLabel(12, restored.numbering)).toBe("１２");
     expect(getProblemNumberLayoutStyle(restored.numbering)).toMatchObject({ "--problem-number-width": "20.5px", "--problem-number-gap": "2px", "--problem-number-border-width": "0.5px" });
-    expect(getProblemAreaLayoutStyle(restored.areaLayout?.prompt)).toMatchObject({ paddingTop: "0px", paddingLeft: "2px", marginTop: "0px", width: "min(80mm, 100%)" });
+    expect(getProblemAreaLayoutStyle(restored.areaLayout?.prompt)).toMatchObject({ paddingTop: "0px", paddingLeft: "2px", marginTop: "0px", width: "min(80mm, 100%)", boxSizing: "border-box" });
     expect(getProblemFrameLayoutStyle(restored.frame)).toMatchObject({ "--problem-frame-border-width": "0.5px" });
   });
   it("does not add overrides to older files", () => {
@@ -27,6 +27,7 @@ describe("problem dimensions", () => {
     expect(formatProblemNumberLabel(12)).toBe("12");
     expect(getProblemAreaLayoutStyle({ offsetXPx: 0 }, "280px").left).toBe("calc(280px + 0px)");
     expect(getProblemAreaLayoutStyle({ offsetXPx: -1 }, 280).left).toBe("calc(280px + -1px)");
+    expect(getProblemAreaLayoutStyle({ offsetXPx: 9 })).toMatchObject({ left: "calc(0px + 9px)", position: "relative" });
   });
   it("rejects unsafe fonts and invalid dimensions at the schema and guards direct renderer input", () => {
     expect(() => parseSigmaDocument({ ...sampleDocument, content: [{ ...problem, numbering: { fontFamily: 'serif;position:fixed' } }] })).toThrow();

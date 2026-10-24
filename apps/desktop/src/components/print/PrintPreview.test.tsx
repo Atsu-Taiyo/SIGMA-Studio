@@ -1978,6 +1978,18 @@ describe("paginateMeasuredPrintBlocks problem-area reservations and nested secti
     expect(pages.every(page => page.columns.every(column => column.estimatedContentHeightPx <= 100))).toBe(true);
   });
 
+  it("budgets explicit padding for unframed problem fragments and splits over-tall children", () => {
+    const unit = { ...problemArea("padding", "prompt", [richParagraph("padding_child", "text")]),
+      areaLayout: { paddingPx: { top: 20, right: 0, bottom: 20, left: 0 } } };
+    const pages = paginateTwice([unit], [130], measured({ padding_child: 90 }));
+    const fragments = pages.flatMap(page => page.columns.flatMap(column => column.blocks))
+      .filter((block): block is Extract<PrintContentUnit, { type: "problemAreaFragment" }> => block.type === "problemAreaFragment");
+    expect(fragments).toHaveLength(2);
+    expect(fragments.map(fragment => fragment.estimatedHeightPx)).toEqual([100, 50]);
+    expect(fragments.reduce((sum, fragment) => sum + (fragment.blockSlice?.sliceHeight ?? 0), 0)).toBe(90);
+    expect(pages.every(page => page.columns.every(column => column.estimatedContentHeightPx <= 100))).toBe(true);
+  });
+
   it("automatically fragments a framed area taller than one page", () => {
     const blocks = [
       richParagraph("auto_frame_1", "first"),

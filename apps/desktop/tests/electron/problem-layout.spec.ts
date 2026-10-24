@@ -121,6 +121,25 @@ test(`number geometry and area insets are editable, saved and retained after res
     await expect(rule).toHaveCSS("margin-left", "0px");
     const wraps = await rule.evaluate(e => { const text = e.closest("p")!.querySelector('span[style*="monospace"]')!; const r = document.createRange(); r.selectNodeContents(text); return e.getBoundingClientRect().bottom > r.getBoundingClientRect().bottom + 5; });
     expect(wraps).toBe(false);
+    await page.evaluate(async source => {
+      const nested: ProblemNode = { type: "problem", id: "nested_q", tags: [], lead: [], hints: [], solution: [], numbering: { enabled: false },
+        areaLayout: { prompt: { widthMm: 70, offsetXPx: 9, paddingPx: { top: 20, right: 12, bottom: 20, left: 12 } } },
+        prompt: [{ type: "paragraph", id: "nested_line", children: [{ type: "text", text: "入れ子の寸法" }] }],
+      };
+      const document: SigmaDocument = { ...source, docId: "nested_width_offset", content: [
+        { type: "boxBlock", id: "outer_box", styleId: "plain", blocks: [nested] },
+      ] };
+      const { file } = await window.desktopAPI!.storage.createFileFromDocument({ document });
+      await window.desktopAPI!.storage.saveWorkspace({ openFileIds: [file.fileId], activeFileId: file.fileId });
+    }, source);
+    await page.reload();
+    const nestedArea = page.locator(".sigma-doc-nested-problem-area").filter({ has: page.locator('[data-sigma-doc-id="nested_line"]') });
+    await expect(nestedArea).toBeVisible();
+    await expect(nestedArea).toHaveCSS("position", "relative");
+    await expect(nestedArea).toHaveCSS("left", "9px");
+    await expect(nestedArea).toHaveCSS("box-sizing", "border-box");
+    await expect(nestedArea).toHaveCSS("padding-left", "12px");
+    expect(await nestedArea.evaluate(el => parseFloat(getComputedStyle(el).width))).toBeCloseTo(70 * 96 / 25.4, 1);
   } finally {
     await app.close();
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
