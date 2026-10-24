@@ -12,11 +12,11 @@ import {
   getShapeRotation,
   getTextShapeEffectiveSize,
   MIN_TEXT_SHAPE_WIDTH,
+  MIN_BOX_SHAPE_SIZE,
 } from "./shape-bounds";
 import { isSolidShape, scaleSolidPoints } from "./solid-geometry";
 
 const FULL_CIRCLE = Math.PI * 2;
-const MIN_BOX_SHAPE_SIZE = 1;
 
 /**
  * Text glyphs flow from the local top-left, but changing the box size also moves its rotation

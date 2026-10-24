@@ -2,11 +2,12 @@ import type { OverlayArrowhead, OverlayDash, OverlayPoint, OverlayShape, Overlay
 import { overlayStrokeWidth } from "@/features/rendering/core";
 import { svgMarkerArrowhead, type SvgMarkerDefinition, type SvgMarkerLookup } from "./svg-markers";
 import { parseSvgSubpaths, svgNumbers } from "./svg-path";
+import { MIN_BOX_SHAPE_SIZE } from "./shape-bounds";
 
 export { svgNumbers };
 /**
- * The editor draws a geo shape's outline this far inside its box (`GeoSvgBody`, `getGeoPolygonPoints`),
- * so a box that is to show an SVG outline's centre line has to be this much larger on every side.
+ * Rectangles and polygons draw their outline this far inside their box (`GeoSvgBody`,
+ * `getGeoPolygonPoints`). Ellipses use the full box, so must not get this compensation.
  */
 const GEO_OUTLINE_INSET = 1;
 export type SvgMatrix = readonly [number, number, number, number, number, number];
@@ -167,8 +168,13 @@ export function svgPrimitiveToShapes(
       return shape && [shape];
     }
     if (!orthogonal) return null;
+    const mappedWidth = w * scaleX, mappedHeight = h * scaleY;
+    // Preserve dots below the editor's resize limit as SVG instead of changing their radius.
+    // Test the final displayed dimensions, including viewBox, image size and element transforms.
+    if (tag !== "rect" && Math.min(mappedWidth, mappedHeight) < MIN_BOX_SHAPE_SIZE - 1e-7) return null;
     const center = point(matrix, x + w / 2, y + h / 2);
-    const boxWidth = w * scaleX + 2 * GEO_OUTLINE_INSET, boxHeight = h * scaleY + 2 * GEO_OUTLINE_INSET;
+    const inset = tag === "rect" ? GEO_OUTLINE_INSET : 0;
+    const boxWidth = mappedWidth + 2 * inset, boxHeight = mappedHeight + 2 * inset;
     return [{ ...base(), type: "geo", x: center.x - boxWidth / 2, y: center.y - boxHeight / 2,
       rotation: Math.atan2(matrix[1], matrix[0]),
       props: { ...props, geo: tag === "rect" ? "rectangle" : "ellipse", w: boxWidth, h: boxHeight,

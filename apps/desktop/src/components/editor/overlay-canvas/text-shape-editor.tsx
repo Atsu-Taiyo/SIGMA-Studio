@@ -26,9 +26,8 @@ import {
   overlayTextBlocksToTiptapDoc,
   tiptapDocToOverlayTextBlocks,
 } from "@/components/editor/text-flow/overlay-tiptap-adapter";
-import type { TiptapDoc, TiptapNode } from "@/lib/tiptap-adapter";
+import type { TiptapDoc } from "@/lib/tiptap-adapter";
 
-import { createTranslator, getAppLocale } from "@/lib/i18n";
 import { OverlayTextBlockAttrs } from "./overlay-text-block-attrs";
 import { OverlayTextShapeSpaceHandle } from "./text-shape-space-after-handle";
 import {
@@ -36,15 +35,11 @@ import {
   OVERLAY_TEXT_HEIGHT_ATTRIBUTES,
   overlayTextBoxHeightForContent,
 } from "./text-shape-measure";
-import { createOverlayTextBlocks } from "./ids";
 import type {
   OverlayShape,
   OverlayShapeId,
 } from "./types";
 
-/** 空のまま確定したテキスト図形に入る既定文字。**文書に焼き込まれる**ので、
- *  入力した時点の UI 言語で解決する (`chrome.insert.text.label` と同じ語)。 */
-const DEFAULT_TEXT_SHAPE_TEXT_KEY = "insert.text.label" as const;
 // Mirrors `TEXT_FORMAT_STATE_EVENT` in editor-shell/constants (kept local for the same reason
 // `RichTextEditor` does: the overlay canvas must not depend on the shell module).
 const TEXT_FORMAT_STATE_EVENT = "sigma-studio:text-format-state";
@@ -155,17 +150,7 @@ export function OverlayTextShapeEditor({
       );
       onFocus(activeEditor, shape.id);
     },
-    onBlur: ({ editor: activeEditor }) => {
-      const json = activeEditor.getJSON() as TiptapDoc;
-      if (!isTiptapDocEmpty(json)) {
-        return;
-      }
-
-      const fallback = createOverlayTextBlocks(createTranslator(getAppLocale(), "chrome")(DEFAULT_TEXT_SHAPE_TEXT_KEY));
-      contentRef.current = fallback;
-      activeEditor.commands.setContent(overlayTextBlocksToTiptapDoc(fallback), { emitUpdate: false });
-      onChange(shape.id, fallback);
-    },
+    // 空の blocks も正規の内容。切り取り後や再読込後の blur では初期文字を補わない。
     onUpdate: ({ editor: activeEditor }) => {
       dispatchTextFormatState(
         activeEditor,
@@ -332,19 +317,4 @@ export function OverlayTextShapeEditor({
       ) : null}
     </div>
   );
-}
-function isTiptapDocEmpty(doc: TiptapDoc): boolean {
-  return !(doc.content ?? []).some(hasTiptapNodeContent);
-}
-
-function hasTiptapNodeContent(node: TiptapNode): boolean {
-  if (node.type === "text") {
-    return Boolean(node.text?.trim());
-  }
-
-  if (node.type !== "doc" && node.type !== "paragraph" && node.type !== "heading") {
-    return true;
-  }
-
-  return (node.content ?? []).some(hasTiptapNodeContent);
 }

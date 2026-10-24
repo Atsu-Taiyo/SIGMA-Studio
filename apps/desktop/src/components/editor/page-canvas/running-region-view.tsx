@@ -21,7 +21,7 @@ import { type TextFlowBlock } from "@/features/text-editing";
 import { useT } from "@/lib/i18n/react";
 import type { CSSProperties,MouseEvent as ReactMouseEvent,PointerEvent as ReactPointerEvent } from "react";
 import { useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState } from "react";
-import type { OverlayTool } from "../overlay-canvas/types";
+import type { OverlayBounds, OverlayTool } from "../overlay-canvas/types";
 import type {
   OverlayActionRequest,
   OverlayArrangeAction,
@@ -484,6 +484,7 @@ export function RunningRegionBand({
           overlayArrangeShortcutLabels={overlayArrangeShortcutLabels}
           overlayWidth={width}
           overlayHeight={height}
+          insertionBounds={{ x: -metrics.margins.leftPx, y: -top, w: metrics.page.widthPx, h: metrics.page.heightPx }}
           initialSelectPointRequest={initialSelectPointRequest}
           onInitialSelectPointHandled={handleInitialSelectPointHandled}
           onOverlayEditingChange={onOverlayEditingChange}
@@ -571,6 +572,7 @@ export function RunningRegionDirectEditor({
   overlayArrangeShortcutLabels,
   overlayWidth,
   overlayHeight,
+  insertionBounds,
   initialSelectPointRequest = null,
   onInitialSelectPointHandled,
   onOverlayEditingChange,
@@ -602,6 +604,7 @@ export function RunningRegionDirectEditor({
   overlayArrangeShortcutLabels?: Partial<Record<OverlayArrangeAction, string>>;
   overlayWidth: number;
   overlayHeight: number;
+  insertionBounds?: OverlayBounds;
   initialSelectPointRequest?: OverlaySelectPointRequest | null;
   onInitialSelectPointHandled?: (requestId: number) => void;
   onOverlayEditingChange: (editing: boolean) => void;
@@ -799,6 +802,7 @@ export function RunningRegionDirectEditor({
             overlay={region.overlay ?? {}}
             canvasWidth={overlayWidth}
             canvasHeight={Math.max(1, overlayHeight)}
+            insertionBounds={insertionBounds}
             bleedValues={{ x: 0, top: 0 }}
             imageInsertAreaWidth={overlayWidth}
             imageInsertAreaHeight={overlayHeight}

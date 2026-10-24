@@ -114,6 +114,46 @@ function boxedMathNodes(children: InlineNode[]) {
 }
 
 describe("OverlayTextShapeEditor clipboard", () => {
+  it("does not fill a restored empty shape when it loses focus", () => {
+    act(() => {
+      editor.commands.setContent({ type: "doc", content: [{ type: "paragraph", content: [] }] }, { emitUpdate: false });
+      editor.emit("blur", { editor, event: new FocusEvent("blur"), transaction: editor.state.tr });
+    });
+    expect(editor.getText()).toBe("");
+    expect(lastBlocks).toEqual([]);
+  });
+
+  it("keeps a fully cut text shape empty after focus leaves it", () => {
+    const cut = new DataTransfer();
+    act(() => {
+      editor.commands.selectAll();
+      editor.view.dom.dispatchEvent(new ClipboardEvent("cut", { bubbles: true, cancelable: true, clipboardData: cut }));
+    });
+    expect(cut.getData("text/plain")).toBe("図");
+    expect(lastBlocks).toMatchObject([{ type: "paragraph", children: [] }]);
+    const afterCut = structuredClone(lastBlocks);
+    act(() => editor.emit("blur", { editor, event: new FocusEvent("blur"), transaction: editor.state.tr }));
+    expect(lastBlocks).toEqual(afterCut);
+  });
+
+  it("keeps the current font on cut/paste after the same text was copied with another font", () => {
+    editor.commands.selectAll();
+    editor.commands.setFontFamily('"M PLUS 1p", sans-serif');
+    const oldCopy = new DataTransfer();
+    editor.view.dom.dispatchEvent(new ClipboardEvent("copy", { bubbles: true, cancelable: true, clipboardData: oldCopy }));
+
+    editor.commands.setFontFamily('"Noto Serif JP", serif');
+    editor.commands.toggleBold();
+    const currentCut = new DataTransfer();
+    editor.view.dom.dispatchEvent(new ClipboardEvent("cut", { bubbles: true, cancelable: true, clipboardData: currentCut }));
+    expect(currentCut.getData("text/html")).toContain("Noto Serif JP");
+    expect(currentCut.getData("text/plain")).toBe("図");
+
+    paste(currentCut);
+
+    expect(pastedChildren()).toEqual([{ type: "text", text: "図", fontFamily: '"Noto Serif JP", serif', marks: ["bold"] }]);
+  });
+
   it("pastes a body copy as boxed math, not as its rendered glyphs", () => {
     editor.commands.focus("end");
 

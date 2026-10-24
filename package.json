@@ -1,6 +1,6 @@
 {
   "name": "sigma-studio-workspace",
-  "version": "0.525.0",
+  "version": "0.526.0",
   "private": true,
   "workspaces": [
     "apps/desktop",
@@ -68,6 +68,8 @@
     "typescript-compiler-api": "npm:typescript@5.9.3"
   },
   "overrides": {
+    "undici@^6": "^6.29.1",
+    "undici@^7": "^7.30.1",
     "postcss": "^8.5.28",
     "http-cache-semantics": "4.3.0",
     "@next/eslint-plugin-next": {

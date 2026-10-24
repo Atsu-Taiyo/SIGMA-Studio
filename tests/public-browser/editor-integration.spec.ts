@@ -5,6 +5,31 @@ import sampleDocument from "../../examples/editor-react19/src/sample-document.js
 
 const storageKey = "sigma-sdk-answer-share-document-v2";
 
+test("MathLive Tab exit commits the draft without a lifecycle error in the public Editor", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("/");
+  await page.getByRole("button", { name: "この教材を編集", exact: true }).click();
+  const paragraphId = "p_1e465f2e-5571-4cf8-88ad-818451b870b8";
+  const paragraph = page.locator(`[data-sigma-doc-id="${paragraphId}"]`).first();
+  await paragraph.click();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Control+m");
+  await page.keyboard.type("\\int");
+  await expect(paragraph.locator("math-field")).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(paragraph.locator("math-field")).toHaveCount(0);
+  const math = async () => {
+    const block = (await readSavedDocument(page))?.content.find(block => block.id === paragraphId);
+    return block?.type === "paragraph" ? block.children.find(run => run.type === "mathInline") : undefined;
+  };
+  await expect.poll(math).toMatchObject({ type: "mathInline", tex: "\\int" });
+  await page.reload();
+  await expect(paragraph.locator(".inline-math-node")).toBeVisible();
+  expect(await math()).toMatchObject({ type: "mathInline", tex: "\\int" });
+  expect(errors).toEqual([]);
+});
+
 test("Viewer display settings preserve SigmaDoc; edits survive host save and reload", async ({ page }, testInfo) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));

@@ -132,10 +132,13 @@ jobs:
             npm run test:e2e:electron -- \
               tests/electron/ai-svg-conversion.spec.ts \
               tests/electron/svg-to-sigma-double-arrows.spec.ts \
+              tests/electron/svg-small-circles.spec.ts tests/electron/svg-to-sigma-crop-arrows.spec.ts \
               tests/electron/open-document.spec.ts tests/electron/ipc-sender-security.spec.ts \
               tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts \
               tests/electron/math-ime-placeholder.spec.ts \
               tests/electron/math-selection-format.spec.ts \
+              tests/electron/font-format-roundtrip.spec.ts tests/electron/clipboard-routing.spec.ts \
+              tests/electron/math-shortcut-type-ahead.spec.ts \
               tests/electron/shared-missing-asset-repair.spec.ts \
               tests/electron/whiteboard-focus.spec.ts tests/electron/graph-crop.spec.ts \
               tests/electron/overlay-text-input-latency.spec.ts tests/electron/browser-sidebar.spec.ts \
@@ -150,6 +153,7 @@ jobs:
               tests/electron/small-shape-handles.spec.ts \
               tests/electron/ai-chat-merge-recovery.spec.ts tests/electron/shared-ai-read-merge.spec.ts \
               tests/electron/page-column-side-notes.spec.ts \
+              tests/electron/page-separators-text-box.spec.ts \
               tests/electron/shared-split-pane-save.spec.ts \
               tests/electron/shared-version-history.spec.ts \
               tests/electron/svg-to-sigma.spec.ts tests/electron/box-custom-frame.spec.ts \
@@ -169,7 +173,8 @@ jobs:
               tests/electron/selection-links.spec.ts tests/electron/workspace-body-search.spec.ts \
               tests/electron/comment-composer.spec.ts tests/electron/comment-profiles.spec.ts \
               tests/electron/list-items.spec.ts tests/electron/preferred-font.spec.ts \
-              tests/electron/running-region-resize.spec.ts tests/electron/new-document-page-setup.spec.ts
+              tests/electron/running-region-resize.spec.ts tests/electron/new-document-page-setup.spec.ts \
+              tests/electron/running-region-insertion-layout.spec.ts
           '
       - uses: actions/upload-artifact@v7
         if: failure()

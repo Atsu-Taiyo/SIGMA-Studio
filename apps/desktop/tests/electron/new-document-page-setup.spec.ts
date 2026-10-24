@@ -73,6 +73,7 @@ test("a new blank material starts with the page setup of the material opened bef
     await page.getByRole("button", { name: "新規教材", exact: true }).first().click();
     await expect.poll(async () => (await fileIds(page)).filter((id) => !before.has(id))).toHaveLength(1);
     const created = (await fileIds(page)).find((id) => !before.has(id))!;
+    await expect.poll(() => load(page, created)).toMatchObject({ pageLayout: inherited, metadata: { headingNumbering: { enabled: true, style: "chapterJa", depth: 2 } } });
     const createdDocument = await load(page, created);
     expect(createdDocument).toMatchObject({ pageLayout: inherited, metadata: { headingNumbering: { enabled: true, style: "chapterJa", depth: 2 } } });
     expect(createdDocument?.pageLayout?.overlay).toBeUndefined();

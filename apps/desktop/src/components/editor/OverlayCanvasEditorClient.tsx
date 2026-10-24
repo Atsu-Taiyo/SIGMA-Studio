@@ -216,6 +216,8 @@ interface OverlayCanvasEditorClientProps {
   canvasWidth: number;
   /** Height (unzoomed px) of the continuous overlay coordinate space (whole document). */
   canvasHeight: number;
+  /** Optional input area for insertion, in canvas coordinates; drawing coordinates stay unchanged. */
+  insertionBounds?: OverlayBounds;
   /** Extra overlay coordinate space rendered outside the page bounds. */
   bleedValues: { x: number; top: number };
   /** Width of the page content area used to fit newly inserted images. */
@@ -314,6 +316,7 @@ export default function OverlayCanvasEditorClient({
   overlay,
   canvasWidth,
   canvasHeight,
+  insertionBounds,
   bleedValues,
   imageInsertAreaWidth,
   imageInsertAreaHeight,
@@ -1752,6 +1755,13 @@ export default function OverlayCanvasEditorClient({
         ].filter(Boolean).join(" ")}
         data-overlay-insert-command={currentTool.kind === "insert" ? currentTool.command : undefined}
       >
+        {currentTool.kind === "insert" && insertionBounds && (
+          <div
+            className="overlay-insertion-surface"
+            aria-hidden="true"
+            style={{ left: insertionBounds.x, top: insertionBounds.y, width: insertionBounds.w, height: insertionBounds.h }}
+          />
+        )}
         <input
           ref={imageReplacementInputRef}
           type="file"

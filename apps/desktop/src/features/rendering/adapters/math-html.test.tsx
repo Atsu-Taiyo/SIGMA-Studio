@@ -39,6 +39,31 @@ const FORMULAS = [
 ];
 
 describe("static math rendering carries one typeset style", () => {
+  it.each([
+    ["Latin variables", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"],
+    ["Greek letters", String.raw`\alpha\beta\gamma\delta\epsilon\theta\lambda\mu\pi\rho\sigma\phi\omega\Gamma\Delta\Theta\Lambda\Pi\Sigma\Phi\Omega`],
+    ["digits and operators", String.raw`0123456789+ - = \times\div\pm\leq\geq\neq\infty`],
+    ["upright functions", String.raw`\sin x+\cos x+\tan x+\log x+\ln x+\lim_{x\to0}x`],
+    ["fractions, roots, and scripts", String.raw`\frac{x^2+a_1}{\sqrt{b}}+\sqrt[3]{y}+\left(\frac{p}{q}\right)`],
+    ["integrals and sums", String.raw`\int_0^{\pi}f(x)\mathrm{d}x+\sum_{k=1}^{n}k+\prod_{j=1}^{m}a_j`],
+    ["explicit typefaces", String.raw`\mathrm{d}\mathcal{F}\mathbb{R}\mathfrak{g}\mathsf{A}\mathtt{B}`],
+    ["matrices", String.raw`\begin{pmatrix}a&b\\c&d\end{pmatrix}`],
+  ])("bolds %s without changing glyphs, slant, or typefaces", (_label, body) => {
+    const plain = document.createElement("div");
+    const bold = document.createElement("div");
+    plain.innerHTML = renderMathHtml(body, DISPLAYSTYLE_ENVIRONMENT);
+    bold.innerHTML = renderMathHtml(`\\boldsymbol{${body}}`, DISPLAYSTYLE_ENVIRONMENT);
+    const glyphs = (root: HTMLElement) => Array.from(root.querySelectorAll("span"))
+      .filter((element) => element.childNodes.length === 1 && element.firstChild?.nodeType === Node.TEXT_NODE)
+      .map((element) => [element.textContent, element.className]);
+    expect(glyphs(bold)).toEqual(glyphs(plain));
+    expect(bold.querySelector('[style*="font-weight:bold"]')).not.toBeNull();
+  });
+
+  it("keeps explicit upright bold available", () => {
+    expect(renderMathHtml(String.raw`\mathbf{f}`, DISPLAYSTYLE_ENVIRONMENT)).toContain("ML__mathbf");
+  });
+
   it.each(FORMULAS)("is idempotent under an explicit displaystyle prefix for %s", (tex) => {
     expect(renderMathHtml(applyMathTypesetStyle(tex, "displaystyle"), DISPLAYSTYLE_ENVIRONMENT))
       .toBe(renderMathHtml(tex, DISPLAYSTYLE_ENVIRONMENT));

@@ -695,6 +695,8 @@ interface PageLayout {
     type: "columns";
     columnCount: number;
     columnGapMm: number;
+    columnRule?: { style: "none" | "solid" | "dashed" | "dotted" | "double"; widthPx: number; color: string };
+    pageColumnRules?: { page: number; rule: ColumnRule }[];
   };
   header?: PageRunningRegion;
   footer?: PageRunningRegion;
@@ -704,6 +706,8 @@ interface PageLayout {
 ```
 
 `normalizePageLayout` の既定値は次の通りです。
+
+`flow.columnRule` は全ページ共通の段間の線です。`flow.pageColumnRules` は1始まりのページ番号ごとの上書きで、指定のないページは共通設定を使います。`style: "none"` でそのページの線を消せます。ページ上の右クリックはそのページだけを変え、ページ設定の線の変更は上書きを解除して全ページに適用します。
 
 | field | default |
 | --- | --- |
@@ -1087,6 +1091,13 @@ type OverlayLineShape = OverlayBaseShape<"line", {
 
 ```ts
 type OverlayTextShape = OverlayBaseShape<"text", {
+  fill?: "none" | "solid";
+  fillColor?: string;
+  fillOpacity?: number;
+  strokeColor?: string;
+  strokeOpacity?: number;
+  dash?: "solid" | "dashed" | "dotted";
+  strokeWidth?: "xs" | "s" | "m" | "l" | "xl";
   w: number;
   h: number;
   blocks: OverlayTextBlock[];
@@ -1097,6 +1108,7 @@ type OverlayTextShape = OverlayBaseShape<"text", {
 ```
 
 `text` shapeは自由配置の注釈用です。通常の説明文、問題文、解答、見出しをoverlay textに逃がさないでください。それらは本文の `heading` / `paragraph` / `problem` に保存します。
+`fill` と枠線は省略時には透明です。枠線の `strokeColor` / `strokeWidth` は文字の `color` / `size` と独立し、折り返し幅・文字の実測高さを変えません。枠線は `dash` を指定すると表示し、`strokeOpacity: 0` で非表示にできます。
 `w` は著者が決める幅で、テキストはこの幅で折り返します。図形をリサイズしても変わるのは `w` だけで、フォントサイズは変わりません。`h` は折り返した内容の実測高さを保持する派生キャッシュで、直接編集しません。
 
 ```ts
