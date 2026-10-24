@@ -59,6 +59,11 @@ async function insertGraph(page: Page) {
   await page.mouse.up();
   const graph = page.locator(".graph-shape").first();
   await expect(graph).toBeVisible();
+  // Finish the insertion's origin pick before another click opens crop mode.
+  // Otherwise its delayed viewBox update can race the crop's undo baseline.
+  const inserted = (await graph.boundingBox())!;
+  await page.mouse.click(inserted.x + inserted.width / 2, inserted.y + inserted.height / 2);
+  await expect(page.locator(".overlay-canvas-editor.origin-picking")).toHaveCount(0);
   // 挿入が文書へ保存されるまで待つ (読み出しのたびに保存待ちを流している)。
   await expect.poll(() => readSaved(page)).not.toBeNull();
   return graph;
