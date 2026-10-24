@@ -55,7 +55,8 @@
   font-weight: 650;
 }
 
-.field input {
+.field input,
+.field select {
   width: 100%;
   min-height: 34px;
   padding: 6px 8px;
@@ -63,6 +64,16 @@
   border-radius: var(--radius-control);
   background: var(--background);
   color: var(--text-primary);
+}
+
+.layoutDetails summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.layoutDetails[open] > div {
+  margin-top: var(--space-md);
 }
 
 .frameGrid {

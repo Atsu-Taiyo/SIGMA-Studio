@@ -29,6 +29,11 @@ export const INLINE_MATH_FRAME_CLASS_NAME = "inline-math-node";
 export const INLINE_MATH_NODE_VIEW_ATTRIBUTE = "data-inline-math-node-view";
 export const INLINE_MATH_BODY_CLASS_NAME = "math-preview";
 
+/** A height-only rule has zero advance; its editing hit area must not add width. */
+export function isZeroWidthMathRule(tex: string): boolean {
+  return /^\s*\\rule(?:\[[-+\d.]+(?:em|ex|pt|px|mm|cm|mu)?\])?\{\s*\+?0(?:\.0+)?(?:em|ex|pt|px|mm|cm|mu)?\s*\}\{[-+\d.]+(?:em|ex|pt|px|mm|cm|mu)?\}\s*$/.test(tex);
+}
+
 export interface InlineMathFrameStateOptions {
   className?: string;
   displayMode?: boolean;
@@ -67,6 +72,7 @@ export function inlineMathNodeDataAttributes({ id, tex, title = tex }: InlineMat
     "data-sigma-doc-math-inline": "",
     ...(id ? { "data-id": id } : {}),
     "data-tex": tex,
+    ...(isZeroWidthMathRule(tex) ? { "data-zero-width-math-rule": "" } : {}),
     title,
   };
 }

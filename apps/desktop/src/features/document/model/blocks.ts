@@ -212,6 +212,13 @@ export type ProblemAreaColumnSpan = "column" | "full";
 
 export interface ProblemAreaLayout {
   minHeightMm?: number;
+  /** Explicit content insets; editor hit areas do not add space inside these insets. */
+  paddingPx?: { top: number; right: number; bottom: number; left: number };
+  marginTopPx?: number;
+  marginBottomPx?: number;
+  /** Optional area width, capped at the available column width. */
+  widthMm?: number;
+  offsetXPx?: number;
   columnSpan?: ProblemAreaColumnSpan;
   /**
    * 導入文 (`lead`) の行を出さない。導入文は番号の右隣の1行で、ふだんは空でも常に描く。これを立てると、
@@ -226,6 +233,21 @@ export interface ProblemNumbering {
   enabled?: boolean;
   fontSize?: number;
   value?: number;
+  fontFamily?: string;
+  fontWeight?: number;
+  format?: "decimal" | "fullwidth";
+  widthPx?: number;
+  heightPx?: number;
+  gapPx?: number;
+  borderWidthPx?: number;
+  borderRadiusPx?: number;
+  borderStyle?: "solid" | "double" | "none";
+  outlineWidthPx?: number;
+  outlineOffsetPx?: number;
+  textOffsetXPx?: number;
+  textOffsetYPx?: number;
+  offsetXPx?: number;
+  offsetYPx?: number;
 }
 
 export interface ProblemFrame {
@@ -233,6 +255,8 @@ export interface ProblemFrame {
   /** Built-in style id, or `"custom"` when `custom` carries the user's own drawing. */
   styleId?: string;
   custom?: CustomFrame;
+  borderWidthPx?: number;
+  borderRadiusPx?: number;
 }
 
 /**

@@ -981,7 +981,7 @@ export function paginateMeasuredPrintBlocks(
     };
 
     const frameChromeHeightPxForRole = (role: ProblemFrameFragmentRole) => unit.hasFrame
-      ? getPrintProblemFrameFragmentChromeHeightMm(unit.frameStyleId, role, unit.frameCustom) * MM_TO_PX
+      ? getPrintProblemFrameFragmentChromeHeightMm(unit.frameStyleId, role, unit.frameCustom, unit.areaLayout, unit.frame) * MM_TO_PX
       : 0;
     if (
       unit.isFirstProblemArea
@@ -1026,6 +1026,9 @@ export function paginateMeasuredPrintBlocks(
         minHeightMm: undefined,
         problemNumber: unit.problemNumber,
         numberFontSize: unit.numberFontSize,
+        numbering: unit.numbering,
+        areaLayout: unit.areaLayout,
+        frame: unit.frame,
         hasFrame: unit.hasFrame,
         frameStyleId: unit.frameStyleId,
         frameCustom: unit.frameCustom,

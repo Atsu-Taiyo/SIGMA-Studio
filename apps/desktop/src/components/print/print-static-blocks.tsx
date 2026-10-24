@@ -8,6 +8,13 @@ import { useHeadingNumber } from "@/components/editor/text-flow/HeadingNumbering
 import {
   blockSpaceAfterStyleVars,
   PROBLEM_AREA_ORDER,
+  getProblemNumberLayoutStyle,
+  getProblemAreaLayoutStyle,
+  getProblemFrameLayoutStyle,
+  formatProblemNumberLabel,
+  type ProblemNumbering,
+  type ProblemAreaLayout,
+  type ProblemFrame,
   type BoxBlockChildBlock,
   type PaginationHints,
   type ProblemAreaBlock,
@@ -30,7 +37,6 @@ import {
   cornerBoxReferenceHeightStyleVars,
   resolveBoxFrame,
 } from "@/lib/box-blocks";
-import { formatProblemNumber } from "@/lib/problem-numbering";
 import {
   getProblemCustomFrame,
   getProblemFrameStyleId,
@@ -88,6 +94,9 @@ export type PrintContentUnit =
       minHeightMm?: number;
       problemNumber?: number;
       numberFontSize: number;
+      numbering?: ProblemNumbering;
+      areaLayout?: ProblemAreaLayout;
+      frame?: ProblemFrame;
       hasFrame: boolean;
       frameStyleId?: string;
       frameCustom?: CustomFrame;
@@ -112,6 +121,9 @@ export type PrintContentUnit =
       minHeightMm?: number;
       problemNumber?: number;
       numberFontSize: number;
+      numbering?: ProblemNumbering;
+      areaLayout?: ProblemAreaLayout;
+      frame?: ProblemFrame;
       hasFrame: boolean;
       frameStyleId?: string;
       frameCustom?: CustomFrame;
@@ -158,6 +170,9 @@ export function buildProblemAreaPrintUnits(
     minHeightMm: areaUnit.minHeightMm,
     problemNumber,
     numberFontSize: getProblemNumberFontSize(problem),
+    numbering: problem.numbering,
+    areaLayout: problem.areaLayout?.[areaUnit.area],
+    frame: problem.frame,
     hasFrame: problem.frame?.enabled === true && isProblemFrameArea(areaUnit.area),
     frameStyleId: problem.frame?.enabled === true && isProblemFrameArea(areaUnit.area)
       ? getProblemFrameStyleId(problem)
@@ -209,6 +224,9 @@ export function PrintBlock({
         minHeightMm={unit.minHeightMm}
         problemNumber={unit.problemNumber}
         numberFontSize={unit.numberFontSize}
+        numbering={unit.numbering}
+        areaLayout={unit.areaLayout}
+        frame={unit.frame}
         hasFrame={unit.hasFrame}
         frameStyleId={unit.frameStyleId}
         frameCustom={unit.frameCustom}
@@ -480,6 +498,9 @@ export function PrintProblemArea({
   minHeightMm,
   problemNumber,
   numberFontSize,
+  numbering,
+  areaLayout,
+  frame,
   hasFrame,
   frameStyleId,
   frameCustom,
@@ -501,6 +522,9 @@ export function PrintProblemArea({
   minHeightMm?: number;
   problemNumber?: number;
   numberFontSize: number;
+  numbering?: ProblemNumbering;
+  areaLayout?: ProblemAreaLayout;
+  frame?: ProblemFrame;
   hasFrame: boolean;
   frameStyleId?: string;
   frameCustom?: CustomFrame;
@@ -520,9 +544,16 @@ export function PrintProblemArea({
   const showEmptyLeadPlaceholder = showNumber && blocks.length === 0;
   const frameClasses = hasFrame ? problemFrameClassName("print-problem-area with-frame", frameStyleId) : "print-problem-area";
   const fragmentClasses = fragmentRole ? ` print-problem-area-fragment print-problem-area-fragment-${fragmentRole}` : "";
-  const printFrameStyle: CSSProperties | undefined = hasFrame && frameCustom
+  const baseFrameStyle: CSSProperties | undefined = hasFrame && frameCustom
     ? { ...(minHeightMm ? { minHeight: `${minHeightMm}mm` } : {}), ...getCustomFrameStyle(frameCustom, "mm") }
     : minHeightMm ? { minHeight: `${minHeightMm}mm` } : undefined;
+  const printFrameStyle = {
+    ...baseFrameStyle,
+    ...getProblemAreaLayoutStyle(areaLayout),
+    ...getProblemFrameLayoutStyle(hasFrame ? frame : undefined),
+    ...getProblemNumberLayoutStyle(numbering),
+    ...(areaLayout?.paddingPx && !isFirstFragment ? { paddingTop: 0 } : {}),
+  } as CSSProperties;
   const reservationClass = blocks.length === 0 && !layoutSectionFragment && minHeightMm
     ? " print-problem-area-reservation-only"
     : "";
@@ -535,10 +566,11 @@ export function PrintProblemArea({
       data-problem-area-fragment={fragmentRole}
       data-problem-source-id={sourceId}
       data-problem-frame-style={hasFrame ? frameStyleId : undefined}
+      data-problem-padding={areaLayout?.paddingPx ? "explicit" : undefined}
       style={printFrameStyle}
     >
       <div className={`print-problem-area-content ${showNumber ? "with-number" : ""}`}>
-        {showNumber && <span className="print-problem-number" style={{ fontSize: `${numberFontSize}pt` }}>{formatProblemNumber(problemNumber)}</span>}
+        {showNumber && <span className="print-problem-number" style={{ fontSize: `${numberFontSize}pt` }}>{formatProblemNumberLabel(problemNumber, numbering)}</span>}
         <div className={`print-problem-area-body ${showEmptyLeadPlaceholder ? "empty-lead-placeholder" : ""}`}>
           {showEmptyLeadPlaceholder ? (
             <div className="print-empty-lead-shell" aria-hidden="true" />
