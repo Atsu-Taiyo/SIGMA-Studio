@@ -2,11 +2,10 @@ import type { OverlayAsset, OverlayShape, SigmaBlock } from "@/features/document
 import {
   cloneDocumentBlocksForPaste,
   cloneTextFlowBlocksForPaste,
-  EDITOR_CLIPBOARD_MIME,
-  parseEditorClipboardHtml,
-  parseEditorClipboardPayload,
   type EditorClipboardPayload,
 } from "@/lib/editor-clipboard";
+
+import { readPocketClipboardPayload } from "./pocket-content";
 
 /**
  * ポケットの項目をカードに描くための、中身の要約。
@@ -41,13 +40,6 @@ export type PocketPreview =
 export const POCKET_PLAIN_TEXT_MIME = "text/plain";
 export const POCKET_HTML_MIME = "text/html";
 
-function readPayload(bag: Readonly<Record<string, string>>): EditorClipboardPayload | null {
-  // 独自 MIME を受け付けない貼り付け経路でも読めるよう、HTML に埋めた payload を第二候補にする
-  // (`readEditorClipboardPayload` と同じ順序)。
-  return parseEditorClipboardPayload(bag[EDITOR_CLIPBOARD_MIME] ?? "")
-    ?? parseEditorClipboardHtml(bag[POCKET_HTML_MIME] ?? "");
-}
-
 /** 空白を畳んだ 1 行。カードの読み上げ名と検索に使う。 */
 export function collapseWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -60,9 +52,10 @@ export function collapseWhitespace(text: string): string {
  * プレーンテキストを見る。書式のあるテキストは payload 側に載っているので、HTML は
  * 描画に使わない。
  */
-export function derivePocketPreview(bag: Readonly<Record<string, string>>): PocketPreview | null {
-  const payload = readPayload(bag);
-
+export function derivePocketPreview(
+  bag: Readonly<Record<string, string>>,
+  payload: EditorClipboardPayload | null = readPocketClipboardPayload(bag),
+): PocketPreview | null {
   if (payload?.kind === "inlineMath") {
     return payload.tex.trim() ? { kind: "math", tex: payload.tex } : null;
   }

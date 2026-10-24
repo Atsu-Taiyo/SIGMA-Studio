@@ -11,6 +11,7 @@ import {
   isPocketDrag,
   registerPocketPageHost,
   type PocketItem,
+  type PocketDropLocation,
   type PocketPagePoint,
   type PocketScreenRect,
 } from "@/features/pocket";
@@ -49,6 +50,8 @@ export function measureSelectionRect(): PocketScreenRect | null {
 }
 
 interface PocketPageHostPorts {
+  ownsInput: () => boolean;
+  ownsDropLocation: (location: PocketDropLocation) => boolean;
   /** 本文を持たない紙面 (ホワイトボード) か。本文のコピーを貼る場所が無いので、図形として置く。 */
   bodyless: boolean;
   /** 置き場所を指定しない挿入 (クリック) の置き場所。紙面の見えている範囲の中央。無ければ null。 */
@@ -61,7 +64,7 @@ interface PocketPageHostPorts {
  *
  * 置くのは次の 2 つ。それ以外 (紙の本文へ貼るもの) は false を返し、ポケットが本文のキャレットへ
  * 通常の貼り付けと同じ経路で入れる。
- * - 図形だけの項目を、落とされた場所へ (場所の指定が無いクリックは ⌘V と同じ位置に任せる)。
+ * - 図形だけの項目を、落とされた場所へ (場所の指定が無いクリックは通常の図形の貼り付け位置)。
  * - ホワイトボードでは本文のコピー (文章・ブロック・数式) も、文章の図形 (オーバーレイ) として。
  */
 export function usePocketPageHost(ports: PocketPageHostPorts): void {
@@ -71,23 +74,27 @@ export function usePocketPageHost(ports: PocketPageHostPorts): void {
   }, [ports]);
 
   useEffect(() => registerPocketPageHost({
+    ownsInput: () => portsRef.current.ownsInput(),
+    ownsDropLocation: location => portsRef.current.ownsDropLocation(location),
     placeOnPage: (item: PocketItem, point: PocketPagePoint | null): boolean => {
       const { bodyless, getViewportCenter, requestOverlayAction } = portsRef.current;
-      const shapesOnly = item.preview.kind === "shapes";
-      if (shapesOnly ? point === null : !bodyless) {
+      const shapesOnly = item.transferTarget === "page";
+      if (!shapesOnly && !bodyless) {
         return false;
       }
       const payload = createOverlayPayloadFromClipboard(item.clip);
-      const centerAt = point ?? getViewportCenter();
-      if (!payload || !centerAt) {
+      const centerAt = point ?? (shapesOnly ? null : getViewportCenter());
+      if (!payload || (!shapesOnly && !centerAt)) {
         return false;
       }
       // ホワイトボードは、パンで原点より左上 (負の座標) も見える。見えている場所へ置いたものを紙の範囲へ
       // 押し戻すと画面の外へ出るので、ホワイトボードでは押し戻さない (紙の上へ落としたときは従来どおり)。
+      // クリックも紙面の明示的な操作へ渡す。合成 paste では、表セル・図中文字の編集中に
+      // 残る isFocused によって window の受け手が辞退し、オブジェクトを挿入できなくなる。
       requestOverlayAction({
         type: "pasteShapes",
         payload,
-        centerAt: { x: centerAt.x, y: centerAt.y },
+        ...(centerAt ? { centerAt: { x: centerAt.x, y: centerAt.y } } : {}),
         unbounded: bodyless,
       });
       return true;
