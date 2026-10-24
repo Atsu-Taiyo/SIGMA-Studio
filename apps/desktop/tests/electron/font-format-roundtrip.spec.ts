@@ -128,6 +128,7 @@ test("bold math keeps its face and copied body/figure fonts survive paste and re
     await expect(liveGlyph).toHaveCSS("font-family", "KaTeX_Math");
     await expect(liveGlyph).toHaveCSS("font-style", "italic");
     await expect(liveGlyph).toHaveCSS("font-weight", "700");
+    await expect(figure.locator("math-field")).toBeFocused();
     await page.keyboard.press("End");
     await page.keyboard.type("+x");
     await expect(figure.locator("math-field")).toHaveJSProperty("value", "f+x");
@@ -148,7 +149,20 @@ test("bold math keeps its face and copied body/figure fonts survive paste and re
     // Also copy the whole figure, which takes a different clipboard path from its text.
     await grabShapeFromBody(page, figure);
     await page.keyboard.press("ControlOrMeta+c");
+    await expect.poll(async () => {
+      const html = await app.evaluate(async ({ clipboard }) => {
+        const item = (await clipboard.read()).find(item => item.types.includes("text/html"));
+        return item ? (await item.getType("text/html")).text() : "";
+      });
+      return page.evaluate(html => {
+        const raw = new DOMParser().parseFromString(html, "text/html").querySelector("[data-sigma-studio-payload]")?.getAttribute("data-sigma-studio-payload");
+        const payload = raw ? JSON.parse(raw) as { kind?: string; shapes?: { id?: string }[] } : null;
+        return payload?.kind === "overlayShapes" && payload.shapes?.some(shape => shape.id === "font_figure") === true;
+      }, html);
+    }).toBe(true);
     await page.locator(`[data-tab-id="document:${ids[1]}"]`).getByRole("tab").click();
+    await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible();
+    await page.locator(".page-flow .ProseMirror").first().click();
     await page.keyboard.press("ControlOrMeta+v");
     const pastedFigure = () => page.evaluate(async id => {
       const document = await window.desktopAPI!.storage.loadDocument(id);
