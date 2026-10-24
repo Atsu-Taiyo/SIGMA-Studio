@@ -7,6 +7,7 @@ import {
   getShapeRotation,
   getShapesSelectionBounds,
   getShapesSnapSourcePoints,
+  isOverlayMoveClick,
   mergeShapesById,
   resizeRotatedShapeToBounds,
   resizeRotatedShapeToVisualBounds,
@@ -88,6 +89,15 @@ export function useOverlayPointerTransforms({
     interaction: Extract<OverlayInteractionMode, { id: "overlay.move" }>,
     point: OverlayPoint,
   ) => {
+    // Selection jitter must not enter snapping, even when a sibling is only a few pixels away.
+    // Clear a previous preview too when the pointer returns to the click area.
+    if (isOverlayMoveClick(interaction, point)) {
+      clearSnapGuides();
+      if (interaction.offset) {
+        transitionMode({ type: "updateMove", offset: { x: 0, y: 0 } });
+      }
+      return;
+    }
     const dx = point.x - interaction.start.x;
     const dy = point.y - interaction.start.y;
     const movedIdSet = new Set(interaction.shapes.map((shape) => shape.id));

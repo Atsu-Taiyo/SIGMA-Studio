@@ -59,6 +59,7 @@ export function inheritGroupAnchorsForMembers(
   shapes: OverlayShape[],
   blocks: readonly MeasuredBlock[] | ReadonlyMap<string, MeasuredBlock>,
   reserveSpaceGaps: OverlayBlockGapMap = {},
+  options: { onlyUnanchored?: boolean } = {},
 ): OverlayShape[] {
   const groupIds = getGroupIds(shapes);
   if (groupIds.size === 0) {
@@ -85,7 +86,9 @@ export function inheritGroupAnchorsForMembers(
     visited.add(group.id);
 
     for (const member of membersByGroupId.get(group.id) ?? []) {
-      const anchor = getInheritedMemberAnchor(member, group.anchor, blockById, reserveSpaceGaps);
+      const anchor = options.onlyUnanchored && member.anchor !== undefined
+        ? null
+        : getInheritedMemberAnchor(member, group.anchor, blockById, reserveSpaceGaps);
       const next = anchor && !areOverlayAnchorsEqual(member.anchor, anchor)
         ? { ...member, anchor } as OverlayShape
         : member;
@@ -390,6 +393,10 @@ export function attachUnanchoredShapesToMeasuredBlocks(
   return keepPreservedShapes(shapes, resolveShapeAnchorPositions(inheritGroupAnchorsForMembers(
     changed ? next : shapes,
     orderedBlocks,
+    {},
+    // Automatic repair must not rebind existing members using their cached save coordinates.
+    // Their explicit anchors already determine where the reading view draws them after reflow.
+    { onlyUnanchored: true },
   )), preservedShapeIds);
 }
 
