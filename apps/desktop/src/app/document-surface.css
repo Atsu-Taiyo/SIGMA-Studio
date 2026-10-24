@@ -2101,6 +2101,17 @@ li[data-list-marker-typography]::marker {
   margin: 2px 0;
 }
 
+/* Explicit area insets include the first and last paragraph's edge spacing. */
+[data-problem-padding="explicit"] :is(.text-flow-editor, .print-problem-area-body) > :first-child,
+.sigma-doc-nested-problem-area[data-problem-padding="explicit"] > :first-child {
+  margin-top: 0;
+}
+
+[data-problem-padding="explicit"] :is(.text-flow-editor, .print-problem-area-body) > :last-child,
+.sigma-doc-nested-problem-area[data-problem-padding="explicit"] > :last-child {
+  margin-bottom: 0;
+}
+
 /* spaceAfterPxは共有custom propertyからpaddingとして読み、ページ計測にも含める。
    図中テキスト (.overlay-text-shape-content) も同じ規則: 編集面と静的描画がこの1枚を読む。 */
 .text-flow-editor :is(p, h1, h2, h3, ul, ol, hr),
