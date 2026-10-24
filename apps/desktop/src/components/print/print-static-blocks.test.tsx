@@ -69,3 +69,17 @@ describe("buildProblemAreaPrintUnits with the lead line turned off", () => {
     expect(render(units[0]!)).not.toContain("print-problem-number");
   });
 });
+
+describe("explicit area gaps on split output", () => {
+  it("keeps outer spacing at the first and last fragment only", () => {
+    const p = problem();
+    for (const [role, top, bottom] of [["first", 6, 0], ["middle", 0, 0], ["last", 0, 8]] as const) {
+      const html = renderToStaticMarkup(<PrintProblemArea problemId={p.id} area="prompt" blocks={p.prompt}
+        areaLayout={{ marginTopPx: 6, marginBottomPx: 8 }} numberFontSize={18} hasFrame={false}
+        isFirstProblemArea={false} isFirstProblemFrameArea={false} isLastProblemFrameArea={false}
+        columnGapMm={0} fragmentRole={role} />);
+      expect(html).toContain(`margin-top:${top}${top ? "px" : ""}`);
+      expect(html).toContain(`margin-bottom:${bottom}${bottom ? "px" : ""}`);
+    }
+  });
+});

@@ -690,6 +690,44 @@ test("枠付き問題エリアが、同じページの同じ位置に出る", as
   ]);
 });
 
+test("番号の寸法と明示した問題余白を編集面とPDF面で共有する", async ({ page }) => {
+  test.setTimeout(120_000);
+  const document = documentWith([{
+    type: "problem", id: "dimension_problem", tags: [],
+    numbering: { value: 12, fontSize: 10, format: "fullwidth", widthPx: 22, heightPx: 20, gapPx: 3, borderWidthPx: 0.5, borderRadiusPx: 0 },
+    frame: { enabled: true, borderWidthPx: 0.5, borderRadiusPx: 0 },
+    areaLayout: {
+      lead: { paddingPx: { top: 0, right: 0, bottom: 0, left: 0 }, marginTopPx: 0, marginBottomPx: 0 },
+      prompt: { widthMm: 66, paddingPx: { top: 1.5, right: 3, bottom: 2.5, left: 4 }, marginTopPx: 0, marginBottomPx: 0 },
+    },
+    lead: paragraphs("dimension_lead", 1), prompt: paragraphs("dimension_prompt", 12),
+    solution: paragraphs("dimension_solution", 4), hints: [],
+  }]);
+  document.metadata.styleUnits = { fontSize: "pt" };
+  await runParity(page, document, ["dimension_lead_1", ...Array.from({ length: 12 }, (_, i) => `dimension_prompt_${i + 1}`), ...Array.from({ length: 4 }, (_, i) => `dimension_solution_${i + 1}`)]);
+});
+
+test("問題の横位置補正は2段組の移動量に加算する", async ({ page }) => {
+  test.setTimeout(120_000);
+  const document = documentWith([1, 2].map(i => ({
+    type: "problem" as const, id: `offset_problem_${i}`, tags: [],
+    ...(i === 2 ? { pagination: { break: true } } : {}),
+    numbering: { enabled: false }, frame: { enabled: true, borderWidthPx: 0.5 },
+    areaLayout: { lead: { hidden: true }, prompt: { widthMm: 66, offsetXPx: 0.75,
+      paddingPx: { top: 0, right: 0, bottom: 0, left: 0 }, marginTopPx: 0, marginBottomPx: 0 } },
+    lead: [], prompt: [{ type: "paragraph" as const, id: `offset_body_${i}`, children: [
+      { type: "text" as const, text: "段組みの問題文" },
+      { type: "mathInline" as const, id: `offset_rule_${i}`, tex: "\\rule[-0.2em]{0em}{1em}", display: "inline" as const },
+    ] }], hints: [], solution: [],
+  })), { columnCount: 2, pageLayout: { pageSize: { widthMm: 180, heightMm: 100 } } });
+  await openEditor(page, document);
+  const editor = await editorGeometry(page);
+  expect(editor.offset_body_2[0].x - editor.offset_body_1[0].x).toBeGreaterThan(200);
+  await expect(page.locator('.inline-math-node[data-id="offset_rule_2"]')).toHaveCSS("margin-left", "0px");
+  await openPaged(page, document);
+  expectParity(editor, await settledPagedGeometry(page), ["offset_body_1", "offset_body_2"]);
+});
+
 test("確保高さ付き解答エリア先頭の改ページを編集面とPDF面で守る", async ({ page }) => {
   test.setTimeout(120_000);
   const document = documentWith([

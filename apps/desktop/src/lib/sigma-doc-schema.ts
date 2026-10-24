@@ -41,6 +41,7 @@ import {
   MAX_CUSTOM_FRAME_SVG_LENGTH,
 } from "@/features/document/custom-frame";
 import { validateMathTex } from "@/lib/math-tex";
+import { isSafeCssFontFamily } from "@/features/document/css-safety";
 
 const te = createCurrentLocaleTranslator("error");
 
@@ -480,6 +481,11 @@ const LayoutSectionChildBlockSchema: z.ZodType<LayoutSectionChildBlock> = z.lazy
 
 const ProblemAreaLayoutSchema = z.object({
   minHeightMm: z.number().nonnegative().optional(),
+  paddingPx: z.object({ top: z.number().min(0).max(256), right: z.number().min(0).max(256), bottom: z.number().min(0).max(256), left: z.number().min(0).max(256) }).optional(),
+  marginTopPx: z.number().min(0).max(400).optional(),
+  marginBottomPx: z.number().min(0).max(400).optional(),
+  widthMm: z.number().positive().max(1000).optional(),
+  offsetXPx: z.number().min(-256).max(256).optional(),
   columnSpan: z.enum(["column", "full"]).optional(),
 });
 
@@ -518,6 +524,21 @@ const ProblemNodeSchema = BaseNodeSchema.extend({
       enabled: z.boolean().optional(),
       fontSize: z.number().positive().optional(),
       value: z.number().int().positive().optional(),
+      fontFamily: z.string().refine(isSafeCssFontFamily).optional(),
+      fontWeight: z.number().int().min(100).max(900).optional(),
+      format: z.enum(["decimal", "fullwidth"]).optional(),
+      widthPx: z.number().positive().max(256).optional(),
+      heightPx: z.number().positive().max(256).optional(),
+      gapPx: z.number().min(0).max(256).optional(),
+      borderWidthPx: z.number().min(0).max(24).optional(),
+      borderRadiusPx: z.number().min(0).max(128).optional(),
+      borderStyle: z.enum(["solid", "double", "none"]).optional(),
+      outlineWidthPx: z.number().min(0).max(24).optional(),
+      outlineOffsetPx: z.number().min(0).max(128).optional(),
+      textOffsetXPx: z.number().min(-128).max(128).optional(),
+      textOffsetYPx: z.number().min(-128).max(128).optional(),
+      offsetXPx: z.number().min(-256).max(256).optional(),
+      offsetYPx: z.number().min(-256).max(256).optional(),
     })
     .optional(),
   frame: z
@@ -525,6 +546,8 @@ const ProblemNodeSchema = BaseNodeSchema.extend({
       enabled: z.boolean().optional(),
       styleId: z.string().min(1).optional(),
       custom: CustomFrameSchema.optional(),
+      borderWidthPx: z.number().min(0).max(24).optional(),
+      borderRadiusPx: z.number().min(0).max(128).optional(),
     })
     .optional(),
 });

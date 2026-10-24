@@ -49,6 +49,16 @@ function staticMathHtml(tex: string, id: string): string {
 const TEST_MATH_ENVIRONMENT = DEFAULT_MATH_RENDER_ENVIRONMENT;
 
 describe("inline math frame", () => {
+  it("keeps a height-only rule zero-width on every surface and clears that state when edited", () => {
+    const tex = String.raw`\rule[-0.2em]{0em}{1em}`;
+    const frame = createInlineMathFrameElement(tex, { id: "height_rule", environment: TEST_MATH_ENVIRONMENT });
+    expect(frame.hasAttribute("data-zero-width-math-rule")).toBe(true);
+    expect(staticMathHtml(tex, "height_rule")).toContain('data-zero-width-math-rule=""');
+    const body = frame.firstElementChild as HTMLElement;
+    setInlineMathBodyTex(body, "x", { environment: TEST_MATH_ENVIRONMENT });
+    expect(frame.hasAttribute("data-zero-width-math-rule")).toBe(false);
+    expect(createInlineMathFrameElement(String.raw`\rule{1em}{1em}`, { environment: TEST_MATH_ENVIRONMENT }).hasAttribute("data-zero-width-math-rule")).toBe(false);
+  });
   it("gives the node view the same element the static renderer describes", () => {
     const tex = String.raw`\frac{1}{2}`;
     const frame = createInlineMathFrameElement(tex, { id: "m1", environment: TEST_MATH_ENVIRONMENT });

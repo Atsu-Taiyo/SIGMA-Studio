@@ -149,6 +149,7 @@ jobs:
               tests/electron/shared-lazy-open.spec.ts \
               tests/electron/profile-avatar-crop.spec.ts \
               tests/electron/problem-display.spec.ts tests/electron/problem-lead-line.spec.ts \
+              tests/electron/problem-layout.spec.ts \
               tests/electron/whiteboard-image-save.spec.ts \
               tests/electron/small-shape-handles.spec.ts \
               tests/electron/ai-chat-merge-recovery.spec.ts tests/electron/shared-ai-read-merge.spec.ts \
