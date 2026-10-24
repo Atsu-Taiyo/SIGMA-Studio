@@ -34,8 +34,7 @@ export function getProblemAreaLayoutStyle(layout: ProblemAreaLayout | undefined,
     if (finite(layout[key], 0, 400)) style[key === "marginTopPx" ? "marginTop" : "marginBottom"] = `${layout[key]}px`;
   }
   if (finite(layout.widthMm, 0.01, 1000)) {
-    style.width = `${layout.widthMm}mm`;
-    style.maxWidth = "100%";
+    style.width = `min(${layout.widthMm}mm, 100%)`;
   }
   if (finite(layout.offsetXPx, -256, 256)) {
     const base = typeof baseLeft === "number" ? `${baseLeft}px` : baseLeft;

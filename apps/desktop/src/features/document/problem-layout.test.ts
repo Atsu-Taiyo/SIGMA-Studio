@@ -17,7 +17,7 @@ describe("problem dimensions", () => {
     expect(restored).toEqual(problem);
     expect(formatProblemNumberLabel(12, restored.numbering)).toBe("１２");
     expect(getProblemNumberLayoutStyle(restored.numbering)).toMatchObject({ "--problem-number-width": "20.5px", "--problem-number-gap": "2px", "--problem-number-border-width": "0.5px" });
-    expect(getProblemAreaLayoutStyle(restored.areaLayout?.prompt)).toMatchObject({ paddingTop: "0px", paddingLeft: "2px", marginTop: "0px", width: "80mm" });
+    expect(getProblemAreaLayoutStyle(restored.areaLayout?.prompt)).toMatchObject({ paddingTop: "0px", paddingLeft: "2px", marginTop: "0px", width: "min(80mm, 100%)" });
     expect(getProblemFrameLayoutStyle(restored.frame)).toMatchObject({ "--problem-frame-border-width": "0.5px" });
   });
   it("does not add overrides to older files", () => {

@@ -1541,7 +1541,6 @@ li[data-list-marker-typography]::marker {
   margin: 0;
 }
 
-.problem-area-flow-unit,
 .print-problem-area {
   --problem-number-font-family: initial;
   --problem-number-font-weight: initial;

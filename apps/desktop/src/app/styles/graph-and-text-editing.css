@@ -1220,6 +1220,26 @@
   box-shadow: none;
 }
 
+.problem-area-flow-unit {
+  --problem-number-font-family: initial;
+  --problem-number-font-weight: initial;
+  --problem-number-width: initial;
+  --problem-number-height: initial;
+  --problem-number-gap: initial;
+  --problem-number-border-width: initial;
+  --problem-number-border-radius: initial;
+  --problem-number-border-style: initial;
+  --problem-number-padding-x: initial;
+  --problem-number-offset-x: initial;
+  --problem-number-offset-y: initial;
+  --problem-number-outline-width: initial;
+  --problem-number-outline-offset: initial;
+  --problem-number-text-offset-x: initial;
+  --problem-number-text-offset-y: initial;
+  --problem-frame-border-width: initial;
+  --problem-frame-border-radius: initial;
+}
+
 .problem-area-flow-unit,
 .layout-section-flow-unit {
   position: relative;
