@@ -537,6 +537,7 @@ export function PrintProblemArea({
   sourceId?: string;
 }) {
   const isFirstFragment = !fragmentRole || fragmentRole === "single" || fragmentRole === "first";
+  const isLastFragment = !fragmentRole || fragmentRole === "single" || fragmentRole === "last";
   // 番号は問題の先頭の領域に付く。ふだんは導入文だが、導入文の行を出さない設定では問題文が持つ。
   const showNumber = isFirstProblemArea && typeof problemNumber === "number" && isFirstFragment;
   if (blocks.length === 0 && !layoutSectionFragment && !blockSlice && !minHeightMm && !showNumber) return null;
@@ -553,6 +554,8 @@ export function PrintProblemArea({
     ...getProblemFrameLayoutStyle(hasFrame ? frame : undefined),
     ...getProblemNumberLayoutStyle(numbering),
     ...(areaLayout?.paddingPx && !isFirstFragment ? { paddingTop: 0 } : {}),
+    ...(areaLayout?.marginTopPx !== undefined && !isFirstFragment ? { marginTop: 0 } : {}),
+    ...(areaLayout?.marginBottomPx !== undefined && !isLastFragment ? { marginBottom: 0 } : {}),
   } as CSSProperties;
   const reservationClass = blocks.length === 0 && !layoutSectionFragment && minHeightMm
     ? " print-problem-area-reservation-only"
