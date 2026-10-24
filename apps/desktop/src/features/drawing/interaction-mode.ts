@@ -277,6 +277,15 @@ export type OverlayMovePointerUpResolution =
   | { kind: "commit"; offset: OverlayPoint }
   | { kind: "noop" };
 
+/** Raw pointer travel decides selection vs. dragging; snapping must not make a click move. */
+export function isOverlayMoveClick(
+  mode: Pick<Extract<OverlayInteractionMode, { id: "overlay.move" }>, "start">,
+  point: OverlayPoint,
+  threshold = 3,
+): boolean {
+  return Math.hypot(point.x - mode.start.x, point.y - mode.start.y) < threshold;
+}
+
 /**
  * Resolves the semantic end of a move session.
  *
@@ -289,18 +298,16 @@ export function resolveMovePointerUp(
   releasePoint: OverlayPoint,
   editThreshold = 3,
 ): OverlayMovePointerUpResolution {
-  if (
-    mode.editOnPointerUp &&
-    Math.hypot(releasePoint.x - mode.start.x, releasePoint.y - mode.start.y) < editThreshold
-  ) {
-    const targetShape = mode.shapes[0];
-    if (targetShape) {
+  if (isOverlayMoveClick(mode, releasePoint, editThreshold)) {
+    const targetShape = mode.editOnPointerUp ? mode.shapes[0] : undefined;
+    if (targetShape && mode.editOnPointerUp) {
       return {
         kind: "edit",
         editor: mode.editOnPointerUp,
         shapeId: targetShape.id,
       };
     }
+    return { kind: "noop" };
   }
 
   if (mode.offset && (mode.offset.x !== 0 || mode.offset.y !== 0)) {

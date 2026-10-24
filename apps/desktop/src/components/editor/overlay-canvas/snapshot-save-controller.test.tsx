@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import type { MeasuredBlock } from "./anchor";
+import { createResolvedOverlayView } from "./view-cache";
 import type { PageOverlay } from "@/features/document";
 import type { Editor } from "@tiptap/core";
 import { act, useCallback, useRef, useState } from "react";
@@ -16,7 +18,7 @@ import { useOverlaySnapshotState } from "./use-snapshot-state";
 
 const shape: OverlayShape = { id: "text", type: "text", x: 10, y: 20, props: { w: 220, h: 16, color: "black", size: "m", blocks: [{ id: "paragraph", type: "paragraph", children: [{ type: "text", text: "A" }] }] } };
 function overlay(shapes: OverlayShape[]): PageOverlay { return { overlaySnapshot: { version: 1, shapes, assets: {} } }; }
-function harness(preservedShapeIds?: ReadonlySet<string>) {
+function harness(preservedShapeIds?: ReadonlySet<string>, blocks: MeasuredBlock[] = []) {
   let api!: ReturnType<typeof useOverlaySnapshotState> & ReturnType<typeof useOverlaySaveController> & ReturnType<typeof useOverlayMutations> & { transitionMode(action: OverlayInteractionAction): void };
   const host = document.createElement("div"); const root = createRoot(host); const changed = vi.fn<(overlay: PageOverlay, options?: OverlayChangeOptions) => void>();
   function Harness({ source, revision = 0 }: { source: PageOverlay; revision?: number }) {
@@ -28,8 +30,8 @@ function harness(preservedShapeIds?: ReadonlySet<string>) {
     const [selectedIds, setSelectedIds] = useState<string[]>([]); const selectedIdsRef = useRef(selectedIds);
     const [, setPreview] = useState<{ style: OverlaySelectionStylePatch; targetIds: Set<string> } | null>(null);
     const [, setAppliedSnapshotRevision] = useState(0); const [, setRegionSelection] = useState<{ documentId: string | undefined; revision: number; bounds: { x: number; y: number; w: number; h: number } } | null>(null);
-    const activeTextEditorRef = useRef<Editor | null>(null); const focusedGroupIdRef = useRef<string | null>(null); const anchorMeasurementsRef = useRef({ rects: new Map(), ordered: [] });
-    useDocumentSnapshotSync({ ...state, ...save, setPreview, modeRef, selectedIdsRef, setSelectedIds, setAppliedSnapshotRevision, transitionMode, activeTextEditorRef, overlay: source, externalRevision: revision, mode });
+    const activeTextEditorRef = useRef<Editor | null>(null); const focusedGroupIdRef = useRef<string | null>(null); const anchorMeasurementsRef = useRef({ rects: new Map(blocks.map(block => [block.id, block])), ordered: blocks });
+    useDocumentSnapshotSync({ ...state, ...save, setPreview, modeRef, selectedIdsRef, setSelectedIds, setAppliedSnapshotRevision, transitionMode, activeTextEditorRef, anchorMeasurementsRef, overlay: source, externalRevision: revision, mode });
     useOverlaySaveEffects({ ...state, ...save });
     const mutations = useOverlayMutations({ ...state, ...save, setRegionSelection, modeRef, selectedIdsRef, setSelectedIds, focusedGroupIdRef, transitionMode, activeTextEditorRef, anchorMeasurementsRef, onSelectedCountChange: undefined });
     api = { ...state, ...save, ...mutations, transitionMode };
@@ -81,6 +83,25 @@ describe("a shape a feature preserves", () => {
 });
 
 describe("overlay derived session and single save boundary", () => {
+  it("shows an external AI snapshot at the same resolved positions as the reading view without saving the projection", async () => {
+    const blocks = [{ id: "body", top: 140, left: 40, width: 300 }];
+    const h = harness(undefined, blocks);
+    await h.render(overlay([]));
+    const incoming = overlay([
+      { ...shape, anchor: { type: "block", blockId: "body", dx: 20, dy: 30 }, x: 0, y: 0 },
+      { ...shape, id: "no_anchor", x: 120, y: 250 },
+    ]);
+    const view = createResolvedOverlayView(incoming, new Map(blocks.map(block => [block.id, block])), {
+      canvasWidth: 800, canvasHeight: 600, pageHeightPx: 600, pageGapPx: 36, revision: 0,
+    });
+    await h.render(incoming);
+    expect(h.current().shapes.map(item => ({ id: item.id, x: item.x, y: item.y })))
+      .toEqual(view.shapes.map(item => ({ id: item.id, x: item.x, y: item.y })));
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(h.changed).not.toHaveBeenCalled();
+    await act(async () => h.root.unmount());
+  });
+
   it("does not save a superseded local render after Undo adopts an empty snapshot", async () => {
     const h = harness();
     const original: PageOverlay = {};

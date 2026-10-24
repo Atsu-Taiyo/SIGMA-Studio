@@ -354,6 +354,27 @@ describe("attachUnanchoredShapesToMeasuredBlocks", () => {
       [{ id: "body", top: 100, left: 40, width: 200 }],
     )).toBe(shapes);
   });
+
+  it("does not rebind existing group members at stale stored coordinates when an AI shape has no anchor", () => {
+    const anchor = { type: "block", blockId: "body", dy: 30, dx: 10 } as const;
+    const shapes: OverlayShape[] = [
+      { id: "group", type: "group", x: 50, y: 130, anchor, props: { w: 80, h: 60 } },
+      { ...rect("member", 50, 130, anchor), parentId: "group" },
+      { ...rect("missing", 90, 170), parentId: "group" },
+      rect("inserted", 70, 250),
+    ];
+    // Body text moved 40px after the group's last save. Preview already follows that move.
+    const blocks = [{ id: "body", top: 140, left: 40, width: 200 }];
+    const rects = new Map(blocks.map(block => [block.id, block]));
+    const before = resolveShapesPosition(shapes, rects);
+    const attached = attachUnanchoredShapesToMeasuredBlocks(shapes, blocks);
+    const after = resolveShapesPosition(attached, rects);
+    expect(after.map(shape => ({ id: shape.id, x: shape.x, y: shape.y })))
+      .toEqual(before.map(shape => ({ id: shape.id, x: shape.x, y: shape.y })));
+    expect(attached[1].anchor).toBe(anchor);
+    expect(attached[2].anchor).toMatchObject({ type: "block", blockId: "body", dy: 30 });
+    expect(attached[3].anchor).toMatchObject({ type: "block", blockId: "body", dy: 110 });
+  });
 });
 
 describe("reanchorShapesByPosition", () => {

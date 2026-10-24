@@ -128,6 +128,20 @@ describe("overlay move interaction mode", () => {
     });
   });
 
+  it("does not commit a selection click even if a snap preview has a nonzero offset", () => {
+    const started = startMove([textShape]);
+    const updated = overlayInteractionModeReducer(started, {
+      type: "updateMove",
+      offset: { x: 6, y: -4 },
+    });
+    if (updated.id !== "overlay.move") throw new Error("Expected move mode");
+
+    expect(resolveMovePointerUp(updated, { x: 11, y: 21 })).toEqual({ kind: "noop" });
+    expect(resolveMovePointerUp(updated, { x: 13, y: 20 })).toEqual({
+      kind: "commit", offset: { x: 6, y: -4 },
+    });
+  });
+
   it("does not commit a missing or zero move offset", () => {
     const started = startMove([textShape]);
     expect(resolveMovePointerUp(started, { x: 30, y: 20 })).toEqual({ kind: "noop" });
