@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
@@ -121,25 +121,29 @@ function sameBounds(actual: Bounds, expected: Bounds, tolerance: number, label: 
   for (const key of ["x", "y", "w", "h"] as const) expect(Math.abs(actual[key] - expected[key]), `${label}: ${key}`).toBeLessThanOrEqual(tolerance);
 }
 
-function sameInk(actual: Bounds, expected: Bounds, label: string) {
+function sameInk(actual: Bounds, expected: Bounds, label: string, tolerance = 2) {
   // Rasterizers antialias each edge independently; compare edges, not the sum
   // of two edge rounding errors as a width/height error.
   const edges = (box: Bounds) => ({ left: box.x, top: box.y, right: box.x + box.w, bottom: box.y + box.h });
   for (const key of ["left", "top", "right", "bottom"] as const) {
-    expect(Math.abs(edges(actual)[key] - edges(expected)[key]), `${label}: ${key} ${JSON.stringify({actual,expected})}`).toBeLessThanOrEqual(2);
+    expect(Math.abs(edges(actual)[key] - edges(expected)[key]), `${label}: ${key} ${JSON.stringify({actual,expected})}`).toBeLessThanOrEqual(tolerance);
   }
 }
 
 for (const orientation of ["landscape", "portrait"] as const) for (const displayScale of [1, 1.25, 1.5]) test(`B4 ${orientation} three columns: saved ellipses match editor, preview and vector PDF at ${displayScale * 100}% display scale`, async ({}, testInfo) => {
   test.setTimeout(240_000);
   const profile = mkdtempSync(path.join(tmpdir(), "sigma-pdf-b4-"));
+  const sourceFile = path.join(profile, "B4三段組.sigma");
+  writeFileSync(sourceFile, JSON.stringify(fixture(orientation)));
+  mkdirSync(path.join(profile, "data"), { recursive: true });
+  writeFileSync(path.join(profile, "data/settings.json"), JSON.stringify({ uiLocale: "ja" }));
   const output = testInfo.outputPath("b4-three-columns.pdf");
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.SIGMA_STUDIO_DEV_SERVER_URL;
   env.SIGMA_STUDIO_USER_DATA_DIR = profile;
   if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
-  const app = await electron.launch({ args: [APP_ROOT, `--force-device-scale-factor=${displayScale}`], cwd: APP_ROOT, env });
+  const app = await electron.launch({ args: [APP_ROOT, sourceFile, `--force-device-scale-factor=${displayScale}`], cwd: APP_ROOT, env });
   try {
     const page = await app.firstWindow();
     await (await app.browserWindow(page)).evaluate(win => win.setContentSize(1600, 1000));
@@ -149,13 +153,13 @@ for (const orientation of ["landscape", "portrait"] as const) for (const display
       devicePixelRatio: await page.evaluate(() => window.devicePixelRatio),
       versions: await app.evaluate(() => process.versions),
     }) });
-    await page.evaluate(async document => {
+    await page.evaluate(() => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
       localStorage.setItem("sigma-studio:github-star-dismissed:v1", "1");
-      await window.desktopAPI!.settings!.setUiLocale!("ja");
-      const { file } = await window.desktopAPI!.storage.createFileFromDocument({ document });
-      await window.desktopAPI!.storage.saveWorkspace({ openFileIds: [file.fileId], activeFileId: file.fileId });
-    }, fixture(orientation));
+    });
+    // Open through the actual file argument before bootstrap. Seeding workspace
+    // through IPC during startup races the empty-document workspace save on CI.
+    await expect(page.locator('.page-flow [data-sigma-doc-id="label_0"]').first()).toBeAttached({ timeout: 60_000 });
     await page.reload();
     await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
     await expect(page.locator('.page-flow [data-sigma-doc-id="label_0"]').first()).toBeVisible();
@@ -178,6 +182,7 @@ for (const orientation of ["landscape", "portrait"] as const) for (const display
     await expect(preview.locator('.paged-surface[data-paged-surface-state="ready"]')).toBeVisible({ timeout: 60_000 });
     await waitForPagedSurfaceSettled(page);
     const ink: Record<string, Bounds> = {};
+    const textBaselines: Record<string, number> = {};
     for (const mark of marks) for (const [id, selector, rgb] of [
       [mark.id, `[data-sigma-doc-id="${mark.id}"]`, mark.ink],
       [mark.shapeId, `[data-overlay-shape-id="${mark.shapeId}"]`, mark.stroke],
@@ -186,12 +191,29 @@ for (const orientation of ["landscape", "portrait"] as const) for (const display
       const paper = preview.locator(".paged-surface-page").nth(expected.page);
       const element = paper.locator(selector);
       await expect(element).toHaveCount(1);
-      const actual = await element.evaluate(element => {
-        const paper = element.closest(".paged-surface-page")!.getBoundingClientRect();
-        const box = element.getBoundingClientRect();
-        return { x: box.left - paper.left, y: box.top - paper.top, w: box.width, h: box.height };
+      // A late anchor/font pass can replace the page window between resolving
+      // the locator and evaluating its rectangle. Require a connected, settled copy.
+      await expect(async () => {
+        const actual = await element.evaluate(element => {
+          if (!element.isConnected) throw new Error("Page window was replaced");
+          const paper = element.closest(".paged-surface-page")!.getBoundingClientRect();
+          const box = element.getBoundingClientRect();
+          if (box.width <= 0 || box.height <= 0) throw new Error("Page window is not laid out");
+          return { x: box.left - paper.left, y: box.top - paper.top, w: box.width, h: box.height };
+        });
+        sameBounds(actual, expected, 0.5, `editor/preview ${id}`);
+      }).toPass({ timeout: 10_000, intervals: [200] });
+      if (id === mark.id) textBaselines[id] = await element.evaluate(element => {
+        // This is the inert page-window clone, with no editor attached. A zero-size
+        // inline box exposes the text baseline without changing line layout.
+        const probe = document.createElement("span");
+        probe.style.cssText = "display:inline-block;width:0;height:0;padding:0;margin:0;vertical-align:baseline";
+        const paragraph = element.matches("p") ? element : element.querySelector("p");
+        if (!paragraph) throw new Error("Missing label paragraph");
+        paragraph.prepend(probe);
+        try { return probe.getBoundingClientRect().top - element.closest(".paged-surface-page")!.getBoundingClientRect().top; }
+        finally { probe.remove(); }
       });
-      sameBounds(actual, expected, 0.5, `editor/preview ${id}`);
       ink[id] = await previewInk(element, rgb);
     }
 
@@ -213,7 +235,19 @@ for (const orientation of ["landscape", "portrait"] as const) for (const display
         expect(Math.abs(viewport.width / rasterScale - paperSize.widthMm * 96 / 25.4)).toBeLessThanOrEqual(1);
         expect(Math.abs(viewport.height / rasterScale - paperSize.heightMm * 96 / 25.4)).toBeLessThanOrEqual(1);
         // Text extraction also guards against replacing the output with a bitmap.
-        expect((await pdfPage.getTextContent()).items.length).toBeGreaterThan(10);
+        const text = (await pdfPage.getTextContent()).items.filter(item => "str" in item);
+        expect(text.length).toBeGreaterThan(10);
+        const cssViewport = pdfPage.getViewport({ scale: 96 / 72 });
+        for (const mark of marks.filter(mark => editing[mark.id].page === index)) {
+          // PDF font subsets may split the two-character label into separate items.
+          const candidates = text.filter(item => item.str.trim().startsWith("解"))
+            .map(item => cssViewport.convertToViewportPoint(item.transform[4], item.transform[5]));
+          const baseline = textBaselines[mark.id];
+          const origin = candidates.sort((a, b) => Math.hypot(a[0] - editing[mark.id].x, a[1] - baseline) - Math.hypot(b[0] - editing[mark.id].x, b[1] - baseline))[0];
+          expect(origin, `extractable text ${mark.id}`).toBeDefined();
+          expect(Math.abs(origin[0] - editing[mark.id].x), `PDF text origin ${mark.id}`).toBeLessThanOrEqual(1);
+          expect(Math.abs(origin[1] - baseline), `PDF text baseline ${mark.id}`).toBeLessThanOrEqual(1);
+        }
         const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
         const context = canvas.getContext("2d");
         await pdfPage.render({ canvas: null, canvasContext: context as unknown as CanvasRenderingContext2D, viewport }).promise;
@@ -229,7 +263,9 @@ for (const orientation of ["landscape", "portrait"] as const) for (const display
         ]);
         await testInfo.attach(`geometry-page-${index + 1}`, { body: JSON.stringify(comparisons, null, 2), contentType: "application/json" });
         for (const comparison of comparisons) {
-          sameInk(comparison.pdfInk, comparison.previewInk, `PDF ${comparison.id}`);
+          // The text origin/baseline is checked above independently of glyph
+          // hinting. Windows screen and PDF rasterizers can differ at an ink edge.
+          sameInk(comparison.pdfInk, comparison.previewInk, `PDF ${comparison.id}`, comparison.id.startsWith("label_") ? 3 : 2);
         }
       }
       await testInfo.attach("saved-pdf", { path: output, contentType: "application/pdf" });

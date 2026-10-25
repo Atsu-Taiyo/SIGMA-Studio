@@ -116,7 +116,8 @@ PDF保存IPCは呼び出し元のWebContentsをそのまま使います。保存
 
 `tests/electron/pdf-b4-columns.spec.ts` は、WindowsとmacOSの実ElectronでB4縦・横の3段組みを検証します。
 6問・2ページの解答・解説に付けた12個の楕円を保存して再読込し、本文と楕円の矩形を編集面とPDFプレビューで比較します（許容0.5 CSS px）。
-実際のPDF保存IPCで出力したベクターPDFも画像化し、文字と楕円の描画位置（各辺2 CSS px以内。ラスタライズ時のアンチエイリアス差を含む）、ページ数、MediaBox、文字抽出を確認します。
+実際のPDF保存IPCで出力したベクターPDFから文字の開始位置・ベースラインを取得し、プレビューと1 CSS px以内で一致することを確認します。
+画像化したPDFの描画位置（楕円の各辺2 CSS px以内、文字の各辺3 CSS px以内。OS・ラスタライズ時の字形補正とアンチエイリアス差を含む）、ページ数、MediaBoxも確認します。
 表示倍率100%・125%・150%をElectronのdevice scale factorで検証し、PDF画像と出力PDFをCI artifactへ保存します。
 このOS別jobも `Required CI` に含まれます。検証用教材での一致は、任意の実教材やStoreからインストールしたアプリでの確認の代わりにはなりません。
 
