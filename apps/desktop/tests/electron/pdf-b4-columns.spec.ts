@@ -78,7 +78,9 @@ async function editorGeometry(page: Page): Promise<Record<string, Geometry>> {
       const canvas = element.closest<HTMLElement>(".page-canvas")!;
       const origin = canvas.getBoundingClientRect();
       const rect = element.getBoundingClientRect();
-      const scale = origin.width / canvas.offsetWidth;
+      // offsetWidth rounds B4's fractional millimetre width to an integer;
+      // dividing by it creates artificial drift on later pages.
+      const scale = Number(getComputedStyle(canvas).getPropertyValue("--editor-zoom")) || 1;
       const stride = Number(canvas.dataset.pageStride);
       const y = (rect.top - origin.top) / scale;
       const page = Math.floor(y / stride);
@@ -142,6 +144,11 @@ for (const orientation of ["landscape", "portrait"] as const) for (const display
     const page = await app.firstWindow();
     await (await app.browserWindow(page)).evaluate(win => win.setContentSize(1600, 1000));
     await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+    testInfo.annotations.push({ type: "runtime", description: JSON.stringify({
+      platform: process.platform, orientation, requestedDisplayScale: displayScale,
+      devicePixelRatio: await page.evaluate(() => window.devicePixelRatio),
+      versions: await app.evaluate(() => process.versions),
+    }) });
     await page.evaluate(async document => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
       localStorage.setItem("sigma-studio:github-star-dismissed:v1", "1");
@@ -216,9 +223,13 @@ for (const orientation of ["landscape", "portrait"] as const) for (const display
           const box = inkBounds(pixels, canvas.width, canvas.height, rgb);
           return { x: box.x / rasterScale, y: box.y / rasterScale, w: box.w / rasterScale, h: box.h / rasterScale };
         };
-        for (const mark of marks.filter(mark => editing[mark.id].page === index)) {
-          sameInk(bounds(mark.ink), ink[mark.id], `PDF text ${mark.id}`);
-          sameInk(bounds(mark.stroke), ink[mark.shapeId], `PDF ellipse ${mark.shapeId}`);
+        const comparisons = marks.filter(mark => editing[mark.id].page === index).flatMap(mark => [
+          { id: mark.id, editor: editing[mark.id], previewInk: ink[mark.id], pdfInk: bounds(mark.ink) },
+          { id: mark.shapeId, editor: editing[mark.shapeId], previewInk: ink[mark.shapeId], pdfInk: bounds(mark.stroke) },
+        ]);
+        await testInfo.attach(`geometry-page-${index + 1}`, { body: JSON.stringify(comparisons, null, 2), contentType: "application/json" });
+        for (const comparison of comparisons) {
+          sameInk(comparison.pdfInk, comparison.previewInk, `PDF ${comparison.id}`);
         }
       }
       await testInfo.attach("saved-pdf", { path: output, contentType: "application/pdf" });
