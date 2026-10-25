@@ -1247,7 +1247,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       setCommentsPanelOpen(true);
     }
     setStatusMessage(tEditor("status.commentReady"));
-  }, [setCommentsPanelOpen, setActiveCommentThreadId, setPendingCommentAnchor, setPendingCommentPlacement, setStatusMessage]);
+  }, [setCommentsPanelOpen, setActiveCommentThreadId, setPendingCommentAnchor, setPendingCommentDraft, setPendingCommentPlacement, setStatusMessage]);
 
   const focusCommentLocation = useCallback((threadId?: string | null) => {
     if (typeof window === "undefined") {
@@ -1375,7 +1375,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     clearAiEditPinnedReferences();
     setVersionHistoryPreviewState(null);
     setVersionHistoryRestoreError(null);
-  }, [documentHistory, setFontSizeInput, setTextFontSize, setTextFontSizeMixed, setSelectedId, setSelectedInlineMath, closeGraphSettings, setSelectedOverlayGraph, closeChartSettings, setSelectedOverlayChart, closeGraph3DSettings, setCommentAnchorCandidate, setPendingCommentAnchor, clearCommentReplyDrafts, setActiveCommentThreadId, setHighlightedCommentThreadId, clearAiEditPinnedReferences, commentsInRail, setCommentsPanelOpen]);
+  }, [documentHistory, setFontSizeInput, setTextFontSize, setTextFontSizeMixed, setSelectedId, setSelectedInlineMath, closeGraphSettings, setSelectedOverlayGraph, closeChartSettings, setSelectedOverlayChart, closeGraph3DSettings, setCommentAnchorCandidate, setPendingCommentAnchor, clearCommentReplyDrafts, setActiveCommentThreadId, setHighlightedCommentThreadId, clearAiEditPinnedReferences, commentsInRail, setCommentsPanelOpen, setPendingCommentDraft, setVersionHistoryRestoreError]);
 
   const rememberLeavingEditorTabViewState = useCallback((leavingFileId: string | null, nextFileId: string) => {
     if (!leavingFileId || leavingFileId === nextFileId) {
@@ -4610,6 +4610,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setCommentReplyDraft,
     setHighlightedCommentThreadId,
     setPendingCommentAnchor,
+    setPendingCommentDraft,
     showResolvedComments,
     toggleCommentReaction,
     updateCommentResolved,
