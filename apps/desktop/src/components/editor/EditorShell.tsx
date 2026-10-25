@@ -1,5 +1,7 @@
 "use client";
 
+import { Inline, Inset } from "@/components/ui/layout";
+
 import { PersistentWorkspaceEditors, PersistentWorkspaceCanvas, usePersistentWorkspacePane, usePersistentPaneLifecycle, workspacePersistenceState } from "./editor-shell/persistent-workspace";
 import { EditorInputContext } from "./editor-input-context";
 import { isTextPointerSelectionClick } from "@/components/editor/text-pointer-selection";
@@ -60,9 +62,11 @@ export type { EmbeddedEditorHost } from "./editor-shell/document-lifecycle-types
 
 import {
 Eye,
+History,
 Loader2,
 PanelLeft,
 RotateCcw,
+TriangleAlert,
 X,
 } from "lucide-react";
 import type { CSSProperties,MouseEvent,ReactNode,SetStateAction } from "react";
@@ -840,6 +844,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const versionHistoryPreviewActive = versionHistoryPreview !== null;
   // 共有教材の版を戻せるのは編集者以上 (見るのは全員)。ローカル教材の版はいつでも戻せる。
   const versionHistoryCanRestore = !versionHistoryPreview?.shared || Boolean(documentSession?.versionHistory?.canRestore());
+  const versionHistoryPreviewDate = versionHistoryPreview
+    ? new Intl.DateTimeFormat(getAppLocale(), { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+      .format(new Date(versionHistoryPreview.capturedAt))
+    : "";
   const [versionHistoryRestoreError, setVersionHistoryRestoreError] = useState<string | null>(null);
   const [versionHistoryRestoring, setVersionHistoryRestoring] = useState(false);
   // 共有教材の版を戻すと参加者全員の教材が置き換わるので、帯の中でもう一度確かめる。
@@ -1242,7 +1250,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       setCommentsPanelOpen(true);
     }
     setStatusMessage(tEditor("status.commentReady"));
-  }, [setCommentsPanelOpen, setActiveCommentThreadId, setPendingCommentAnchor, setPendingCommentPlacement, setStatusMessage]);
+  }, [setCommentsPanelOpen, setActiveCommentThreadId, setPendingCommentAnchor, setPendingCommentDraft, setPendingCommentPlacement, setStatusMessage]);
 
   const focusCommentLocation = useCallback((threadId?: string | null) => {
     if (typeof window === "undefined") {
@@ -1370,7 +1378,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     clearAiEditPinnedReferences();
     setVersionHistoryPreviewState(null);
     setVersionHistoryRestoreError(null);
-  }, [documentHistory, setFontSizeInput, setTextFontSize, setTextFontSizeMixed, setSelectedId, setSelectedInlineMath, closeGraphSettings, setSelectedOverlayGraph, closeChartSettings, setSelectedOverlayChart, closeGraph3DSettings, setCommentAnchorCandidate, setPendingCommentAnchor, clearCommentReplyDrafts, setActiveCommentThreadId, setHighlightedCommentThreadId, clearAiEditPinnedReferences, commentsInRail, setCommentsPanelOpen]);
+  }, [documentHistory, setFontSizeInput, setTextFontSize, setTextFontSizeMixed, setSelectedId, setSelectedInlineMath, closeGraphSettings, setSelectedOverlayGraph, closeChartSettings, setSelectedOverlayChart, closeGraph3DSettings, setCommentAnchorCandidate, setPendingCommentAnchor, clearCommentReplyDrafts, setActiveCommentThreadId, setHighlightedCommentThreadId, clearAiEditPinnedReferences, commentsInRail, setCommentsPanelOpen, setPendingCommentDraft, setVersionHistoryRestoreError]);
 
   const rememberLeavingEditorTabViewState = useCallback((leavingFileId: string | null, nextFileId: string) => {
     if (!leavingFileId || leavingFileId === nextFileId) {
@@ -4648,6 +4656,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setCommentReplyDraft,
     setHighlightedCommentThreadId,
     setPendingCommentAnchor,
+    setPendingCommentDraft,
     showResolvedComments,
     toggleCommentReaction,
     updateCommentResolved,
@@ -5286,28 +5295,36 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           /></OverlayImagePreviewContext.Provider></SelectionToolbarProvider>}
           {versionHistoryPreview && (
             <div className="version-history-preview" data-version-history-preview="true">
-              <div className="version-history-preview-banner" role="status">
-                <strong>{t("versionHistory.viewingVersion", {
-                  date: new Intl.DateTimeFormat(getAppLocale(), {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }).format(new Date(versionHistoryPreview.capturedAt)),
-                })}</strong>
+              {/* 表示中の版の帯: 左にいつの何の版か、右に戻る操作。共有教材を戻す確かめは帯の下に1段足して聞く。 */}
+              <div className="version-history-preview-banner" role="status" aria-label={t("versionHistory.viewingVersion", { date: versionHistoryPreviewDate })}>
+                <span className="version-history-preview-icon" aria-hidden="true"><History size={15} /></span>
+                <div className="version-history-preview-heading">
+                  <strong>{versionHistoryPreviewDate}</strong>
+                  <span className="version-history-preview-meta">
+                    <span>{versionHistoryPreview.label}</span>
+                    <span>{t("versionHistory.readOnly")}</span>
+                    {!versionHistoryCanRestore && <span className="version-history-preview-note">{t("versionHistory.sharedRestoreNotAllowed")}</span>}
+                  </span>
+                </div>
                 <div className="version-history-preview-actions">
-                  {versionHistoryConfirmingSharedRestore && <span className="version-history-preview-confirm">{t("versionHistory.sharedRestoreConfirm")}</span>}
+                  <button
+                    type="button"
+                    className="button subtle"
+                    disabled={versionHistoryRestoring}
+                    onClick={() => handleVersionHistoryPreviewChange(null)}
+                  >
+                    {t("versionHistory.returnToCurrent")}
+                  </button>
                   {versionHistoryCanRestore && <button
                     type="button"
                     className="button primary"
-                    disabled={versionHistoryRestoring}
+                    disabled={versionHistoryRestoring || versionHistoryConfirmingSharedRestore}
                     onClick={() => {
                       if (versionHistoryPreview.shared && !versionHistoryConfirmingSharedRestore) {
                         setVersionHistoryConfirmingSharedRestore(true);
                         return;
                       }
-                      setVersionHistoryConfirmingSharedRestore(false);
+                      // 確かめの段は、戻し終わるまで残して進み具合をそこで見せる。
                       setVersionHistoryRestoring(true);
                       setVersionHistoryRestoreError(null);
                       void restoreDocumentVersion(versionHistoryPreview)
@@ -5316,27 +5333,61 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
                           else setVersionHistoryRestoreError(result.error);
                         })
                         .catch(() => setVersionHistoryRestoreError(t("versionHistory.restoreFailed")))
-                        .finally(() => setVersionHistoryRestoring(false));
+                        .finally(() => {
+                          setVersionHistoryRestoring(false);
+                          setVersionHistoryConfirmingSharedRestore(false);
+                        });
                     }}
                   >
-                    {versionHistoryRestoring ? <Loader2 className="save-state-spinner" size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}
-                    {versionHistoryConfirmingSharedRestore ? t("versionHistory.sharedRestoreConfirmAction") : t("versionHistory.restore")}
+                    {versionHistoryRestoring && !versionHistoryConfirmingSharedRestore ? <Loader2 className="save-state-spinner" size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}
+                    {t("versionHistory.restore")}
                   </button>}
-                  <button
-                    type="button"
-                    className="button"
-                    disabled={versionHistoryRestoring}
-                    onClick={() => {
-                      if (versionHistoryConfirmingSharedRestore) setVersionHistoryConfirmingSharedRestore(false);
-                      else handleVersionHistoryPreviewChange(null);
-                    }}
-                  >
-                    {versionHistoryConfirmingSharedRestore ? t("versionHistory.cancelRestore") : t("versionHistory.returnToCurrent")}
-                  </button>
                 </div>
               </div>
-              {!versionHistoryCanRestore && (
-                <p className="version-history-preview-note">{t("versionHistory.sharedRestoreNotAllowed")}</p>
+              {versionHistoryConfirmingSharedRestore && (
+                <Inset className="version-history-preview-confirm" role="alert" space="sm">
+                  <Inline className="version-history-preview-confirm-content" gap="sm">
+                  <TriangleAlert size={15} aria-hidden="true" />
+                  <span>{t("versionHistory.sharedRestoreConfirm")}</span>
+                  <div className="version-history-preview-actions">
+                    <button
+                      type="button"
+                      className="button subtle"
+                      disabled={versionHistoryRestoring}
+                      onClick={() => setVersionHistoryConfirmingSharedRestore(false)}
+                    >
+                      {t("versionHistory.cancelRestore")}
+                    </button>
+                    <button
+                      type="button"
+                      className="button primary"
+                      disabled={versionHistoryRestoring}
+                      onClick={() => {
+                      if (versionHistoryPreview.shared && !versionHistoryConfirmingSharedRestore) {
+                        setVersionHistoryConfirmingSharedRestore(true);
+                        return;
+                      }
+                      // 確かめの段は、戻し終わるまで残して進み具合をそこで見せる。
+                      setVersionHistoryRestoring(true);
+                      setVersionHistoryRestoreError(null);
+                      void restoreDocumentVersion(versionHistoryPreview)
+                        .then((result) => {
+                          if (result.ok) setVersionHistoryPreviewState(null);
+                          else setVersionHistoryRestoreError(result.error);
+                        })
+                        .catch(() => setVersionHistoryRestoreError(t("versionHistory.restoreFailed")))
+                        .finally(() => {
+                          setVersionHistoryRestoring(false);
+                          setVersionHistoryConfirmingSharedRestore(false);
+                        });
+                    }}
+                    >
+                      {versionHistoryRestoring ? <Loader2 className="save-state-spinner" size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}
+                      {t("versionHistory.sharedRestoreConfirmAction")}
+                    </button>
+                  </div>
+                  </Inline>
+                </Inset>
               )}
               {versionHistoryRestoreError && <p className="version-history-preview-error" role="alert">{versionHistoryRestoreError}</p>}
               <div className="version-history-preview-scroll">

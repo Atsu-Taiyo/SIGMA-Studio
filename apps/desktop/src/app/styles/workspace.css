@@ -1904,11 +1904,163 @@ nav.app-menu-list[inert] *,
   border-left: 1px solid var(--border);
 }
 
+/* 下端に共有教材の注記を置くので、ヘッダー・一覧・注記の3段にする。 */
+.ai-sidebar-panel.version-history-panel {
+  grid-template-rows: 32px minmax(0, 1fr) auto;
+}
+
 .version-history-body {
   min-width: 0;
   overflow-y: auto;
-  padding: var(--space-md);
+  padding: var(--space-sm) var(--space-sm) var(--space-md);
   overscroll-behavior: contain;
+}
+
+.version-history-warning {
+  margin: 0 var(--space-xs) var(--space-sm);
+  padding: var(--space-sm);
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border-subtle));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--warning) 8%, var(--background));
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.version-history-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin: 0 var(--space-xs) var(--space-sm);
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* 共有教材の版: 誰が見られて誰が戻せるか。 */
+.version-history-note {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.version-history-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+/* 版の時系列。点を縦の線でつなぐ。線は先頭の行 (現在の版) の点から最後の行の点まで。 */
+.version-history-list {
+  position: relative;
+  display: grid;
+}
+
+.version-history-list::before {
+  position: absolute;
+  top: 18px;
+  bottom: 18px;
+  left: 19.5px;
+  width: 1px;
+  background: var(--border-subtle);
+  content: "";
+}
+
+.version-history-list:has(> .version-history-state)::before {
+  display: none;
+}
+
+.version-history-list section {
+  display: grid;
+}
+
+.version-history-list h3 {
+  margin: var(--space-md) 0 2px;
+  padding-left: 36px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.version-history-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px 44px minmax(0, 1fr) auto;
+  gap: var(--space-sm);
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 var(--space-sm) 0 12px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: start;
+  transition: background 120ms ease;
+}
+
+.version-history-current-row {
+  grid-template-columns: 16px minmax(0, 1fr);
+  font-weight: 600;
+}
+
+.version-history-row:hover:not(:disabled) {
+  background: var(--surface-soft);
+}
+
+.version-history-row:focus-visible {
+  outline: 2px solid var(--focus-ring-color, #2563eb);
+  outline-offset: -2px;
+}
+
+.version-history-row[aria-pressed="true"] {
+  background: var(--surface-muted);
+}
+
+.version-history-row:disabled {
+  cursor: default;
+}
+
+/* 線の上の点。背景で線を隠して、点の所で線が切れて見えるようにする。 */
+.version-history-marker {
+  justify-self: center;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-round);
+  background: var(--surface);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.version-history-current-row .version-history-marker,
+.version-history-row[aria-pressed="true"] .version-history-marker {
+  border-color: var(--text-primary);
+  background: var(--text-primary);
+}
+
+.version-history-row[aria-pressed="true"] .version-history-time {
+  font-weight: 600;
+}
+
+.version-history-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.version-history-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .version-history-state {
@@ -1919,91 +2071,49 @@ nav.app-menu-list[inert] *,
   font-size: 12px;
 }
 
-.version-history-warning {
-  margin: 0 0 var(--space-md);
-  padding: var(--space-sm);
-  border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border-subtle));
-  border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--warning) 8%, var(--background));
-  color: var(--warning);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-/* 共有教材の版: 誰が見られて誰が戻せるか。 */
-.version-history-note {
-  margin: 0 0 var(--space-md);
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.version-history-list {
-  display: grid;
-  gap: var(--space-lg);
-}
-
-.version-history-list section,
-.version-history-diff {
-  display: grid;
-  gap: var(--space-sm);
-}
-
-.version-history-list h3,
-.version-history-diff h3 {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.version-history-row {
-  display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) auto;
-  gap: var(--space-sm);
-  align-items: center;
-  width: 100%;
-  min-height: 36px;
-  padding: 6px 8px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  text-align: start;
-}
-
-.version-history-current-row {
-  grid-template-columns: 1fr;
-}
-
-.version-history-row:hover {
-  background: var(--surface-muted);
-}
-
-.version-history-row:focus-visible {
-  outline: 2px solid var(--focus-ring-color, #2563eb);
-  outline-offset: 2px;
-}
-
-.version-history-row[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.version-history-time {
-  font-variant-numeric: tabular-nums;
-}
-
-.version-history-diff {
+.version-history-empty {
+  justify-items: center;
   margin-top: var(--space-lg);
+  padding: var(--space-md);
+  color: var(--text-muted);
+  text-align: center;
 }
 
-.version-history-diff-header {
-  display: flex;
+.version-history-empty strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.version-history-skeleton {
+  gap: 0;
+  justify-items: stretch;
+}
+
+.version-history-skeleton-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
   gap: var(--space-sm);
   align-items: center;
-  justify-content: space-between;
+  height: 36px;
+  padding-left: 36px;
+}
+
+.version-history-skeleton-time,
+.version-history-skeleton-label {
+  height: 10px;
+  border-radius: var(--radius-round);
+}
+
+.version-history-skeleton-label {
+  width: 56%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .version-history-row,
+  .version-history-marker {
+    transition: none;
+  }
 }
 
 .version-history-preview {
@@ -2022,18 +2132,72 @@ nav.app-menu-list[inert] *,
   z-index: 4;
   flex: 0 0 auto;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding: 10px 16px;
+  gap: var(--space-sm);
+  min-height: 52px;
+  padding: var(--space-sm) var(--space-md);
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--surface);
+  background: var(--background);
+}
+
+.version-history-preview-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-round);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+}
+
+.version-history-preview-heading {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 1px;
+}
+
+.version-history-preview-heading strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 「自動で保存 · 読み取り専用」のように、種類と状態を点で区切って並べる。 */
+.version-history-preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.version-history-preview-meta > span + span::before {
+  margin: 0 5px;
+  content: "·";
 }
 
 .version-history-preview-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
+}
+
+.version-history-preview-actions .button {
+  min-height: 30px;
+  font-size: 12px;
+}
+
+/* 確かめの段を出している間、帯の「この版に戻す」は薄くして、押す先が下の段だと分かるようにする。 */
+.version-history-preview-actions .button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* 「問題だけ」などの絞り込み中に出すチップ。ポケットの畳んだチップ (PocketBar.module.css の .handle) と
@@ -2135,24 +2299,45 @@ nav.app-menu-list[inert] *,
 
 .version-history-preview-error {
   margin: 0;
-  padding: 8px 16px;
-  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid color-mix(in srgb, var(--danger) 20%, var(--border-subtle));
+  background: color-mix(in srgb, var(--danger) 6%, var(--background));
   color: var(--danger);
+  font-size: 12px;
 }
 
-/* 共有教材の版を戻す前の確かめ (参加者全員の教材が戻る) と、戻せない理由。 */
+/* 共有教材の版を戻す前の確かめ (参加者全員の教材が戻る)。帯の下に1段だけ足す。 */
 .version-history-preview-confirm {
-  color: var(--warning);
+  flex: 0 0 auto;
+  border-bottom: 1px solid color-mix(in srgb, var(--warning) 22%, var(--border-subtle));
+  background: color-mix(in srgb, var(--warning) 6%, var(--background));
+  color: var(--text-primary);
   font-size: 12px;
-  font-weight: 600;
+  line-height: 1.45;
+  animation: version-history-confirm-in 140ms ease both;
 }
 
-.version-history-preview-note {
-  margin: 0;
-  padding: 8px 16px;
-  background: var(--surface);
-  color: var(--text-secondary);
-  font-size: 12px;
+.version-history-preview-confirm-content > svg {
+  flex: 0 0 auto;
+  color: var(--warning);
+}
+
+.version-history-preview-confirm-content > span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@keyframes version-history-confirm-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .version-history-preview-confirm {
+    animation: none;
+  }
 }
 
 .version-history-preview-scroll {
