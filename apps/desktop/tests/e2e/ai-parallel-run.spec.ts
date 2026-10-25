@@ -3,6 +3,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { installDesktopRuntimeMock, type DesktopRuntimeMockOptions } from "./desktop-runtime-mock";
 import { normalizePageLayout } from "@/lib/page-layout";
 import type { ParagraphNode, SigmaBlock, SigmaDocument } from "@/types/sigma-doc";
+import { cardProposalControls, pageProposalControls } from "./ai-proposal-controls";
 
 // Review harness for the parallel AI chat features (R1-R5 + proposal card).
 // Uses the desktop runtime mock's fake AI runtime: instruction keywords control
@@ -897,16 +898,16 @@ test("two-column body replacement proposal sits in the target column's flow and 
   expect(replacementBox!.width).toBeGreaterThanOrEqual(leftBlockBox!.width - 2);
   expect(replacementBox!.y).toBeGreaterThanOrEqual(leftBlockBox!.y + leftBlockBox!.height - 2);
   // 承認バーはカードの最初の行。
-  const barBox = await dialog.locator("[data-ai-proposal-bar]").boundingBox();
+  const barBox = await pageProposalControls(page).locator("[data-ai-proposal-bar]").boundingBox();
   expect(barBox).not.toBeNull();
   expect(barBox!.y).toBeLessThanOrEqual(replacementBox!.y + 8);
-  const applyButtonBox = await replacement.locator('.ai-inline-preview-action.apply[aria-label="適用"]').boundingBox();
+  const applyButtonBox = await pageProposalControls(page).locator('.ai-inline-preview-action.apply[aria-label="適用"]').boundingBox();
   expect(applyButtonBox).not.toBeNull();
   expect(applyButtonBox!.x + applyButtonBox!.width).toBeLessThanOrEqual(
     replacementBox!.x + replacementBox!.width + 2,
   );
   expect(applyButtonBox!.y + applyButtonBox!.height).toBeLessThanOrEqual(barBox!.y + barBox!.height + 1);
-  const hide = dialog.getByRole("button", { name: "内容を隠す", exact: true });
+  const hide = pageProposalControls(page).getByRole("button", { name: "内容を隠す", exact: true });
   const hideBox = await hide.boundingBox();
   expect(hideBox!.x).toBeGreaterThan(replacementBox!.x + replacementBox!.width / 2);
   // The completion summary is a separate floating surface above the body card.
@@ -917,10 +918,10 @@ test("two-column body replacement proposal sits in the target column's flow and 
   // 「内容を隠す」は内容だけを隠し、バー (と判断操作) を残す。もう一度押すと戻る。
   await hide.click();
   await expect(dialog.locator("[data-ai-proposal-content]")).toBeHidden();
-  await expect(dialog.locator("[data-ai-proposal-bar]")).toBeVisible();
-  await expect(dialog.locator('.ai-inline-preview-action.apply[aria-label="適用"]')).toBeVisible();
+  await expect(pageProposalControls(page).locator("[data-ai-proposal-bar]")).toBeVisible();
+  await expect(pageProposalControls(page).locator('.ai-inline-preview-action.apply[aria-label="適用"]')).toBeVisible();
   await expect(leftBlock).not.toContainText("E2E提案で書き換えた本文");
-  await dialog.getByRole("button", { name: "内容を表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "内容を表示", exact: true }).click();
   await expect(dialog.locator("[data-ai-proposal-content]")).toContainText("E2E提案で書き換えた本文");
 });
 
@@ -947,7 +948,7 @@ test("two-column math replacement is visible immediately after approval", async 
   const replacement = proposalCard(page, "column_left_math");
   await expect(replacement).toBeVisible({ timeout: 20_000 });
   expect(lifecycleWarnings).toEqual([]);
-  await replacement.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
+  await pageProposalControls(page).locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
 
   await expect(replacement).toBeHidden();
   await expect(target.locator('[data-id="e2e_two_column_math"]')).toHaveAttribute("data-tex", proposedTex);
@@ -973,7 +974,7 @@ test("two-column body and overlay insertion proposals stay in their target colum
 
   await closeInlineSurface(page);
   await closeInlineResult(page);
-  await bodyInsertion.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
+  await (await cardProposalControls(page, bodyInsertion)).locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(bodyInsertion).toBeHidden();
 
   const rightBlock = page.locator('[data-sigma-doc-id="column_right"]').first();
@@ -1028,7 +1029,7 @@ test("local layout-section columns keep AI activity and body insertion in their 
 
   await closeInlineSurface(page);
   await closeInlineResult(page);
-  await bodyInsertion.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
+  await (await cardProposalControls(page, bodyInsertion)).locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(bodyInsertion).toBeHidden();
 
   await startInlineRun(page, rightTarget.id, "SLOW 右段だけを整えてください");
@@ -1226,8 +1227,8 @@ test("a run that produces a proposal shows the redesigned inline preview card", 
   }
   await expect(previewDialog).toBeVisible();
   // Decision buttons are icon-only (no text label), identified by aria-label.
-  await expect(previewDialog.locator('.ai-inline-preview-action.discard[aria-label="破棄"]')).toBeVisible();
-  await expect(previewDialog.locator('.ai-inline-preview-action.apply[aria-label="適用"]')).toBeVisible();
+  await expect(pageProposalControls(page).locator('.ai-inline-preview-action.discard[aria-label="破棄"]')).toBeVisible();
+  await expect(pageProposalControls(page).locator('.ai-inline-preview-action.apply[aria-label="適用"]')).toBeVisible();
 
   await page.screenshot({ path: `${test.info().outputPath("review-shots")}/f1-proposal-card-page.png`, fullPage: false });
   await previewDialog.screenshot({ path: `${test.info().outputPath("review-shots")}/f2-proposal-card-closeup.png` });
@@ -1240,7 +1241,7 @@ test("a run that produces a proposal shows the redesigned inline preview card", 
   await page.locator(".ai-run-anchor-badge-logo").first().screenshot({ path: `${test.info().outputPath("review-shots")}/f3-completed-badge-closeup.png` });
 
   // Applying the proposal resolves the card AND removes the AI icon together.
-  await previewDialog.locator(".ai-inline-preview-action.apply").click();
+  await pageProposalControls(page).locator(".ai-inline-preview-action.apply").click();
   await expect(previewDialog).toBeHidden();
   await expect(page.locator(".ai-run-anchor-badge")).toHaveCount(0);
 });
@@ -1265,7 +1266,7 @@ test("a chained insertion proposal shows every candidate in one preview card", a
   await expect(previewDialog).toContainText("連鎖挿入2: 公式本体");
 
   // One consolidated decision, not one per chained op.
-  await expect(previewDialog.locator(".ai-inline-preview-action.apply")).toHaveCount(1);
+  await expect(pageProposalControls(page).locator(".ai-inline-preview-action.apply")).toHaveCount(1);
   await page.screenshot({ path: `${test.info().outputPath("review-shots")}/f4-chained-candidates.png`, fullPage: false });
 });
 

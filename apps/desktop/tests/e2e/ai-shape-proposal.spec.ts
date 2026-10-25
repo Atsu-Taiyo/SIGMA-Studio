@@ -5,6 +5,7 @@ import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
 import { expectHittable } from "./hit-testing";
 import { getDefaultPageLayout } from "@/lib/page-layout";
 import type { ParagraphNode, SigmaBlock, SigmaDocument } from "@/types/sigma-doc";
+import { pageProposalControls } from "./ai-proposal-controls";
 
 /** 図形だけの提案の承認バー (図形のそばに付く)。紙面のカードと同じ `AiProposalDecisionBar` を持つ。 */
 const OVERLAY_PROPOSAL_BAR = '[data-ai-proposal-card="overlay"]';
@@ -789,7 +790,7 @@ test("an AI proposal reserves only its own target while it runs, and its pending
   // The card now previews what the approval will save: the AI's sentence and the human's typing.
   const mergedText = `AIの前置き。${originalTargetText}確認待ち中の追記`;
   await expect(previewDialog.locator("[data-ai-proposal-content]")).toContainText(mergedText);
-  await expect(previewDialog.locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]"))
+  await expect(pageProposalControls(page).locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]"))
     .toHaveText("現在の編集内容に合わせて提案を調整しました。");
   // The red "will be replaced" underlay stays on the target: its content is replaced by the merge.
   await expect(targetParagraph).toHaveClass(/text-flow-change-before/);
@@ -803,7 +804,7 @@ test("an AI proposal reserves only its own target while it runs, and its pending
   await expect(sidebarProposal).toContainText(mergedText);
   await expect(sidebarProposal).toContainText("現在の編集内容に合わせて提案を調整しました。");
 
-  await previewDialog.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
+  await pageProposalControls(page).locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(previewDialog).toBeHidden();
   await expect(targetParagraph).toHaveText(mergedText);
   await expect.poll(async () => page.evaluate(() => {

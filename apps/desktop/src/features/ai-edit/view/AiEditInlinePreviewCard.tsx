@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { useIsFlowExtensionReplica } from "@/components/editor/page-canvas/flow-extension-replica";
+import { LiftedPageControl, PAGE_CONTROL_ATTRIBUTE } from "@/components/editor/page-canvas/page-controls-layer";
 import { AiProposalDecisionBar } from "@/components/ui/ai";
 import type { MathFractionSizing } from "@/features/document";
 import { createCurrentLocaleTranslator, type Translate } from "@/lib/i18n";
@@ -374,6 +375,25 @@ export function AiEditInlinePreviewCard({
     mergedWithHumanEdits && <AiProposalMergeNotice key="merged" />,
     resultOnly && !resultLaidOut && <AiProposalResultNotice key="result" />,
   ].filter(Boolean);
+  // 承認バーは図形より上の層に描く (本文フローの中のままだと、重なった図形に隠れて押すと図形を掴む)。
+  const renderHead = (placeholder: boolean) => (
+    <AiProposalDecisionBar
+      surface="page"
+      title={title}
+      applying={applying}
+      replica={replica || placeholder}
+      notice={notices.length > 0 ? notices : undefined}
+      references={sourceReferences && sourceReferences.length > 0 && (
+        <AiSourceReferenceChips sourceReferences={sourceReferences} onOpenDocument={onOpenSourceDocument} />
+      )}
+      dismissReasonPlaceholder={t("card.dismissReasonExampleText")}
+      onOpenConversation={onOpenConversation}
+      onApply={onApply}
+      onDismiss={onDismiss}
+      {...decisionBarStateProps(state, update, { hasContent: true, hasBeforeShapes, offerAfterOnly: true, contentId: ownContentId })}
+    />
+  );
+  const headAttributes = { "data-content-hidden": state.contentHidden ? "" : undefined };
   return (
     <section
       className="ai-proposal-card ai-proposal-card--page"
@@ -390,21 +410,11 @@ export function AiEditInlinePreviewCard({
         }
       }}
     >
-      <AiProposalDecisionBar
-        surface="page"
-        title={title}
-        applying={applying}
-        replica={replica}
-        notice={notices.length > 0 ? notices : undefined}
-        references={sourceReferences && sourceReferences.length > 0 && (
-          <AiSourceReferenceChips sourceReferences={sourceReferences} onOpenDocument={onOpenSourceDocument} />
-        )}
-        dismissReasonPlaceholder={t("card.dismissReasonExampleText")}
-        onOpenConversation={onOpenConversation}
-        onApply={onApply}
-        onDismiss={onDismiss}
-        {...decisionBarStateProps(state, update, { hasContent: true, hasBeforeShapes, offerAfterOnly: true, contentId: ownContentId })}
-      />
+      {replica ? (
+        <div className="ai-proposal-card-head" {...headAttributes}>{renderHead(true)}</div>
+      ) : (
+        <LiftedPageControl className="ai-proposal-card-head" attributes={headAttributes} render={renderHead} />
+      )}
       <div id={ownContentId} className="ai-proposal-card-content" hidden={state.contentHidden}>
         <AiProposalContentView
           content={bodyContent}
@@ -469,6 +479,7 @@ export function AiEditOverlayApprovalWidget({
     <section
       className="ai-proposal-card ai-proposal-card--overlay"
       data-ai-proposal-card="overlay"
+      {...{ [PAGE_CONTROL_ATTRIBUTE]: "" }}
       data-placement={placement}
       style={style}
       aria-label={t("card.overlayDialogAria", { replace: { title } })}

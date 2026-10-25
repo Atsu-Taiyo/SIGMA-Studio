@@ -481,6 +481,8 @@ AI生成SVGもSigmaDocの`OverlayAsset`と`image` shapeとして保存します�
 
 overlayは見た目のレイヤーとして `stackLayer: "background" | "foreground"` を持てます。背景shapeは本文の背面、前景shapeは本文の前面に描きます。グループ化は `type: "group"` shape と子shapeの `parentId` で表します。描画やヒットテストでは正規化後の階層とvisual stack orderを使います。
 
+紙面の重なりは下から 本文 (`.page-flow`) → 図形 (`.page-overlay-layer`) → 紙面の操作 (`.page-controls-layer`) の順です。拡張が紙面に置く操作 (AI提案の承認バーなど) は図形より上の操作の層に描きます。本文フローの中に組まれる部品は `.page-flow` の重なりの文脈から出られないので、本文には同じ寸法の見えない場所取りだけを残し、操作そのものを `page-canvas/page-controls-layer.tsx` の `LiftedPageControl` で層へ持ち上げて重ねます。`data-page-control` を持つ要素の上の押下は、紙面の図形の当たり判定 (`handlePagePointerDownCapture`) に回しません。
+
 図形の問題エリア所属は、shapeに専用fieldを増やさず `anchor.blockId` から導出します。`anchor.type === "block"` の `blockId` が `problem.lead`、`problem.prompt`、`problem.hints`、`problem.solution` 内のrich blockを指す場合、そのshapeは該当エリア所属です。`anchor.type === "shape"` のshapeは親shapeの所属と出力可否を継承します。明示的な `anchor.type === "page"`、または本文をまだ測定できず自動anchorが確定していない互換データは文書共通として扱い、生徒版/解答冊子などの問題エリア表示制御では隠しません。
 
 担当範囲（シェイプ種別）:

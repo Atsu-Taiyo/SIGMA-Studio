@@ -203,7 +203,8 @@ test("the same AI chat goes on after a failed approval, and a write merges the t
     const card = page.locator('.page-flow [data-flow-extension-node-id^="extension:ai-proposal:p_human:"] > [data-ai-proposal-card="page"]');
     await expect(card.locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]")).toHaveText("現在の編集内容に合わせて提案を調整しました。");
     await card.screenshot({ path: testInfo.outputPath("adjusted-card.png") });
-    await card.getByRole("button", { name: "適用", exact: true }).click();
+    // 承認バーは紙面の操作の層 (図形より上) に持ち上げてある。紙面のカードはこの 1 枚だけ。
+    await page.locator(".page-controls-layer > .ai-proposal-card-head").getByRole("button", { name: "適用", exact: true }).click();
     await expect.poll(async () => (await pendingProposals()).length).toBe(0);
     const merged = paragraphText(disk(), "p_human");
     expect(merged).toContain("【人の追記】");

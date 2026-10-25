@@ -150,8 +150,13 @@ test("an approval merges the human's edit made after the proposal, survives a re
       await placeCaretAtParagraphEnd(blockId);
       await page.keyboard.insertText(value);
     };
+    /** カードの承認バー。紙面の操作の層 (図形より上) に持ち上げてあり、カードとは同じ id で結ばれる。 */
+    const pageCardControls = async (blockId: string) => {
+      const controlId = await pageCard(blockId).locator("[data-page-control-placeholder]").getAttribute("data-page-control-id");
+      return page.locator(`.page-controls-layer > [data-page-control-id="${controlId}"]`);
+    };
     const approveOnPage = async (blockId: string) => {
-      await pageCard(blockId).getByRole("button", { name: "適用", exact: true }).click();
+      await (await pageCardControls(blockId)).getByRole("button", { name: "適用", exact: true }).click();
       await expect.poll(async () => (await pendingProposals()).filter((item) => item.fileId === fileId).length).toBe(0);
       // 承認の書き込み中の編集停止が解けてから次へ進む (その間の Undo・入力は受け付けない)。
       await expect(page.locator(".ai-edit-readonly-block")).toHaveCount(0);
@@ -226,7 +231,7 @@ test("an approval merges the human's edit made after the proposal, survives a re
     await saveHumanEdit("p_same", "The emu sat on the mat.");
     await reload();
     const sameCard = pageCard("p_same");
-    await expect(sameCard.locator("[data-ai-proposal-merge-notice]")).toBeVisible();
+    await expect((await pageCardControls("p_same")).locator("[data-ai-proposal-merge-notice]")).toBeVisible();
     const previewText = await sameCard.locator("[data-ai-proposal-content]").textContent();
     const beforeApproval = await saved();
     await approveOnPage("p_same");
