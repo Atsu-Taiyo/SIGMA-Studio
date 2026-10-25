@@ -705,7 +705,8 @@ export function boxBlockSubtitleText(block: Pick<BoxBlockNode, "subtitle">): str
 }
 
 /** 見出しの帯を描く必要があるか。2 欄の箱はどちらかに文字があれば帯を出す。 */
-export function boxBlockHasHeader(block: Pick<BoxBlockNode, "title" | "subtitle">): boolean {
+export function boxBlockHasHeader(block: Pick<BoxBlockNode, "title" | "subtitle" | "frame">): boolean {
+  if (block.frame?.titleVisible === false) return false;
   return boxBlockTitleText(block).length > 0 || boxBlockSubtitleText(block).length > 0;
 }
 
@@ -768,6 +769,7 @@ export function hasBoxDecoration(frame: Pick<BoxFrameSpec, "decorations"> | unde
 
 export function boxFrameClassName(baseClass: string, frame: BoxFrameSpec, styleId?: string): string {
   const classes = [baseClass, "box-frame"];
+  if (frame.titleVisible === false) classes.push("box-frame--no-title");
   if (frame.custom) {
     classes.push("box-frame--custom", `box-frame--title-position-${frame.titlePosition ?? "l"}`);
     return classes.join(" ");

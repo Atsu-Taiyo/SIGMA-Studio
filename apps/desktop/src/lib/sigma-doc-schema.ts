@@ -100,6 +100,7 @@ const TextInlineSchema = z.object({
   type: z.literal("text"),
   text: z.string(),
   mentionUserId: z.string().min(1).optional(),
+  reference: z.object({ kind: z.enum(["document", "material"]), id: z.string().min(1).max(200).regex(/^[^\u0000-\u001f\u007f]+$/u) }).optional(),
   marks: z.array(z.enum(["bold", "italic", "underline", "boxed"])).optional(),
   color: z.string().optional(),
   backgroundColor: z.string().optional(),
@@ -421,6 +422,7 @@ const CustomFrameSchema = z.object({
 }).refine((frame) => frame.slice * 2 < Math.min(frame.width, frame.height));
 
 export const BoxFrameSchema = z.object({
+  titleVisible: z.boolean().optional(),
   borderWidthPx: z.number().nonnegative().optional(),
   borderColor: z.string().optional(),
   borderStyle: z.enum(["solid", "dashed", "dotted", "double", "none"]).optional(),

@@ -167,6 +167,7 @@ jobs:
               tests/electron/math-selection-format.spec.ts \
               tests/electron/font-format-roundtrip.spec.ts tests/electron/clipboard-routing.spec.ts \
               tests/electron/pocket.spec.ts \
+              tests/electron/editor-state-regressions.spec.ts \
               tests/electron/math-shortcut-type-ahead.spec.ts \
               tests/electron/shared-missing-asset-repair.spec.ts \
               tests/electron/whiteboard-focus.spec.ts tests/electron/graph-crop.spec.ts \

@@ -1320,8 +1320,8 @@ describe("empty box title editing structure", () => {
 
     expect(emptyTitleRule).toBeDefined();
     expect(emptyTitleRule).toMatch(/position:\s*absolute/);
-    expect(emptyTitleRule).toMatch(/min-width:\s*4em/);
-    expect(emptyTitleRule).toMatch(/min-height:\s*18px/);
+    expect(emptyTitleRule).toMatch(/min-width:\s*8em/);
+    expect(emptyTitleRule).toMatch(/min-height:\s*24px/);
     expect(emptyTitleRule).toMatch(/pointer-events:\s*auto/);
   });
 

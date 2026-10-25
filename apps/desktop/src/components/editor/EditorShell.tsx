@@ -298,6 +298,7 @@ import type { LedgerSchemaFailure } from "@/lib/library-schema";
 import { buildOutlineNavigation } from "@/lib/outline-navigation";
 import { getSupportedOverlayImageFiles } from "@/lib/overlay-image-files";
 import { countPerformanceEvent,measurePerformance } from "@/lib/performance";
+import { DOCUMENT_REFERENCE_CANDIDATES_EVENT, referenceAt, type ReferenceCandidatesRequest } from "@/lib/document-reference";
 import { OPEN_LINK_REQUEST_EVENT, readOpenLinkRequest } from "@/lib/link-open-request";
 import { generateQrPngFile } from "@/lib/qr-code";
 import type { SigmaDocumentRecoveryIssue } from "@/lib/sigma-doc-schema";
@@ -694,7 +695,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setSaveState("warning");
     setStatusMessage(message);
   }, [setSaveState, setStatusMessage, tE]);
-  const { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY: reportedBoxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive: reportedBoxedTextActive, boldActive: reportedBoldActive, italicActive: reportedItalicActive, underlineActive: reportedUnderlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant: reportedBoxedTextVariant, setBoxedTextVariant, boxedTextRoundness: reportedBoxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, preferredFontFamily, getPreferredFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState(ownsWorkspaceInput);
+  const { recentFontFamilies, textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY: reportedBoxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive: reportedBoxedTextActive, boldActive: reportedBoldActive, italicActive: reportedItalicActive, underlineActive: reportedUnderlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant: reportedBoxedTextVariant, setBoxedTextVariant, boxedTextRoundness: reportedBoxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, preferredFontFamily, getPreferredFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState(ownsWorkspaceInput);
   // ツールバーの入力欄へフォーカスが移っても、本文の選択を見せ続ける (`HeldBodySelectionOverlay`)。
   const chromeHeldBodyEditor = useChromeHeldBodySelection();
   const zoom = useStore(editorStore, (state) => state.zoom);
@@ -2205,6 +2206,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     materialLibraryOpen,
     setMaterialLibraryOpen,
     materials,
+    setMaterialSearch,
     materialEditingOpenRef,
     materialAddDialogOpen,
     setMaterialActionMenu,
@@ -2213,6 +2215,42 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     insertContentAt,
     insertMaterialAt,
   } = materialLibrary;
+
+  useEffect(() => {
+    if (!editorCanvasElement) return;
+    const candidates = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !(event.target instanceof Node) || !editorCanvasElement.contains(event.target)) return;
+      const request = event.detail as ReferenceCandidatesRequest;
+      request.candidates = [
+        ...documentMetadatas.filter(item => item.fileId !== activeFileId).map(item => ({ label: item.title, reference: { kind: "document" as const, id: item.fileId } })),
+        ...materials.map(item => ({ label: item.name, reference: { kind: "material" as const, id: item.id } })),
+      ];
+    };
+    const open = (event: Event) => {
+      if (event instanceof KeyboardEvent && event.key !== "Enter" && event.key !== " ") return;
+      if (!(event.target instanceof Element) || !editorCanvasElement.contains(event.target)) return;
+      const element = event.target.closest("[data-document-reference-id]");
+      const reference = element && referenceAt(element);
+      if (!reference) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (reference.kind === "document") void openSourceReferenceDocument({ fileId: reference.id });
+      else {
+        const material = materials.find(item => item.id === reference.id);
+        if (!material) { setStatusMessage(tEditor("reference.unavailable")); return; }
+        setMaterialSearch(material.name);
+        setMaterialLibraryOpen(true);
+      }
+    };
+    editorCanvasElement.addEventListener(DOCUMENT_REFERENCE_CANDIDATES_EVENT, candidates);
+    editorCanvasElement.addEventListener("click", open, true);
+    editorCanvasElement.addEventListener("keydown", open, true);
+    return () => {
+      editorCanvasElement.removeEventListener(DOCUMENT_REFERENCE_CANDIDATES_EVENT, candidates);
+      editorCanvasElement.removeEventListener("click", open, true);
+      editorCanvasElement.removeEventListener("keydown", open, true);
+    };
+  }, [editorCanvasElement, documentMetadatas, activeFileId, materials, openSourceReferenceDocument, setMaterialSearch, setMaterialLibraryOpen, setStatusMessage]);
 
   useLayoutEffect(() => { materialMenuCloseRef.current = () => setMaterialActionMenu(null); }, [setMaterialActionMenu]);
   const restoreDocumentVersion = async (version: VersionHistorySelection): Promise<DocumentVersionRestoreResult> => {
@@ -2775,6 +2813,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       `${option.label} ${option.value}`.toLocaleLowerCase("ja").includes(query)
     ));
   }, [customFontOptions, fontFamilyQuery]);
+  const visibleRecentFontOptions = recentFontFamilies.flatMap(value => {
+    const option = [...availableFontFamilyGroups.flatMap(group => group.options), ...customFontOptions].find(option => option.value === value);
+    return option && `${option.label} ${option.value}`.toLocaleLowerCase("ja").includes(fontFamilyQuery.trim().toLocaleLowerCase("ja")) ? [option] : [];
+  });
   const activeFontFamilyLabel = getFontFamilyLabel(fontFamily, customFontOptions);
   // Empty = the selection mixes fonts, so there is no "current font" to show. Without this the
   // dropdown would render a nameless row marked as the checked option.
@@ -4262,10 +4304,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // アウトラインの DocumentTitleText の memo が全部外れる。
   const documentTitle = useMemo(() => resolveDocumentTitleContent(document), [document]);
   const resolvedDocumentTitle = documentTitle.text;
-  const titleInputValue = documentTitleInputValue(document.metadata.title) || resolvedDocumentTitle;
+  const [titleInputFocused, setTitleInputFocused] = useState(false);
+  const titleInputValue = titleInputFocused ? documentTitleInputValue(document.metadata.title) : documentTitleInputValue(document.metadata.title) || resolvedDocumentTitle;
   // 数式を含むタイトルは、非フォーカス時だけリッチ表示を入力欄に重ねる。この state は JSX でしか
   // 読まない — effect の依存に入力まわりの state を置くと「1 文字しか打てない」事故を再発させる。
-  const [titleInputFocused, setTitleInputFocused] = useState(false);
   // 明示タイトルの入力欄には保存値がそのまま出る (正規化前) ので、重ねる側も同じ文字列から
   // 読む。派生タイトルは入力欄の値が導出結果そのものなので、潰していないノード列を使う。
   // 条件を 2 箇所に書くと必ずずれるので 1 変数に畳んでいる。
@@ -4742,7 +4784,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize,
       startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen,
       textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef,
-      toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups,
+      toggleBoxedText, underlineActive, visibleRecentFontOptions, visibleCustomFontOptions, visibleFontFamilyGroups,
     },
     insert: {
       ActiveLineToolIcon, activeLineToolItem, activeOverlayTool, bodyToolbarLockedByAi,

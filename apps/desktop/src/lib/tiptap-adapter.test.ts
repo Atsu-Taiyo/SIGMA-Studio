@@ -337,3 +337,16 @@ describe("Tiptap adapter", () => {
     expect(fromTiptap(tiptap, paragraph)).toEqual(paragraph);
   });
 });
+
+it("keeps two adjacent references distinct through canonical parsing and editing", async () => {
+  const { SigmaDocumentSchema } = await import("./sigma-doc-schema");
+  const paragraph: ParagraphNode = { type: "paragraph", id: "references", children: [
+    { type: "text", text: "@教材", reference: { kind: "document", id: "file_one" } },
+    { type: "text", text: "@素材", reference: { kind: "material", id: "material_one" } },
+    { type: "text", text: "本文" },
+  ] };
+  const restored = fromTiptap(toTiptap(paragraph), paragraph);
+  expect(restored).toEqual(paragraph);
+  const document = SigmaDocumentSchema.parse({ version: "2.0", docId: "references", metadata: { title: "参照" }, content: [restored], outputProfiles: { student: {}, teacher: {}, answerBook: {} } });
+  expect(document.content[0]).toMatchObject(paragraph);
+});

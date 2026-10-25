@@ -8,6 +8,7 @@ import type { TranslationsOf } from "../types";
  * **訳語ではなく英語話者が実際に打つ語**を独自に並べてある。
  */
 export const editor = {
+  reference: {"choose": "Reference a document or material", "document": "Document", "material": "Material", "empty": "No matches", "unavailable": "The referenced material is unavailable"},
   problemLibrary: {
     provenance: "Source: Juken Math / {{url}}",
     categories: { integers: "Integers", algebra: "Algebra", geometry: "Geometry", complex: "Complex plane", calculus: "Calculus", probability: "Probability", sequences: "Sequences" },

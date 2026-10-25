@@ -48,3 +48,11 @@ describe("isSingleUrl", () => {
     expect(isSingleUrl("nope")).toBe(false);
   });
 });
+
+it("recognizes a pasted Sigma sharing link beside ordinary URLs", () => {
+  const shared = "sigma-studio://share/document/00000000-0000-4000-8000-000000000001#invitation=" + "x".repeat(43);
+  expect(findUrls(`教材 ${shared}。 https://example.com`)).toEqual([
+    { url: shared, start: 3, end: 3 + shared.length },
+    { url: "https://example.com", start: shared.length + 5, end: shared.length + 24 },
+  ]);
+});

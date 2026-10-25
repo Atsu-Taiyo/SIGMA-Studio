@@ -49,7 +49,18 @@ describe("math template TeX helpers", () => {
 
   it("normalizes Japanese runs before MathLive preview placeholder rendering", () => {
     expect(toMathLivePreviewTex("x=高さ")).toBe(String.raw`x=\text{高さ}`);
-    expect(toMathLivePreviewTex("\\placeholder{}")).toBe("\\placeholder[?]{\\square}");
+    expect(toMathLivePreviewTex("\\placeholder{}")).toBe("\\class{ML__prompt-atom}{▢}");
+  });
+
+  it("keeps anonymous slots unframed and preserves explicit named prompts", () => {
+    expect(toMathLivePreviewTex(String.raw`\frac{\placeholder{ }}{34}`))
+      .toBe(String.raw`\frac{\class{ML__prompt-atom}{▢}}{34}`);
+    expect(toMathLivePreviewTex(String.raw`\placeholder[answer]{}`))
+      .toBe(String.raw`\placeholder[answer]{\square}`);
+    const html = convertLatexToMarkupCached(String.raw`\frac{\placeholder{}}{34}`, DEFAULT_MATH_RENDER_ENVIRONMENT);
+    expect(html).toContain('class="ML__prompt-atom"');
+    expect(html).toContain("▢");
+    expect(html).not.toContain("ML__editablePromptBox");
   });
 
   it("keeps explicit typefaces and partial bold commands intact when preparing whole-formula bold previews", () => {

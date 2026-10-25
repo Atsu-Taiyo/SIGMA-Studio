@@ -3,6 +3,7 @@
 import { scrollElementIntoCanvasView } from "@/components/editor/text-flow/caret-scroll";
 
 export interface EditorBlockFocusOptions {
+  boxTitle?: boolean;
   /**
    * ブロック全体を選ぶのではなく、末尾へキャレットを畳む。
    *
@@ -43,7 +44,8 @@ export function scheduleEditorBlockFocus(
       }
 
       const selector = `[data-sigma-doc-id="${CSS.escape(blockId)}"], #${CSS.escape(blockId)}`;
-      const blockElement = window.document.querySelector<HTMLElement>(selector);
+      const ownerElement = window.document.querySelector<HTMLElement>(selector);
+      const blockElement = options.boxTitle ? ownerElement?.querySelector<HTMLElement>("[data-box-title-region]") : ownerElement;
       const editorElement = blockElement?.closest<HTMLElement>("[contenteditable='true']");
       const selection = window.getSelection();
       if (!blockElement || !editorElement || !selection) {

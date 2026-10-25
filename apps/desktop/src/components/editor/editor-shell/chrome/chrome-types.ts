@@ -194,6 +194,7 @@ export interface EditorChromeFormat {
   textColorButtonRef: RefObject<HTMLButtonElement | null>;
   toggleBoxedText: () => void;
   underlineActive: boolean;
+  visibleRecentFontOptions: { label: string; value: string; }[];
   visibleCustomFontOptions: { label: string; value: string; }[];
   visibleFontFamilyGroups: FontFamilyGroup[];
   browserFontAccess: BrowserFontAccess | null;

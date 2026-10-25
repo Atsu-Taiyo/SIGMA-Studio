@@ -160,6 +160,7 @@ export const settings = {
 
     title: "Box settings",
     description: "Changes apply to the material immediately",
+    showTitle: "Show title",
     titleSection: "Title",
     subtitleSection: "Subtitle",
     titlePlaceholder: "Write the title",

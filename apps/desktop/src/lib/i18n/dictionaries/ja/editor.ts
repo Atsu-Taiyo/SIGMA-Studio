@@ -6,6 +6,7 @@
  * i18next のキー解決が途中で打ち切られて生キーが画面に出る (WI-4 で実測)。
  */
 export const editor = {
+  reference: {"choose": "教材・素材を参照", "document": "教材", "material": "素材", "empty": "見つかりません", "unavailable": "参照先の素材が見つかりません"},
   problemLibrary: {
     provenance: "出典：りずりーの受験数学研究所 / {{url}}",
     categories: { integers: "整数", algebra: "数と式", geometry: "図形", complex: "複素数平面", calculus: "微積分", probability: "確率", sequences: "数列" },

@@ -326,6 +326,7 @@ export const chrome = {
       mixed: "フォント: 複数",
       search: "フォントを検索",
       currentGroup: "現在のフォント",
+      recentGroup: "最近使ったフォント",
       customGroup: "追加フォント",
       empty: "一致するフォントがありません。",
       local: {
