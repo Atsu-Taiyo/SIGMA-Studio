@@ -112,7 +112,7 @@ function sameInk(actual: Bounds, expected: Bounds, label: string) {
   // of two edge rounding errors as a width/height error.
   const edges = (box: Bounds) => ({ left: box.x, top: box.y, right: box.x + box.w, bottom: box.y + box.h });
   for (const key of ["left", "top", "right", "bottom"] as const) {
-    expect.soft(Math.abs(edges(actual)[key] - edges(expected)[key]), `${label}: ${key} ${JSON.stringify({actual,expected})}`).toBeLessThanOrEqual(2);
+    expect(Math.abs(edges(actual)[key] - edges(expected)[key]), `${label}: ${key} ${JSON.stringify({actual,expected})}`).toBeLessThanOrEqual(2);
   }
 }
 
@@ -186,10 +186,12 @@ for (const displayScale of [1, 1.25, 1.5]) test(`B4 three columns: saved ellipse
       expect(pdf.numPages).toBe(2);
       for (let index = 0; index < pdf.numPages; index += 1) {
         const pdfPage = await pdf.getPage(index + 1);
-        const viewport = pdfPage.getViewport({ scale: 96 / 72 });
+        // Supersample thin glyphs so their color isn't lost to PDF antialiasing.
+        const rasterScale = 3;
+        const viewport = pdfPage.getViewport({ scale: rasterScale * 96 / 72 });
         // Chromium quantizes the MediaBox; use the exporter's 0.75pt (= 1 CSS px) tolerance.
-        expect(Math.abs(viewport.width - 364 * 96 / 25.4)).toBeLessThanOrEqual(1);
-        expect(Math.abs(viewport.height - 257 * 96 / 25.4)).toBeLessThanOrEqual(1);
+        expect(Math.abs(viewport.width / rasterScale - 364 * 96 / 25.4)).toBeLessThanOrEqual(1);
+        expect(Math.abs(viewport.height / rasterScale - 257 * 96 / 25.4)).toBeLessThanOrEqual(1);
         // Text extraction also guards against replacing the output with a bitmap.
         expect((await pdfPage.getTextContent()).items.length).toBeGreaterThan(10);
         const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
@@ -197,9 +199,13 @@ for (const displayScale of [1, 1.25, 1.5]) test(`B4 three columns: saved ellipse
         await pdfPage.render({ canvas: null, canvasContext: context as unknown as CanvasRenderingContext2D, viewport }).promise;
         await testInfo.attach(`pdf-page-${index + 1}`, { body: canvas.toBuffer("image/png"), contentType: "image/png" });
         const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        const bounds = (rgb: number[]) => {
+          const box = inkBounds(pixels, canvas.width, canvas.height, rgb);
+          return { x: box.x / rasterScale, y: box.y / rasterScale, w: box.w / rasterScale, h: box.h / rasterScale };
+        };
         for (const mark of marks.filter(mark => editing[mark.id].page === index)) {
-          sameInk(inkBounds(pixels, canvas.width, canvas.height, mark.ink), ink[mark.id], `PDF text ${mark.id}`);
-          sameInk(inkBounds(pixels, canvas.width, canvas.height, mark.stroke), ink[mark.shapeId], `PDF ellipse ${mark.shapeId}`);
+          sameInk(bounds(mark.ink), ink[mark.id], `PDF text ${mark.id}`);
+          sameInk(bounds(mark.stroke), ink[mark.shapeId], `PDF ellipse ${mark.shapeId}`);
         }
       }
       await testInfo.attach("saved-pdf", { path: output, contentType: "application/pdf" });
