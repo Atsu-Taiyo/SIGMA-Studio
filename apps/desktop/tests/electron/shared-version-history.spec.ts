@@ -222,6 +222,7 @@ test("a shared document's server versions are listed, previewed, and restored fo
     await expect(preview.getByRole("button", { name: "この版に戻す" })).toBeVisible();
     expect(restoreRequests).toHaveLength(0);
     await preview.getByRole("button", { name: "この版に戻す" }).click();
+    await expect(preview.locator(".version-history-preview-confirm")).toHaveCSS("opacity", "1");
     await page.screenshot({ path: testInfo.outputPath("shared-version-confirm.png") });
     roleAfterRestore = "viewer";
     await preview.getByRole("button", { name: "全員の教材を戻す" }).click();

@@ -2308,11 +2308,7 @@ nav.app-menu-list[inert] *,
 
 /* 共有教材の版を戻す前の確かめ (参加者全員の教材が戻る)。帯の下に1段だけ足す。 */
 .version-history-preview-confirm {
-  display: flex;
   flex: 0 0 auto;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
   border-bottom: 1px solid color-mix(in srgb, var(--warning) 22%, var(--border-subtle));
   background: color-mix(in srgb, var(--warning) 6%, var(--background));
   color: var(--text-primary);
@@ -2321,12 +2317,12 @@ nav.app-menu-list[inert] *,
   animation: version-history-confirm-in 140ms ease both;
 }
 
-.version-history-preview-confirm > svg {
+.version-history-preview-confirm-content > svg {
   flex: 0 0 auto;
   color: var(--warning);
 }
 
-.version-history-preview-confirm > span {
+.version-history-preview-confirm-content > span {
   flex: 1 1 auto;
   min-width: 0;
 }

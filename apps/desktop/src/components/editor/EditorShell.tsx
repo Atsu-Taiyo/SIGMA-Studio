@@ -1,5 +1,7 @@
 "use client";
 
+import { Inline, Inset } from "@/components/ui/layout";
+
 import { PersistentWorkspaceEditors, PersistentWorkspaceCanvas, usePersistentWorkspacePane, usePersistentPaneLifecycle, workspacePersistenceState } from "./editor-shell/persistent-workspace";
 import { EditorInputContext } from "./editor-input-context";
 import { isTextPointerSelectionClick } from "@/components/editor/text-pointer-selection";
@@ -5299,7 +5301,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
                 </div>
               </div>
               {versionHistoryConfirmingSharedRestore && (
-                <div className="version-history-preview-confirm" role="alert">
+                <Inset className="version-history-preview-confirm" role="alert" space="sm">
+                  <Inline className="version-history-preview-confirm-content" gap="sm">
                   <TriangleAlert size={15} aria-hidden="true" />
                   <span>{t("versionHistory.sharedRestoreConfirm")}</span>
                   <div className="version-history-preview-actions">
@@ -5339,7 +5342,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
                       {t("versionHistory.sharedRestoreConfirmAction")}
                     </button>
                   </div>
-                </div>
+                  </Inline>
+                </Inset>
               )}
               {versionHistoryRestoreError && <p className="version-history-preview-error" role="alert">{versionHistoryRestoreError}</p>}
               <div className="version-history-preview-scroll">
