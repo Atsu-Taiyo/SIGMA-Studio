@@ -1013,7 +1013,7 @@ export class LocalSigmaDocStore {
       this.touchWorkspace(library, workspace.id, now);
       await this.writeLibrary(library);
       await this.writeDocumentForFile(file, normalized);
-      await this.touchLibraryMtimeAfterCreate();
+      await this.touchLibraryMtimeAfterCreate(file);
       await this.saveWorkspaceWithLibrary({
         openFileIds: [file.fileId],
         activeFileId: file.fileId,
@@ -2276,9 +2276,14 @@ export class LocalSigmaDocStore {
    * 進めて、この目印を壊さないようにする。ベストエフォート — 失敗してもキャッシュが
    * 一時的に効かなくなるだけで、正しさには影響しない。
    */
-  private async touchLibraryMtimeAfterCreate(): Promise<void> {
-    const now = new Date();
-    await fs.utimes(this.libraryPath, now, now).catch(() => undefined);
+  private async touchLibraryMtimeAfterCreate(file: LocalFileRecord): Promise<void> {
+    await fs.stat(this.resolveDocumentPath(file)).then(async (bodyStat) => {
+      const now = new Date();
+      // Date truncates the kernel's fractional millisecond. Round the observed
+      // body timestamp upward so a same-millisecond create remains cacheable.
+      const afterBody = new Date(Math.max(now.getTime(), Math.ceil(bodyStat.mtimeMs)));
+      await fs.utimes(this.libraryPath, now, afterBody);
+    }).catch(() => undefined);
   }
 
   private async writeRecoveryBackup(fileId: string, raw: string): Promise<string> {

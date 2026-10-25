@@ -1893,6 +1893,35 @@ describe("LocalSigmaDocStore write durability (#B4)", () => {
     expect(documentStat.mtimeMs).toBeLessThanOrEqual(libraryStat.mtimeMs);
   });
 
+  it("keeps a sub-millisecond body timestamp within the library cache marker", async () => {
+    await store.initializeWorkspace({ initialDocument: sampleDocument });
+    const epochMs = Date.UTC(2026, 9, 25, 21);
+    const realRename = fs.rename;
+    const rename = vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+      await realRename(from, to);
+      if (String(to).endsWith(".sigmadoc.json")) {
+        // Reproduce a kernel file timestamp later than Date's whole millisecond.
+        const seconds = (epochMs + 0.875) / 1000;
+        await fs.utimes(to, seconds, seconds);
+      }
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(epochMs);
+    try {
+      const created = await store.createFileFromDocument({ document: createBlankDocument("小数時刻の教材") });
+      const dataDir = path.join(userDataDir, "data");
+      const body = await fs.stat(path.join(dataDir, created.file.documentPath ?? ""));
+      const library = await fs.stat(path.join(dataDir, "library.json"));
+      expect(body.mtimeMs).toBeGreaterThan(epochMs);
+      expect(library.mtimeMs).toBeGreaterThanOrEqual(body.mtimeMs);
+      const reopened = new LocalSigmaDocStore(userDataDir);
+      expect((await reopened.loadDocument(created.file.fileId))?.metadata.title).toBe("小数時刻の教材");
+    } finally {
+      rename.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("reconcile does not soft-delete a row whose body is missing inside the grace window", async () => {
     const recentCreatedAt = new Date().toISOString();
     await writeRawLibrary(userDataDir, {
