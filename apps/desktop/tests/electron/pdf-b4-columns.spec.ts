@@ -165,12 +165,20 @@ for (const orientation of ["landscape", "portrait"] as const) for (const display
     await expect(page.locator('.page-flow [data-sigma-doc-id="label_0"]').first()).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
     let previous = "";
-    await expect.poll(async () => {
-      const current = JSON.stringify(await editorGeometry(page));
-      const stable = current === previous;
+    await expect(async () => {
+      let current: string;
+      try {
+        current = JSON.stringify(await editorGeometry(page));
+      } catch (error) {
+        // A late reflow may replace a target during scrolling/measurement. A
+        // failed observation cannot count toward two consecutive stable samples.
+        previous = "";
+        throw error;
+      }
+      const last = previous;
       previous = current;
-      return stable;
-    }, { timeout: 30_000, intervals: [300] }).toBe(true);
+      expect(current).toBe(last);
+    }).toPass({ timeout: 30_000, intervals: [300] });
     const editing = JSON.parse(previous) as Record<string, Geometry>;
     expect([...new Set(Object.values(editing).map(box => box.page))]).toEqual([0, 1]);
     expect(new Set(marks.slice(0, 6).map(mark => Math.round(editing[mark.id].x))).size).toBe(3);
