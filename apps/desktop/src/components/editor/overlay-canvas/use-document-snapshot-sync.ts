@@ -1,11 +1,13 @@
 "use client";
 import { normalizeOverlaySnapshot, type OverlayExtensions, type PageOverlay } from "@/features/document";
-import { isOverlayRichTextShape } from "@/features/drawing";
+import { isOverlayRichTextShape, resolveShapesPosition } from "@/features/drawing";
 import { areStructurallyEqual } from "@/lib/structural-equality";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { useCallback, useEffect, useLayoutEffect } from "react";
 import { type OverlaySelectionStylePatch } from "../page-overlay-types";
+import { calculateReserveSpaceGaps } from "../page-canvas/layout-measure";
+import type { AnchorMeasurements } from "./selection-handles";
 import { normalizeOverlayGroups } from "./grouping";
 import { type OverlayInteractionAction, type OverlayInteractionMode } from "./interaction-mode";
 import type { PendingOverlaySave } from "./pending-save";
@@ -27,6 +29,7 @@ interface Dependencies {
   setAppliedSnapshotRevision: Dispatch<SetStateAction<number>>;
   transitionMode: (action: OverlayInteractionAction) => void;
   activeTextEditorRef: RefObject<TiptapEditor | null>;
+  anchorMeasurementsRef: RefObject<AnchorMeasurements>;
   overlay: PageOverlay;
   reconciledDocumentSnapshotRef: RefObject<OverlaySnapshot | undefined>;
   lastEmittedSnapshotRef: RefObject<OverlaySnapshot | null>;
@@ -54,6 +57,7 @@ export function useDocumentSnapshotSync({
   setAppliedSnapshotRevision,
   transitionMode,
   activeTextEditorRef,
+  anchorMeasurementsRef,
   overlay,
   reconciledDocumentSnapshotRef,
   lastEmittedSnapshotRef,
@@ -76,7 +80,13 @@ export function useDocumentSnapshotSync({
     suppressNextSaveRef.current = true;
     const currentMode = modeRef.current;
     const textEditingShapeId = currentMode.id === "overlay.textEditing" ? currentMode.shapeId : null;
-    const nextShapes = normalizeOverlayGroups(snapshot.shapes);
+    // Body geometry can stay identical while AI replaces the snapshot. Resolve the new shapes
+    // here too: a measurement-only effect would leave the editor at cached save coordinates.
+    const nextShapes = normalizeOverlayGroups(resolveShapesPosition(
+      snapshot.shapes,
+      anchorMeasurementsRef.current.rects,
+      calculateReserveSpaceGaps(snapshot.shapes),
+    ));
     const nextShapeIds = new Set(nextShapes.map((shape) => shape.id));
     const nextTextEditingShape = textEditingShapeId
       ? nextShapes.find((shape) => shape.id === textEditingShapeId && isOverlayRichTextShape(shape))
@@ -112,7 +122,7 @@ export function useDocumentSnapshotSync({
         transitionMode({ type: "editGraph3D", shapeId: graph3DEditingShape });
       }
     }
-  }, [activeTextEditorRef, assetsRef, clearQueuedOverlaySave, extensionsRef, imageCropDirtyRef, modeRef, selectedIdsRef, setAppliedSnapshotRevision, setAssets, setPreview, setSelectedIds, setShapes, shapesRef, suppressNextSaveRef, transitionMode]);
+  }, [activeTextEditorRef, anchorMeasurementsRef, assetsRef, clearQueuedOverlaySave, extensionsRef, imageCropDirtyRef, modeRef, selectedIdsRef, setAppliedSnapshotRevision, setAssets, setPreview, setSelectedIds, setShapes, shapesRef, suppressNextSaveRef, transitionMode]);
 
 
   /**

@@ -787,6 +787,7 @@ export default function OverlayCanvasEditorClient({
     transitionMode,
     activeTextEditorRef,
     overlay,
+    anchorMeasurementsRef,
     reconciledDocumentSnapshotRef,
     lastEmittedSnapshotRef,
     saveTimeoutRef,

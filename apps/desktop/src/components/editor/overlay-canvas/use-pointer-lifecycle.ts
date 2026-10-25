@@ -446,8 +446,9 @@ export function useOverlayPointerLifecycle({
 
     const moveResolution = interaction.id === "overlay.move"
       ? resolveMovePointerUp(
-        interaction,
-        pagePointFromClient(event.clientX, event.clientY),
+        // Only click slop uses client pixels. The committed offset stays in model coordinates.
+        { ...interaction, start: clientPointFromPage(interaction.start) },
+        { x: event.clientX, y: event.clientY },
       )
       : null;
     if (moveResolution?.kind === "edit") {
