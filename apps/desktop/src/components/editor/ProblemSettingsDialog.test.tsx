@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProblemSettingsDialog } from "@/components/editor/ProblemSettingsDialog";
+import { ProblemNumberLayoutSettings } from "@/components/editor/ProblemLayoutSettings";
 import type { ProblemNode } from "@/features/document";
 import { setAppLocale } from "@/lib/i18n/react";
 
@@ -30,6 +31,25 @@ function createProblem(tags: string[] = []): ProblemNode {
     hints: [],
   };
 }
+
+it("commits number fonts without blur and reflects canonical external updates", async () => {
+  current = createProblem();
+  const onChange = (update: (problem: ProblemNode) => ProblemNode) => { current = update(current); };
+  const renderField = () => act(async () => root.render(<ProblemNumberLayoutSettings problem={current} onChange={onChange} />));
+  await renderField();
+  const field = () => document.body.querySelector<HTMLInputElement>('[data-testid="problem-number-font-family"]')!;
+  const write = (value: string) => act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field(), value);
+    field().dispatchEvent(new InputEvent("input", { bubbles: true }));
+  });
+  await write('"Noto Serif JP", serif');
+  expect(current.numbering?.fontFamily).toBe('"Noto Serif JP", serif');
+  current = { ...current, numbering: { ...current.numbering, fontFamily: "monospace" } };
+  await renderField();
+  expect(field().value).toBe("monospace");
+  await write("serif;position:fixed");
+  expect(current.numbering?.fontFamily).toBe("monospace");
+});
 
 async function render(initial = createProblem()) {
   const onProblem = (problem: ProblemNode) => {

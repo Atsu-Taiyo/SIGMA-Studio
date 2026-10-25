@@ -18,6 +18,7 @@ import {
 import { customFrameImageSrc, getCustomFrameStyle } from "@/lib/custom-frame";
 import { findFrameLibraryEntry, useFrameLibrary } from "@/lib/frame-library";
 import { CustomFrameEditor } from "./CustomFrameEditor";
+import { ProblemNumberLayoutSettings, ProblemAreaLayoutSettings, ProblemBorderLayoutSettings } from "./ProblemLayoutSettings";
 import { setProblemLeadShown } from "./page-canvas/problem-area-model";
 import styles from "./ProblemSettingsDialog.module.css";
 import { useT } from "@/lib/i18n/react";
@@ -93,13 +94,14 @@ export function ProblemSettingsDialog({ problem, onChange, onClose }: ProblemSet
                 <input
                   data-testid="problem-number-font-size"
                   type="number"
-                  min={8}
-                  max={48}
+                  min={1}
+                  max={128}
                   value={problem.numbering?.fontSize ?? 16}
                   onChange={(event) => onChange((current) => setProblemNumberFontSize(current, Number(event.target.value)))}
                 />
               </label>
             </div>
+            <ProblemNumberLayoutSettings problem={problem} onChange={onChange} />
           </section>
 
           <section className={styles.section} aria-labelledby="problem-lead-heading">
@@ -119,6 +121,7 @@ export function ProblemSettingsDialog({ problem, onChange, onClose }: ProblemSet
             </p>
           </section>
 
+          <ProblemAreaLayoutSettings problem={problem} onChange={onChange} />
           <section className={styles.section} aria-labelledby="problem-frame-heading">
             <h3 className={styles.sectionTitle} id="problem-frame-heading">{t("problem.frame")}</h3>
             <div className={styles.frameGrid} role="group" aria-label={t("problem.frameOptionsAria")}>
@@ -180,6 +183,7 @@ export function ProblemSettingsDialog({ problem, onChange, onClose }: ProblemSet
                 }}
               />
             </div>
+            {frameEnabled && <ProblemBorderLayoutSettings problem={problem} onChange={onChange} />}
             {customEditorOpen && (
               <CustomFrameEditor
                 target={{ kind: "problem", id: problem.id }}

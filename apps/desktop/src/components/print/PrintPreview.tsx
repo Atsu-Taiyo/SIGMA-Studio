@@ -980,9 +980,14 @@ export function paginateMeasuredPrintBlocks(
       }
     };
 
-    const frameChromeHeightPxForRole = (role: ProblemFrameFragmentRole) => unit.hasFrame
-      ? getPrintProblemFrameFragmentChromeHeightMm(unit.frameStyleId, role, unit.frameCustom) * MM_TO_PX
-      : 0;
+    const marginHeightPxForRole = (role: ProblemFrameFragmentRole) =>
+      ((role === "single" || role === "first") ? unit.areaLayout?.marginTopPx ?? 0 : 0)
+      + ((role === "single" || role === "last") ? unit.areaLayout?.marginBottomPx ?? 0 : 0);
+    const fragmentSpacingPxForRole = (role: ProblemFrameFragmentRole) =>
+      (unit.hasFrame
+        ? getPrintProblemFrameFragmentChromeHeightMm(unit.frameStyleId, role, unit.frameCustom, unit.areaLayout, unit.frame) * MM_TO_PX
+        : ((role === "single" || role === "first") ? unit.areaLayout?.paddingPx?.top ?? 0 : 0)
+          + (unit.areaLayout?.paddingPx?.bottom ?? 0)) + marginHeightPxForRole(role);
     if (
       unit.isFirstProblemArea
       &&
@@ -1011,7 +1016,7 @@ export function paginateMeasuredPrintBlocks(
       const fragmentRole: ProblemFrameFragmentRole = fragmentIndex === 0
         ? isLastFragment ? "single" : "first"
         : isLastFragment ? "last" : "middle";
-      const fragmentHeight = fragmentContentHeight + frameChromeHeightPxForRole(fragmentRole);
+      const fragmentHeight = fragmentContentHeight + fragmentSpacingPxForRole(fragmentRole);
       const fragment: Extract<PrintContentUnit, { type: "problemAreaFragment" }> = {
         type: "problemAreaFragment",
         id: `${unit.id}:area-fragment:${fragmentIndex}`,
@@ -1026,6 +1031,9 @@ export function paginateMeasuredPrintBlocks(
         minHeightMm: undefined,
         problemNumber: unit.problemNumber,
         numberFontSize: unit.numberFontSize,
+        numbering: unit.numbering,
+        areaLayout: unit.areaLayout,
+        frame: unit.frame,
         hasFrame: unit.hasFrame,
         frameStyleId: unit.frameStyleId,
         frameCustom: unit.frameCustom,
@@ -1052,7 +1060,7 @@ export function paginateMeasuredPrintBlocks(
         fragmentColumns.push(currentColumn());
         placeFlowUnit(fragment, fragmentHeight);
       }
-      occupiedAreaHeightPx += fragmentHeight;
+      occupiedAreaHeightPx += fragmentHeight - marginHeightPxForRole(fragmentRole);
     };
     const flushRun = (isLastFragment = false) => {
       if (runBlocks.length === 0) {
@@ -1092,11 +1100,11 @@ export function paginateMeasuredPrintBlocks(
         const remaining = childHeight - sliceTop;
         const finalRole: ProblemFrameFragmentRole = fragments.length === 0 ? "single" : "last";
         const fitsAsLast = isLastAreaChild
-          && remaining + frameChromeHeightPxForRole(finalRole) <= currentColumnRemainingHeight() + 0.5;
+          && remaining + fragmentSpacingPxForRole(finalRole) <= currentColumnRemainingHeight() + 0.5;
         const role: ProblemFrameFragmentRole = fitsAsLast
           ? finalRole
           : fragments.length === 0 ? "first" : "middle";
-        const frameChromeHeightPx = frameChromeHeightPxForRole(role);
+        const frameChromeHeightPx = fragmentSpacingPxForRole(role);
         const available = Math.max(1, currentColumnRemainingHeight() - frameChromeHeightPx);
         const step = resolveFlowFragmentStep({
           available,
@@ -1173,7 +1181,7 @@ export function paginateMeasuredPrintBlocks(
         const prospectiveRole: ProblemFrameFragmentRole = fragments.length === 0
           ? isLastAreaChild ? "single" : "first"
           : isLastAreaChild ? "last" : "middle";
-        const frameChromeHeightPx = frameChromeHeightPxForRole(prospectiveRole);
+        const frameChromeHeightPx = fragmentSpacingPxForRole(prospectiveRole);
         if (currentColumnRemainingHeight() <= 0.5) {
           advanceAreaFlow();
         }
@@ -1190,7 +1198,7 @@ export function paginateMeasuredPrintBlocks(
             const role: ProblemFrameFragmentRole = fragments.length === 0
               ? isLastSectionFragment ? "single" : "first"
               : isLastSectionFragment ? "last" : "middle";
-            const sectionFragmentHeight = sectionFragment.estimatedHeightPx + frameChromeHeightPxForRole(role);
+            const sectionFragmentHeight = sectionFragment.estimatedHeightPx + fragmentSpacingPxForRole(role);
             if (
               columnHasFlowContent(currentColumn()) &&
               sectionFragmentHeight > currentColumnRemainingHeight() + 0.5
@@ -1218,11 +1226,11 @@ export function paginateMeasuredPrintBlocks(
       const prospectiveRole: ProblemFrameFragmentRole = fragments.length === 0
         ? isLastAreaChild ? "single" : "first"
         : isLastAreaChild ? "last" : "middle";
-      const frameChromeHeightPx = frameChromeHeightPxForRole(prospectiveRole);
+      const frameChromeHeightPx = fragmentSpacingPxForRole(prospectiveRole);
       const childExceedsFragmentCapacity = childHeight + frameChromeHeightPx > contentHeightPx + 0.5;
       if (childExceedsFragmentCapacity) {
         flushRun();
-        if (unit.hasFrame) {
+        if (unit.hasFrame || fragmentSpacingPxForRole("single") > 0) {
           placeFramedOverTallChild(child, childHeight, isLastAreaChild);
         } else if (childHeight > contentHeightPx + 0.5) {
           if (fragments.length === 0) {
@@ -1245,7 +1253,7 @@ export function paginateMeasuredPrintBlocks(
       const runRole: ProblemFrameFragmentRole = fragments.length === 0
         ? isLastAreaChild ? "single" : "first"
         : isLastAreaChild ? "last" : "middle";
-      const runChromeHeightPx = frameChromeHeightPxForRole(runRole);
+      const runChromeHeightPx = fragmentSpacingPxForRole(runRole);
       const remainingAfterRun = Math.max(0, currentColumnRemainingHeight() - runContentHeight - runChromeHeightPx);
       if (
         (columnHasFlowContent(currentColumn()) || runBlocks.length > 0) &&
@@ -1282,7 +1290,7 @@ export function paginateMeasuredPrintBlocks(
       const lastFragmentColumn = fragmentColumns.at(-1);
       if (lastPlacedContentIsAreaFragment && lastFragment && lastFragmentColumn === currentColumn()) {
         lastFragment.estimatedHeightPx += reservationChunk;
-        lastFragment.minHeightMm = lastFragment.estimatedHeightPx / MM_TO_PX;
+        lastFragment.minHeightMm = (lastFragment.estimatedHeightPx - marginHeightPxForRole(lastFragment.fragmentRole)) / MM_TO_PX;
         if (isFullSpanFlow) {
           for (const column of columns) {
             column.estimatedContentHeightPx += reservationChunk;
@@ -1297,12 +1305,12 @@ export function paginateMeasuredPrintBlocks(
           : isLastReservationFragment ? "last" : "middle";
         const reservationContentHeight = Math.max(
           0,
-          reservationChunk - frameChromeHeightPxForRole(reservationRole),
+          reservationChunk - fragmentSpacingPxForRole(reservationRole),
         );
         placeFragment([], reservationContentHeight, isLastReservationFragment);
         const reservationFragment = fragments.at(-1);
         if (reservationFragment) {
-          reservationFragment.minHeightMm = reservationFragment.estimatedHeightPx / MM_TO_PX;
+          reservationFragment.minHeightMm = (reservationFragment.estimatedHeightPx - marginHeightPxForRole(reservationFragment.fragmentRole)) / MM_TO_PX;
         }
       }
       trailingReservationPx -= reservationChunk;

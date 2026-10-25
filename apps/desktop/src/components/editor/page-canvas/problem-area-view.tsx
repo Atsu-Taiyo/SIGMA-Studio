@@ -10,6 +10,8 @@ import {
 import type { TextFlowChangeDecorationState } from "@/components/tiptap/change-decoration";
 import {
   type ProblemAreaKind,
+  type ProblemAreaLayout,
+  type ProblemFrame,
   type CustomFrame,
   type ProblemNode,
   type SigmaCommentThread,
@@ -33,7 +35,7 @@ import {
   problemFrameClassName,
 } from "@/lib/problem-frame";
 import { getCustomFrameStyle } from "@/lib/custom-frame";
-import { formatProblemNumber } from "@/lib/problem-numbering";
+import { getProblemNumberLayoutStyle, getProblemAreaLayoutStyle, getProblemFrameLayoutStyle, formatProblemNumberLabel } from "@/features/document";
 import type { MaterialItem } from "@/types/material";
 import { MoreHorizontal } from "lucide-react";
 import type { CSSProperties,PointerEvent as ReactPointerEvent } from "react";
@@ -153,6 +155,9 @@ export function ProblemAreaFlowUnit({
     ...displacementProps.style,
     ...getVisualEndStyle(visualEnd, sideNoteLabelY),
     ...frameCustomStyle,
+    ...getProblemAreaLayoutStyle(problem.areaLayout?.[area], displacementProps.style?.left ?? layoutStyle?.left),
+    ...getProblemFrameLayoutStyle(hasFrame ? problem.frame : undefined),
+    ...getProblemNumberLayoutStyle(problem.numbering),
     minHeight: minHeightPx > 0 ? `${minHeightPx}px` : undefined,
   } as CSSProperties;
   const problemNumber = unit.problemNumber;
@@ -203,6 +208,7 @@ export function ProblemAreaFlowUnit({
       {...{ [FLOW_BREAK_BEFORE_ATTRIBUTE]: breakBeforeArea ? "true" : undefined }}
       {...{ [FLOW_SPAN_ATTRIBUTE]: isColumnPage && isFullSpanUnit(unit) ? "full" : undefined }}
       data-problem-frame-style={frameStyleId}
+      data-problem-padding={problem.areaLayout?.[area]?.paddingPx ? "explicit" : undefined}
       className={`problem-area-flow-unit ${selected ? "selected" : ""} ${outerFrameClasses} ${outerFirstFrameClass} ${outerLastFrameClass} ${spaceAfterFollowerClass}`}
       style={style}
       onClick={(event) => {
@@ -217,6 +223,8 @@ export function ProblemAreaFlowUnit({
           frameClasses={frameClasses}
           frameStyleId={frameStyleId}
           frameCustom={frameCustom}
+          areaLayout={problem.areaLayout?.[area]}
+          frame={problem.frame}
           isFirstProblemFrameArea={unit.isFirstProblemFrameArea}
           isLastProblemFrameArea={unit.isLastProblemFrameArea}
         />
@@ -256,7 +264,7 @@ export function ProblemAreaFlowUnit({
       <div className={`problem-area-paper-content ${showNumber ? "with-number" : ""}`}>
         {showNumber && (
           <span className="problem-number-marker" aria-label={tEditor("pageCanvas.problemNumber", { replace: { number: problemNumber } })} style={problemNumberStyle}>
-            {formatProblemNumber(problemNumber)}
+            {formatProblemNumberLabel(problemNumber, problem.numbering)}
           </span>
         )}
         <div
@@ -336,6 +344,8 @@ export function ProblemAreaFrameFragmentPieces({
   frameClasses,
   frameStyleId,
   frameCustom,
+  areaLayout,
+  frame,
   isFirstProblemFrameArea,
   isLastProblemFrameArea,
 }: {
@@ -343,11 +353,19 @@ export function ProblemAreaFrameFragmentPieces({
   frameClasses: string;
   frameStyleId: string | undefined;
   frameCustom: CustomFrame | undefined;
+  areaLayout?: ProblemAreaLayout;
+  frame?: ProblemFrame;
   isFirstProblemFrameArea: boolean;
   isLastProblemFrameArea: boolean;
 }) {
   const chromePadding = getProblemFrameChromePaddingPx(frameStyleId, frameCustom);
   const frameCustomStyle = frameCustom ? getCustomFrameStyle(frameCustom, "px") as CSSProperties : undefined;
+  const frameStyle = getProblemFrameLayoutStyle(frame);
+  const border = frame?.borderWidthPx ?? (frameCustom ? chromePadding.x - frameCustom.paddingPx : 1);
+  const insets = areaLayout?.paddingPx ? {
+    top: areaLayout.paddingPx.top + border, right: areaLayout.paddingPx.right + border,
+    bottom: areaLayout.paddingPx.bottom + border, left: areaLayout.paddingPx.left + border,
+  } : { top: chromePadding.y, right: chromePadding.x, bottom: chromePadding.y, left: chromePadding.x };
   return (
     <>
       {fragments.map((fragment, index) => {
@@ -369,6 +387,7 @@ export function ProblemAreaFrameFragmentPieces({
                 boxSizing: "border-box",
                 pointerEvents: "none",
                 ...frameCustomStyle,
+                ...frameStyle,
               }}
             />
           );
@@ -379,8 +398,8 @@ export function ProblemAreaFrameFragmentPieces({
         // piece (`:not(.first-frame-area) { padding-top: 0 }`) — the bottom
         // padding is always kept, giving each piece breathing room before its
         // open (or closed) bottom edge.
-        const topOutset = isFirstPiece ? chromePadding.y : 0;
-        const bottomOutset = chromePadding.y;
+        const topOutset = isFirstPiece ? insets.top : 0;
+        const bottomOutset = insets.bottom;
         return (
           <div
             key={`frame-piece-${index}`}
@@ -388,13 +407,14 @@ export function ProblemAreaFrameFragmentPieces({
             className={`problem-area-flow-unit ${frameClasses} ${isFirstPiece ? "first-frame-area" : ""} ${isLastPiece ? "last-frame-area" : ""}`}
             style={{
               position: "absolute",
-              left: `${fragment.x - chromePadding.x}px`,
+              left: `${fragment.x - insets.left}px`,
               top: `${fragment.y - topOutset}px`,
-              width: `${fragment.width + chromePadding.x * 2}px`,
+              width: `${fragment.width + insets.left + insets.right}px`,
               height: `${fragment.height + topOutset + bottomOutset}px`,
               margin: 0,
               pointerEvents: "none",
               ...frameCustomStyle,
+              ...frameStyle,
             }}
           />
         );

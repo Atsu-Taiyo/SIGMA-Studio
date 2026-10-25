@@ -4,6 +4,7 @@ import {
   inlineMathBodyClassName,
   inlineMathNodeClassName,
   inlineMathNodeDataAttributes,
+  isZeroWidthMathRule,
   type InlineMathFrameStateOptions,
 } from "./inline-math-frame";
 import { renderMathHtml } from "./math-html";
@@ -50,6 +51,7 @@ export function setInlineMathBodyTex(
 ): void {
   body.dataset.empty = tex ? "false" : "true";
   body.innerHTML = renderMathHtml(tex, environment);
+  body.parentElement?.toggleAttribute("data-zero-width-math-rule", isZeroWidthMathRule(tex));
 }
 
 export interface InlineMathFrameElementOptions extends InlineMathFrameStateOptions {

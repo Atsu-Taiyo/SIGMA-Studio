@@ -1218,6 +1218,26 @@
   box-shadow: none;
 }
 
+.problem-area-flow-unit {
+  --problem-number-font-family: initial;
+  --problem-number-font-weight: initial;
+  --problem-number-width: initial;
+  --problem-number-height: initial;
+  --problem-number-gap: initial;
+  --problem-number-border-width: initial;
+  --problem-number-border-radius: initial;
+  --problem-number-border-style: initial;
+  --problem-number-padding-x: initial;
+  --problem-number-offset-x: initial;
+  --problem-number-offset-y: initial;
+  --problem-number-outline-width: initial;
+  --problem-number-outline-offset: initial;
+  --problem-number-text-offset-x: initial;
+  --problem-number-text-offset-y: initial;
+  --problem-frame-border-width: initial;
+  --problem-frame-border-radius: initial;
+}
+
 .problem-area-flow-unit,
 .layout-section-flow-unit {
   position: relative;
@@ -1423,22 +1443,22 @@
   box-sizing: border-box;
   margin: 0;
   padding: 8px 10px;
-  border-right: 1px solid var(--text-primary);
-  border-left: 1px solid var(--text-primary);
+  border-right: var(--problem-frame-border-width, 1px) solid var(--text-primary);
+  border-left: var(--problem-frame-border-width, 1px) solid var(--text-primary);
 }
 
 .problem-area-flow-unit.with-frame.first-frame-area {
   margin-top: 2px;
-  border-top: 1px solid var(--text-primary);
-  border-top-left-radius: 2px;
-  border-top-right-radius: 2px;
+  border-top: var(--problem-frame-border-width, 1px) solid var(--text-primary);
+  border-top-left-radius: var(--problem-frame-border-radius, 2px);
+  border-top-right-radius: var(--problem-frame-border-radius, 2px);
 }
 
 .problem-area-flow-unit.with-frame.last-frame-area {
   margin-bottom: 2px;
-  border-bottom: 1px solid var(--text-primary);
-  border-bottom-right-radius: 2px;
-  border-bottom-left-radius: 2px;
+  border-bottom: var(--problem-frame-border-width, 1px) solid var(--text-primary);
+  border-bottom-right-radius: var(--problem-frame-border-radius, 2px);
+  border-bottom-left-radius: var(--problem-frame-border-radius, 2px);
 }
 
 .problem-area-flow-unit.with-frame:not(.first-frame-area) {
@@ -1469,19 +1489,19 @@
 
 .problem-area-flow-unit.with-frame.box-frame--double-rule {
   padding: 10px 12px;
-  border-right-width: 3px;
+  border-right-width: var(--problem-frame-border-width, 3px);
   border-right-style: double;
-  border-left-width: 3px;
+  border-left-width: var(--problem-frame-border-width, 3px);
   border-left-style: double;
 }
 
 .problem-area-flow-unit.with-frame.box-frame--double-rule.first-frame-area {
-  border-top-width: 3px;
+  border-top-width: var(--problem-frame-border-width, 3px);
   border-top-style: double;
 }
 
 .problem-area-flow-unit.with-frame.box-frame--double-rule.last-frame-area {
-  border-bottom-width: 3px;
+  border-bottom-width: var(--problem-frame-border-width, 3px);
   border-bottom-style: double;
 }
 
@@ -1593,11 +1613,22 @@
   min-width: 0;
 }
 
+/* Explicit insets describe the content box. The editor's selection hit area
+ * remains outside it and must not add a second bottom inset. */
+.problem-area-flow-unit[data-problem-padding="explicit"] .text-flow-shell {
+  margin-left: -12px;
+  margin-right: -12px;
+}
+
+.problem-area-flow-unit[data-problem-padding="explicit"] .text-flow-shell:not([data-text-run-group]:has(+ [data-text-run-group]) > .text-flow-shell) {
+  margin-bottom: -6px;
+}
+
 .problem-area-paper-content.with-number {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   align-items: start;
-  column-gap: 8px;
+  column-gap: var(--problem-number-gap, 8px);
 }
 
 .problem-number-marker {
@@ -1605,17 +1636,29 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  min-width: 1.9em;
-  height: 1.9em;
+  min-width: var(--problem-number-width, 1.9em);
+  width: var(--problem-number-width, auto);
+  height: var(--problem-number-height, 1.9em);
   margin: 0;
-  padding: 0 0.24em;
-  border: 1px solid var(--text-primary);
-  border-radius: 2px;
+  padding: 0 var(--problem-number-padding-x, 0.24em);
+  border: var(--problem-number-border-width, 1px) var(--problem-number-border-style, solid) var(--text-primary);
+  border-radius: var(--problem-number-border-radius, 2px);
   color: var(--text-primary);
-  font-weight: 750;
+  font-family: var(--problem-number-font-family, inherit);
+  font-weight: var(--problem-number-font-weight, 750);
   font-variant-numeric: tabular-nums;
   line-height: 1.35;
   text-align: center;
+  position: relative;
+  left: var(--problem-number-offset-x, 0px);
+  top: var(--problem-number-offset-y, 0px);
+  outline: var(--problem-number-outline-width, 0px) solid currentColor;
+  outline-offset: var(--problem-number-outline-offset, 0px);
+  white-space: nowrap;
+  padding-left: calc(var(--problem-number-padding-x, 0.24em) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * 2)));
+  padding-right: calc(var(--problem-number-padding-x, 0.24em) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * -2)));
+  padding-top: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * 2)));
+  padding-bottom: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * -2)));
 }
 
 .problem-area-paper-body {

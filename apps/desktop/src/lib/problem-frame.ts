@@ -3,6 +3,7 @@ import {
   resolveCustomFrameMetrics,
   type CustomFrame,
   type ProblemFrame,
+  type ProblemAreaLayout,
   type ProblemNode,
   type RichBlock,
   type SigmaBlock,
@@ -143,17 +144,23 @@ export function getPrintProblemFrameFragmentChromeHeightMm(
   styleId: string | undefined,
   role: ProblemFrameFragmentRole,
   custom?: CustomFrame,
+  layout?: ProblemAreaLayout,
+  frame?: ProblemFrame,
 ): number {
   const isCustom = styleId === CUSTOM_FRAME_STYLE_ID && custom !== undefined;
   const paddingY = getPrintProblemFrameChromePaddingMm(styleId, custom).y;
-  const borderWidth = isCustom
+  const originalBorderWidth = isCustom
     ? resolveCustomFrameMetrics(custom).borderPx * PX_TO_MM
     : normalizeProblemFrameStyleId(styleId) === "doublebox"
       ? 0.8
       : 0.3;
+  const borderWidth = typeof frame?.borderWidthPx === "number" && Number.isFinite(frame.borderWidthPx) && frame.borderWidthPx >= 0 && frame.borderWidthPx <= 24
+    ? frame.borderWidthPx * PX_TO_MM : originalBorderWidth;
   const hasTop = role === "single" || role === "first";
   const hasBottom = role === "single" || role === "last";
-  return paddingY + (hasTop ? paddingY + borderWidth : 0) + (hasBottom ? borderWidth : 0);
+  const top = layout?.paddingPx?.top ?? paddingY / PX_TO_MM;
+  const bottom = layout?.paddingPx?.bottom ?? paddingY / PX_TO_MM;
+  return bottom * PX_TO_MM + (hasTop ? top * PX_TO_MM + borderWidth : 0) + (hasBottom ? borderWidth : 0);
 }
 
 export function setProblemFrameEnabled<T extends SigmaBlock | RichBlock>(block: T, enabled: boolean): T {
