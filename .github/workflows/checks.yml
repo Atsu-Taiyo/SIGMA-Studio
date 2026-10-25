@@ -16,7 +16,7 @@ jobs:
   required-ci:
     name: Required CI
     if: ${{ always() }}
-    needs: [desktop, dependency-security, electron-smoke, public-packages, file-lock]
+    needs: [desktop, dependency-security, electron-smoke, public-packages, file-lock, pdf-parity]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -26,7 +26,7 @@ jobs:
         run: |
           node <<'NODE'
           const results = JSON.parse(process.env.REQUIRED_CI_RESULTS ?? "{}");
-          const required = ["desktop", "dependency-security", "electron-smoke", "public-packages", "file-lock"];
+          const required = ["desktop", "dependency-security", "electron-smoke", "public-packages", "file-lock", "pdf-parity"];
           const incomplete = required.filter((name) => results[name]?.result !== "success");
           if (incomplete.length > 0) {
             for (const name of incomplete) {
@@ -63,6 +63,34 @@ jobs:
       - run: npm --workspace @sigma-studio/desktop run test -- --maxWorkers=2 --testTimeout=30000
       - run: npm run build
       - run: npm run electron:build
+
+  pdf-parity:
+    name: B4 three-column PDF (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Build the actual desktop renderer, main and preload
+        run: npm --workspace @sigma-studio/desktop run electron:prepare
+      - name: Compare B4 portrait and landscape editor, preview and saved PDF at 100%, 125% and 150% display scale
+        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/pdf-b4-columns.spec.ts
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: pdf-parity-${{ matrix.os }}
+          path: apps/desktop/test-results/
+          retention-days: 7
 
   dependency-security:
     name: Dependency security
