@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OverlayShape, ParagraphNode } from "@/features/document";
+import { createTableShapeProps } from "@/components/editor/overlay-canvas/shapes/table";
 import { setAppLocale } from "@/lib/i18n";
 import {
   createOverlayClipboardPayload,
@@ -99,6 +100,26 @@ describe("PocketBar", () => {
     await render();
 
     expect(container.innerHTML).toBe("");
+  });
+
+  it.each(["plain", "variation"] as const)("renders a %s table card alongside stateful cards and can remove and restore it", async (kind) => {
+    const table: OverlayShape = {
+      id: "table_source", type: "tableShape", x: 10, y: 20, rotation: 0,
+      props: createTableShapeProps(kind),
+    };
+    table.props.table.cells[0]!.content = [{ type: "paragraph", id: "cell_p", children: [{ type: "text", text: "表の内容" }] }];
+    await render();
+    await act(async () => {
+      putBlocks();
+      addToPocket(clipOf(createOverlayClipboardPayload([table], {}, "doc_a")));
+    });
+    expect(cards()).toHaveLength(2);
+    expect(cards()[1]?.querySelector("img")?.getAttribute("src")).toContain("svg");
+    const id = cards()[1]!.closest<HTMLElement>("[data-pocket-item]")!.dataset.pocketItem!;
+    await act(async () => removeFromPocket([id]));
+    expect(cards()).toHaveLength(1);
+    await act(async () => buttonByLabel("元に戻す").click());
+    expect(cards()).toHaveLength(2);
   });
 
   it("shows one card per item, named after what it carries, in the order they were put in", async () => {

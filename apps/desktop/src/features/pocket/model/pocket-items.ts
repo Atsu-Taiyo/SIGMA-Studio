@@ -1,5 +1,6 @@
 import { EDITOR_CLIPBOARD_MIME, EDITOR_TEXT_SLICE_MIME } from "@/lib/editor-clipboard";
 
+import { getPocketTransferTarget, readPocketClipboardPayload, type PocketTransferTarget } from "./pocket-content";
 import {
   derivePocketPreview,
   POCKET_HTML_MIME,
@@ -33,6 +34,8 @@ export interface PocketItem {
   readonly addedAt: number;
   /** 貼り戻しにそのまま使う、コピー時のクリップボード。 */
   readonly clip: PocketClipboardBag;
+  /** 転送先はコピー時に確定する。選択・フォーカス・プレビューの状態には依存しない。 */
+  readonly transferTarget: PocketTransferTarget;
   /** カードの描画用。clip から作った派生値で、文書には書かない。 */
   readonly preview: PocketPreview;
   /** clip の大きさ (文字数)。 */
@@ -58,7 +61,7 @@ export function normalizePocketClipboardBag(source: Readonly<Record<string, stri
       bag[type] = value;
     }
   }
-  return bag;
+  return Object.freeze(bag);
 }
 
 export function pocketClipboardSize(bag: PocketClipboardBag): number {
@@ -78,11 +81,12 @@ export function createPocketItem(
   identity: { id: string; addedAt: number },
 ): PocketItem | null {
   const clip = normalizePocketClipboardBag(source);
-  const preview = derivePocketPreview(clip);
+  const payload = readPocketClipboardPayload(clip);
+  const preview = derivePocketPreview(clip, payload);
   if (!preview) {
     return null;
   }
-  return { ...identity, clip, preview, size: pocketClipboardSize(clip) };
+  return { ...identity, clip, transferTarget: getPocketTransferTarget(payload), preview, size: pocketClipboardSize(clip) };
 }
 
 /** 末尾へ足す。件数・大きさの上限を超えるなら足さずに理由を返す。 */

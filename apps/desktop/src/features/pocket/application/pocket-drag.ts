@@ -36,6 +36,10 @@ export interface PocketScreenRect {
  * ポケットはその窓口だけを持ち、実装は `EditorShell` が登録する。
  */
 export interface PocketPageHost {
+  /** 判定は挿入時に行う。マウント順ではなく、いま入力を所有する教材を選ぶ。 */
+  ownsInput?(): boolean;
+  /** ドロップではフォーカスではなく、実際に落とされた編集面が所有する。 */
+  ownsDropLocation?(location: PocketDropLocation): boolean;
   /**
    * 項目を紙面へ置く。置いたら true、置かない (本文のキャレットへ貼る) なら false。
    * `point` が null のときは置き場所の指定が無い挿入 (クリック) で、紙面が見えている範囲の
@@ -71,18 +75,18 @@ export function readPocketDragItemId(dataTransfer: DataTransfer): string | null 
   return id ? id : null;
 }
 
-let pageHost: PocketPageHost | null = null;
+const pageHosts = new Set<PocketPageHost>();
 
-/** 紙面への配置の窓口を登録する。戻り値で解除する (別の登録に置き換わっていれば何もしない)。 */
+/** 紙面への配置の窓口を登録し、この窓口だけを解除する関数を返す。 */
 export function registerPocketPageHost(host: PocketPageHost): () => void {
-  pageHost = host;
+  pageHosts.add(host);
   return () => {
-    if (pageHost === host) {
-      pageHost = null;
-    }
+    pageHosts.delete(host);
   };
 }
 
-export function getPocketPageHost(): PocketPageHost | null {
-  return pageHost;
+export function getPocketPageHost(location?: PocketDropLocation): PocketPageHost | null {
+  return [...pageHosts].reverse().find(host => location && host.ownsDropLocation
+    ? host.ownsDropLocation(location)
+    : host.ownsInput?.() ?? true) ?? null;
 }
