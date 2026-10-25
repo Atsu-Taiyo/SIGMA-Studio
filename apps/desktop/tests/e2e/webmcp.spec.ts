@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { pageProposalControls } from "./ai-proposal-controls";
 
 async function installWebMcpMock(page: Page, rejectedToolName: string | null = null) {
   await page.addInitScript(({ rejectedToolName }) => {
@@ -103,7 +104,7 @@ test("WebMCP converts Markdown math, previews it, and applies one draft", async 
     .last();
   await expect(preview).toBeVisible();
   await expect(liveBlock).toHaveCount(0);
-  await preview.getByRole("button", { name: "適用", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用", exact: true }).click();
   await expect(liveBlock).toContainText("式");
   await expect(liveBlock).toContainText("金額は $5");
   await expect(liveBlock.locator('.inline-math-node[data-tex="x^2+y^2=1"]')).toBeVisible();

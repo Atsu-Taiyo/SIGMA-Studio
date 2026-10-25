@@ -246,6 +246,7 @@ import {
   hasNewTopLevelBlockIds,
   TextFlowWithInlineContent,
 } from "./page-canvas/text-flow-view";
+import { PAGE_CONTROL_SELECTOR, PageControlsLayerContext } from "./page-canvas/page-controls-layer";
 import {
   carryChunkBoundaryState,
   getChunkBoundaryState,
@@ -627,6 +628,7 @@ const {
   const [overlayEditing, setOverlayEditing] = useState(false);
   const [bodyOverlayModeStatus, setBodyOverlayModeStatus] = useState<OverlayModeStatus | null>(null);
   const [overlayBackgroundLayerElement, setOverlayBackgroundLayerElement] = useState<HTMLDivElement | null>(null);
+  const [pageControlsLayerElement, setPageControlsLayerElement] = useState<HTMLDivElement | null>(null);
   const [shortcutOverlayActionRequest, setShortcutOverlayActionRequest] = useState<OverlayActionRequest | null>(null);
   const [selectPointRequest, setSelectPointRequest] = useState<OverlaySelectPointRequest | null>(null);
   const overlayDestructiveSelectionCountRef = useRef(overlaySelection.selectedCount);
@@ -2682,7 +2684,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     lastAffordancePointRef.current = { x: event.clientX, y: event.clientY };
 
     const target = event.target instanceof Element ? event.target : null;
-    const overlayPoint = !isOverlayEditing && !runningRegionEditKind
+    // 紙面の操作の層は図形より上。下に図形があっても当たり判定に回さない (図形の無い所の押下と同じ扱い)。
+    const overlayPoint = !isOverlayEditing && !runningRegionEditKind && !target?.closest(PAGE_CONTROL_SELECTOR)
       ? getOverflowOverlayPointFromClient(event.clientX, event.clientY)
       : null;
     const hitShape = overlayPoint ? getTopmostBodyModeOverlayHit(visibleBodyHitShapes, overlayPoint) : null;
@@ -3393,6 +3396,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
           </div>
 
           <FlowExtensionLayoutContext.Provider value={flowExtensionLayout}>
+          <PageControlsLayerContext.Provider value={pageControlsLayerElement}>
           <div
             className={`page-flow ${isColumnPage ? "page-columns" : ""}`}
             ref={setFlowRef}
@@ -3574,6 +3578,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
               ),
             )}
           </div>
+          </PageControlsLayerContext.Provider>
           </FlowExtensionLayoutContext.Provider>
 
           {/*
@@ -3882,6 +3887,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
             {!isPagedRender && <RemoteOverlayPresenceLayer shapes={overlayView.shapes} arrangement={arrangement} />}
             {overlayPresentation?.floatingContent}
           </div>
+          <div className="page-controls-layer" ref={setPageControlsLayerElement} />
           {showComments && commentPanel && (
             <div className="page-comment-gutter">
               <CommentThreadsPanel

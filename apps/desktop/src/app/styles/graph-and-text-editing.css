@@ -1903,7 +1903,19 @@ body.page-block-dragging .layout-section-column-resize-knob {
   box-shadow: 0 0 0 1px var(--border-subtle);
 }
 
-.ai-proposal-card--page > [data-ai-proposal-bar] {
+/* カードの先頭 (承認バーとすぐ下の行)。紙面では図形より上の操作の層へ持ち上げ
+   (`LiftedPageControl`)、カードには同じ寸法の見えない場所取りが残る。 */
+.ai-proposal-card-head {
+  display: grid;
+  min-width: 0;
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: normal;
+}
+
+.ai-proposal-card-head > [data-ai-proposal-bar] {
   padding: var(--space-xs) var(--space-sm);
   border-bottom: 1px solid var(--border-subtle);
   border-radius: var(--radius-control) var(--radius-control) 0 0;
@@ -1911,13 +1923,18 @@ body.page-block-dragging .layout-section-column-resize-knob {
 }
 
 /* バーのすぐ下の行 (参照元・失敗の理由)。続きの複製にも見た目だけ出る。 */
-.ai-proposal-card--page > [data-ai-proposal-bar-details] {
+.ai-proposal-card-head > [data-ai-proposal-bar-details] {
   padding: var(--space-xs) var(--space-sm) 0;
 }
 
-.ai-proposal-card--page[data-content-hidden] > [data-ai-proposal-bar] {
+.ai-proposal-card-head[data-content-hidden],
+.ai-proposal-card-head[data-content-hidden] > [data-ai-proposal-bar] {
   border-bottom: 0;
   border-radius: var(--radius-control);
+}
+
+.ai-proposal-card-head[data-page-control-placeholder] {
+  visibility: hidden;
 }
 
 .ai-proposal-card-content {

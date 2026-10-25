@@ -6,6 +6,8 @@ import type { DesktopMcpEditProposalSummary } from "@/types/desktop";
 import { grabShapeFromBody } from "./body-overlay-entry";
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
 import { expectHittable } from "./hit-testing";
+import { pageProposalControls } from "./ai-proposal-controls";
+import { selectUiOptionInPage } from "./ui-select";
 
 /**
  * 提案の見せ方は「紙面内インライン」の 1 方式。紙面のカードは対象の段幅のまま、寸法の上限も
@@ -201,10 +203,23 @@ test("a body proposal card leads with the decision bar and shows its whole conte
   const card = node.locator("[data-ai-proposal-card]");
   await expect(card).toHaveAttribute("data-ai-proposal-card", "page");
 
-  // 承認バーはカードの最初の行。
-  const firstChildIsBar = await card.evaluate((element) => element.firstElementChild?.hasAttribute("data-ai-proposal-bar") ?? false);
-  expect(firstChildIsBar).toBe(true);
-  await expect(card.locator("[data-ai-proposal-bar]")).toHaveCount(1);
+  // 承認バーはカードの最初の行。カードには見えない場所取りを残し、本物は図形より上の層に重ねる。
+  const firstChildIsBarPlaceholder = await card.evaluate((element) => {
+    const head = element.firstElementChild;
+    return Boolean(head?.hasAttribute("data-page-control-placeholder") && head.firstElementChild?.hasAttribute("data-ai-proposal-bar"));
+  });
+  expect(firstChildIsBarPlaceholder).toBe(true);
+  await expect(pageProposalControls(page).locator("[data-ai-proposal-bar]")).toHaveCount(1);
+  // 持ち上げた本物は場所取りにぴったり重なる (ズームしても)。
+  for (const zoom of ["100", "150"]) {
+    await selectUiOptionInPage(page, "ズーム", zoom);
+    await expect.poll(async () => {
+      const placeholderBox = (await card.locator("[data-page-control-placeholder]").boundingBox())!;
+      const liftedBox = (await pageProposalControls(page).boundingBox())!;
+      return Math.max(...(["x", "y", "width", "height"] as const).map((key) => Math.abs(liftedBox[key] - placeholderBox[key])));
+    }, { message: `zoom ${zoom}` }).toBeLessThanOrEqual(1);
+  }
+  await selectUiOptionInPage(page, "ズーム", "100");
 
   // 寸法の上限も内部スクロールも無い。カードの中身は全部描かれ、切り取られない。
   const caps = await card.evaluate((element) => {
@@ -240,8 +255,8 @@ test("a body proposal card leads with the decision bar and shows its whole conte
   for (const bar of await replicaBars.all()) {
     await expect(bar).toBeHidden();
   }
-  await expect(card.locator("[data-ai-proposal-bar]")).toBeVisible();
-  await expect(card.getByRole("button", { name: "適用", exact: true })).toBeVisible();
+  await expect(pageProposalControls(page).locator("[data-ai-proposal-bar]")).toBeVisible();
+  await expect(pageProposalControls(page).getByRole("button", { name: "適用", exact: true })).toBeVisible();
 });
 
 test("hiding the content keeps only the bar, and the content can be shown again", async ({ page }) => {
@@ -251,36 +266,34 @@ test("hiding the content keeps only the bar, and the content can be shown again"
   await expect(content).toBeVisible();
   const openHeight = (await card.boundingBox())!.height;
 
-  await card.getByRole("button", { name: "内容を隠す", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "内容を隠す", exact: true }).click();
   await expect(content).toBeHidden();
-  await expect(card.locator("[data-ai-proposal-bar]")).toBeVisible();
-  await expect(card.getByRole("button", { name: "適用", exact: true })).toBeVisible();
+  await expect(pageProposalControls(page).locator("[data-ai-proposal-bar]")).toBeVisible();
+  await expect(pageProposalControls(page).getByRole("button", { name: "適用", exact: true })).toBeVisible();
   await expect.poll(async () => (await card.boundingBox())!.height).toBeLessThan(openHeight);
 
-  await card.getByRole("button", { name: "内容を表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "内容を表示", exact: true }).click();
   await expect(content).toBeVisible();
   await expect(content).toContainText("提案で足す行2");
 });
 
 test("an apply failure is shown on the bar and the proposal can be applied again", async ({ page }) => {
   await open(page, [longInsertion(1)]);
-  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
   await page.evaluate(() => {
     (window as unknown as { __sigmaFailNextMcpApproval?: string }).__sigmaFailNextMcpApproval = "E2Eで承認を失敗させました";
   });
-  await card.getByRole("button", { name: "適用", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用", exact: true }).click();
   // 失敗の理由はバーのすぐ下の行 (バーは折り返さない 1 行のまま)。
-  await expect(card.locator("[data-ai-proposal-bar] + [data-ai-proposal-bar-details]")).toContainText("E2Eで承認を失敗させました");
+  await expect(pageProposalControls(page).locator("[data-ai-proposal-bar] + [data-ai-proposal-bar-details]")).toContainText("E2Eで承認を失敗させました");
 
-  await card.getByRole("button", { name: "適用", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用", exact: true }).click();
   await expect(pageCard(page, "para_target")).toHaveCount(0);
   await expect(page.locator('.page-flow [data-sigma-doc-id="long_row_0"]').first()).toContainText("提案で足す行0");
 });
 
 test("the discard reason popover opened from a bar is not clipped", async ({ page }) => {
   await open(page, [longInsertion(LONG_ROWS)]);
-  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
-  await card.getByRole("button", { name: "破棄", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "破棄", exact: true }).click();
   const popover = page.getByRole("group", { name: "破棄する理由" });
   await expect(popover).toBeVisible();
   const visibility = await popover.evaluate((element) => {
@@ -306,13 +319,56 @@ test("a proposal that changes both body and shapes has one decision bar in the p
   const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
   await expect(card).toBeVisible();
   const canvas = page.locator(".page-canvas");
-  await expect(canvas.locator("[data-ai-proposal-bar]")).toHaveCount(1);
+  // 操作できるバーは 1 本 (カードに残る場所取りは複製と同じく見せない)。
+  await expect(canvas.locator("[data-ai-proposal-bar]:not([data-replica])")).toHaveCount(1);
   await expect(canvas.getByRole("button", { name: "適用", exact: true })).toHaveCount(1);
   await expect(page.locator('[data-ai-proposal-card="overlay"]')).toHaveCount(0);
   // 図形の変更前と変更後は紙面に常に出ている。
   await expect(page.locator('.overlay-shape.ai-diff-before-shape[data-overlay-shape-id="bar_shape"]').first()).toBeVisible();
   await expect(page.locator('.overlay-shape.ai-diff-after-shape[data-overlay-shape-id="bar_shape"]').first()).toBeVisible();
 });
+
+/** 紙面の全面を覆う塗りの四角を、図形の一番上に重ねる (どの操作の下にも図形がある配置)。 */
+function withCoverShape(document: SigmaDocument = createDocument()): SigmaDocument {
+  const snapshot = document.pageLayout!.overlay!.overlaySnapshot!;
+  const base = rectangle("cover_shape", "para_target") as OverlayShape & { props: Record<string, unknown>; anchor: Record<string, unknown> };
+  const cover = {
+    ...base,
+    x: 0,
+    anchor: { ...base.anchor, dx: 0, dy: -40 },
+    props: { ...base.props, w: 680, h: 900, color: "#88aadd", fillColor: "#88aadd" },
+  } as OverlayShape;
+  return {
+    ...document,
+    pageLayout: { ...document.pageLayout, overlay: { ...document.pageLayout!.overlay, overlaySnapshot: { ...snapshot, shapes: [...snapshot.shapes, cover] } } },
+  } as SigmaDocument;
+}
+
+/** 押した点の最前面がその操作で、押すと図形を掴まずに操作が効く。 */
+async function pressOverShape(page: Page, button: Locator): Promise<void> {
+  const box = (await button.boundingBox())!;
+  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  expect(await button.evaluate((element, { x, y }) => element.contains(document.elementFromPoint(x, y)), point)).toBe(true);
+  await page.mouse.click(point.x, point.y);
+}
+
+for (const [label, proposals] of [["body", () => [longInsertion(1)]], ["shape-only", () => [shapeMove()]]] as const) {
+  test(`the ${label} proposal's apply button sits above the shapes and applies without grabbing the shape below`, async ({ page }) => {
+    await open(page, proposals(), withCoverShape());
+    const controls = label === "body" ? pageProposalControls(page) : page.locator('[data-ai-proposal-card="overlay"]');
+    const apply = controls.getByRole("button", { name: "適用", exact: true });
+    await expect(apply).toBeVisible();
+    await pressOverShape(page, apply);
+    await expect(controls).toHaveCount(0);
+    await expect(page.locator('[data-overlay-editing="true"]')).toHaveCount(0);
+    await expect(page.locator(".overlay-shape.selected")).toHaveCount(0);
+    if (label === "body") {
+      await expect(page.locator('.page-flow [data-sigma-doc-id="long_row_0"]').first()).toContainText("提案で足す行0");
+    } else {
+      await expect.poll(async () => (await savedShape(page, "bar_shape"))?.x).toBe(220);
+    }
+  });
+}
 
 test("a shape-only proposal attaches the same bar beside the shape and never alternates before/after", async ({ page }) => {
   await open(page, [shapeMove()]);
@@ -450,16 +506,16 @@ test("the decision bar stays one line and is never split by a page boundary", as
     await open(page, [referencing], document);
     const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
     await expect(card).toHaveCount(1);
-    const bar = card.locator("[data-ai-proposal-bar]");
+    const bar = pageProposalControls(page).locator("[data-ai-proposal-bar]");
     const barBox = (await bar.boundingBox())!;
     // 折り返さない 1 行 (操作ボタン 1 つ分の高さ)。
     expect(barBox.height, `filler=${filler}`).toBeLessThanOrEqual(40);
     // バーの操作は切り取られずに押せる (切れ目がバーの中に来ない)。
     for (const name of ["破棄", "適用", "内容を隠す", "適用後だけを表示"]) {
-      await expectHittable(card.getByRole("button", { name, exact: true }));
+      await expectHittable(pageProposalControls(page).getByRole("button", { name, exact: true }));
     }
-    // 参照元はバーの外 (すぐ下の行)。続きの複製に回っても見た目は出る。
-    await expect(page.locator(".page-flow").getByText("参照した教材のとても長い名前の例").first()).toBeVisible();
+    // 参照元はバーの外 (すぐ下の行)。バーと一緒に図形より上の層に出る。
+    await expect(pageProposalControls(page).getByText("参照した教材のとても長い名前の例")).toBeVisible();
   }
 });
 
@@ -535,7 +591,7 @@ test("a proposal whose target the human edited previews the merged content and s
 
   const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
   await expect(card.locator("[data-ai-proposal-content]")).toContainText("The dog sat on the red mat.");
-  await expect(card.locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]")).toHaveText("現在の編集内容に合わせて提案を調整しました。");
+  await expect(pageProposalControls(page).locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]")).toHaveText("現在の編集内容に合わせて提案を調整しました。");
   // 合成で解決できる変更なので、競合の通知 (破棄・上書き・作り直し) は出さない。
   await expect(page.locator(".ai-stale-proposals")).toHaveCount(0);
 });
@@ -555,7 +611,7 @@ test("a proposal nobody edited around carries no merge notice", async ({ page })
   await open(page, [{ ...proposal("proposal_plain", draft, ["para_target"]), mergeBasis: basisOf(paragraph("para_target", "提案を受ける段落です。")) }]);
   const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
   await expect(card.locator("[data-ai-proposal-content]")).toContainText("提案で直した段落です。");
-  await expect(card.locator("[data-ai-proposal-merge-notice]")).toHaveCount(0);
+  await expect(pageProposalControls(page).locator("[data-ai-proposal-merge-notice]")).toHaveCount(0);
 });
 
 /**
@@ -616,7 +672,7 @@ test("showing only the result folds the before text and drops every change mark,
   const diffCardTop = (await card.boundingBox())!.y;
   const beforeTop = (await before.boundingBox())!.y;
 
-  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用後だけを表示", exact: true }).click();
 
   // 変更前の本文は畳まれ (描画矩形を持たない)、カードがその位置に上がる。
   await expect(before).toHaveClass(/text-flow-change-collapsed/);
@@ -628,22 +684,22 @@ test("showing only the result folds the before text and drops every change mark,
   await expect(content).toContainText("提案で書き換えた段落です。");
   await expect(content.locator('[style*="--ai-proposal-word-"]')).toHaveCount(0);
   await expect(content.locator("[data-change]")).toHaveCount(0);
-  await expect(card.getByRole("button", { name: "変更箇所を表示", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(pageProposalControls(page).getByRole("button", { name: "変更箇所を表示", exact: true })).toHaveAttribute("aria-pressed", "true");
   // 改ページで切れた続き (複製) も同じ表示。
   await expect(replica).toBeAttached();
   await expect(replica.locator('[data-ai-proposal-content][data-presentation="after"]').first()).toBeAttached();
   await expect(replica.locator("[data-change]")).toHaveCount(0);
   await expect(replica).toContainText(`適用後に並ぶ行${LONG_ROWS - 1}`);
   // バーは 1 行のまま、操作は押せる。
-  expect((await card.locator("[data-ai-proposal-bar]").boundingBox())!.height).toBeLessThanOrEqual(40);
+  expect((await pageProposalControls(page).locator("[data-ai-proposal-bar]").boundingBox())!.height).toBeLessThanOrEqual(40);
   for (const name of ["破棄", "適用", "内容を隠す", "変更箇所を表示"]) {
-    await expectHittable(card.getByRole("button", { name, exact: true }));
+    await expectHittable(pageProposalControls(page).getByRole("button", { name, exact: true }));
   }
   // ふつうの置き換え・挿入は適用後の姿に組めるので、注記の代わりの経路は通らない。
   expect(await counter(page, RESULT_ONLY_COUNTER)).toBe(0);
-  await expect(card.locator("[data-ai-proposal-result-notice]")).toHaveCount(0);
+  await expect(pageProposalControls(page).locator("[data-ai-proposal-result-notice]")).toHaveCount(0);
 
-  await card.getByRole("button", { name: "変更箇所を表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "変更箇所を表示", exact: true }).click();
 
   await expect(before).toBeVisible();
   await expect(before).toHaveClass(/text-flow-change-before/);
@@ -654,16 +710,14 @@ test("showing only the result folds the before text and drops every change mark,
 
 test("the applied result is the same whether or not only the result is shown", async ({ page }) => {
   await open(page, [replaceWithRows(3)]);
-  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
-  await card.getByRole("button", { name: "適用", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用", exact: true }).click();
   await expect(pageCard(page, "para_target")).toHaveCount(0);
   const appliedFromDiff = await savedContent(page);
 
   await open(page, [replaceWithRows(3)]);
-  const resultCard = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
-  await resultCard.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用後だけを表示", exact: true }).click();
   await expect(page.locator('.page-flow [data-sigma-doc-id="para_target"]').first()).toBeHidden();
-  await resultCard.getByRole("button", { name: "適用", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用", exact: true }).click();
   await expect(pageCard(page, "para_target")).toHaveCount(0);
 
   expect(await savedContent(page)).toEqual(appliedFromDiff);
@@ -677,7 +731,7 @@ test("the applied result is the same whether or not only the result is shown", a
 test("a folded before block takes no edit while only the result is shown", async ({ page }) => {
   await open(page, [replaceWithRows(1, "para_pad_1")]);
   const card = pageCard(page, "para_pad_1").locator("[data-ai-proposal-card]");
-  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用後だけを表示", exact: true }).click();
   const folded = page.locator('.page-flow [data-sigma-doc-id="para_pad_1"]').first();
   await expect(folded).toBeHidden();
   const previous = page.locator('.page-flow [data-sigma-doc-id="para_pad_0"]').first();
@@ -711,12 +765,11 @@ test("a folded before block takes no edit while only the result is shown", async
 
 test("showing only the result hides the before shape and draws the proposed shape without its outline", async ({ page }) => {
   await open(page, [bodyAndShape()]);
-  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
   const beforeShape = page.locator('.overlay-shape.ai-diff-before-shape[data-overlay-shape-id="bar_shape"]').first();
   await expect(beforeShape).toHaveCSS("opacity", "1");
-  await expect(card.getByRole("button", { name: "変更前を隠す", exact: true })).toBeVisible();
+  await expect(pageProposalControls(page).getByRole("button", { name: "変更前を隠す", exact: true })).toBeVisible();
 
-  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用後だけを表示", exact: true }).click();
 
   await expect(beforeShape).toHaveCSS("opacity", "0");
   await expect(beforeShape).toHaveCSS("pointer-events", "none");
@@ -725,9 +778,9 @@ test("showing only the result hides the before shape and draws the proposed shap
   await expect(resultShape).toHaveCSS("outline-style", "none");
   await expect(page.locator('.overlay-shape.ai-diff-after-shape[data-overlay-shape-id="bar_shape"]')).toHaveCount(0);
   // 変更前は隠れているので「変更前を隠す」は出さない。
-  await expect(card.getByRole("button", { name: "変更前を隠す", exact: true })).toHaveCount(0);
+  await expect(pageProposalControls(page).getByRole("button", { name: "変更前を隠す", exact: true })).toHaveCount(0);
 
-  await card.getByRole("button", { name: "変更箇所を表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "変更箇所を表示", exact: true }).click();
   await expect(beforeShape).toHaveCSS("opacity", "1");
   await expect(page.locator('.overlay-shape.ai-diff-after-shape[data-overlay-shape-id="bar_shape"]').first()).toBeVisible();
 });
@@ -747,20 +800,27 @@ async function savedText(page: Page, id: string): Promise<string | undefined> {
 async function placeCaret(page: Page, id: string, edge: "start" | "end"): Promise<void> {
   const block = page.locator(`.page-flow [data-sigma-doc-id="${id}"]`).first();
   await block.click();
-  await block.evaluate((element, at) => {
+  // 焦点を受けた直後の編集面は、少し後に DOM の選択を自分の状態へ合わせ直す (ProseMirror の focus)。
+  // 置いた選択がそれで戻されたら置き直す。
+  await expect.poll(() => block.evaluate((element, at) => {
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     const texts: Text[] = [];
     for (let node = walker.nextNode(); node; node = walker.nextNode()) texts.push(node as Text);
     const target = at === "start" ? texts[0] : texts.at(-1);
-    window.getSelection()!.collapse(target ?? element, at === "start" || !target ? 0 : target.length);
-  }, edge);
+    const node = target ?? element;
+    const offset = at === "start" || !target ? 0 : target.length;
+    const selection = window.getSelection()!;
+    if (selection.anchorNode === node && selection.anchorOffset === offset) return true;
+    selection.collapse(node, offset);
+    return false;
+  }, edge)).toBe(true);
 }
 
 test("Backspace at the start of the paragraph after the card does not join it into the folded before block", async ({ page }) => {
   // カードは para_pad_1 の後ろに入るので、para_pad_2 は別の編集面の先頭: Backspace は面をまたぐ結合になる。
   await open(page, [replaceWithRows(1, "para_pad_1")]);
   const card = pageCard(page, "para_pad_1").locator("[data-ai-proposal-card]");
-  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用後だけを表示", exact: true }).click();
   const folded = page.locator('.page-flow [data-sigma-doc-id="para_pad_1"]').first();
   await expect(folded).toBeHidden();
 
@@ -778,8 +838,7 @@ test("Backspace at the start of the paragraph after the card does not join it in
 
 test("Enter at the end of the paragraph before a folded block adds a paragraph and leaves the folded block alone", async ({ page }) => {
   await open(page, [replaceWithRows(1, "para_pad_1")]);
-  const card = pageCard(page, "para_pad_1").locator("[data-ai-proposal-card]");
-  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用後だけを表示", exact: true }).click();
   await expect(page.locator('.page-flow [data-sigma-doc-id="para_pad_1"]').first()).toBeHidden();
 
   await placeCaret(page, "para_pad_0", "end");
@@ -799,28 +858,26 @@ test("Enter at the end of the paragraph before a folded block adds a paragraph a
 
 test("undo cannot change a folded block it cannot show, and works again once the changes are shown", async ({ page }) => {
   await open(page, [replaceWithRows(1, "para_pad_1")]);
-  const card = pageCard(page, "para_pad_1").locator("[data-ai-proposal-card]");
   // 差分の表示のまま対象の段落を直す (保留中の対象はロックしない)。
   await placeCaret(page, "para_pad_1", "end");
   await page.keyboard.type("Z");
   await expect.poll(() => savedText(page, "para_pad_1")).toBe("続きの本文 2Z");
 
-  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用後だけを表示", exact: true }).click();
   await expect(page.locator('.page-flow [data-sigma-doc-id="para_pad_1"]').first()).toBeHidden();
   const undo = page.getByRole("button", { name: "元に戻す", exact: true });
   await undo.click();
   await expect(page.locator(".save-state").first()).toContainText(RESULT_ONLY_LOCK);
   expect(await savedText(page, "para_pad_1")).toBe("続きの本文 2Z");
 
-  await card.getByRole("button", { name: "変更箇所を表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "変更箇所を表示", exact: true }).click();
   await undo.click();
   await expect.poll(() => savedText(page, "para_pad_1")).toBe("続きの本文 2");
 });
 
 test("search does not find text in a folded block, and replacing cannot rewrite it unseen", async ({ page }) => {
   await open(page, [replaceWithRows(1, "para_pad_1")]);
-  const card = pageCard(page, "para_pad_1").locator("[data-ai-proposal-card]");
-  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用後だけを表示", exact: true }).click();
   await expect(page.locator('.page-flow [data-sigma-doc-id="para_pad_1"]').first()).toBeHidden();
 
   await page.getByRole("button", { name: "検索置換", exact: true }).click();
@@ -842,7 +899,7 @@ test("search does not find text in a folded block, and replacing cannot rewrite 
   expect(await savedText(page, "para_pad_0")).toBe("続きの本文 1");
 
   // 差分の表示に戻すと、畳んでいた段落も探せる (外を押すと検索の枠は閉じるので開き直す)。
-  await card.getByRole("button", { name: "変更箇所を表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "変更箇所を表示", exact: true }).click();
   if (!(await widget.isVisible())) {
     await page.getByRole("button", { name: "検索置換", exact: true }).click();
   }
@@ -868,8 +925,7 @@ test("Backspace inside the same editor after a folded block is refused, and the 
     } },
   };
   await open(page, [deletion]);
-  const card = pageCard(page, "para_pad_1").locator("[data-ai-proposal-card]");
-  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用後だけを表示", exact: true }).click();
   const folded = page.locator('.page-flow [data-sigma-doc-id="para_pad_2"]').first();
   await expect(folded).toBeHidden();
   const following = page.locator('.page-flow [data-sigma-doc-id="para_pad_3"]').first();
@@ -917,8 +973,7 @@ test("undo cannot move a shape whose before state is hidden while only the resul
   await page.mouse.click(bodyBox.x + 40, bodyBox.y + bodyBox.height / 2);
   await expect(page.locator('[data-overlay-editing="true"]')).toHaveCount(0);
 
-  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
-  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用後だけを表示", exact: true }).click();
   await expect(before).toHaveCSS("opacity", "0");
   const undo = page.getByRole("button", { name: "元に戻す", exact: true });
   await undo.click();
@@ -926,7 +981,7 @@ test("undo cannot move a shape whose before state is hidden while only the resul
   expect(await savedX()).toBe(moved);
 
   // 差分の表示に戻せば巻き戻せる (図形の編集の後の 1 回目の取り消しは見た目の変化が無いことがある。learnings 参照)。
-  await card.getByRole("button", { name: "変更箇所を表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "変更箇所を表示", exact: true }).click();
   for (let attempt = 0; attempt < 2 && await savedX() !== 60; attempt += 1) {
     await undo.click();
     await expect.poll(savedX, { timeout: 3_000 }).toBe(60).catch(() => undefined);
@@ -960,22 +1015,25 @@ test("a paragraph a shape hangs from is not folded for the result only, and movi
   await open(page, [replaceWithRows(1)], withShapes({ id: "anchored_shape", anchorBlockId: "para_target", x: 60 }));
   const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
   const target = page.locator('.page-flow [data-sigma-doc-id="para_target"]').first();
-  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用後だけを表示", exact: true }).click();
 
   // 畳んだブロックに固定された図形を作らない: 図形が固定された段落は畳まず、カードに注記を添えて数える。
   await expect(card.locator("[data-ai-proposal-content]")).toHaveAttribute("data-presentation", "after");
-  await expect(card.locator("[data-ai-proposal-result-notice]")).toBeVisible();
+  await expect(pageProposalControls(page).locator("[data-ai-proposal-result-notice]")).toBeVisible();
   await expect(target).toBeVisible();
   await expect(target).not.toHaveClass(/text-flow-change-collapsed/);
   expect(await counter(page, RESULT_ONLY_COUNTER)).toBeGreaterThan(0);
 
   // 適用後だけのまま図形を動かすと、保存される固定も動かした位置に合わせて更新される。
+  // 図形の下半分は承認バー (図形より上の層) に隠れる。見えている上端を掴む。
   const preview = page.locator('.page-overlay-preview .overlay-shape[data-overlay-shape-id="anchored_shape"]').first();
-  await grabShapeFromBody(page, preview);
+  const previewBox = (await preview.boundingBox())!;
+  await grabShapeFromBody(page, { x: previewBox.x + previewBox.width / 2, y: previewBox.y + 6 });
   const box = (await page.locator('.overlay-canvas-editor .overlay-shape[data-overlay-shape-id="anchored_shape"]').first().boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  // 上端すぐは辺のつまみ。その下の、まだバーに隠れていない帯を掴む。
+  await page.mouse.move(box.x + box.width / 2, box.y + 14);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.move(box.x + box.width / 2 + 80, box.y + 14, { steps: 6 });
   await page.mouse.up();
   await expect.poll(async () => (await savedShape(page, "anchored_shape"))?.anchor?.dx ?? 60).toBeGreaterThan(100);
   const moved = await savedShape(page, "anchored_shape");
@@ -989,7 +1047,7 @@ test("a paragraph a shape hangs from is not folded for the result only, and movi
   await expect(page.locator('[data-overlay-editing="true"]')).toHaveCount(0);
   const shown = page.locator('.page-overlay-preview .overlay-shape[data-overlay-shape-id="anchored_shape"]').first();
   const beforeToggle = (await shown.boundingBox())!;
-  await card.getByRole("button", { name: "変更箇所を表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "変更箇所を表示", exact: true }).click();
   await expect(card.locator("[data-ai-proposal-content]")).toHaveAttribute("data-presentation", "diff");
   await expect.poll(async () => Math.abs((await shown.boundingBox())!.x - beforeToggle.x)).toBeLessThanOrEqual(1);
   expect(Math.abs((await shown.boundingBox())!.y - beforeToggle.y)).toBeLessThanOrEqual(1);
@@ -1004,8 +1062,7 @@ test("moving another shape while only the result is shown is saved even when a h
     para_target: { kind: "block", value: target as never },
     bar_shape: { kind: "shape", value: shape as never },
   } } }], document);
-  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
-  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用後だけを表示", exact: true }).click();
   await expect(page.locator('.overlay-shape.ai-diff-before-shape[data-overlay-shape-id="bar_shape"]').first()).toHaveCSS("opacity", "0");
 
   // 保存時の付け替えは、隠した図形 (bar_shape) の保存済みの固定を測り直して書き換えない (書き換えると
@@ -1030,9 +1087,8 @@ test("deleting a block while only the result is shown re-anchors every shape on 
     para_target: { kind: "block", value: target as never },
     bar_shape: { kind: "shape", value: shape as never },
   } } }], document);
-  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
   const hiddenBefore = page.locator('.overlay-shape.ai-diff-before-shape[data-overlay-shape-id="bar_shape"]').first();
-  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "適用後だけを表示", exact: true }).click();
   await expect(hiddenBefore).toHaveCSS("opacity", "0");
 
   // 削除の付け替えは直前の計測を基準にする。開いた直後は基準がまだ無いので、先に 1 文字打って測らせる。
@@ -1052,7 +1108,7 @@ test("deleting a block while only the result is shown re-anchors every shape on 
   await expect(page.locator(".save-state").first()).not.toContainText(RESULT_ONLY_LOCK);
 
   // 表示を戻すと、隠していた図形は消した段落の高さぶん上へ詰まった位置 (同じ固定のふつうの図形と同じ高さ) にある。
-  await card.getByRole("button", { name: "変更箇所を表示", exact: true }).click();
+  await pageProposalControls(page).getByRole("button", { name: "変更箇所を表示", exact: true }).click();
   await expect(hiddenBefore).toHaveCSS("opacity", "1");
   const otherShown = page.locator('.page-overlay-preview .overlay-shape[data-overlay-shape-id="other_shape"]').first();
   await expect.poll(async () => Math.abs((await hiddenBefore.boundingBox())!.y - (await otherShown.boundingBox())!.y)).toBeLessThanOrEqual(1);

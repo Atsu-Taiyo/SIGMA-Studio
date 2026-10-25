@@ -162,7 +162,7 @@ jobs:
               tests/electron/svg-to-sigma-double-arrows.spec.ts \
               tests/electron/svg-small-circles.spec.ts tests/electron/svg-to-sigma-crop-arrows.spec.ts \
               tests/electron/open-document.spec.ts tests/electron/ipc-sender-security.spec.ts \
-              tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts \
+              tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts tests/electron/ai-proposal-controls-above-shapes.spec.ts \
               tests/electron/math-ime-placeholder.spec.ts \
               tests/electron/math-selection-format.spec.ts \
               tests/electron/font-format-roundtrip.spec.ts tests/electron/clipboard-routing.spec.ts \
