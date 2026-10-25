@@ -15,7 +15,7 @@ const marks = Array.from({ length: 12 }, (_, index) => ({
 }));
 const hex = (rgb: number[]) => `#${rgb.map(value => value.toString(16).padStart(2, "0")).join("")}`;
 
-function fixture(): SigmaDocument {
+function fixture(orientation: "portrait" | "landscape"): SigmaDocument {
   const paragraph = (id: string, text: string) => ({ type: "paragraph" as const, id, children: [{ type: "text" as const, text }] });
   return {
     version: "2.0", docId: "b4_three_column_ellipses", metadata: { title: "B4三段組の解答解説" },
@@ -33,7 +33,7 @@ function fixture(): SigmaDocument {
     })),
     outputProfiles: { student: { showSolutions: false }, teacher: { showSolutions: true }, answerBook: { showSolutions: true, onlySolutions: true } },
     pageLayout: {
-      preset: "B4", orientation: "landscape", pageSize: { widthMm: 364, heightMm: 257 },
+      preset: "B4", orientation, pageSize: orientation === "landscape" ? { widthMm: 364, heightMm: 257 } : { widthMm: 257, heightMm: 364 },
       marginsMm: { top: 15, right: 15, bottom: 15, left: 15 },
       flow: { type: "columns", columnCount: 3, columnGapMm: 8 },
       overlay: { overlaySnapshot: { version: 1, assets: {}, shapes: marks.map(mark => ({
@@ -128,7 +128,7 @@ function sameInk(actual: Bounds, expected: Bounds, label: string) {
   }
 }
 
-for (const displayScale of [1, 1.25, 1.5]) test(`B4 three columns: saved ellipses match editor, preview and vector PDF at ${displayScale * 100}% display scale`, async ({}, testInfo) => {
+for (const orientation of ["landscape", "portrait"] as const) for (const displayScale of [1, 1.25, 1.5]) test(`B4 ${orientation} three columns: saved ellipses match editor, preview and vector PDF at ${displayScale * 100}% display scale`, async ({}, testInfo) => {
   test.setTimeout(240_000);
   const profile = mkdtempSync(path.join(tmpdir(), "sigma-pdf-b4-"));
   const output = testInfo.outputPath("b4-three-columns.pdf");
@@ -148,7 +148,7 @@ for (const displayScale of [1, 1.25, 1.5]) test(`B4 three columns: saved ellipse
       await window.desktopAPI!.settings!.setUiLocale!("ja");
       const { file } = await window.desktopAPI!.storage.createFileFromDocument({ document });
       await window.desktopAPI!.storage.saveWorkspace({ openFileIds: [file.fileId], activeFileId: file.fileId });
-    }, fixture());
+    }, fixture(orientation));
     await page.reload();
     await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
     await expect(page.locator('.page-flow [data-sigma-doc-id="label_0"]').first()).toBeVisible();
@@ -202,8 +202,9 @@ for (const displayScale of [1, 1.25, 1.5]) test(`B4 three columns: saved ellipse
         const rasterScale = 3;
         const viewport = pdfPage.getViewport({ scale: rasterScale * 96 / 72 });
         // Chromium quantizes the MediaBox; use the exporter's 0.75pt (= 1 CSS px) tolerance.
-        expect(Math.abs(viewport.width / rasterScale - 364 * 96 / 25.4)).toBeLessThanOrEqual(1);
-        expect(Math.abs(viewport.height / rasterScale - 257 * 96 / 25.4)).toBeLessThanOrEqual(1);
+        const paperSize = fixture(orientation).pageLayout!.pageSize;
+        expect(Math.abs(viewport.width / rasterScale - paperSize.widthMm * 96 / 25.4)).toBeLessThanOrEqual(1);
+        expect(Math.abs(viewport.height / rasterScale - paperSize.heightMm * 96 / 25.4)).toBeLessThanOrEqual(1);
         // Text extraction also guards against replacing the output with a bitmap.
         expect((await pdfPage.getTextContent()).items.length).toBeGreaterThan(10);
         const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
