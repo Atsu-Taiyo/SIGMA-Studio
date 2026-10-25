@@ -42,7 +42,7 @@ test("previews snapshots on the canvas, restores from the banner, and captures t
   await expect(page.locator('.editor-canvas > .page-mode:not([data-paged-render="true"])')).toHaveCount(0);
   await expect(preview.locator(".paged-surface-pages")).toContainText("first saved version");
   await expect(page.locator('[data-editor-toolbar="quick"]')).toHaveAttribute("inert", "");
-  await expect(preview.getByText(/\u306e版を表示中$/)).toBeVisible();
+  await expect(preview.getByRole("status", { name: /\u306e版を表示中$/ })).toBeVisible();
 
   await preview.getByRole("button", { name: "現在の版に戻る", exact: true }).click();
   await expect(page.locator(".text-flow-editor")).toBeVisible();
