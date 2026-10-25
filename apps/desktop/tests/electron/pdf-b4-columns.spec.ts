@@ -50,9 +50,13 @@ type Geometry = Bounds & { page: number };
 
 function inkBounds(data: Uint8ClampedArray, width: number, height: number, rgb: number[]): Bounds {
   let left = width, top = height, right = -1, bottom = -1;
+  const darkest = rgb.indexOf(Math.min(...rgb));
   for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
     const offset = (y * width + x) * 4;
-    if (rgb.every((value, channel) => Math.abs(data[offset + channel] - value) <= 3)) {
+    // Include antialiased ink blended with the white paper, not just fully
+    // saturated pixels (thin Japanese strokes may contain no saturated edge).
+    const alpha = (255 - data[offset + darkest]) / (255 - rgb[darkest]);
+    if (alpha >= 0.3 && rgb.every((value, channel) => Math.abs(data[offset + channel] - (255 + (value - 255) * alpha)) <= 2)) {
       left = Math.min(left, x); top = Math.min(top, y); right = Math.max(right, x); bottom = Math.max(bottom, y);
     }
   }
@@ -85,6 +89,12 @@ async function editorGeometry(page: Page): Promise<Record<string, Geometry>> {
 }
 
 async function previewInk(element: Locator, rgb: number[]): Promise<Bounds> {
+  let result: Bounds | undefined;
+  await expect(async () => { result = await previewInkSnapshot(element, rgb); }).toPass({ timeout: 10_000, intervals: [200] });
+  return result!;
+}
+
+async function previewInkSnapshot(element: Locator, rgb: number[]): Promise<Bounds> {
   await element.scrollIntoViewIfNeeded();
   const position = await element.evaluate(element => {
     const paper = element.closest(".paged-surface-page")!.getBoundingClientRect();
@@ -93,6 +103,8 @@ async function previewInk(element: Locator, rgb: number[]): Promise<Bounds> {
     return { x: x - paper.left, y: y - paper.top,
       clip: { x, y, width: Math.ceil(box.right) - x, height: Math.ceil(box.bottom) - y } };
   });
+  expect(position.clip.width).toBeGreaterThan(0);
+  expect(position.clip.height).toBeGreaterThan(0);
   // Use an integer viewport clip, so subpixel rounding is not stretched across
   // the element's width/height by an element screenshot at fractional DPI.
   const bitmap = await loadImage(await element.page().screenshot({ clip: position.clip, scale: "css" }));
