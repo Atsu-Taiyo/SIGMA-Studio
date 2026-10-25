@@ -329,10 +329,12 @@ export function collectSelectionFontFamilies(state: EditorState): (string | null
   return [...distinct];
 }
 
-/** The enclosing frame's fonts, and whether the caret is in its title rather than its body. */
+/** The enclosing frame's fonts and sizes, and whether the caret is in its title. */
 export function resolveBoxFontContext(state: EditorState): {
   bodyFontFamily?: string;
   titleFontFamily?: string;
+  bodyFontSizePx?: number;
+  titleFontSizePx?: number;
   inBoxTitle: boolean;
 } {
   const { $from } = state.selection;
@@ -347,18 +349,22 @@ export function resolveBoxFontContext(state: EditorState): {
       if (!isRecord(frame)) {
         return { inBoxTitle };
       }
+      const sizes = {
+        ...(typeof frame.bodyFontSizePx === "number" && Number.isFinite(frame.bodyFontSizePx) && frame.bodyFontSizePx > 0 ? { bodyFontSizePx: frame.bodyFontSizePx } : {}),
+        ...(typeof frame.titleFontSizePx === "number" && Number.isFinite(frame.titleFontSizePx) && frame.titleFontSizePx > 0 ? { titleFontSizePx: frame.titleFontSizePx } : {}),
+      };
       // Some frames declare `font-family: inherit` on their title and body, which beats the custom
       // properties the frame spec sets. Reporting the stored font there would be the very "toolbar
       // shows what is not drawn" bug this resolution exists to remove.
       const styleId = typeof node.attrs.styleId === "string" ? node.attrs.styleId : undefined;
       const decorations = Array.isArray(frame.decorations) ? frame.decorations : undefined;
       if (!boxFrameAppliesFontFamily(styleId, { decorations } as Parameters<typeof boxFrameAppliesFontFamily>[1])) {
-        return { inBoxTitle };
+        return { ...sizes, inBoxTitle };
       }
 
       const bodyFontFamily = typeof frame.bodyFontFamily === "string" ? frame.bodyFontFamily : undefined;
       const titleFontFamily = typeof frame.titleFontFamily === "string" ? frame.titleFontFamily : undefined;
-      return { bodyFontFamily, titleFontFamily, inBoxTitle };
+      return { bodyFontFamily, titleFontFamily, ...sizes, inBoxTitle };
     }
   }
   return { inBoxTitle };

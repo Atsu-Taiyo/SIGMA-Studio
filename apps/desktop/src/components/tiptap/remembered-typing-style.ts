@@ -21,9 +21,10 @@ function seedTransaction(state: EditorState, remembered: TypingStyle | undefined
   const current = marks.find(mark => mark.type === type);
   const frame = resolveBoxFontContext(state);
   const frameFont = frame.inBoxTitle ? frame.titleFontFamily : frame.bodyFontFamily;
+  const frameSize = frame.inBoxTitle ? frame.titleFontSizePx : frame.bodyFontSizePx;
   // A toolbar choice at this insertion point always wins over the remembered style.
-  // A frame's font is inherited, so do not persist another editor's font over it.
-  const attrs = { ...remembered, ...(frameFont ? { fontFamily: null } : {}), ...Object.fromEntries(Object.entries(current?.attrs ?? {}).filter(([, value]) => value !== null)) };
+  // Frame typography is inherited; do not persist another editor's style over it.
+  const attrs = { ...remembered, ...(frameFont ? { fontFamily: null } : {}), ...(frameSize ? { fontSize: null } : {}), ...Object.fromEntries(Object.entries(current?.attrs ?? {}).filter(([, value]) => value !== null)) };
   if (!current && Object.values(attrs).every(value => value === null)) return null;
   const mark = type.create(attrs);
   if (current?.eq(mark)) return null;

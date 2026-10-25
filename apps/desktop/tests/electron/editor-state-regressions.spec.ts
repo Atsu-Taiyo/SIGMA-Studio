@@ -267,11 +267,11 @@ test("font size follows typing out of lists and recent fonts lead the menu", asy
   await expect(page.locator('.page-flow [data-sigma-doc-id="empty"] span').first()).toHaveCSS("font-size", "32px");
 });
 
-test("a box keeps its declared body font after a different font was used outside it", async () => {
+test("a box keeps its declared body font and size after typing elsewhere", async () => {
   const document = fixture();
-  document.content = [document.content[0], {
+  document.content = [{ type: "paragraph", id: "first", children: [{ type: "text", text: "本文の最初の行", fontSize: 24 }] }, {
     ...createBoxBlock("plain", "", { id: "font_box", bodyId: "font_box_body" }),
-    frame: { bodyFontFamily: "monospace" },
+    frame: { bodyFontFamily: "monospace", bodyFontSizePx: 15 },
   }];
   fileId = await page.evaluate(async document => {
     const created = await window.desktopAPI!.storage.createFileFromDocument({ document });
@@ -293,14 +293,18 @@ test("a box keeps its declared body font after a different font was used outside
     const saved = await window.desktopAPI!.storage.loadDocument(id);
     return saved?.content.find(block => block.id === "font_box");
   }, fileId);
-  await expect.poll(readBox).toMatchObject({ frame: { bodyFontFamily: "monospace" }, blocks: [{ children: [{ text: "box-font" }] }] });
+  await expect.poll(readBox).toMatchObject({ frame: { bodyFontFamily: "monospace", bodyFontSizePx: 15 }, blocks: [{ children: [{ text: "box-font" }] }] });
   const box = await readBox();
   expect(box?.type === "boxBlock" && box.blocks[0]?.type === "paragraph" ? box.blocks[0].children[0] : null)
     .not.toHaveProperty("fontFamily");
+  expect(box?.type === "boxBlock" && box.blocks[0]?.type === "paragraph" ? box.blocks[0].children[0] : null)
+    .not.toHaveProperty("fontSize");
   await expect.poll(() => body.evaluate(el => getComputedStyle(el.querySelector("span") ?? el).fontFamily)).toBe("monospace");
+  await expect.poll(() => body.evaluate(el => getComputedStyle(el.querySelector("span") ?? el).fontSize)).toBe("15px");
   await page.reload();
   await expect(body).toHaveText("box-font");
   await expect.poll(() => body.evaluate(el => getComputedStyle(el.querySelector("span") ?? el).fontFamily)).toBe("monospace");
+  await expect.poll(() => body.evaluate(el => getComputedStyle(el.querySelector("span") ?? el).fontSize)).toBe("15px");
 });
 
 test("@ references persist and open their destination document", async () => {

@@ -32,11 +32,12 @@ it("does not change existing text when moving the caret to a differently formatt
 it.each(["boxBlockTitle", "paragraph"])("keeps the frame font in an empty %s after typing elsewhere", nodeName => {
   const source = create("<p>先に選んだ書体</p>");
   source.commands.setFontFamily("serif");
+  source.commands.setFontSize(24);
   source.commands.insertContent("A");
   const editor = new Editor({
     element: document.body.appendChild(document.createElement("div")),
     extensions: createRichTextEngineExtensions({ blockExtensions: [BoxBlockExtension, BoxBlockBodyExtension, BoxBlockTitleExtension] }),
-    content: { type: "doc", content: [{ type: "boxBlock", attrs: { styleId: "plain", frame: { titleFontFamily: "monospace", bodyFontFamily: "monospace" } }, content: [
+    content: { type: "doc", content: [{ type: "boxBlock", attrs: { styleId: "plain", frame: { titleFontFamily: "monospace", bodyFontFamily: "monospace", titleFontSizePx: 15, bodyFontSizePx: 15 } }, content: [
       { type: "boxBlockTitle" }, { type: "boxBlockBody", content: [{ type: "paragraph" }] },
     ] }] },
   });
@@ -49,9 +50,13 @@ it.each(["boxBlockTitle", "paragraph"])("keeps the frame font in an empty %s aft
   editor.view.dom.dispatchEvent(new InputEvent("beforeinput", { inputType: "insertText", data: "本文" }));
   expect(editor.getJSON()).toEqual(before);
   expect(editor.getAttributes("styledText").fontFamily).toBeFalsy();
+  expect(editor.getAttributes("styledText").fontSize).toBeFalsy();
   editor.commands.insertContent("本文");
   expect(editor.getAttributes("styledText").fontFamily).toBeFalsy();
+  expect(editor.getAttributes("styledText").fontSize).toBeFalsy();
   editor.commands.setFontFamily("sans-serif");
+  editor.commands.setFontSize(18);
   editor.commands.insertContent("明示指定");
   expect(editor.getAttributes("styledText").fontFamily).toBe("sans-serif");
+  expect(editor.getAttributes("styledText").fontSize).toBe(18);
 });
