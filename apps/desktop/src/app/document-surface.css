@@ -1734,7 +1734,6 @@ li[data-list-marker-typography]::marker {
   width: var(--problem-number-width, auto);
   height: var(--problem-number-height, 1.9em);
   margin: 0;
-  padding: 0 var(--problem-number-padding-x, 0.24em);
   border: var(--problem-number-border-width, 1px) var(--problem-number-border-style, solid) #111111;
   border-radius: var(--problem-number-border-radius, 2px);
   font-family: var(--problem-number-font-family, inherit);
