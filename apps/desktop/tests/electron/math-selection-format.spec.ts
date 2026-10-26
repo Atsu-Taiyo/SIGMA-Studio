@@ -5,6 +5,12 @@ import path from "node:path";
 import { ensurePageLayout } from "../../src/lib/page-layout";
 import type { SigmaDocument } from "../../src/types/sigma-doc";
 
+interface DelayedMathFocusProbe {
+  originalSetTimeout: typeof window.setTimeout;
+  originalClearTimeout: typeof window.clearTimeout;
+  callbacks: Map<number, () => void>;
+}
+
 test("math-only selection has text tools and mixed formatting toggles together after reload", async () => {
   test.setTimeout(60_000);
   const root = process.cwd();
@@ -152,7 +158,42 @@ test("math-only selection has text tools and mixed formatting toggles together a
     await expect.poll(savedRuns).toEqual([["bold"], String.raw`\mathit{x^4+2}`, ["bold"]]);
     await page.reload();
     await expect(mixed.locator(".inline-math-node")).toHaveAttribute("data-tex", String.raw`\mathit{x^4+2}`);
+    // Hold the field's delayed initial focus while select-all runs. Without this
+    // explicit ordering the focus/fill race only appears intermittently in CI.
+    await page.evaluate(() => {
+      const originalSetTimeout = window.setTimeout.bind(window);
+      const originalClearTimeout = window.clearTimeout.bind(window);
+      const callbacks = new Map<number, () => void>();
+      (window as typeof window & { mathSelectionFocusProbe?: DelayedMathFocusProbe })
+        .mathSelectionFocusProbe = { originalSetTimeout, originalClearTimeout, callbacks };
+      window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+        if (timeout === 50 && typeof handler === "function" && handler.toString().includes("preventScroll")) {
+          const id = originalSetTimeout(() => {}, 0);
+          callbacks.set(id, () => handler(...args));
+          return id;
+        }
+        return originalSetTimeout(handler, timeout, ...args);
+      }) as typeof window.setTimeout;
+      window.clearTimeout = (id) => {
+        if (typeof id === "number") callbacks.delete(id);
+        originalClearTimeout(id);
+      };
+    });
     await mixed.locator(".inline-math-node").dblclick();
+    const focusProbe = await draft.evaluate(input => {
+      const textarea = input as HTMLTextAreaElement;
+      const probeWindow = window as typeof window & { mathSelectionFocusProbe?: DelayedMathFocusProbe };
+      const probe = probeWindow.mathSelectionFocusProbe!;
+      textarea.select();
+      window.setTimeout = probe.originalSetTimeout;
+      window.clearTimeout = probe.originalClearTimeout;
+      for (const callback of probe.callbacks.values()) callback();
+      delete probeWindow.mathSelectionFocusProbe;
+      return { callbacks: probe.callbacks.size, start: textarea.selectionStart, end: textarea.selectionEnd, length: textarea.value.length };
+    });
+    expect(focusProbe.callbacks).toBeGreaterThan(0);
+    expect(focusProbe.start).toBe(0);
+    expect(focusProbe.end).toBe(focusProbe.length);
     await draft.fill("x^5+3");
     await expect(mixed.locator(".inline-math-node > .math-preview .ML__it").first()).toBeAttached();
     await mixed.evaluate((element) => {

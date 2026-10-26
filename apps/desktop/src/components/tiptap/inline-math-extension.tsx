@@ -1287,6 +1287,13 @@ function InlineMathTexField({
     if (!input || locked || userInteractedRef.current) {
       return;
     }
+    // Select-all can arrive through accessibility or a native edit action
+    // before any pointer/key/change event. A delayed initial-focus retry must
+    // preserve that selection rather than turn replacement input into append.
+    if (input.selectionStart !== input.selectionEnd) {
+      userInteractedRef.current = true;
+      return;
+    }
     const cursor = initialCursorPosition === "start" ? 0 : input.value.length;
     if (input.selectionStart === cursor && input.selectionEnd === cursor) {
       return;
