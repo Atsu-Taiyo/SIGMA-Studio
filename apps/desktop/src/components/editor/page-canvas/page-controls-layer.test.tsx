@@ -40,6 +40,7 @@ it("preserves a source fragment's clipping after lifting its control at 200 perc
     sourceTop = 220;
     await act(async () => nextFrame!(0));
     expect(lifted.hidden).toBe(true);
+    expect(getComputedStyle(lifted).display).toBe("none");
   } finally {
     await act(async () => root.unmount());
   }

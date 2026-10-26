@@ -110,7 +110,7 @@ export function LiftedPageControl({
           hidden={!placement}
           style={placement
             ? { position: "absolute", left: `${placement.left}px`, top: `${placement.top}px`, width: `${placement.width}px`, clipPath: placement.clipPath }
-            : undefined}
+            : { display: "none" }}
         >
           {render(false)}
         </div>,
