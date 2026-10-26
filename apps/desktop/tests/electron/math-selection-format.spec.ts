@@ -22,7 +22,8 @@ test("math-only selection has text tools and mixed formatting toggles together a
   env.SIGMA_STUDIO_USER_DATA_DIR = profile;
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.SIGMA_STUDIO_DEV_SERVER_URL;
-  const app = await electron.launch({ args: [root], cwd: root, env });
+  const executablePath = process.env.SIGMA_STUDIO_E2E_EXECUTABLE;
+  const app = await electron.launch({ ...(executablePath ? { executablePath } : {}), args: executablePath ? [] : [root], cwd: root, env });
   try {
     const page = await app.firstWindow();
     await page.setViewportSize({ width: 1440, height: 1000 });

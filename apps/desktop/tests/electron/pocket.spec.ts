@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { grabShapeFromBody } from "../e2e/body-overlay-entry";
+import { selectUiOption } from "../e2e/ui-select";
 import { sampleDocument } from "@/lib/sample-document";
 import { createPlainTableSpec, createTableShapeProps } from "@/components/editor/overlay-canvas/shapes/table";
 import { ensurePageLayout, type SigmaDocument } from "@/features/document";
@@ -237,6 +238,28 @@ async function visiblePaperDropPoint(page: Page): Promise<{ x: number; y: number
       }
     }
     throw new Error("PAPER_DROP_TARGET_IS_COVERED");
+  });
+}
+
+/** A paragraph can be wider than its scroll viewport, even after scrollIntoViewIfNeeded. */
+async function visibleParagraphDropPoint(target: ReturnType<Page["locator"]>): Promise<{ x: number; y: number }> {
+  await target.scrollIntoViewIfNeeded();
+  return target.evaluate(element => {
+    const paragraph = element.getBoundingClientRect();
+    const scroller = element.closest<HTMLElement>(".editor-canvas")!;
+    const viewport = scroller.getBoundingClientRect();
+    const left = Math.max(0, paragraph.left, viewport.left + scroller.clientLeft);
+    const right = Math.min(innerWidth, paragraph.right, viewport.left + scroller.clientLeft + scroller.clientWidth);
+    const top = Math.max(0, paragraph.top, viewport.top + scroller.clientTop);
+    const bottom = Math.min(innerHeight, paragraph.bottom, viewport.top + scroller.clientTop + scroller.clientHeight);
+    if (right - left < 8 || bottom <= top) throw new Error("NO_VISIBLE_PARAGRAPH_DROP_TARGET");
+    const y = (top + bottom) / 2;
+    for (const x of [right - 4, (left + right) / 2, left + 4]) {
+      const hit = document.elementFromPoint(x, y);
+      const caret = document.caretRangeFromPoint(x, y);
+      if (hit && element.contains(hit) && caret && element.contains(caret.startContainer)) return { x, y };
+    }
+    throw new Error("PARAGRAPH_DROP_TARGET_IS_COVERED_OR_HAS_NO_CARET");
   });
 }
 
@@ -519,9 +542,8 @@ test("a pocket body drop containing a problem is one undo step and survives redo
     const saved = () => page.evaluate((id) => window.desktopAPI!.storage.loadDocument(id), created.file.fileId);
     const original = (await saved())!.content;
     const target = page.locator('.text-flow-editor [data-sigma-doc-id="p_target"]').first();
-    await target.scrollIntoViewIfNeeded();
-    const box = (await target.boundingBox())!;
-    await dragCardTo(page, card, box.x + box.width - 4, box.y + box.height / 2);
+    const drop = await visibleParagraphDropPoint(target);
+    await dragCardTo(page, card, drop.x, drop.y);
     await expect.poll(async () => (await saved())!.content.filter(block => block.type === "problem").length).toBe(2);
     const inserted = (await saved())!.content;
     await page.screenshot({ path: testInfo.outputPath("problem-drop.png") });
@@ -549,7 +571,7 @@ test("a pocket body drop into an empty paragraph is one undo step", async ({}, t
   const app = await electron.launch({ args: [APP_ROOT, `--user-data-dir=${userData}`], cwd: APP_ROOT, env });
   try {
     const page = await prepare(app);
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1400, 1200));
+    await (await app.browserWindow(page)).evaluate(win => win.setContentSize(900, 600));
     const source = sourceDocument();
     source.pageLayout!.overlay = { overlaySnapshot: { version: 1, assets: {}, shapes: [] } };
     source.content = [
@@ -558,6 +580,7 @@ test("a pocket body drop into an empty paragraph is one undo step", async ({}, t
     ];
     const created = await page.evaluate((document) => window.desktopAPI!.storage.createFileFromDocument({ document }), source);
     await page.reload();
+    await selectUiOption(page.getByRole("combobox", { name: "ズーム", exact: true }).first(), "200");
     const before = page.locator('.text-flow-editor [data-sigma-doc-id="p_before"]').first();
     await expect(before).toBeVisible();
     await before.click();
@@ -572,9 +595,16 @@ test("a pocket body drop into an empty paragraph is one undo step", async ({}, t
     const saved = () => page.evaluate((id) => window.desktopAPI!.storage.loadDocument(id), created.file.fileId);
     const original = (await saved())!.content;
     const target = page.locator('.text-flow-editor [data-sigma-doc-id="p_target"]').first();
-    await target.scrollIntoViewIfNeeded();
-    const box = (await target.boundingBox())!;
-    await dragCardTo(page, card, box.x + box.width - 4, box.y + box.height / 2);
+    const point = await visibleParagraphDropPoint(target);
+    const dropDiagnostics = () => page.evaluate(point => {
+      const target = document.querySelector('.text-flow-editor [data-sigma-doc-id="p_target"]');
+      const hit = document.elementFromPoint(point.x, point.y);
+      return { point, viewport: { w: innerWidth, h: innerHeight }, box: target?.getBoundingClientRect().toJSON() ?? null, hit: hit?.closest('[data-sigma-doc-id]')?.getAttribute('data-sigma-doc-id') ?? hit?.tagName ?? null, fonts: document.fonts.status };
+    }, point);
+    await testInfo.attach("empty-drop-before", { body: JSON.stringify(await dropDiagnostics()), contentType: "text/plain" });
+    await page.screenshot({ path: testInfo.outputPath("empty-drop-before.png") });
+    await dragCardTo(page, card, point.x, point.y);
+    await testInfo.attach("empty-drop-after", { body: JSON.stringify(await dropDiagnostics()), contentType: "text/plain" });
     await expect.poll(async () => JSON.stringify((await saved())!.content).split("数式と文章").length).toBe(3);
     const inserted = (await saved())!.content;
     await page.screenshot({ path: testInfo.outputPath("empty-drop.png") });
