@@ -143,7 +143,16 @@ export interface DividerNode extends BaseNode {
  * here plus one input rule and one counter style — `listType` stays `"ordered"` so every existing
  * `listType === "ordered"` branch keeps working.
  */
-export type OrderedListMarkerStyle = "decimal" | "paren";
+export const ORDERED_LIST_MARKER_STYLES = [
+  "decimal",
+  "paren",
+  "parenLowerAlpha",
+  "parenUpperAlpha",
+  "parenLowerRoman",
+  "parenUpperRoman",
+] as const;
+
+export type OrderedListMarkerStyle = typeof ORDERED_LIST_MARKER_STYLES[number];
 
 /**
  * 1 つの項目マーカーの下にぶら下がるブロック。
@@ -162,6 +171,11 @@ export interface ListNode extends BaseNode {
   start?: number;
   /** 番号マーカーの見せ方。未指定は "decimal"。"ordered" 以外では無視する。 */
   markerStyle?: OrderedListMarkerStyle;
+  /**
+   * 項目の文字が始まる位置 (リストの左端からの字数 = em)。マーカーはこの線の左にぶら下がる。
+   * 未指定はマーカー形式ごとの既定 (`defaultListIndentEm`) で、マーカーの左端が本文の左端に揃う。
+   */
+  indentEm?: number;
   items: ListItemNode[];
 }
 
@@ -205,7 +219,45 @@ export const PROBLEM_AREA_ORDER: readonly ProblemAreaKind[] = ["lead", "prompt",
  * an unrecognized value degrades to a plain numbered list instead of losing the list entirely.
  */
 export function normalizeOrderedListMarkerStyle(value: unknown): OrderedListMarkerStyle | undefined {
-  return value === "decimal" || value === "paren" ? value : undefined;
+  return ORDERED_LIST_MARKER_STYLES.includes(value as OrderedListMarkerStyle)
+    ? value as OrderedListMarkerStyle
+    : undefined;
+}
+
+export const LIST_INDENT_EM_MIN = 0;
+export const LIST_INDENT_EM_MAX = 8;
+/** つまみと矢印キーの刻み。0.25字より細かい差は紙面で見分けられない。 */
+export const LIST_INDENT_EM_STEP = 0.25;
+
+/**
+ * 字下げの既定。マーカーの左端が本文の左端に揃う幅 (`(1) `・`(a) ` が約1.7字、`(iii) ` が約2字)。
+ * 2桁の番号は LaTeX の enumerate と同じく左へはみ出す (番号の右端と本文の線が揃う)。
+ * `document-surface.css` の `--sigma-doc-list-default-indent` と同じ値。
+ */
+export function defaultListIndentEm(listType: ListNode["listType"], markerStyle?: OrderedListMarkerStyle): number {
+  if (listType !== "ordered") {
+    return 1;
+  }
+  switch (markerStyle ?? "decimal") {
+    case "decimal":
+      return 1.25;
+    case "parenLowerRoman":
+    case "parenUpperAlpha":
+      return 2;
+    case "parenUpperRoman":
+      return 2.25;
+    default:
+      return 1.75;
+  }
+}
+
+/** 範囲外・数でない値は `undefined` (= 既定) に落とす。刻みに丸めて保存の揺れを無くす。 */
+export function normalizeListIndentEm(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  const clamped = Math.min(LIST_INDENT_EM_MAX, Math.max(LIST_INDENT_EM_MIN, value));
+  return Math.round(clamped / LIST_INDENT_EM_STEP) * LIST_INDENT_EM_STEP;
 }
 
 export type ProblemAreaColumnSpan = "column" | "full";

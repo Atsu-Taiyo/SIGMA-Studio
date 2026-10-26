@@ -318,13 +318,17 @@ interface ParagraphNode extends BaseNode {
 ### List
 
 ```ts
-type OrderedListMarkerStyle = "decimal" | "paren";
+type OrderedListMarkerStyle =
+  | "decimal" | "paren"
+  | "parenLowerAlpha" | "parenUpperAlpha"
+  | "parenLowerRoman" | "parenUpperRoman";
 
 interface ListNode extends BaseNode {
   type: "list";
   listType: "bullet" | "ordered";
   start?: number;
   markerStyle?: OrderedListMarkerStyle;
+  indentEm?: number;
   items: ListItemNode[];
 }
 
@@ -342,7 +346,9 @@ interface ListItemNode {
 
 `children` は項目の先頭段落、`align` はその段落の文字揃えです。同じマーカーの下に続く本文は `continuations` に通常の段落または見出しとして保持するため、段落ごとに異なる文字揃えを指定できます。入れ子リストは `nested` に `ListNode[]` として保持します。Tiptapの `bulletList` / `orderedList` / `listItem` は編集用の内部表現であり、保存時はこのSigmaDoc構造へ変換します。
 
-`markerStyle` は `listType: "ordered"` の番号マーカーの見せ方だけを表します。未指定は `"decimal"`（`1.`）、`"paren"` は `(1)` 形式です。構造は通常の番号付きリストのままなので、`listType === "ordered"` を見ている処理はそのまま動きます。マーカーの描画は `apps/desktop/src/app/document-surface.css` の `@counter-style` 1箇所だけが出典で、編集画面・印刷・PDF・埋め込みビューアすべてがそこを読みます。`"bullet"` では無視されます。
+`markerStyle` は `listType: "ordered"` の番号マーカーの見せ方だけを表します。未指定は `"decimal"`（`1.`）、`"paren"` は `(1)`、`"parenLowerAlpha"` / `"parenUpperAlpha"` は `(a)` / `(A)`、`"parenLowerRoman"` / `"parenUpperRoman"` は `(i)` / `(I)` 形式です。未知の値は読み込み時に `"decimal"` へ落ちます。構造は通常の番号付きリストのままなので、`listType === "ordered"` を見ている処理はそのまま動きます。マーカーの描画は `apps/desktop/src/app/document-surface.css` の `@counter-style` 1箇所だけが出典で、編集画面・印刷・PDF・埋め込みビューアすべてがそこを読みます。`"bullet"` では無視されます。
+
+`indentEm` はリストの字下げで、項目の文字が始まる位置をリストの左端からの字数 (em) で表します。マーカーはこの線の左にぶら下がります。0〜8 の 0.25 刻みで、未指定はマーカー形式ごとの既定（マーカーの左端が本文の左端に揃う幅。箇条書き 1、`1.` 1.25、`(1)`・`(a)` 1.75、`(A)`・`(i)` 2、`(I)` 2.25）です。入れ子のリストはそれぞれ親項目の文字の線から測った自分の値を持ちます。範囲外の値は読み込み時に未指定へ落ちます。
 
 ```json
 {

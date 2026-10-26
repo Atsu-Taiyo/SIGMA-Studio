@@ -52,6 +52,8 @@ describe("default body font", () => {
       .toBe('"Noto Serif JP", "Noto Sans Symbols", "STIX Two Math", serif');
     expect(resolveDocumentFontFamily(LEGACY_STANDARD_SERIF_FONT_FAMILY))
       .toBe(DEFAULT_SERIF_BODY_FONT_FAMILY);
+    expect(resolveDocumentFontFamily('"Yu Mincho", YuMincho, "Hiragino Mincho ProN", "BIZ UDPMincho", serif'))
+      .toBe(DEFAULT_SERIF_BODY_FONT_FAMILY);
     expect(resolveDocumentFontFamily("  'Yu Mincho', serif  ")).toBe("'Yu Mincho', serif");
 
     const layout = readFileSync(new URL("../../app/layout.tsx", import.meta.url), "utf8");

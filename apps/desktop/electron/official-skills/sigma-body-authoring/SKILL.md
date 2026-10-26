@@ -28,7 +28,7 @@ description: "見出し・段落・箇条書き・数式・囲み枠・コード
 - 囲み枠・フォントや文字サイズ・改ページを付けたいときは blocks（`content.format` が blocks）。
   - 段落 `{"type":"paragraph","id":"ai_p_1","runs":["式 ",{"type":"math","id":"ai_m_1","tex":"x^2+1"},"を考える。"]}`（`align` `lineHeight` `fontFamily` `fontSize` も指定できる）
   - 見出し `{"type":"heading","level":2,"text":"…"}`（level は 1〜3）
-  - リスト `{"type":"list","listType":"ordered","markerStyle":"paren","items":["…","…"]}`（`markerStyle` は decimal か paren。入れ子は項目の `nested`、項目内の続きは `continuations`）
+  - リスト `{"type":"list","listType":"ordered","markerStyle":"paren","items":["…","…"]}`（`markerStyle` は decimal・paren `(1)`・parenLowerAlpha `(a)`・parenLowerRoman `(i)` など。入れ子は項目の `nested`、項目内の続きは `continuations`）
   - 囲み枠 `{"type":"boxBlock","styleId":"itembox","title":"ポイント","blocks":[…]}`
   - コード `{"type":"codeBlock","language":"python","text":"…"}`
   - 改ページ `pagination:{"break":true}`（段組みでは改段）

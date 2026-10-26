@@ -14,6 +14,7 @@ import { BoxedTextRunHeightExtension } from "@/components/tiptap/boxed-text-run-
 import { InlineMathExtension } from "@/components/tiptap/inline-math-extension";
 import { ListMarkerTypographyExtension } from "@/components/tiptap/list-marker-typography-extension";
 import { NativeHistoryGuardExtension } from "@/components/tiptap/native-history-guard";
+import { ListIndentExtension } from "@/components/tiptap/list-indent-extension";
 import { ParenOrderedListExtension } from "@/components/tiptap/paren-ordered-list-extension";
 import { SearchHighlightExtension } from "@/components/tiptap/search-highlight-extension";
 import {
@@ -211,7 +212,8 @@ export function createRichTextEngineExtensions({
         })
       : NativeHistoryGuardExtension,
     // After StarterKit so its own `1. ` ordered-list rule stays untouched.
-    ...(orderedListMarkerStyles ? [ParenOrderedListExtension] : []),
+    // 字下げのつまみの見た目 (`ListIndentExtension`) も、リスト構造を保存する本文だけに付ける。
+    ...(orderedListMarkerStyles ? [ParenOrderedListExtension, ListIndentExtension] : []),
     ...(bodyBlocks
       ? [
           QuoteBlockExtension,

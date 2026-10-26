@@ -34,6 +34,7 @@ import {
   isValidOverlaySnapshot,
   isWhiteboardPageLayout,
   migrateLegacyGraphShapeToPlotBounds,
+  normalizeListIndentEm,
   normalizeOrderedListMarkerStyle,
   normalizeOverlaySnapshot,
   overlayTextSizeToPx,
@@ -3427,6 +3428,7 @@ function normalizeAiListInput(
   const markerStyle = listType === "ordered"
     ? normalizeOrderedListMarkerStyle(source.markerStyle)
     : undefined;
+  const indentEm = normalizeListIndentEm(source.indentEm);
 
   return {
     type: "list",
@@ -3435,6 +3437,7 @@ function normalizeAiListInput(
     items,
     ...(start ? { start } : {}),
     ...(markerStyle ? { markerStyle } : {}),
+    ...(indentEm !== undefined ? { indentEm } : {}),
     ...(pagination ? { pagination } : {}),
   };
 }

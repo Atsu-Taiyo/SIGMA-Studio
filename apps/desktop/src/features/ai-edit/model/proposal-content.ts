@@ -247,6 +247,7 @@ function presentListItem(item: ListItemNode, owner?: { list: ListNode; index: nu
     type: "list",
     listType: list?.listType ?? "bullet",
     ...(ordered && list?.markerStyle ? { markerStyle: list.markerStyle } : {}),
+    ...(list?.indentEm !== undefined ? { indentEm: list.indentEm } : {}),
     ...(ordered ? { start: (list?.start ?? 1) + (owner?.index ?? 0) } : {}),
     items: [item],
   };

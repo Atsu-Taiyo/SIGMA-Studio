@@ -345,8 +345,7 @@ describe("document-surface.css is the single source for the printable document s
 describe("the running region keeps the list geometry it had under .print-list", () => {
   // The header/footer body moved to the block renderer the document body uses, which emits plain
   // `<ul>/<ol>`. Without this rule the list margin fell back to the UA default (2px → 16px) on the
-  // page canvas, in the PDF and in the viewer. It is region-scoped on purpose: the body editor
-  // deliberately keeps the UA defaults, so `.text-flow-editor ul` would move every list.
+  // page canvas, in the PDF and in the viewer.
   it("mirrors .print-list's block geometry", () => {
     const printList = ruleDeclarations(documentSurfaceCss, ".print-list");
     const runningList = ruleDeclarations(documentSurfaceCss, ".page-running-region :is(ul, ol)");
@@ -354,9 +353,11 @@ describe("the running region keeps the list geometry it had under .print-list", 
     expect(runningList).toEqual(printList);
   });
 
-  it("mirrors the nested-list reset", () => {
-    expect(ruleDeclarations(documentSurfaceCss, ".page-running-region :is(ul, ol) :is(ul, ol)"))
-      .toEqual(ruleDeclarations(documentSurfaceCss, ".print-list .print-list"));
+  it("shares the list margin and indent rule with the body and .print-list", () => {
+    const shared = documentSurfaceCode.split("}").find((rule) => rule.includes("var(--sigma-doc-list-indent, var(--sigma-doc-list-default-indent))"));
+    const selectors = splitSelectors(shared!.slice(0, shared!.indexOf("{")).trim());
+
+    expect(selectors).toEqual([".text-flow-editor :is(ul, ol)", ".print-list", ".page-running-region :is(ul, ol)"]);
   });
 });
 
