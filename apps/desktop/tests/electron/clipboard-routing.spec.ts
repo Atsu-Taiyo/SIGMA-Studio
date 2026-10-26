@@ -52,7 +52,15 @@ test("copying inside an itembox pastes only its contents and survives undo and r
       window.document.dispatchEvent(new Event("selectionchange"));
     });
     await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe("選んだ本文");
+    // Observe after React's delegated copy handler, before the overlay's window listener.
+    await page.evaluate(() => window.document.addEventListener("copy", event => {
+      window.document.body.dataset.e2eCopiedSlice = event.clipboardData!.getData("application/x-sigma-studio-text-slice");
+    }, { once: true }));
     await page.keyboard.press("ControlOrMeta+c");
+    await expect.poll(() => page.evaluate(() => JSON.parse(window.document.body.dataset.e2eCopiedSlice || "null"))).toMatchObject({
+      slice: { openStart: 1, openEnd: 1, content: [{ type: "paragraph" }] },
+    });
+    await page.evaluate(() => delete window.document.body.dataset.e2eCopiedSlice);
     await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toContain("選んだ本文");
     const load = () => page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), fileId);
     await placeClipboardCaret(page, body("clipboard_outside"));

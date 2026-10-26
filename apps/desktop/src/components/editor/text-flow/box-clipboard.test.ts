@@ -8,9 +8,9 @@ import { createRichTextEngineExtensions } from "@/components/tiptap/rich-text-en
 import { BoxBlockBodyExtension, BoxBlockExtension, BoxBlockTitleExtension } from "@/components/tiptap/sigma-doc-container-extensions";
 import { SigmaDocTextAttrs } from "@/components/tiptap/sigma-doc-text-attributes";
 import type { TextFlowBlock } from "@/features/text-editing";
-import { readEditorClipboardPayload, readTextSliceClipboardData } from "@/lib/editor-clipboard";
+import { createTextAndShapesClipboardPayload, readEditorClipboardPayload, readTextSliceClipboardData } from "@/lib/editor-clipboard";
 
-import { pasteTextFlowBlocksFromClipboard, writeTextFlowSelectionClipboard } from "./clipboard-transactions";
+import { pasteTextAndShapesFromClipboard, pasteTextFlowBlocksFromClipboard, writeTextFlowSelectionClipboard, writeTextFlowSelectionSliceClipboard } from "./clipboard-transactions";
 import { textFlowToTiptap, tiptapToTextFlow } from "./tiptap-document-adapter";
 
 const editors: Editor[] = [];
@@ -28,7 +28,7 @@ function editorFor(blocks: TextFlowBlock[]) {
   return editor;
 }
 
-const paragraph = (id: string, text: string): TextFlowBlock => ({ type: "paragraph", id, children: [{ type: "text", text }] });
+const paragraph = (id: string, text: string): Extract<TextFlowBlock, { type: "paragraph" }> => ({ type: "paragraph", id, children: [{ type: "text", text }] });
 const box = (id: string, blocks: TextFlowBlock[]): TextFlowBlock => ({ type: "boxBlock", id, styleId: "itembox", title: [{ type: "text", text: "題名" }], blocks });
 
 function position(editor: Editor, id: string): number {
@@ -41,6 +41,8 @@ function position(editor: Editor, id: string): number {
 function copy(editor: Editor, blocks: TextFlowBlock[]) {
   const data = new DataTransfer();
   expect(writeTextFlowSelectionClipboard(editor.view, data, blocks)).toBe(true);
+  // TextFlowEditor's delegated copy handler runs after ProseMirror's handler.
+  writeTextFlowSelectionSliceClipboard(editor.view, data);
   const payload = readEditorClipboardPayload(data);
   expect(payload?.kind).toBe("textFlowBlocks");
   if (payload?.kind !== "textFlowBlocks") throw new Error("Expected text payload");
@@ -114,5 +116,24 @@ describe("copying contents inside a box", () => {
     editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc,
       titlePos, position(editor, "inside") + 5)));
     expect(copy(editor, source).blocks).toEqual(source);
+  });
+
+  it("uses the delegated copy's normalized slice for mixed text/shape paste", () => {
+    const source = [box("outer", [paragraph("inside", "ABCD")])];
+    const editor = editorFor(source);
+    const pos = position(editor, "inside");
+    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, pos + 2, pos + 4)));
+    const copied = copy(editor, source);
+    const text = readTextSliceClipboardData(copied.data)!;
+    const payload = createTextAndShapesClipboardPayload(text, [{
+      id: "shape", type: "text", x: 100, y: 100, rotation: 0,
+      props: { w: 100, h: 40, size: "m", color: "#111111", blocks: [paragraph("label", "label")] },
+    }], {}, "source");
+    editor.commands.setContent(textFlowToTiptap([paragraph("target", "XY")]));
+    editor.commands.setTextSelection(2);
+    const event = new ClipboardEvent("paste", { clipboardData: copied.data, cancelable: true });
+    expect(pasteTextAndShapesFromClipboard(editor.view, event, editor.state.selection.content(), payload)).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
+    expect(tiptapToTextFlow(editor.getJSON())).toEqual([paragraph("target", "XBCY")]);
   });
 });

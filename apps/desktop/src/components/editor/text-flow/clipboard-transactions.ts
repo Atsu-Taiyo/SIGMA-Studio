@@ -448,6 +448,12 @@ function boxContentsClipboardSlice(slice: Slice): Slice {
   return content === slice.content ? slice : new Slice(content, openStart, openEnd);
 }
 
+/** React's later copy handler must attach the same content for the overlay listener. */
+export function writeTextFlowSelectionSliceClipboard(view: EditorView, clipboardData: DataTransfer): void {
+  const slice = boxContentsClipboardSlice(view.state.selection.content());
+  writeTextSliceClipboardData(clipboardData, slice.toJSON(), sliceTextForClipboard(slice));
+}
+
 export function writeTextFlowSelectionClipboard(
   view: EditorView,
   clipboardData: DataTransfer,
