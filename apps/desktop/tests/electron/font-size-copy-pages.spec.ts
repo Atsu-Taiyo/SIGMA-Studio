@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { createBlankDocument } from "@/lib/blank-document";
-import { normalizePageLayout, type ParagraphNode } from "@/features/document";
+import { DEFAULT_SERIF_BODY_FONT_FAMILY, normalizePageLayout, type ParagraphNode } from "@/features/document";
 
 const APP_ROOT = path.resolve(__dirname, "../..");
 const devUrl = process.env.SIGMA_STUDIO_E2E_BASE_URL;
@@ -88,6 +88,9 @@ test("B5 page 14 and A4 page 2 keep 11/12pt typography through native cross-file
         expect(runs[0].size).toBeCloseTo(16, 3);
         expect(runs[1].size).toBeCloseTo(44 / 3, 3);
       }
+      expect(sizes[1].map(run => run.family)).toEqual([
+        DEFAULT_SERIF_BODY_FONT_FAMILY, DEFAULT_SERIF_BODY_FONT_FAMILY,
+      ]);
       measurements.push(sizes);
       const { root } = await cdp.send("DOM.getDocument");
       const fonts = [];
@@ -108,6 +111,11 @@ test("B5 page 14 and A4 page 2 keep 11/12pt typography through native cross-file
 
     await page.locator(`[data-tab-id="document:${ids[0]}"]`).getByRole("tab").click();
     const rows = fixtures[0].rows;
+    // The legacy standard stack is resolved at editor boundaries. The custom
+    // third row still has to retain its exact family, text and explicit sizes.
+    const expectedPastedRows = rows.map((row, index) => index === 1
+      ? row.children.map(child => ({ ...child, fontFamily: DEFAULT_SERIF_BODY_FONT_FAMILY }))
+      : row.children);
     await page.locator(`[data-sigma-doc-id="${rows[0].id}"]`).first().scrollIntoViewIfNeeded();
     const points = await page.evaluate((ids) => {
       const first = document.querySelector(`.page-flow [data-sigma-doc-id="${ids[0]}"]`)!;
@@ -138,10 +146,10 @@ test("B5 page 14 and A4 page 2 keep 11/12pt typography through native cross-file
       const saved = await window.desktopAPI!.storage.loadDocument(id);
       return saved?.content.slice(-3).map(block => block.type === "paragraph" ? block.children : null);
     }, ids[1]);
-    await expect.poll(readPastedRows).toEqual(rows.map(row => row.children));
+    await expect.poll(readPastedRows).toEqual(expectedPastedRows);
     await page.reload();
     await expect(page.locator("[data-startup-splash]")).toBeHidden();
-    expect(await readPastedRows()).toEqual(rows.map(row => row.children));
+    expect(await readPastedRows()).toEqual(expectedPastedRows);
     await page.locator(".editor-canvas").first().evaluate(element => { element.scrollTop = element.scrollHeight; });
     const pastedIds = await page.evaluate(async (id) => {
       const saved = await window.desktopAPI!.storage.loadDocument(id);
