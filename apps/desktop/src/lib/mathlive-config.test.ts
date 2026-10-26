@@ -15,6 +15,7 @@ import {
   createMathRenderEnvironment,
   DEFAULT_MATH_RENDER_ENVIRONMENT,
 } from "@/lib/math-environment";
+import { SIGMA_MATHLIVE_EDITOR_MACROS } from "@/lib/math-macros";
 
 describe("MathLive config", () => {
   it("uses a visible TeX space for math-mode spacebar input", () => {
@@ -93,5 +94,14 @@ describe("MathLive config", () => {
     );
 
     expect(mathField.macros).toMatchObject({ RR: { args: 0, def: String.raw`\mathbb{R}` } });
+  });
+
+  it("restores the editor's thin circle after a document-defined textcircled is removed", () => {
+    const mathField = { executeCommand: vi.fn() } as unknown as InlineMathLiveFieldElement;
+    configureInlineMathLiveField(mathField, createMathRenderEnvironment(String.raw`\newcommand{\textcircled}[1]{\boxed{#1}}`));
+    expect(mathField.macros?.textcircled).toEqual({ args: 1, def: String.raw`\boxed{#1}` });
+    configureInlineMathLiveField(mathField, DEFAULT_MATH_RENDER_ENVIRONMENT);
+    expect(mathField.macros?.textcircled).toEqual(SIGMA_MATHLIVE_EDITOR_MACROS.textcircled);
+    expect(DEFAULT_MATH_RENDER_ENVIRONMENT.macroSet.mathLiveMacros.textcircled).toBeUndefined();
   });
 });

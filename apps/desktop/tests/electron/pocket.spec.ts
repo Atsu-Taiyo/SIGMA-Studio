@@ -4,7 +4,7 @@ import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { grabShapeFromBody } from "../e2e/body-overlay-entry";
 import { sampleDocument } from "@/lib/sample-document";
-import { createTableShapeProps } from "@/components/editor/overlay-canvas/shapes/table";
+import { createPlainTableSpec, createTableShapeProps } from "@/components/editor/overlay-canvas/shapes/table";
 import { ensurePageLayout, type SigmaDocument } from "@/features/document";
 
 const APP_ROOT = path.resolve(__dirname, "../..");
@@ -686,6 +686,117 @@ test("table pocket copies remain independent through editing, repeated insertion
     rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
+
+for (const [rows, columns] of [[3, 3], [12, 8]]) {
+  test(`a ${rows}x${columns} pocket table with customised inner borders saves immediately and survives an app restart`, async ({}, testInfo) => {
+    test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+    test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
+    const userData = mkdtempSync(path.join(tmpdir(), "sigma-pocket-table-borders-"));
+    const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+    env.SIGMA_STUDIO_USER_DATA_DIR = userData;
+    delete env.ELECTRON_RUN_AS_NODE;
+    if (devUrl) env.SIGMA_STUDIO_DEV_SERVER_URL = devUrl;
+    const launch = () => electron.launch({ args: [APP_ROOT, `--user-data-dir=${userData}`], cwd: APP_ROOT, env });
+    let app = await launch();
+    const diagnostics: string[] = [];
+    const browserWarnings: string[] = [];
+    try {
+      let page = await prepare(app);
+      page.on("pageerror", error => diagnostics.push(`pageerror: ${error.message}`));
+      page.on("console", message => {
+        if (message.type() !== "error") return;
+        const text = message.text();
+        // Chromium reports its unsupported CSP directive as a console error on static startup.
+        // Record that exact browser warning separately; every other error still fails the test.
+        if (text === "Unrecognized Content-Security-Policy directive 'webrtc'.") {
+          browserWarnings.push(text);
+        } else {
+          diagnostics.push(text);
+        }
+      });
+      const source = sourceDocument();
+      const props = { ...createTableShapeProps("plain", columns * 64, rows * 32 + 2), table: createPlainTableSpec(rows, columns) };
+      props.table.grid.lineOverrides = [
+        { axis: "horizontal", beforeRowId: props.table.rows[1].id, style: { borderWidth: 2, borderStyle: "double" } },
+        { axis: "vertical", beforeColumnId: props.table.columns[1].id, style: { visible: false } },
+        { axis: "horizontal", edge: "bottom", style: { borderColor: "#cc0000" } },
+      ];
+      props.table.cells[0].content = [{ type: "paragraph", id: "pocket_table_cell_text", children: [
+        { type: "text", text: "表の見出し" },
+        { type: "mathInline", id: "pocket_table_cell_math", tex: "\\frac{1}{2}", display: "inline" },
+      ] }];
+      source.pageLayout!.overlay!.overlaySnapshot!.shapes = [{
+        id: "table_borders_source", type: "tableShape", x: 100, y: 320, rotation: 0, props,
+      }];
+      const created = await page.evaluate(document => window.desktopAPI!.storage.createFileFromDocument({ document }), source);
+      await page.reload();
+      await grabShapeFromBody(page, page.locator('[data-overlay-shape-id="table_borders_source"]').first());
+      await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+      const card = () => page.locator("[data-pocket-item] button[data-kind]").first();
+      await expect(card()).toHaveAttribute("data-kind", "shapes");
+      const tables = () => page.evaluate(async id => (await window.desktopAPI!.storage.loadDocument(id))!
+        .pageLayout!.overlay!.overlaySnapshot!.shapes.filter(shape => shape.type === "tableShape"), created.file.fileId);
+      await card().click();
+      await page.keyboard.press("ControlOrMeta+KeyS");
+      await expect(page.locator('.overlay-table-shape')).toHaveCount(2);
+      await expect.poll(async () => (await tables()).length).toBe(2);
+      // A second insertion through drag uses the same copy path and must keep the UI responsive.
+      const canvas = (await page.locator('.page-canvas').first().boundingBox())!;
+      await dragCardTo(page, card(), canvas.x + 300, canvas.y + 500);
+      await page.keyboard.press("ControlOrMeta+KeyS");
+      await expect.poll(async () => (await tables()).length).toBe(3);
+      await expect(page.locator('.overlay-table-shape')).toHaveCount(3);
+      await page.keyboard.press("ControlOrMeta+KeyZ");
+      await expect.poll(async () => (await tables()).length).toBe(2);
+      await page.keyboard.press("ControlOrMeta+Shift+KeyZ");
+      await expect.poll(async () => (await tables()).length).toBe(3);
+      const persisted = await tables();
+      for (const table of persisted) {
+        expect(table.props.table.grid.lineOverrides).toEqual([
+          { axis: "horizontal", beforeRowId: table.props.table.rows[1].id, style: { borderWidth: 2, borderStyle: "double" } },
+          { axis: "vertical", beforeColumnId: table.props.table.columns[1].id, style: { visible: false } },
+          { axis: "horizontal", edge: "bottom", style: { borderColor: "#cc0000" } },
+        ]);
+        expect(JSON.stringify(table)).toContain("表の見出し");
+        expect(JSON.stringify(table)).toContain("\\\\frac{1}{2}");
+      }
+      await page.screenshot({ path: testInfo.outputPath("pocket-table-custom-borders.png") });
+      // Reuse this same card in another material, and verify that neither file loses a table.
+      await page.getByRole("button", { name: "新規教材", exact: true }).click();
+      await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
+      const targetCanvas = (await page.locator('.page-canvas').first().boundingBox())!;
+      await dragCardTo(page, card(), targetCanvas.x + 300, targetCanvas.y + 350);
+      await page.keyboard.press("ControlOrMeta+KeyS");
+      await expect(page.locator('.overlay-table-shape')).toHaveCount(1);
+      const carrier = () => page.evaluate(async sourceId => {
+        for (const file of await window.desktopAPI!.storage.listFiles()) {
+          if (file.fileId === sourceId) continue;
+          const document = await window.desktopAPI!.storage.loadDocument(file.fileId);
+          if (JSON.stringify(document).includes("表の見出し")) return document;
+        }
+        return null;
+      }, created.file.fileId);
+      await expect.poll(async () => (await carrier())?.pageLayout?.overlay?.overlaySnapshot?.shapes.length).toBe(1);
+      const persistedCarrier = await carrier();
+      expect(await tables()).toEqual(persisted);
+      expect(diagnostics).toEqual([]);
+      await closeApp(app);
+      app = await launch();
+      page = await prepare(app);
+      expect(await tables()).toEqual(persisted);
+      expect(await carrier()).toEqual(persistedCarrier);
+      const targetShapeId = persistedCarrier!.pageLayout!.overlay!.overlaySnapshot!.shapes[0].id;
+      await expect(page.locator(`[data-overlay-shape-id="${targetShapeId}"]`).first()).toBeVisible();
+    } finally {
+      await testInfo.attach("pocket-table-save-diagnostics", { body: diagnostics.join("\n"), contentType: "text/plain" });
+      if (browserWarnings.length > 0) {
+        await testInfo.attach("pocket-browser-warnings", { body: browserWarnings.join("\n"), contentType: "text/plain" });
+      }
+      await closeApp(app);
+      rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
+}
 
 test("pocket shape cards follow focus between persistent split panes and keep the other document unchanged", async () => {
   const profile = mkdtempSync(path.join(tmpdir(), "sigma-pocket-split-"));

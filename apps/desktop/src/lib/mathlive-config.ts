@@ -1,11 +1,12 @@
 import { mathFieldDefaultMode } from "@/features/rendering/core";
 import type { MathRenderEnvironment } from "@/lib/math-environment";
-import { SIGMA_MATHLIVE_MACRO_STYLES } from "@/lib/math-macros";
+import { SIGMA_MATHLIVE_EDITOR_MACROS, SIGMA_MATHLIVE_MACRO_STYLES } from "@/lib/math-macros";
 import { MATHLIVE_BOX_LAYOUT_CLASS, normalizeMathLiveBoxStyle } from "@/lib/mathlive-box-layout";
 import { installMathLiveCompositionAnchor } from "@/lib/mathlive-composition-anchor";
 import { installMathLiveCompositionSelection } from "@/lib/mathlive-composition-selection";
 import { installMathLiveHalfWidthInput } from "@/lib/mathlive-half-width-input";
 import { collidesWithMathKeyboardShortcut } from "@/lib/math-keyboard-shortcuts";
+import { installMathLivePhysics } from "@/lib/mathlive-physics";
 import { installMathLiveOpenFenceLatex } from "@/lib/mathlive-open-fence";
 
 export const MATHLIVE_MATH_MODE_SPACE = "\\ ";
@@ -78,6 +79,7 @@ export function configureInlineMathLiveField(
   mathField: InlineMathLiveFieldElement,
   environment: MathRenderEnvironment,
 ) {
+  installMathLivePhysics(mathField, environment.macroSet.physicsOverrides);
   installSigmaMathLiveMacroStyles(mathField);
   if (mathField.shadowRoot) {
     installMathLiveCompositionAnchor(mathField.shadowRoot);
@@ -90,6 +92,7 @@ export function configureInlineMathLiveField(
   mathField.mathVirtualKeyboardPolicy = "manual";
   mathField.macros = {
     ...(mathField.macros ?? {}),
+    ...SIGMA_MATHLIVE_EDITOR_MACROS,
     ...environment.macroSet.mathLiveMacros,
   };
   mathField.popoverPolicy = "auto";

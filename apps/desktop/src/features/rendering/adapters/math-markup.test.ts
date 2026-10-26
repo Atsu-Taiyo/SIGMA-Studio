@@ -40,6 +40,11 @@ describe("sanitizeMathMarkup", () => {
       .toContain('style="font-family:Noto Serif JP, 游明朝"');
   });
 
+  it("preserves the full-width accent used to center KaTeX textcircled", () => {
+    const markup = '<span class="katex-accent"><span class="accent-body accent-full" style="left:0em;top:.2em"><span class="mord">◯</span></span></span>';
+    expect(sanitizeMathMarkup(markup)).toEqual({ html: markup, safe: true });
+  });
+
   it("drops a font-family value that carries anything but font names", () => {
     for (const value of ["var(--x)", "x, url(a)", "'a' !important", "x/**/"]) {
       expect(sanitizeMathMarkup(`<span style="font-family:${value}">x</span>`).html).toBe("<span>x</span>");

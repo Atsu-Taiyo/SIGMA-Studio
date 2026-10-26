@@ -434,7 +434,7 @@ export const settings = {
     description: "Define TeX commands used only in this file.",
     preamble: "Preamble",
     preambleHelpSeparator: ", ",
-    preambleHelpSuffix: " are available.",
+    preambleHelpSuffix: " are available. Physics-style delimiters \\qty(...), \\qty[...], \\qty{...}, \\qty|...|, \\pqty, \\bqty, \\Bqty, \\vqty, \\abs and \\norm work without setup.",
     insertExample: "Insert an example",
     issue: "Line {{line}}: {{message}}",
     macroCount: "{{macros}} custom commands are available.",

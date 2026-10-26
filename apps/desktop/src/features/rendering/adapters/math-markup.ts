@@ -365,7 +365,9 @@ const SAFE_CLASS_TOKEN_PATTERNS: readonly RegExp[] = [
 /** パターンに乗らない KaTeX のクラス (実測)。 */
 const SAFE_CLASS_TOKENS: ReadonlySet<string> = new Set([
   ...TRUSTED_SIGMA_MATH_CLASSES,
-  "accent", "accent-body", "allowbreak", "amsrm", "arraycolsep", "base", "boxpad",
+  // KaTeX textcircled needs accent-full: without it the accent-body gets width:0
+  // and its circle is laid out to the right of the digit instead of around it.
+  "accent", "accent-body", "accent-full", "allowbreak", "amsrm", "arraycolsep", "base", "boxpad",
   "brace-center", "brace-left", "brace-right", "cjk_fallback", "colorbox", "delimcenter",
   "delimsizing", "fbox", "fix", "frac-line", "hide-tail", "hline", "inner", "large-op", "lcGreek",
   "mathbb", "mathbf", "mathcal", "mathdefault", "mathfrak", "mathit", "mathnormal", "mathrm",

@@ -13,6 +13,9 @@ import {
 import { readBlockHashRevisions } from "./block-hash-sidecar";
 import { createBlankDocument } from "@/lib/blank-document";
 import { sampleDocument } from "@/lib/sample-document";
+import { ensurePageLayout } from "@/features/document";
+import { createTableShapeProps } from "@/components/editor/overlay-canvas/shapes/table";
+import { cloneOverlayShapesForPaste, createOverlayClipboardPayload } from "@/lib/editor-clipboard";
 import type { SigmaDocument } from "@/types/sigma-doc";
 import { setAppLocale } from "@/lib/i18n";
 import {
@@ -56,6 +59,28 @@ describe("LocalSigmaDocStore", () => {
 
   afterEach(async () => {
     await fs.rm(userDataDir, { recursive: true, force: true });
+  });
+
+  it("saves a pasted table with custom inner borders without dropping its data", async () => {
+    const document = ensurePageLayout(createBlankDocument("罫線つきポケット表"));
+    const props = createTableShapeProps("plain");
+    props.table.grid.lineOverrides = [
+      { axis: "horizontal", beforeRowId: props.table.rows[1].id, style: { borderStyle: "double" } },
+      { axis: "vertical", beforeColumnId: props.table.columns[2].id, style: { visible: false } },
+    ];
+    props.table.cells[0].content = [{ type: "paragraph", id: "table_heading", children: [{ type: "text", text: "保存後も残す見出し" }] }];
+    const snapshot = { version: 1 as const, assets: {}, shapes: [{ id: "table_source", type: "tableShape" as const, x: 100, y: 100, props }] };
+    document.pageLayout!.overlay = { overlaySnapshot: snapshot };
+    const created = await store.createFileFromDocument({ document });
+    const pasted = cloneOverlayShapesForPaste(createOverlayClipboardPayload(snapshot.shapes, {}), { x: 20, y: 20 });
+    const changed = structuredClone(created.document);
+    changed.pageLayout!.overlay!.overlaySnapshot!.shapes.push(...pasted.shapes);
+    const result = await store.saveDocument(created.file.fileId, changed, { expectedRevision: created.file.revision });
+    expect(result.ok).toBe(true);
+    const reopened = new LocalSigmaDocStore(userDataDir);
+    const restored = await reopened.loadDocument(created.file.fileId);
+    expect(restored!.pageLayout!.overlay!.overlaySnapshot!.shapes).toEqual(changed.pageLayout!.overlay!.overlaySnapshot!.shapes);
+    expect(restored!.pageLayout!.overlay!.overlaySnapshot!.shapes).toHaveLength(2);
   });
 
   it("returns persisted metadata for one save, including a normalized duplicate title", async () => {

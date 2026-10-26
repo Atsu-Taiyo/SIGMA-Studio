@@ -1,3 +1,4 @@
+import { normalizePhysicsTex } from "@/lib/physics-tex";
 import { parseTexPreamble, type TexPreambleIssue } from "@/lib/tex-preamble";
 
 export const KYOUTSUU_CHOICE_CLASS = "sigma-kyoutsuu-choice";
@@ -82,10 +83,22 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
   font: inherit;
 }`;
 
-/**
- * Sigma Studio-specific math macros shared by MathLive editing and KaTeX output.
- * Keep these as TeX-only expansions so every renderer preserves the same result.
+/** MathLive has no textcircled atom. Use its native enclosure while editing;
+ * static output keeps KaTeX's actual textcircled glyph, thickness and baseline.
  */
+export const SIGMA_MATHLIVE_EDITOR_MACROS = {
+  textcircled: {
+    // Enclose measures Roman glyphs with KaTeX metrics. Text mode would inherit
+    // the document font (e.g. M PLUS 1p) whose digit widths move off that center.
+    // Keep an inner group so Enclose also retains a leading \scriptsize.
+    // MathLive's omitted border width becomes CSS medium (3px). A decimal em
+    // width is misread by its borderDim parser, so use an explicit 1px rule.
+    def: String.raw`\enclose{circle}[1px solid currentColor]{\mathrm{{#1}}}`,
+    args: 1,
+  },
+} as const;
+
+/** Sigma macros shared by MathLive editing and static rendering. */
 export const SIGMA_MATHLIVE_MACROS = {
   kyoutsuuchoice: {
     def: String.raw`\class{${KYOUTSUU_CHOICE_CLASS}}{\textbf{#1}}`,
@@ -114,6 +127,8 @@ export const SIGMA_KATEX_MACROS = {
 
 export interface MathMacroSet {
   issues: TexPreambleIssue[];
+  /** Document definitions take precedence over the built-in physics delimiters. */
+  physicsOverrides?: ReadonlySet<string>;
   katexMacros: Readonly<Record<string, string>>;
   mathLiveMacros: Readonly<Record<string, { args: number; def: string }>>;
   /**
@@ -138,15 +153,22 @@ export function createMathMacroSet(preamble = ""): MathMacroSet {
   }
 
   const parsed = parseTexPreamble(preamble);
+  const physicsOverrides = new Set(Object.keys(parsed.macros));
+  const normalizedMacros = Object.fromEntries(
+    Object.entries(parsed.macros).map(([name, definition]) => [name, {
+      ...definition, def: normalizePhysicsTex(definition.def, physicsOverrides),
+    }]),
+  );
   const customMathLiveMacros = Object.fromEntries(
-    Object.entries(parsed.macros).map(([name, definition]) => [name, definition]),
+    Object.entries(normalizedMacros).map(([name, definition]) => [name, definition]),
   );
   const customKatexMacros = Object.fromEntries(
-    Object.entries(parsed.macros).map(([name, definition]) => [`\\${name}`, definition.def]),
+    Object.entries(normalizedMacros).map(([name, definition]) => [`\\${name}`, definition.def]),
   );
   macroSetSequence += 1;
   const macroSet: MathMacroSet = {
     issues: parsed.issues,
+    physicsOverrides,
     katexMacros: { ...SIGMA_KATEX_MACROS, ...customKatexMacros },
     mathLiveMacros: { ...SIGMA_MATHLIVE_MACROS, ...customMathLiveMacros },
     signature: `m${macroSetSequence}`,
