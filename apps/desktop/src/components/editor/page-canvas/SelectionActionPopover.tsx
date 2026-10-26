@@ -164,6 +164,7 @@ function SelectionActionBand({
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [left, setLeft] = useState(position.left);
+  const [top, setTop] = useState(position.top);
 
   useIsomorphicLayoutEffect(() => {
     const root = rootRef.current;
@@ -171,6 +172,9 @@ function SelectionActionBand({
       return;
     }
     const place = () => {
+      const viewport = root.closest<HTMLElement>(".editor-canvas");
+      const minTop = viewport ? Math.max(SELECTION_ACTION_POPOVER_MARGIN, viewport.getBoundingClientRect().top + SELECTION_ACTION_POPOVER_MARGIN) : SELECTION_ACTION_POPOVER_MARGIN;
+      setTop(Math.max(minTop, position.top));
       const width = root.offsetWidth;
       onWidthChange?.(width);
       const center = position.centerX ?? position.left + width / 2;
@@ -185,17 +189,19 @@ function SelectionActionBand({
     }
     const observer = new ResizeObserver(place);
     observer.observe(root);
+    const viewport = root.closest<HTMLElement>(".editor-canvas");
+    if (viewport) observer.observe(viewport);
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", place);
     };
-  }, [onWidthChange, position.centerX, position.left]);
+  }, [onWidthChange, position.centerX, position.left, position.top]);
 
   return (
     <div
       ref={rootRef}
       className="selection-action-popover"
-      style={{ left: `${left}px`, top: `${position.top}px` }}
+      style={{ left: `${left}px`, top: `${top}px` }}
       onMouseDown={keepEditorSelection}
     >
       {children}
