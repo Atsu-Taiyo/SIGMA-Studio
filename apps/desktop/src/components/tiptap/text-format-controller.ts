@@ -112,6 +112,14 @@ type TextFormatChain = ReturnType<TiptapEditor["chain"]>;
  * format up, the way Word/Docs behave. Paragraph commands remain block-scoped,
  * while every inline mark applies only to text typed from the caret onward.
  */
+/** 番号付きリストのボタン・メニューが送る値と、それが選ぶマーカー形式。 */
+const ORDERED_LIST_REQUEST_MARKER_STYLES: Record<string, OrderedListMarkerStyle | undefined> = {
+  orderedList: "decimal",
+  orderedListParen: "paren",
+  orderedListParenAlpha: "parenLowerAlpha",
+  orderedListParenRoman: "parenLowerRoman",
+};
+
 const CARET_SCOPED_TEXT_FORMAT_COMMANDS = new Set([
   "bold",
   "italic",
@@ -210,8 +218,9 @@ export function applyTextFormatCommand(
     }
     // 番号付きは「番号付きにする」と「マーカー形式を選ぶ」が 1 つの操作。すでにその形式の
     // 番号付きなら解除する (ツールバーのトグル)。
-    if (request.value === "orderedList" || request.value === "orderedListParen") {
-      const markerStyle: OrderedListMarkerStyle = request.value === "orderedListParen" ? "paren" : "decimal";
+    const requestedMarkerStyle = ORDERED_LIST_REQUEST_MARKER_STYLES[request.value as string];
+    if (requestedMarkerStyle) {
+      const markerStyle: OrderedListMarkerStyle = requestedMarkerStyle;
       const active = editor.isActive("orderedList")
         && (normalizeOrderedListMarkerStyle(editor.getAttributes("orderedList").markerStyle) ?? "decimal") === markerStyle;
       if (active) {
@@ -219,7 +228,7 @@ export function applyTextFormatCommand(
         return true;
       }
       runStructural((chain) => (editor.isActive("orderedList") ? chain : chain.toggleOrderedList())
-        .updateAttributes("orderedList", { markerStyle: markerStyle === "paren" ? "paren" : null }));
+        .updateAttributes("orderedList", { markerStyle: markerStyle === "decimal" ? null : markerStyle }));
       return true;
     }
     if (request.value === "divider") {

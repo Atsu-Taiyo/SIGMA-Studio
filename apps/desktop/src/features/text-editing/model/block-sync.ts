@@ -1,4 +1,4 @@
-import { normalizeBlockSpaceAfterPx } from "@/features/document";
+import { normalizeBlockSpaceAfterPx, normalizeListIndentEm } from "@/features/document";
 import type {
   BoxBlockChildBlock,
   BoxFrameSpec,
@@ -97,6 +97,7 @@ function getTextFlowBlockSyncKey(block: TextFlowBlock): string {
         block.listType,
         block.start ?? "",
         block.markerStyle ?? "",
+        block.indentEm ?? "",
         paginationSyncKey(block.pagination),
         block.spaceAfterPx ?? "",
         block.items.map(getListItemSyncKey).join("\u0001"),
@@ -381,10 +382,11 @@ export function hasTextFlowBlockAttributeChange(
  * 属性を増やすときはここへ 1 つ足すだけで両側が同時に増える (正規化も共通になる)。
  */
 export function textFlowBlockAttributeSignature(
-  values: { spaceAfterPx?: unknown },
+  values: { spaceAfterPx?: unknown; indentEm?: unknown },
 ): string {
   return [
     normalizeBlockSpaceAfterPx(values.spaceAfterPx) ?? "",
+    normalizeListIndentEm(values.indentEm) ?? "",
   ].join(" ");
 }
 

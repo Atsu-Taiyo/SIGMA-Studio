@@ -113,7 +113,16 @@ export interface DividerNode extends BaseNode {
  * here plus one input rule and one counter style — `listType` stays `"ordered"` so every existing
  * `listType === "ordered"` branch keeps working.
  */
-export type OrderedListMarkerStyle = "decimal" | "paren";
+export declare const ORDERED_LIST_MARKER_STYLES: readonly [
+    "decimal",
+    "paren",
+    "parenLowerAlpha",
+    "parenUpperAlpha",
+    "parenLowerRoman",
+    "parenUpperRoman"
+];
+
+export type OrderedListMarkerStyle = typeof ORDERED_LIST_MARKER_STYLES[number];
 
 /**
  * 1 つの項目マーカーの下にぶら下がるブロック。
@@ -132,6 +141,11 @@ export interface ListNode extends BaseNode {
     start?: number;
     /** 番号マーカーの見せ方。未指定は "decimal"。"ordered" 以外では無視する。 */
     markerStyle?: OrderedListMarkerStyle;
+    /**
+     * 項目の文字が始まる位置 (リストの左端からの字数 = em)。マーカーはこの線の左にぶら下がる。
+     * 未指定はマーカー形式ごとの既定 (`defaultListIndentEm`) で、マーカーの左端が本文の左端に揃う。
+     */
+    indentEm?: number;
     items: ListItemNode[];
 }
 
@@ -175,6 +189,23 @@ export declare const PROBLEM_AREA_ORDER: readonly ProblemAreaKind[];
  * an unrecognized value degrades to a plain numbered list instead of losing the list entirely.
  */
 export declare function normalizeOrderedListMarkerStyle(value: unknown): OrderedListMarkerStyle | undefined;
+
+export declare const LIST_INDENT_EM_MIN = 0;
+
+export declare const LIST_INDENT_EM_MAX = 8;
+
+/** つまみと矢印キーの刻み。0.25字より細かい差は紙面で見分けられない。 */
+export declare const LIST_INDENT_EM_STEP = 0.25;
+
+/**
+ * 字下げの既定。マーカーの左端が本文の左端に揃う幅 (`(1) `・`(a) ` が約1.7字、`(iii) ` が約2字)。
+ * 2桁の番号は LaTeX の enumerate と同じく左へはみ出す (番号の右端と本文の線が揃う)。
+ * `document-surface.css` の `--sigma-doc-list-default-indent` と同じ値。
+ */
+export declare function defaultListIndentEm(listType: ListNode["listType"], markerStyle?: OrderedListMarkerStyle): number;
+
+/** 範囲外・数でない値は `undefined` (= 既定) に落とす。刻みに丸めて保存の揺れを無くす。 */
+export declare function normalizeListIndentEm(value: unknown): number | undefined;
 
 export type ProblemAreaColumnSpan = "column" | "full";
 

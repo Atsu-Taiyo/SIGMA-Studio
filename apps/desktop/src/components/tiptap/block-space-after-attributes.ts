@@ -2,8 +2,12 @@ import {
   BLOCK_SPACE_AFTER_CSS_VARIABLE,
   blockSpaceAfterFromStyleValue,
   blockSpaceAfterStyleAttr,
+  LIST_INDENT_CSS_VARIABLE,
   LIST_ITEM_SPACE_AFTER_CSS_VARIABLE,
+  listIndentFromStyleValue,
+  listIndentStyleAttr,
   listItemSpaceAfterStyleAttr,
+  orderedListMarkerDataAttr,
 } from "@/features/document";
 
 /**
@@ -52,4 +56,26 @@ export const LIST_ITEM_LEADING_SPACE_AFTER_ATTRIBUTE = {
       : null;
   },
   renderHTML: () => ({}),
+};
+
+/**
+ * リストの字下げ (`ListNode.indentEm`) と番号の形式 (`ListNode.markerStyle`)。本文と図中テキストが
+ * 同じ定義を使う。どちらも DOM へ出す — `document-surface.css` が字下げの変数と `data-list-marker`
+ * を読み、静的描画も同じものを書く。
+ */
+export const LIST_INDENT_ATTRIBUTE = {
+  default: null,
+  parseHTML: (element: HTMLElement) => listIndentFromStyleValue(
+    element.style.getPropertyValue(LIST_INDENT_CSS_VARIABLE),
+  ),
+  renderHTML: (attributes: Record<string, unknown>) => listIndentStyleAttr(attributes.indentEm),
+};
+
+export const ORDERED_LIST_MARKER_STYLE_ATTRIBUTE = {
+  default: null,
+  parseHTML: (element: HTMLElement) => orderedListMarkerDataAttr(element.getAttribute("data-list-marker")) ?? null,
+  renderHTML: (attributes: Record<string, unknown>) => {
+    const marker = orderedListMarkerDataAttr(attributes.markerStyle);
+    return marker ? { "data-list-marker": marker } : {};
+  },
 };

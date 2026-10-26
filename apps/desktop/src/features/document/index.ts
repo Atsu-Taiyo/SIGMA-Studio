@@ -14,9 +14,15 @@ export * from "./graph3d-validation";
 export * from "./validation-error";
 export * from "./graph-label-read-model";
 export {
+  defaultListIndentEm,
+  LIST_INDENT_EM_MAX,
+  LIST_INDENT_EM_MIN,
+  LIST_INDENT_EM_STEP,
   listItemContinuationInlineNodes,
   normalizeCodeBlockTheme,
+  normalizeListIndentEm,
   normalizeOrderedListMarkerStyle,
+  ORDERED_LIST_MARKER_STYLES,
   PROBLEM_AREA_ORDER,
 } from "./model/blocks";
 export {

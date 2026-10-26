@@ -601,7 +601,7 @@ function canonicalizeOverlayTextBlock(block: OverlayTextBlock): OverlayTextBlock
         ...(block as unknown as Record<string, unknown>),
         spaceAfterPx: normalizeBlockSpaceAfterPx(block.spaceAfterPx),
       }, [
-        "type", "id", "listType", "start", "markerStyle", "spaceAfterPx",
+        "type", "id", "listType", "start", "markerStyle", "indentEm", "spaceAfterPx",
       ]),
       items: block.items.map((item) => ({
         // An item's own space (the "↓-" handle under a list item) is a named key like the blocks'

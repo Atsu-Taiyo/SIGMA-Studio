@@ -5,8 +5,10 @@ import { normalizeTextAlign } from "@/features/text-editing";
 
 import {
   BLOCK_SPACE_AFTER_ATTRIBUTE,
+  LIST_INDENT_ATTRIBUTE,
   LIST_ITEM_LEADING_SPACE_AFTER_ATTRIBUTE,
   LIST_ITEM_SPACE_AFTER_ATTRIBUTE,
+  ORDERED_LIST_MARKER_STYLE_ATTRIBUTE,
 } from "./block-space-after-attributes";
 
 export const SigmaDocTextAttrs = Extension.create({
@@ -148,13 +150,14 @@ export const SigmaDocTextAttrs = Extension.create({
         // `document-surface.css` selects on, so the editor and the static renderer agree.
         types: ["orderedList"],
         attributes: {
-          markerStyle: {
-            default: null,
-            parseHTML: (element) => element.getAttribute("data-list-marker"),
-            renderHTML: (attributes) => (
-              attributes.markerStyle === "paren" ? { "data-list-marker": "paren" } : {}
-            ),
-          },
+          markerStyle: ORDERED_LIST_MARKER_STYLE_ATTRIBUTE,
+        },
+      },
+      {
+        // 字下げ (`ListNode.indentEm`)。入れ子のリストはそれぞれ自分の値を持つ。
+        types: ["bulletList", "orderedList"],
+        attributes: {
+          indentEm: LIST_INDENT_ATTRIBUTE,
         },
       },
     ];

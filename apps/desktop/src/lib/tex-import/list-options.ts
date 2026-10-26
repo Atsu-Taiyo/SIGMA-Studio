@@ -3,6 +3,14 @@ import { readBraceGroup } from "./scanner";
 
 type Numbering = Pick<ListNode, "start" | "markerStyle">;
 
+/** enumitem の `label=(\alph*)` などを、行頭の `(a)` 入力と同じマーカー形式へ。 */
+const PAREN_COUNTER_MARKER_STYLES: Record<string, NonNullable<ListNode["markerStyle"]>> = {
+  alph: "parenLowerAlpha",
+  Alph: "parenUpperAlpha",
+  roman: "parenLowerRoman",
+  Roman: "parenUpperRoman",
+};
+
 export function readNumericItemLabel(label: string | undefined): Numbering | null {
   const text = label?.trim();
   const paren = text?.match(/^\(([1-9]\d*)\)$/);
@@ -38,6 +46,8 @@ export function readListOptions(option: string | undefined): Numbering {
     if (match[1] === "start" && /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value))) result.start = Number(value);
     if (match[1] === "label" && /^\(\\arabic\*\)$/.test(value)) result.markerStyle = "paren";
     if (match[1] === "label" && /^\\arabic\*\.$/.test(value)) result.markerStyle = "decimal";
+    const parenCounter = match[1] === "label" ? value.match(/^\(\\(alph|Alph|roman|Roman)\*\)$/)?.[1] : undefined;
+    if (parenCounter) result.markerStyle = PAREN_COUNTER_MARKER_STYLES[parenCounter];
   }
   return result;
 }

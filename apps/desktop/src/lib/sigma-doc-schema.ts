@@ -24,6 +24,8 @@ import {
   normalizeCodeBlockTheme,
   normalizeCodeLanguage,
   normalizeLineHeight,
+  normalizeListIndentEm,
+  normalizeOrderedListMarkerStyle,
   expandMarginsForRunningRegions,
   getPageLayoutIssues,
   isWhiteboardPageLayout,
@@ -266,7 +268,9 @@ const ListNodeSchema: z.ZodType<ListNode> = z.lazy(() => BaseNodeSchema.extend({
   type: z.literal("list"),
   listType: z.enum(["bullet", "ordered"]),
   start: z.number().int().positive().optional(),
-  markerStyle: z.enum(["decimal", "paren"]).optional(),
+  // 未知の形式 (新しいビルドの値) は decimal に落とす。リストごと読めなくするより損失が小さい。
+  markerStyle: z.unknown().transform(normalizeOrderedListMarkerStyle).optional(),
+  indentEm: z.unknown().transform(normalizeListIndentEm).optional(),
   items: z.array(ListItemNodeSchema).min(1),
 }));
 

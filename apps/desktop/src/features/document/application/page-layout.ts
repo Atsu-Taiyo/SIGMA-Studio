@@ -14,7 +14,7 @@ import type {
   SigmaBlock,
   SigmaDocument,
 } from "../model";
-import { listItemContinuationInlineNodes, normalizeOrderedListMarkerStyle } from "../model/blocks";
+import { listItemContinuationInlineNodes, normalizeListIndentEm, normalizeOrderedListMarkerStyle } from "../model/blocks";
 import { normalizeBoxedRoundness } from "../boxed-roundness";
 import { blockSpaceAfterPx } from "./block-space-after";
 import { normalizeOverlaySnapshot } from "../overlay-snapshot";
@@ -827,6 +827,7 @@ function normalizePageRunningBlocks(input: unknown): RichBlock[] | undefined {
         markerStyle: block.listType === "ordered"
           ? normalizeOrderedListMarkerStyle(block.markerStyle)
           : undefined,
+        indentEm: normalizeListIndentEm(block.indentEm),
         items,
       }];
     }

@@ -1458,28 +1458,72 @@ h2.print-heading {
   word-break: break-word;
 }
 
-.print-list {
-  margin: 2px 0;
+/* ヘッダー/フッターは素の `<ul>/<ol>` を描くので、`.print-list` と同じ組版をここで共有する。 */
+.print-list,
+.page-running-region :is(ul, ol) {
   line-height: inherit;
   font-size: inherit;
 }
 
-.print-list .print-list {
-  margin: 0;
-}
-
-/* `(1)` 形式の番号マーカー。SigmaDoc 側は listType: "ordered" + markerStyle: "paren" のままで、
+/* `(1)`・`(a)`・`(i)` 形式の番号マーカー。SigmaDoc 側は listType: "ordered" + markerStyle のままで、
    見え方だけがここで決まる。編集中の ProseMirror・静的描画・印刷/PDF・埋め込みビューアは
-   すべてこのファイルを読むので、マーカーの出典はこの 1 箇所だけにする。
-   リスト全体のインデントは意図的に足さない (UA 既定のまま = `-` の箇条書きと同じ見え方)。 */
+   すべてこのファイルを読むので、マーカーの出典はこの 1 箇所だけにする。 */
 @counter-style sigma-doc-paren-decimal {
   system: extends decimal;
   prefix: "(";
   suffix: ") ";
 }
 
-ol[data-list-marker="paren"] {
-  list-style-type: sigma-doc-paren-decimal;
+@counter-style sigma-doc-paren-lower-alpha {
+  system: extends lower-alpha;
+  prefix: "(";
+  suffix: ") ";
+}
+
+@counter-style sigma-doc-paren-upper-alpha {
+  system: extends upper-alpha;
+  prefix: "(";
+  suffix: ") ";
+}
+
+@counter-style sigma-doc-paren-lower-roman {
+  system: extends lower-roman;
+  prefix: "(";
+  suffix: ") ";
+}
+
+@counter-style sigma-doc-paren-upper-roman {
+  system: extends upper-roman;
+  prefix: "(";
+  suffix: ") ";
+}
+
+ol[data-list-marker="paren"] { list-style-type: sigma-doc-paren-decimal; }
+ol[data-list-marker="parenLowerAlpha"] { list-style-type: sigma-doc-paren-lower-alpha; }
+ol[data-list-marker="parenUpperAlpha"] { list-style-type: sigma-doc-paren-upper-alpha; }
+ol[data-list-marker="parenLowerRoman"] { list-style-type: sigma-doc-paren-lower-roman; }
+ol[data-list-marker="parenUpperRoman"] { list-style-type: sigma-doc-paren-upper-roman; }
+
+/* 字下げ = 項目の文字が始まる線。マーカーはその左にぶら下がる (右端が線に揃う)。
+   既定はマーカーの左端が本文の左端に揃う幅で、`defaultListIndentEm` と同じ値。
+   `ListNode.indentEm` があればインラインの `--sigma-doc-list-indent` が勝つ。
+   上下の余白は段落と同じ: リスト自身は 0 で、項目の段落の 2px が前後の段落と相殺する。 */
+ul { --sigma-doc-list-default-indent: 1em; }
+ol { --sigma-doc-list-default-indent: 1.25em; }
+ol:is([data-list-marker="paren"], [data-list-marker="parenLowerAlpha"]) { --sigma-doc-list-default-indent: 1.75em; }
+ol:is([data-list-marker="parenUpperAlpha"], [data-list-marker="parenLowerRoman"]) { --sigma-doc-list-default-indent: 2em; }
+ol[data-list-marker="parenUpperRoman"] { --sigma-doc-list-default-indent: 2.25em; }
+
+.text-flow-editor :is(ul, ol),
+.print-list,
+.page-running-region :is(ul, ol) {
+  margin-block: 0;
+  padding-inline-start: var(--sigma-doc-list-indent, var(--sigma-doc-list-default-indent));
+}
+
+.print-list [data-sigma-doc-list-item-text],
+.page-running-region li > [data-sigma-doc-list-item-text] {
+  margin-block: 2px;
 }
 
 /* マーカーは項目本文の「直後」= 先頭 run の書体・大きさに合わせる。空の項目は同じリストの中で
@@ -1491,6 +1535,8 @@ ol[data-list-marker="paren"] {
   /* カスタムプロパティは継承するので、このリセットが無いと「親項目が明朝なら入れ子の子項目の
      マーカーも明朝」という無言の誤りになる。initial は custom property を guaranteed-invalid に
      するため、子の li では var(--…, inherit) が fallback 側へ落ちる。 */
+  /* 字下げも同じ: 入れ子のリストが親の値を継がず、自分の値か既定に落ちる。 */
+  --sigma-doc-list-indent: initial;
   --sigma-doc-list-marker-font-family: initial;
   --sigma-doc-list-marker-font-size: initial;
   --sigma-doc-list-marker-color: initial;
@@ -1971,6 +2017,11 @@ li[data-list-marker-typography]::marker {
   padding-inline-start: 1.6em;
 }
 
+/* 字下げを持つリストだけ。既定の 1.6em は上の規則 (SVG 書き出しの inline 値と対になる)。 */
+.overlay-text-shape .overlay-text-shape-content :is(ul, ol)[style*="--sigma-doc-list-indent"] {
+  padding-inline-start: var(--sigma-doc-list-indent);
+}
+
 /* 引用・コード・区切り線。見た目の出典は本文の `.print-quote` / `.print-code` だが、余白だけは
    図の寸法に合わせて詰める — 本文の 6px/10px マージンは、1 語のラベルの隣では大きすぎる。
    図中テキストは `.text-flow-editor` の外なので `.print-*` は届かない: ここで作り直している
@@ -2160,20 +2211,6 @@ li[data-list-marker-typography]::marker {
 
 [data-text-run-group] + [data-text-run-group] .text-flow-editor > :first-child {
   margin-top: 0;
-}
-
-/* Running-region lists keep the geometry the `.print-list` family gave them. The body editor
-   deliberately keeps the UA defaults, so this is scoped to the region rather than written as
-   `.text-flow-editor ul` — which would move every list in the document. */
-
-.page-running-region :is(ul, ol) {
-  margin: 2px 0;
-  line-height: inherit;
-  font-size: inherit;
-}
-
-.page-running-region :is(ul, ol) :is(ul, ol) {
-  margin: 0;
 }
 
 /* 上でマージンを 0 にしている面では、囲みラン計測時の「マージン → padding」振り替え幅も 0。

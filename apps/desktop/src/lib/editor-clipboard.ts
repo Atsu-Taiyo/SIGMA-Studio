@@ -8,6 +8,7 @@ import {
   listItemContinuationInlineNodes,
   isValidOverlaySnapshot,
   normalizeOrderedListMarkerStyle,
+  orderedListMarkerText,
   normalizeOverlaySnapshot,
   type OverlayAsset,
   type OverlayPoint,
@@ -1185,9 +1186,7 @@ function listBlockToPlainText(list: ListNode, depth = 0): string {
     const number = (list.start ?? 1) + index;
     const marker = list.listType !== "ordered"
       ? "- "
-      : list.markerStyle === "paren"
-        ? `(${number}) `
-        : `${number}. `;
+      : `${orderedListMarkerText(list.markerStyle, number)} `;
     const indent = "  ".repeat(depth);
     const body = `${indent}${marker}${inlineNodesToPlainText(item.children)}`;
     const continuations = (item.continuations ?? []).map((continuation) => (

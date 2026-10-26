@@ -1822,6 +1822,8 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
         {([
           { value: "orderedList" as const, marker: "decimal" as const, label: "1. 2. 3." },
           { value: "orderedListParen" as const, marker: "paren" as const, label: "(1) (2) (3)" },
+          { value: "orderedListParenAlpha" as const, marker: "parenLowerAlpha" as const, label: "(a) (b) (c)" },
+          { value: "orderedListParenRoman" as const, marker: "parenLowerRoman" as const, label: "(i) (ii) (iii)" },
         ]).map((option) => (
           <button
             key={option.value}
