@@ -11,6 +11,9 @@ it("preserves a source fragment's clipping after lifting its control at 200 perc
   const canvas = document.createElement("div");
   canvas.style.transform = "matrix(2, 0, 0, 2, 0, 0)";
   document.body.append(canvas);
+  const style = document.createElement("style");
+  style.textContent = ".test-control { display: grid; }";
+  canvas.append(style);
   const layer = document.createElement("div");
   const source = document.createElement("div");
   source.className = "editor-box-fragment-viewport";
@@ -33,6 +36,7 @@ it("preserves a source fragment's clipping after lifting its control at 200 perc
     ));
     const lifted = layer.querySelector<HTMLElement>("[data-page-control-lifted]")!;
     expect(lifted.hidden).toBe(false);
+    expect(getComputedStyle(lifted).display).toBe("grid");
     expect(lifted.style.left).toBe("10px");
     expect(lifted.style.top).toBe("80px");
     expect(lifted.style.width).toBe("100px");
