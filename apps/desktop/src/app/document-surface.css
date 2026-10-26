@@ -1715,8 +1715,6 @@ li[data-list-marker-typography]::marker {
 
 .print-problem-area-fragment .print-problem-number {
   position: absolute;
-  top: 0;
-  left: 0;
   z-index: 2;
 }
 

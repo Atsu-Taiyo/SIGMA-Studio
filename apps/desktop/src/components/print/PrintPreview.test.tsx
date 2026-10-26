@@ -1988,6 +1988,18 @@ describe("paginateMeasuredPrintBlocks problem-area reservations and nested secti
     expect(pages.every(page => page.columns.every(column => column.estimatedContentHeightPx <= 100))).toBe(true);
   });
 
+  it("reserves the default font-sized number plus its vertical offset when fragmenting", () => {
+    const unit = { ...problemArea("default_number", "prompt", [
+      richParagraph("short_first", "first"), richParagraph("short_last", "last"),
+    ]), problemNumber: 1, numbering: { offsetYPx: 55 } };
+    const pages = paginateTwice([unit], [110], measured({ short_first: 20, short_last: 90 }));
+    const fragments = pages.flatMap(page => page.columns.flatMap(column => column.blocks))
+      .filter((block): block is Extract<PrintContentUnit, { type: "problemAreaFragment" }> => block.type === "problemAreaFragment");
+    expect(fragments.map(fragment => fragment.fragmentRole)).toEqual(["first", "last"]);
+    expect(fragments[0].estimatedHeightPx).toBeCloseTo(12 * (96 / 72) * 1.9 + 55);
+    expect(fragments[1].estimatedHeightPx).toBe(90);
+  });
+
   it("budgets explicit outer margins only at the first and last problem fragments", () => {
     const unit = { ...problemArea("margins", "prompt", [
       richParagraph("margin_1", "first"), richParagraph("margin_2", "middle"), richParagraph("margin_3", "last"),
