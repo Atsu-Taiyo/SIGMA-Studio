@@ -16,7 +16,7 @@ jobs:
   required-ci:
     name: Required CI
     if: ${{ always() }}
-    needs: [desktop, dependency-security, electron-smoke, public-packages, file-lock, pdf-parity]
+    needs: [desktop, dependency-security, electron-smoke, electron-smoke-required, public-packages, file-lock, pdf-parity]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -26,7 +26,7 @@ jobs:
         run: |
           node <<'NODE'
           const results = JSON.parse(process.env.REQUIRED_CI_RESULTS ?? "{}");
-          const required = ["desktop", "dependency-security", "electron-smoke", "public-packages", "file-lock", "pdf-parity"];
+          const required = ["desktop", "dependency-security", "electron-smoke", "electron-smoke-required", "public-packages", "file-lock", "pdf-parity"];
           const incomplete = required.filter((name) => results[name]?.result !== "success");
           if (incomplete.length > 0) {
             for (const name of incomplete) {
@@ -218,6 +218,18 @@ jobs:
           name: electron-smoke-failure-${{ matrix.shard }}
           path: apps/desktop/test-results/
           retention-days: 7
+
+  electron-smoke-required:
+    name: Electron persistence and IPC smoke
+    if: ${{ always() }}
+    needs: [electron-smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require both Electron shards to succeed
+        env:
+          ELECTRON_SMOKE_RESULT: ${{ needs.electron-smoke.result }}
+        run: test "$ELECTRON_SMOKE_RESULT" = success
 
   public-packages:
     name: Public package build and contracts
