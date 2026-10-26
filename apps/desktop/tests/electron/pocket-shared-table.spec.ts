@@ -79,11 +79,16 @@ test("a table inserted from Pocket into an online shared material keeps editing 
   if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
   let app: ElectronApplication | undefined;
   const errors: string[] = [];
+  const closedProcesses: { pid: number; startedAt: number; endedAt?: number }[] = [];
+  const mainProcessIds = new WeakMap<ElectronApplication, number>();
   const launch = async () => {
-    const nativeKeyring = process.platform === "linux"
+    const executablePath = process.env.SIGMA_STUDIO_E2E_EXECUTABLE;
+    const nativeKeyring = executablePath ? { executablePath } : process.platform === "linux"
       ? { executablePath: createRequire(path.join(root, "package.json"))("electron") as string }
       : {};
-    app = await electron.launch({ ...nativeKeyring, args: [root], cwd: root, env });
+    app = await electron.launch({ ...nativeKeyring, args: executablePath ? [] : [root], cwd: root, env });
+    // Capture while main is responsive, so cleanup can still time out if a later edit hangs it.
+    mainProcessIds.set(app, await app.evaluate(() => process.pid));
     const page = await app.firstWindow();
     await page.waitForFunction(() => Boolean(window.desktopAPI?.collaboration));
     return page;
@@ -92,11 +97,17 @@ test("a table inserted from Pocket into an online shared material keeps editing 
     if (!app) return;
     const current = app;
     app = undefined;
-    const timer = setTimeout(() => current.process().kill("SIGKILL"), 5000);
-    try { await current.close(); } finally { clearTimeout(timer); }
+    // On Windows Playwright launches through cmd.exe, so .process().pid is the shell's pid.
+    const mainPid = mainProcessIds.get(current)!;
+    const lifecycle = { pid: mainPid, startedAt: Date.now(), endedAt: undefined as number | undefined };
+    closedProcesses.push(lifecycle);
+    const timer = setTimeout(() => {
+      try { process.kill(mainPid, "SIGKILL"); } catch { /* The fixture process already exited. */ }
+    }, 5000);
+    try { await current.close(); } finally { lifecycle.endedAt = Date.now(); clearTimeout(timer); }
   };
   const ledgerEvents = async () => (await readFile(path.join(profile, "data", "logs", "ledger.log"), "utf8"))
-    .trim().split("\n").filter(Boolean).map(line => JSON.parse(line) as { event: string; pid: number; code?: number });
+    .trim().split("\n").filter(Boolean).map(line => JSON.parse(line) as { event: string; pid: number; ts: string; code?: number; error?: string });
   try {
     const document = ensurePageLayout(createBlankDocument("オンラインのポケット表"));
     document.content = [{ type: "paragraph", id: "shared_table_body", children: [{ type: "text", text: "表を挿入したあと" }] }];
@@ -192,7 +203,6 @@ test("a table inserted from Pocket into an online shared material keeps editing 
     expect((await ledgerEvents()).filter(event => ["shared-document-save-failed", "shared-document-sync-failed"].includes(event.event))).toEqual([]);
     expect(errors).toEqual([]);
     const settled = remoteDocument();
-    const closingPid = app!.process().pid;
     await page.screenshot({ path: testInfo.outputPath("shared-pocket-table-saved.png") });
     await close();
     page = await launch();
@@ -207,14 +217,16 @@ test("a table inserted from Pocket into an online shared material keeps editing 
     // rejected document update, and the restarted session must have no save/sync failures.
     expect((await ledgerEvents()).filter(event =>
       event.event === "shared-document-save-failed" ||
-      (event.event === "shared-document-sync-failed" && !(event.pid === closingPid && event.code === 20)),
+      (event.event === "shared-document-sync-failed" && !(event.code === 20 && event.error === "This operation was aborted" &&
+        closedProcesses.some(lifecycle => event.pid === lifecycle.pid &&
+          Date.parse(event.ts) >= lifecycle.startedAt && Date.parse(event.ts) <= (lifecycle.endedAt ?? -1)))),
     )).toEqual([]);
   } finally {
     if (app) {
       const page = await app.firstWindow();
       const statuses = await page.evaluate(() => window.desktopAPI!.collaboration!.info()).then(info => info.sessions.map(({ binding, status, detail }) => ({ fileId: binding.localFileId, status, detail })), () => []);
       const diagnosticPath = testInfo.outputPath("shared-session-status.json");
-      await writeFile(diagnosticPath, JSON.stringify({ sessions: statuses, errors, editables: await page.locator('.page-flow .ProseMirror').evaluateAll(elements => elements.map(element => element.getAttribute("contenteditable"))).catch(() => []) }));
+      await writeFile(diagnosticPath, JSON.stringify({ sessions: statuses, errors, closedProcesses, editables: await page.locator('.page-flow .ProseMirror').evaluateAll(elements => elements.map(element => element.getAttribute("contenteditable"))).catch(() => []) }));
       await testInfo.attach("shared-session-status", { path: diagnosticPath, contentType: "application/json" });
     }
     const ledgerPath = testInfo.outputPath("shared-save-ledger.json");

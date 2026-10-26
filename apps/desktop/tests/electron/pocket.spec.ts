@@ -220,6 +220,26 @@ async function dragCardTo(page: Page, card: ReturnType<Page["locator"]>, x: numb
   await page.mouse.up();
 }
 
+/** Paper coordinates can be below the viewport after a table scrolls into view on Windows. */
+async function visiblePaperDropPoint(page: Page): Promise<{ x: number; y: number }> {
+  return page.locator(".page-canvas").first().evaluate(canvas => {
+    const paper = canvas.getBoundingClientRect();
+    const viewport = canvas.closest(".editor-canvas")!.getBoundingClientRect();
+    const left = Math.max(0, paper.left, viewport.left);
+    const right = Math.min(window.innerWidth, paper.right, viewport.right);
+    const top = Math.max(0, paper.top, viewport.top);
+    const bottom = Math.min(window.innerHeight, paper.bottom, viewport.bottom);
+    if (right - left < 48 || bottom - top < 48) throw new Error("NO_VISIBLE_PAPER_DROP_TARGET");
+    for (const x of [right - 24, left + 24, (left + right) / 2]) {
+      for (const y of [(top + bottom) / 2, top + 24, bottom - 24]) {
+        const target = document.elementFromPoint(x, y);
+        if (target?.closest(".page-canvas") === canvas && !target.closest(".overlay-shape")) return { x, y };
+      }
+    }
+    throw new Error("PAPER_DROP_TARGET_IS_COVERED");
+  });
+}
+
 test("dragging a card lands it where it is dropped, on the page and on a whiteboard, in the real app", async ({}, testInfo) => {
   test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
@@ -702,6 +722,8 @@ for (const [rows, columns] of [[3, 3], [12, 8]]) {
     const browserWarnings: string[] = [];
     try {
       let page = await prepare(app);
+      // Match the constrained desktop viewport reported by the Windows CI runner.
+      await (await app.browserWindow(page)).evaluate(win => win.setContentSize(1008, 655));
       page.on("pageerror", error => diagnostics.push(`pageerror: ${error.message}`));
       page.on("console", message => {
         if (message.type() !== "error") return;
@@ -741,8 +763,8 @@ for (const [rows, columns] of [[3, 3], [12, 8]]) {
       await expect(page.locator('.overlay-table-shape')).toHaveCount(2);
       await expect.poll(async () => (await tables()).length).toBe(2);
       // A second insertion through drag uses the same copy path and must keep the UI responsive.
-      const canvas = (await page.locator('.page-canvas').first().boundingBox())!;
-      await dragCardTo(page, card(), canvas.x + 300, canvas.y + 500);
+      const drop = await visiblePaperDropPoint(page);
+      await dragCardTo(page, card(), drop.x, drop.y);
       await page.keyboard.press("ControlOrMeta+KeyS");
       await expect.poll(async () => (await tables()).length).toBe(3);
       await expect(page.locator('.overlay-table-shape')).toHaveCount(3);
@@ -764,8 +786,8 @@ for (const [rows, columns] of [[3, 3], [12, 8]]) {
       // Reuse this same card in another material, and verify that neither file loses a table.
       await page.getByRole("button", { name: "新規教材", exact: true }).click();
       await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
-      const targetCanvas = (await page.locator('.page-canvas').first().boundingBox())!;
-      await dragCardTo(page, card(), targetCanvas.x + 300, targetCanvas.y + 350);
+      const targetDrop = await visiblePaperDropPoint(page);
+      await dragCardTo(page, card(), targetDrop.x, targetDrop.y);
       await page.keyboard.press("ControlOrMeta+KeyS");
       await expect(page.locator('.overlay-table-shape')).toHaveCount(1);
       const carrier = () => page.evaluate(async sourceId => {
