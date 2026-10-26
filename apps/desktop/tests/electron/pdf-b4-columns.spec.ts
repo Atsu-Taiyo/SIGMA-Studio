@@ -143,7 +143,9 @@ for (const orientation of ["landscape", "portrait"] as const) for (const display
   delete env.SIGMA_STUDIO_DEV_SERVER_URL;
   env.SIGMA_STUDIO_USER_DATA_DIR = profile;
   if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
-  const app = await electron.launch({ args: [APP_ROOT, sourceFile, `--force-device-scale-factor=${displayScale}`], cwd: APP_ROOT, env });
+  // Match the PDF's sRGB ink even when a local macOS display uses Display P3.
+  // A display-profile transform is a color change, not a layout mismatch.
+  const app = await electron.launch({ args: [APP_ROOT, sourceFile, `--force-device-scale-factor=${displayScale}`, "--force-color-profile=srgb"], cwd: APP_ROOT, env });
   try {
     const page = await app.firstWindow();
     await (await app.browserWindow(page)).evaluate(win => win.setContentSize(1600, 1000));
