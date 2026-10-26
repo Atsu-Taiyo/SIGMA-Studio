@@ -18,6 +18,8 @@
  * シリアライザや node 環境でも動く必要があり、そこから辿れる依存に MathLive/KaTeX を
  * 混ぜたくない。DOM を実際に組む側 (`innerHTML` を持つ側) は `inline-math-dom.ts`。
  */
+import { readMathTextFormat } from "@/lib/math-text-format";
+
 export const INLINE_MATH_FRAME_CLASS_NAME = "inline-math-node";
 /**
  * 編集面のノードビューだけが持つ印。静的レンダラの数式には付かない。
@@ -31,6 +33,7 @@ export const INLINE_MATH_BODY_CLASS_NAME = "math-preview";
 
 /** A height-only rule has zero advance; its editing hit area must not add width. */
 export function isZeroWidthMathRule(tex: string): boolean {
+  tex = readMathTextFormat(tex.trim()).tex;
   return /^\s*\\rule(?:\[[-+\d.]+(?:em|ex|pt|px|mm|cm|mu)?\])?\{\s*\+?0(?:\.0+)?(?:em|ex|pt|px|mm|cm|mu)?\s*\}\{[-+\d.]+(?:em|ex|pt|px|mm|cm|mu)?\}\s*$/.test(tex);
 }
 

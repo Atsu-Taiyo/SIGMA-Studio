@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type Page } from "@playwright/test";
@@ -142,6 +142,8 @@ test("grouping and selecting members preserve display and saved positions near s
 
 test("a twenty pixel drag at 800 percent commits a small model move and survives undo and reload", async () => {
   const profile = await mkdtemp(path.join(tmpdir(), "sigma-zoom-drag-"));
+  await mkdir(path.join(profile, "data"), { recursive: true });
+  await writeFile(path.join(profile, "data/settings.json"), JSON.stringify({ uiLocale: "ja" }));
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.SIGMA_STUDIO_DEV_SERVER_URL;

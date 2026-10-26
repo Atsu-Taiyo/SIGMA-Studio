@@ -9,7 +9,7 @@ import { measureFlowBlocks } from "./layout-measure";
  *
  * - `measureFlowBlocks` (page canvas): `flow` 要素を原点に、`zoomFactor` で割る。
  * - `measureBlockTops` (overlay): オーバーレイのキャンバス要素を原点に、
- *   `coordHeight / rect.height` で割る。
+ *   実際の CSS ズームで割る (用紙寸法の丸め値は倍率にしない)。
  *
  * この 2 つが同じ答えを出すのは **原点と倍率が一致する時だけ**。実際の紙面では
  * `.page-flow` (`position:absolute; top:0; left:0`) と `.overlay-canvas-editor`
@@ -35,6 +35,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  windowRef.document.body.replaceChildren();
   delete (globalThis as { document?: unknown }).document;
   delete (globalThis as { window?: unknown }).window;
   delete (globalThis as { Node?: unknown }).Node;
@@ -62,6 +63,9 @@ function stubRect(element: HTMLElement, rect: { top: number; left: number; width
 function createSurface(canvasTop: number = ORIGIN_TOP) {
   const doc = windowRef.document;
   const root = doc.createElement("div") as unknown as HTMLElement;
+  root.className = "page-canvas";
+  root.style.transform = `matrix(${ZOOM}, 0, 0, ${ZOOM}, 0, 0)`;
+  doc.body.appendChild(root as never);
 
   const canvas = doc.createElement("div") as unknown as HTMLElement;
   canvas.className = "overlay-canvas-editor";
@@ -123,6 +127,16 @@ function createSurface(canvasTop: number = ORIGIN_TOP) {
 }
 
 describe("本文計測の座標系", () => {
+  it("paper dimension rounding does not rescale body anchors", () => {
+    const { canvas, flow } = createSurface();
+    stubRect(canvas, { top: ORIGIN_TOP, left: ORIGIN_LEFT, width: (PAGE_WIDTH + 1 / 256) * ZOOM, height: (TOTAL_HEIGHT - 1 / 128) * ZOOM });
+    const overlay = measureBlockTops(canvas, flow, TOTAL_HEIGHT, PAGE_WIDTH);
+    const body = measureFlowBlocks(flow, ZOOM, MARGIN_TOP);
+    for (const [id, box] of overlay.rects) {
+      expect(box.left).toBe(body.rects.get(id)!.left);
+      expect(box.top).toBe(body.rects.get(id)!.top);
+    }
+  });
   it("原点と倍率が揃っていれば overlay と page canvas の計測は一致する", () => {
     const { canvas, flow } = createSurface();
 

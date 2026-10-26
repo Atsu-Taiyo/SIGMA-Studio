@@ -813,6 +813,7 @@ function TextFlowEditorImpl({
   const documentSessionRef = useRef(documentSession);
   useLayoutEffect(() => { documentSessionRef.current = documentSession; }, [documentSession]);
   const t = useT("editor");
+  const tSettings = useT("settings");
   const locale = useAppLocale();
   countPerformanceEvent("TextFlowEditor.render");
   const mathEnvironment = useMathEnvironment();
@@ -1804,7 +1805,11 @@ function TextFlowEditorImpl({
         button.title = label;
         button.setAttribute("aria-label", label);
       });
-  }, [editor, locale, t]);
+    dom.querySelectorAll<HTMLElement>("[data-box-title-region='true']").forEach((title) => {
+      title.setAttribute("data-placeholder", tSettings("box.titlePlaceholder"));
+      title.setAttribute("aria-label", tSettings("box.titleSection"));
+    });
+  }, [editor, locale, t, tSettings]);
 
   /**
    * 装飾の再描画合図をまとめる。

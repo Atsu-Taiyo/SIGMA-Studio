@@ -9,6 +9,7 @@ import {
   type PageArrangement,
 } from "@/features/rendering/core";
 import { FLOW_DX_ATTRIBUTE } from "./flow-probe";
+import { getEffectiveZoom } from "@/features/rendering/adapters";
 
 /**
  * ページの並び (`features/rendering/core/page-arrangement.ts`) を DOM から読む口。
@@ -101,6 +102,16 @@ export function createBodyLayerRectReader(
   shiftOf: (element: Element) => ArrangementPoint;
 } {
   const arrangement = readBodyLayerArrangement(layerElement);
+  if (layerElement.closest(".page-canvas") && !layerElement.closest(".a4-page-sheet, .page-layout-controls")) {
+    // Paper millimetres are quantized to Chromium layout units. Inferring a
+    // scale from those rounded dimensions moves stored anchors on every save.
+    // Body flow already measures in CSS px with the actual zoom removed.
+    return {
+      scaleX: 1 / getEffectiveZoom(layerElement, "x"),
+      scaleY: 1 / getEffectiveZoom(layerElement, "y"),
+      shiftOf: arrangement ? readFlowPageShift : () => IDENTITY_PAGE_SHIFT,
+    };
+  }
   if (!arrangement) {
     return {
       scaleX: coordWidth / layerRect.width,

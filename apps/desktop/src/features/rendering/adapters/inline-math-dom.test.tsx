@@ -49,6 +49,9 @@ function staticMathHtml(tex: string, id: string): string {
 const TEST_MATH_ENVIRONMENT = DEFAULT_MATH_RENDER_ENVIRONMENT;
 
 describe("inline math frame", () => {
+  it.each([String.raw`\boldsymbol{\rule[-0.2em]{0em}{1em}}`, String.raw`\mathit{\boldsymbol{\rule{0px}{12pt}}}`])("keeps formatted height-only rules zero width: %s", tex => {
+    expect(staticMathHtml(tex, "formatted_rule")).toContain('data-zero-width-math-rule=""');
+  });
   it("keeps a height-only rule zero-width on every surface and clears that state when edited", () => {
     const tex = String.raw`\rule[-0.2em]{0em}{1em}`;
     const frame = createInlineMathFrameElement(tex, { id: "height_rule", environment: TEST_MATH_ENVIRONMENT });

@@ -1016,7 +1016,10 @@ export function paginateMeasuredPrintBlocks(
       const fragmentRole: ProblemFrameFragmentRole = fragmentIndex === 0
         ? isLastFragment ? "single" : "first"
         : isLastFragment ? "last" : "middle";
-      const fragmentHeight = fragmentContentHeight + fragmentSpacingPxForRole(fragmentRole);
+      const numberHeight = fragmentIndex === 0 && unit.isFirstProblemArea && unit.problemNumber !== undefined
+        ? (unit.numbering?.heightPx ?? 0) + (unit.numbering?.offsetYPx ?? 0)
+        : 0;
+      const fragmentHeight = Math.max(fragmentContentHeight, numberHeight) + fragmentSpacingPxForRole(fragmentRole);
       const fragment: Extract<PrintContentUnit, { type: "problemAreaFragment" }> = {
         type: "problemAreaFragment",
         id: `${unit.id}:area-fragment:${fragmentIndex}`,

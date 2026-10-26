@@ -438,3 +438,21 @@ test("undo restores visible overlay text while the editor stays focused, and per
   await page.reload(); await expect(page.locator(".startup-splash")).toBeHidden();
   await expect(shape).toContainText("変更前");
 });
+
+
+test("existing box title placeholders follow a live locale change", async () => {
+  const titles = page.locator('.page-flow [data-box-title-region="true"]');
+  await expect(titles.first()).toHaveAttribute("data-placeholder", "タイトルを入力");
+  for (const locale of ["en", "ja"] as const) {
+    await page.evaluate(locale => {
+      localStorage.setItem("sigma-studio:ui-locale", locale);
+      window.dispatchEvent(new CustomEvent("sigma-studio:ui-locale-change"));
+    }, locale);
+    for (const title of await titles.all()) {
+      await expect(title).toHaveAttribute("data-placeholder", locale === "en" ? "Write the title" : "タイトルを入力");
+      await expect(title).toHaveAttribute("aria-label", locale === "en" ? "Title" : "タイトル");
+    }
+  }
+  await page.reload();
+  await expect(titles.first()).toHaveAttribute("data-placeholder", "タイトルを入力");
+});

@@ -2,6 +2,8 @@
 
 import { createContext, useContext, useId, useLayoutEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { getEffectiveZoom } from "@/features/rendering/adapters";
+import { visibleBlockClientRect } from "./visible-block-rect";
 
 /**
  * 紙面の操作の層。紙面の重なりは下から 本文 (`.page-flow`) → 図形 (`.page-overlay-layer`) → 操作
@@ -24,10 +26,11 @@ interface LiftedPlacement {
   left: number;
   top: number;
   width: number;
+  clipPath: string;
 }
 
 function sameLiftedPlacement(a: LiftedPlacement | null, b: LiftedPlacement | null): boolean {
-  return a === b || Boolean(a && b && a.left === b.left && a.top === b.top && a.width === b.width);
+  return a === b || Boolean(a && b && a.left === b.left && a.top === b.top && a.width === b.width && a.clipPath === b.clipPath);
 }
 
 /**
@@ -44,9 +47,11 @@ function useLiftedPlacement(placeholder: HTMLElement | null, layer: HTMLElement 
     const measure = () => {
       const box = placeholder.getBoundingClientRect();
       const origin = layer.getBoundingClientRect();
-      const scale = layer.offsetWidth > 0 ? origin.width / layer.offsetWidth : 1;
-      const next = box.width > 0 && scale > 0
-        ? { left: (box.left - origin.left) / scale, top: (box.top - origin.top) / scale, width: box.width / scale }
+      const scale = getEffectiveZoom(layer);
+      const visible = visibleBlockClientRect(placeholder);
+      const next = box.width > 0 && scale > 0 && visible
+        ? { left: (box.left - origin.left) / scale, top: (box.top - origin.top) / scale, width: box.width / scale,
+          clipPath: `inset(${Math.max(0, visible.top - box.top) / scale}px ${Math.max(0, box.right - visible.right) / scale}px ${Math.max(0, box.bottom - visible.bottom) / scale}px ${Math.max(0, visible.left - box.left) / scale}px)` }
         : null;
       setPlacement((current) => sameLiftedPlacement(current, next) ? current : next);
       frame = window.requestAnimationFrame(measure);
@@ -104,7 +109,7 @@ export function LiftedPageControl({
           data-page-control-lifted=""
           hidden={!placement}
           style={placement
-            ? { position: "absolute", left: `${placement.left}px`, top: `${placement.top}px`, width: `${placement.width}px` }
+            ? { position: "absolute", left: `${placement.left}px`, top: `${placement.top}px`, width: `${placement.width}px`, clipPath: placement.clipPath }
             : undefined}
         >
           {render(false)}
