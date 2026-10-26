@@ -423,6 +423,9 @@ const NON_REGRESSION_CORPUS = [
   String.raw`\left(\frac{a}{b}\right)`,
   String.raw`\lim_{x\to0}`,
   String.raw`\dots`,
+  // Exercises KaTeX's full-width text accent even after MathLive gains a
+  // textcircled macro. Dropping accent-full moves the circle away from its text.
+  String.raw`\textcircled{\scriptsize2}+\dots`,
   String.raw`\mathbb{R}`,
   "a<b",
   String.raw`a\&b`,

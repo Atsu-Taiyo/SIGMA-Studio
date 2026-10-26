@@ -41,6 +41,7 @@ import {
   type MathRenderEnvironment,
 } from "@/lib/math-environment";
 import { configureInlineMathLiveField, MATHLIVE_MATH_MODE_SPACE, type InlineMathLiveFieldElement } from "@/lib/mathlive-config";
+import { isPhysicsTexCommand, physicsFenceInputTemplate } from "@/lib/physics-tex";
 import { normalizeMathLiveLineBreakTex, normalizeMathTextRuns } from "@/lib/math-tex";
 import { applyTexBracketEditToTextarea, resolveTexBracketEdit, type TexBracketEdit } from "@/lib/tex-bracket-pairs";
 import {
@@ -1286,6 +1287,13 @@ function InlineMathTexField({
     if (!input || locked || userInteractedRef.current) {
       return;
     }
+    // Select-all can arrive through accessibility or a native edit action
+    // before any pointer/key/change event. A delayed initial-focus retry must
+    // preserve that selection rather than turn replacement input into append.
+    if (input.selectionStart !== input.selectionEnd) {
+      userInteractedRef.current = true;
+      return;
+    }
     const cursor = initialCursorPosition === "start" ? 0 : input.value.length;
     if (input.selectionStart === cursor && input.selectionEnd === cursor) {
       return;
@@ -1801,6 +1809,32 @@ function InlineMathLiveField({
           event.stopImmediatePropagation();
           clearPendingLatexCommand();
           insertInlineMathRowSeparator(mathField);
+          return;
+        }
+
+        // TeX ignores space after a control word. Keep a built-in physics
+        // command pending until its delimiter arrives, instead of flushing an
+        // incomplete command into MathLive on Space.
+        if (event.key === " " && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing
+          && isPhysicsTexCommand(pendingCommand.text)
+          && !mathEnvironment.macroSet.physicsOverrides?.has(pendingCommand.text)) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          return;
+        }
+
+        // Physics delimiters need the next token to choose their fence. Resolve
+        // the pair here, before MathLive sees an incomplete unknown \qty command.
+        // Keep this in the existing key-command path; rewriting an input event's
+        // whole field value would reset the caret and interrupt IME composition.
+        const physicsTemplate = !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing
+          ? physicsFenceInputTemplate(pendingCommand.text, event.key, mathEnvironment.macroSet.physicsOverrides)
+          : null;
+        if (physicsTemplate) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          clearPendingLatexCommand();
+          replacePendingLatexCommandDisplay(mathField, pendingCommand, physicsTemplate, { format: "latex" });
           return;
         }
 

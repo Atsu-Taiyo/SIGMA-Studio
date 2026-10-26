@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { grabShapeFromBody } from "../e2e/body-overlay-entry";
+import { selectUiOption } from "../e2e/ui-select";
 import { sampleDocument } from "@/lib/sample-document";
-import { createTableShapeProps } from "@/components/editor/overlay-canvas/shapes/table";
+import { createPlainTableSpec, createTableShapeProps } from "@/components/editor/overlay-canvas/shapes/table";
 import { ensurePageLayout, type SigmaDocument } from "@/features/document";
 
 const APP_ROOT = path.resolve(__dirname, "../..");
@@ -218,6 +219,48 @@ async function dragCardTo(page: Page, card: ReturnType<Page["locator"]>, x: numb
   await page.mouse.move(box.x + box.width / 2 + 12, box.y + box.height / 2 + 12, { steps: 4 });
   await page.mouse.move(x, y, { steps: 16 });
   await page.mouse.up();
+}
+
+/** Paper coordinates can be below the viewport after a table scrolls into view on Windows. */
+async function visiblePaperDropPoint(page: Page): Promise<{ x: number; y: number }> {
+  return page.locator(".page-canvas").first().evaluate(canvas => {
+    const paper = canvas.getBoundingClientRect();
+    const viewport = canvas.closest(".editor-canvas")!.getBoundingClientRect();
+    const left = Math.max(0, paper.left, viewport.left);
+    const right = Math.min(window.innerWidth, paper.right, viewport.right);
+    const top = Math.max(0, paper.top, viewport.top);
+    const bottom = Math.min(window.innerHeight, paper.bottom, viewport.bottom);
+    if (right - left < 48 || bottom - top < 48) throw new Error("NO_VISIBLE_PAPER_DROP_TARGET");
+    for (const x of [right - 24, left + 24, (left + right) / 2]) {
+      for (const y of [(top + bottom) / 2, top + 24, bottom - 24]) {
+        const target = document.elementFromPoint(x, y);
+        if (target?.closest(".page-canvas") === canvas && !target.closest(".overlay-shape")) return { x, y };
+      }
+    }
+    throw new Error("PAPER_DROP_TARGET_IS_COVERED");
+  });
+}
+
+/** A paragraph can be wider than its scroll viewport, even after scrollIntoViewIfNeeded. */
+async function visibleParagraphDropPoint(target: ReturnType<Page["locator"]>): Promise<{ x: number; y: number }> {
+  await target.scrollIntoViewIfNeeded();
+  return target.evaluate(element => {
+    const paragraph = element.getBoundingClientRect();
+    const scroller = element.closest<HTMLElement>(".editor-canvas")!;
+    const viewport = scroller.getBoundingClientRect();
+    const left = Math.max(0, paragraph.left, viewport.left + scroller.clientLeft);
+    const right = Math.min(innerWidth, paragraph.right, viewport.left + scroller.clientLeft + scroller.clientWidth);
+    const top = Math.max(0, paragraph.top, viewport.top + scroller.clientTop);
+    const bottom = Math.min(innerHeight, paragraph.bottom, viewport.top + scroller.clientTop + scroller.clientHeight);
+    if (right - left < 8 || bottom <= top) throw new Error("NO_VISIBLE_PARAGRAPH_DROP_TARGET");
+    const y = (top + bottom) / 2;
+    for (const x of [right - 4, (left + right) / 2, left + 4]) {
+      const hit = document.elementFromPoint(x, y);
+      const caret = document.caretRangeFromPoint(x, y);
+      if (hit && element.contains(hit) && caret && element.contains(caret.startContainer)) return { x, y };
+    }
+    throw new Error("PARAGRAPH_DROP_TARGET_IS_COVERED_OR_HAS_NO_CARET");
+  });
 }
 
 test("dragging a card lands it where it is dropped, on the page and on a whiteboard, in the real app", async ({}, testInfo) => {
@@ -499,9 +542,8 @@ test("a pocket body drop containing a problem is one undo step and survives redo
     const saved = () => page.evaluate((id) => window.desktopAPI!.storage.loadDocument(id), created.file.fileId);
     const original = (await saved())!.content;
     const target = page.locator('.text-flow-editor [data-sigma-doc-id="p_target"]').first();
-    await target.scrollIntoViewIfNeeded();
-    const box = (await target.boundingBox())!;
-    await dragCardTo(page, card, box.x + box.width - 4, box.y + box.height / 2);
+    const drop = await visibleParagraphDropPoint(target);
+    await dragCardTo(page, card, drop.x, drop.y);
     await expect.poll(async () => (await saved())!.content.filter(block => block.type === "problem").length).toBe(2);
     const inserted = (await saved())!.content;
     await page.screenshot({ path: testInfo.outputPath("problem-drop.png") });
@@ -529,7 +571,7 @@ test("a pocket body drop into an empty paragraph is one undo step", async ({}, t
   const app = await electron.launch({ args: [APP_ROOT, `--user-data-dir=${userData}`], cwd: APP_ROOT, env });
   try {
     const page = await prepare(app);
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1400, 1200));
+    await (await app.browserWindow(page)).evaluate(win => win.setContentSize(900, 600));
     const source = sourceDocument();
     source.pageLayout!.overlay = { overlaySnapshot: { version: 1, assets: {}, shapes: [] } };
     source.content = [
@@ -538,6 +580,7 @@ test("a pocket body drop into an empty paragraph is one undo step", async ({}, t
     ];
     const created = await page.evaluate((document) => window.desktopAPI!.storage.createFileFromDocument({ document }), source);
     await page.reload();
+    await selectUiOption(page.getByRole("combobox", { name: "ズーム", exact: true }).first(), "200");
     const before = page.locator('.text-flow-editor [data-sigma-doc-id="p_before"]').first();
     await expect(before).toBeVisible();
     await before.click();
@@ -552,9 +595,16 @@ test("a pocket body drop into an empty paragraph is one undo step", async ({}, t
     const saved = () => page.evaluate((id) => window.desktopAPI!.storage.loadDocument(id), created.file.fileId);
     const original = (await saved())!.content;
     const target = page.locator('.text-flow-editor [data-sigma-doc-id="p_target"]').first();
-    await target.scrollIntoViewIfNeeded();
-    const box = (await target.boundingBox())!;
-    await dragCardTo(page, card, box.x + box.width - 4, box.y + box.height / 2);
+    const point = await visibleParagraphDropPoint(target);
+    const dropDiagnostics = () => page.evaluate(point => {
+      const target = document.querySelector('.text-flow-editor [data-sigma-doc-id="p_target"]');
+      const hit = document.elementFromPoint(point.x, point.y);
+      return { point, viewport: { w: innerWidth, h: innerHeight }, box: target?.getBoundingClientRect().toJSON() ?? null, hit: hit?.closest('[data-sigma-doc-id]')?.getAttribute('data-sigma-doc-id') ?? hit?.tagName ?? null, fonts: document.fonts.status };
+    }, point);
+    await testInfo.attach("empty-drop-before", { body: JSON.stringify(await dropDiagnostics()), contentType: "text/plain" });
+    await page.screenshot({ path: testInfo.outputPath("empty-drop-before.png") });
+    await dragCardTo(page, card, point.x, point.y);
+    await testInfo.attach("empty-drop-after", { body: JSON.stringify(await dropDiagnostics()), contentType: "text/plain" });
     await expect.poll(async () => JSON.stringify((await saved())!.content).split("数式と文章").length).toBe(3);
     const inserted = (await saved())!.content;
     await page.screenshot({ path: testInfo.outputPath("empty-drop.png") });
@@ -686,6 +736,119 @@ test("table pocket copies remain independent through editing, repeated insertion
     rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
+
+for (const [rows, columns] of [[3, 3], [12, 8]]) {
+  test(`a ${rows}x${columns} pocket table with customised inner borders saves immediately and survives an app restart`, async ({}, testInfo) => {
+    test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+    test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
+    const userData = mkdtempSync(path.join(tmpdir(), "sigma-pocket-table-borders-"));
+    const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+    env.SIGMA_STUDIO_USER_DATA_DIR = userData;
+    delete env.ELECTRON_RUN_AS_NODE;
+    if (devUrl) env.SIGMA_STUDIO_DEV_SERVER_URL = devUrl;
+    const launch = () => electron.launch({ args: [APP_ROOT, `--user-data-dir=${userData}`], cwd: APP_ROOT, env });
+    let app = await launch();
+    const diagnostics: string[] = [];
+    const browserWarnings: string[] = [];
+    try {
+      let page = await prepare(app);
+      // Match the constrained desktop viewport reported by the Windows CI runner.
+      await (await app.browserWindow(page)).evaluate(win => win.setContentSize(1008, 655));
+      page.on("pageerror", error => diagnostics.push(`pageerror: ${error.message}`));
+      page.on("console", message => {
+        if (message.type() !== "error") return;
+        const text = message.text();
+        // Chromium reports its unsupported CSP directive as a console error on static startup.
+        // Record that exact browser warning separately; every other error still fails the test.
+        if (text === "Unrecognized Content-Security-Policy directive 'webrtc'.") {
+          browserWarnings.push(text);
+        } else {
+          diagnostics.push(text);
+        }
+      });
+      const source = sourceDocument();
+      const props = { ...createTableShapeProps("plain", columns * 64, rows * 32 + 2), table: createPlainTableSpec(rows, columns) };
+      props.table.grid.lineOverrides = [
+        { axis: "horizontal", beforeRowId: props.table.rows[1].id, style: { borderWidth: 2, borderStyle: "double" } },
+        { axis: "vertical", beforeColumnId: props.table.columns[1].id, style: { visible: false } },
+        { axis: "horizontal", edge: "bottom", style: { borderColor: "#cc0000" } },
+      ];
+      props.table.cells[0].content = [{ type: "paragraph", id: "pocket_table_cell_text", children: [
+        { type: "text", text: "表の見出し" },
+        { type: "mathInline", id: "pocket_table_cell_math", tex: "\\frac{1}{2}", display: "inline" },
+      ] }];
+      source.pageLayout!.overlay!.overlaySnapshot!.shapes = [{
+        id: "table_borders_source", type: "tableShape", x: 100, y: 320, rotation: 0, props,
+      }];
+      const created = await page.evaluate(document => window.desktopAPI!.storage.createFileFromDocument({ document }), source);
+      await page.reload();
+      await grabShapeFromBody(page, page.locator('[data-overlay-shape-id="table_borders_source"]').first());
+      await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+      const card = () => page.locator("[data-pocket-item] button[data-kind]").first();
+      await expect(card()).toHaveAttribute("data-kind", "shapes");
+      const tables = () => page.evaluate(async id => (await window.desktopAPI!.storage.loadDocument(id))!
+        .pageLayout!.overlay!.overlaySnapshot!.shapes.filter(shape => shape.type === "tableShape"), created.file.fileId);
+      await card().click();
+      await page.keyboard.press("ControlOrMeta+KeyS");
+      await expect(page.locator('.overlay-table-shape')).toHaveCount(2);
+      await expect.poll(async () => (await tables()).length).toBe(2);
+      // A second insertion through drag uses the same copy path and must keep the UI responsive.
+      const drop = await visiblePaperDropPoint(page);
+      await dragCardTo(page, card(), drop.x, drop.y);
+      await page.keyboard.press("ControlOrMeta+KeyS");
+      await expect.poll(async () => (await tables()).length).toBe(3);
+      await expect(page.locator('.overlay-table-shape')).toHaveCount(3);
+      await page.keyboard.press("ControlOrMeta+KeyZ");
+      await expect.poll(async () => (await tables()).length).toBe(2);
+      await page.keyboard.press("ControlOrMeta+Shift+KeyZ");
+      await expect.poll(async () => (await tables()).length).toBe(3);
+      const persisted = await tables();
+      for (const table of persisted) {
+        expect(table.props.table.grid.lineOverrides).toEqual([
+          { axis: "horizontal", beforeRowId: table.props.table.rows[1].id, style: { borderWidth: 2, borderStyle: "double" } },
+          { axis: "vertical", beforeColumnId: table.props.table.columns[1].id, style: { visible: false } },
+          { axis: "horizontal", edge: "bottom", style: { borderColor: "#cc0000" } },
+        ]);
+        expect(JSON.stringify(table)).toContain("表の見出し");
+        expect(JSON.stringify(table)).toContain("\\\\frac{1}{2}");
+      }
+      await page.screenshot({ path: testInfo.outputPath("pocket-table-custom-borders.png") });
+      // Reuse this same card in another material, and verify that neither file loses a table.
+      await page.getByRole("button", { name: "新規教材", exact: true }).click();
+      await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
+      const targetDrop = await visiblePaperDropPoint(page);
+      await dragCardTo(page, card(), targetDrop.x, targetDrop.y);
+      await page.keyboard.press("ControlOrMeta+KeyS");
+      await expect(page.locator('.overlay-table-shape')).toHaveCount(1);
+      const carrier = () => page.evaluate(async sourceId => {
+        for (const file of await window.desktopAPI!.storage.listFiles()) {
+          if (file.fileId === sourceId) continue;
+          const document = await window.desktopAPI!.storage.loadDocument(file.fileId);
+          if (JSON.stringify(document).includes("表の見出し")) return document;
+        }
+        return null;
+      }, created.file.fileId);
+      await expect.poll(async () => (await carrier())?.pageLayout?.overlay?.overlaySnapshot?.shapes.length).toBe(1);
+      const persistedCarrier = await carrier();
+      expect(await tables()).toEqual(persisted);
+      expect(diagnostics).toEqual([]);
+      await closeApp(app);
+      app = await launch();
+      page = await prepare(app);
+      expect(await tables()).toEqual(persisted);
+      expect(await carrier()).toEqual(persistedCarrier);
+      const targetShapeId = persistedCarrier!.pageLayout!.overlay!.overlaySnapshot!.shapes[0].id;
+      await expect(page.locator(`[data-overlay-shape-id="${targetShapeId}"]`).first()).toBeVisible();
+    } finally {
+      await testInfo.attach("pocket-table-save-diagnostics", { body: diagnostics.join("\n"), contentType: "text/plain" });
+      if (browserWarnings.length > 0) {
+        await testInfo.attach("pocket-browser-warnings", { body: browserWarnings.join("\n"), contentType: "text/plain" });
+      }
+      await closeApp(app);
+      rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
+}
 
 test("pocket shape cards follow focus between persistent split panes and keep the other document unchanged", async () => {
   const profile = mkdtempSync(path.join(tmpdir(), "sigma-pocket-split-"));

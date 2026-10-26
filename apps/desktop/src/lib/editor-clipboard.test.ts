@@ -1,6 +1,7 @@
 import {
   evaluateTableFormulas,
   inlineNodesToPlainText,
+  isValidOverlaySnapshot,
   overlayTextBlockInlineRuns,
   overlayTextBlocksToInlineNodes,
 } from "@/features/document";
@@ -38,6 +39,30 @@ import {
 } from "@/lib/editor-clipboard";
 
 describe("editor clipboard", () => {
+  it("keeps customised table borders valid when pasted row and column ids are reissued", () => {
+    const props = createTableShapeProps("plain");
+    props.table.grid.lineOverrides = [
+      { axis: "horizontal", beforeRowId: props.table.rows[1].id, style: { borderWidth: 2, borderStyle: "double" } },
+      { axis: "vertical", beforeColumnId: props.table.columns[1].id, style: { visible: false } },
+      { axis: "horizontal", edge: "bottom", style: { borderColor: "#cc0000" } },
+      { axis: "vertical", edge: "right", style: { borderWidth: 3 } },
+    ];
+    const shape: OverlayShape = { id: "table_borders", type: "tableShape", x: 0, y: 0, props };
+    expect(isValidOverlaySnapshot({ version: 1, shapes: [shape], assets: {} })).toBe(true);
+    const payload = createOverlayClipboardPayload([shape], {});
+    const original = structuredClone(payload);
+    const pasted = cloneOverlayShapesForPaste(payload, { x: 20, y: 20 });
+    expect(isValidOverlaySnapshot({ version: 1, ...pasted })).toBe(true);
+    const table = pasted.shapes[0];
+    if (table.type !== "tableShape") throw new Error("expected a table");
+    expect(table.props.table.grid.lineOverrides).toEqual([
+      { axis: "horizontal", beforeRowId: table.props.table.rows[1].id, style: { borderWidth: 2, borderStyle: "double" } },
+      { axis: "vertical", beforeColumnId: table.props.table.columns[1].id, style: { visible: false } },
+      ...props.table.grid.lineOverrides.slice(2),
+    ]);
+    expect(payload).toEqual(original);
+  });
+
   it("copies and remaps a derived 3D preview asset without changing its canonical spec", () => {
     const preview: OverlayAsset = {
       id: "preview_source",

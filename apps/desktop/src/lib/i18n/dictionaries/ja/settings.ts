@@ -436,7 +436,7 @@ export const settings = {
     description: "このファイルだけで使うTeXコマンドを定義します。",
     preamble: "プリアンブル",
     preambleHelpSeparator: "、",
-    preambleHelpSuffix: "を使用できます。",
+    preambleHelpSuffix: "を使用できます。\\qty(...)・\\qty[...]・\\qty{...}・\\qty|...|、\\pqty・\\bqty・\\Bqty・\\vqty・\\abs・\\normは設定なしで使えます（physics形式の括弧）。",
     insertExample: "例を挿入",
     issue: "行{{line}}: {{message}}",
     macroCount: "{{macros}}件の独自コマンドを使用できます。",

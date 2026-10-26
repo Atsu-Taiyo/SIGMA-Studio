@@ -881,6 +881,22 @@ function cloneTableSpecForPaste(spec: SigmaTableSpec): {
       ...structuredClone(row),
       id: rowIdMap.get(row.id) ?? createId("table_row"),
     })),
+    // Inner borders point at tracks, just like cells do. Keeping the source ids makes the copy
+    // fail document validation as soon as a customised table is pasted (including from Pocket).
+    grid: {
+      ...structuredClone(spec.grid),
+      ...(spec.grid.lineOverrides ? {
+        lineOverrides: spec.grid.lineOverrides.map((override) => {
+          const next = structuredClone(override);
+          if (next.axis === "horizontal" && "beforeRowId" in next) {
+            next.beforeRowId = rowIdMap.get(next.beforeRowId) ?? next.beforeRowId;
+          } else if (next.axis === "vertical" && "beforeColumnId" in next) {
+            next.beforeColumnId = columnIdMap.get(next.beforeColumnId) ?? next.beforeColumnId;
+          }
+          return next;
+        }),
+      } : {}),
+    },
     cells: spec.cells.map((cell) => ({
       ...structuredClone(cell),
       id: createId("table_cell"),

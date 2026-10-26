@@ -3,6 +3,7 @@ import { convertLatexToMarkup, validateLatex } from "mathlive";
 import { normalizeMathLiveBoxMarkup } from "@/lib/mathlive-box-layout";
 import { withMathLiveDefaultMacros } from "@/lib/mathlive-default-macros";
 import { readMathTextFormat } from "@/lib/math-text-format";
+import { isPhysicsTexCommand, normalizePhysicsTex } from "@/lib/physics-tex";
 
 import { applyMathTypesetStyle } from "@/features/rendering/core";
 import { mathRenderEnvironmentCacheKey, type MathRenderEnvironment } from "@/lib/math-environment";
@@ -84,7 +85,7 @@ export function convertLatexToMarkupCached(
 function renderMathMarkup(tex: string, environment: MathRenderEnvironment): string {
   const { macroSet, typesetStyle } = environment;
   const mathLiveMarkup = convertLatexToMarkup(
-    applyMathTypesetStyle(toMathLivePreviewTex(tex) || "\\square", typesetStyle),
+    applyMathTypesetStyle(toMathLivePreviewTex(tex, macroSet) || "\\square", typesetStyle),
     {
       defaultMode: "math",
       // 標準のマクロ表 (`\iff` `\pmod` …) を落とさない。`macros` は標準の表を丸ごと置き換えるので、
@@ -99,7 +100,7 @@ function renderMathMarkup(tex: string, environment: MathRenderEnvironment): stri
 
   // MathLive が描けなかった式だけ KaTeX へ。どちらも駄目なら MathLive のエラー markup を見せる。
   return renderKatexIfValid(
-    applyMathTypesetStyle(toKatexPreviewTex(tex) || "\\square", typesetStyle),
+    applyMathTypesetStyle(toKatexPreviewTex(tex, macroSet) || "\\square", typesetStyle),
     macroSet,
   ) ?? mathLiveMarkup;
 }
@@ -113,18 +114,19 @@ export function validateMathTex(
   tex: string,
   macroSet: MathMacroSet = DEFAULT_MATH_MACRO_SET,
 ): ReturnType<typeof validateLatex> {
-  const mathLiveIssues = validateLatex(tex);
+  const mathLiveIssues = validateLatex(normalizePhysicsTex(tex, macroSet.physicsOverrides));
   if (mathLiveIssues.length === 0) {
     return [];
   }
 
-  return renderKatexIfValid(toKatexPreviewTex(tex) || "\\square", macroSet) === null
+  return renderKatexIfValid(toKatexPreviewTex(tex, macroSet) || "\\square", macroSet) === null
     ? mathLiveIssues
     : [];
 }
 
 /** TeX入力中のコマンド名がMathLiveまたはKaTeXで定義済みかを判定する。 */
 export function isMathTexCommandSupported(command: string): boolean {
+  if (isPhysicsTexCommand(command)) return true;
   const cached = commandSupportCache.get(command);
   if (cached !== undefined) {
     return cached;
@@ -149,7 +151,8 @@ export function isMathTexCommandSupported(command: string): boolean {
   return supported;
 }
 
-export function toMathLivePreviewTex(tex: string): string {
+export function toMathLivePreviewTex(tex: string, macroSet: MathMacroSet = DEFAULT_MATH_MACRO_SET): string {
+  tex = normalizePhysicsTex(tex, macroSet.physicsOverrides);
   // Match the editor's whole-formula bold mark without MathLive's boldsymbol
   // switching italic variables to an upright face. Keep this preview-only:
   // overriding the command with a macro would make its contents atomic in the field.
@@ -173,7 +176,8 @@ export function toMathLivePreviewTex(tex: string): string {
     });
 }
 
-export function toKatexPreviewTex(tex: string): string {
+export function toKatexPreviewTex(tex: string, macroSet: MathMacroSet = DEFAULT_MATH_MACRO_SET): string {
+  tex = normalizePhysicsTex(tex, macroSet.physicsOverrides);
   return normalizeMathTextRuns(normalizeMathLiveLineBreakTex(tex))
     .replace(/\\placeholder(?:\[[^\]]*\])?\{([^{}]*)\}/g, (_match, body: string) => {
       return body.trim() ? `{${body}}` : "\\square";

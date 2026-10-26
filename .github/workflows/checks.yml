@@ -16,7 +16,7 @@ jobs:
   required-ci:
     name: Required CI
     if: ${{ always() }}
-    needs: [desktop, dependency-security, electron-smoke, electron-smoke-required, public-packages, file-lock, pdf-parity]
+    needs: [desktop, dependency-security, electron-smoke, electron-smoke-required, public-packages, file-lock, pdf-parity, windows-pocket-tex]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -26,7 +26,7 @@ jobs:
         run: |
           node <<'NODE'
           const results = JSON.parse(process.env.REQUIRED_CI_RESULTS ?? "{}");
-          const required = ["desktop", "dependency-security", "electron-smoke", "electron-smoke-required", "public-packages", "file-lock", "pdf-parity"];
+          const required = ["desktop", "dependency-security", "electron-smoke", "electron-smoke-required", "public-packages", "file-lock", "pdf-parity", "windows-pocket-tex"];
           const incomplete = required.filter((name) => results[name]?.result !== "success");
           if (incomplete.length > 0) {
             for (const name of incomplete) {
@@ -89,6 +89,30 @@ jobs:
         if: always()
         with:
           name: pdf-parity-${{ matrix.os }}
+          path: apps/desktop/test-results/
+          retention-days: 7
+
+  windows-pocket-tex:
+    name: Windows pocket tables and TeX
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Build the actual Windows desktop renderer, main and preload
+        run: npm --workspace @sigma-studio/desktop run electron:prepare
+      - name: Save and reopen pocket tables with custom borders and check TeX input, preview and saved PDF
+        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/pocket.spec.ts tests/electron/pocket-shared-table.spec.ts tests/electron/math-preamble-packages.spec.ts --grep "table pocket copies|customised inner borders|online shared material|preamble circled"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-pocket-tex
           path: apps/desktop/test-results/
           retention-days: 7
 
@@ -170,7 +194,7 @@ jobs:
               tests/electron/math-ime-placeholder.spec.ts \
               tests/electron/math-selection-format.spec.ts \
               tests/electron/font-format-roundtrip.spec.ts tests/electron/clipboard-routing.spec.ts \
-              tests/electron/pocket.spec.ts \
+              tests/electron/pocket.spec.ts tests/electron/pocket-shared-table.spec.ts \
               tests/electron/editor-state-regressions.spec.ts \
               tests/electron/group-selection-position.spec.ts tests/electron/unanchored-shape-position.spec.ts \
               tests/electron/math-shortcut-type-ahead.spec.ts \
@@ -196,7 +220,7 @@ jobs:
               tests/electron/problem-custom-frame.spec.ts tests/electron/problem-frame-ai-chat.spec.ts \
               tests/electron/problem-tags-ime.spec.ts \
               tests/electron/shared-duplicate.spec.ts \
-              tests/electron/graph-axis-end.spec.ts tests/electron/pdf-math-fonts.spec.ts \
+              tests/electron/graph-axis-end.spec.ts tests/electron/pdf-math-fonts.spec.ts tests/electron/math-preamble-packages.spec.ts \
               tests/electron/ai-image-annotation.spec.ts tests/electron/ai-proposal-merge.spec.ts \
               tests/electron/overlay-mode-switch-position.spec.ts \
               tests/electron/ai-svg-figure.spec.ts tests/electron/extensions-dialog.spec.ts \
