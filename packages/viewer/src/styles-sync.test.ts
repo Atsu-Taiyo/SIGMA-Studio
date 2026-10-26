@@ -176,7 +176,9 @@ describe("viewer stylesheet size", () => {
   // で約 0.3KB 増えた。印刷・viewer も同じ余白を描くので 87KiB へ上げた。
   // 番号の寸法・罫線・文字位置、領域の明示余白、ゼロ幅数式の規則は印刷と viewer も共有する。
   // 約 4 KiB の文書用スタイルを加えたため手書き分を 91 KiB にする。dist の 128 KiB は維持する。
-  const MAX_AUTHORED_CSS_BYTES = 91 * 1024;
+  // リストの (a)/(i) 番号の @counter-style 4つと字下げの既定 (印刷・viewer も同じ番号と字下げを描く) で
+  // 約 1.9KB 増えたので 94KiB へ上げた。dist の 128 KiB は維持する。
+  const MAX_AUTHORED_CSS_BYTES = 94 * 1024;
   const MAX_DIST_CSS_BYTES = 128 * 1024;
 
   it("keeps the authored CSS (viewer + shared document surface) small", () => {
