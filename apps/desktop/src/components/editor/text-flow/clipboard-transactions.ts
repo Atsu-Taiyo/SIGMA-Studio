@@ -420,7 +420,7 @@ export function textFlowBlocksForSelectionClipboard(
   slice: Slice,
   previousBlocks: TextFlowBlock[],
 ): TextFlowBlock[] {
-  const blocks = sliceToTextFlowBlocks(slice, previousBlocks);
+  const blocks = sliceToTextFlowBlocks(boxContentsClipboardSlice(slice), previousBlocks);
   const first = blocks[0];
   if (!first || first.pagination?.break !== true) {
     return blocks;
@@ -433,12 +433,27 @@ export function textFlowBlocksForSelectionClipboard(
   }, ...blocks.slice(1)];
 }
 
+/** Open box ancestors describe selection context, not a selected box. Keep closed boxes intact. */
+function boxContentsClipboardSlice(slice: Slice): Slice {
+  let { content, openStart, openEnd } = slice;
+  while (openStart > 0 && openEnd > 0 && content.childCount === 1) {
+    const node = content.firstChild!;
+    if (node.type.name !== "boxBlock" && node.type.name !== "boxBlockBody") break;
+    // A selection crossing title/body is structural; only unwrap a shared body ancestor.
+    if (node.type.name === "boxBlock" && (node.childCount !== 1 || node.firstChild?.type.name !== "boxBlockBody")) break;
+    content = node.content;
+    openStart--;
+    openEnd--;
+  }
+  return content === slice.content ? slice : new Slice(content, openStart, openEnd);
+}
+
 export function writeTextFlowSelectionClipboard(
   view: EditorView,
   clipboardData: DataTransfer,
   previousBlocks: TextFlowBlock[],
 ): boolean {
-  const slice = view.state.selection.content();
+  const slice = boxContentsClipboardSlice(view.state.selection.content());
   const copiedBlocks = textFlowBlocksForSelectionClipboard(slice, previousBlocks);
   if (copiedBlocks.length === 0) {
     return false;
