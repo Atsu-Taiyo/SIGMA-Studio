@@ -213,17 +213,25 @@ for (const orientation of ["landscape", "portrait"] as const) for (const display
         });
         sameBounds(actual, expected, 0.5, `editor/preview ${id}`);
       }).toPass({ timeout: 10_000, intervals: [200] });
-      if (id === mark.id) textBaselines[id] = await element.evaluate(element => {
-        // This is the inert page-window clone, with no editor attached. A zero-size
-        // inline box exposes the text baseline without changing line layout.
-        const probe = document.createElement("span");
-        probe.style.cssText = "display:inline-block;width:0;height:0;padding:0;margin:0;vertical-align:baseline";
-        const paragraph = element.matches("p") ? element : element.querySelector("p");
-        if (!paragraph) throw new Error("Missing label paragraph");
-        paragraph.prepend(probe);
-        try { return probe.getBoundingClientRect().top - element.closest(".paged-surface-page")!.getBoundingClientRect().top; }
-        finally { probe.remove(); }
-      });
+      if (id === mark.id) await expect(async () => {
+        textBaselines[id] = await element.evaluate(element => {
+          // Page-window clones can be replaced between locator resolution and
+          // this read. Detached boxes report zero and are not baseline samples.
+          if (!element.isConnected) throw new Error("Page window was replaced");
+          const paper = element.closest(".paged-surface-page")!.getBoundingClientRect();
+          const box = element.getBoundingClientRect();
+          if (paper.width <= 0 || box.width <= 0 || box.height <= 0) throw new Error("Page window is not laid out");
+          const probe = document.createElement("span");
+          probe.style.cssText = "display:inline-block;width:0;height:0;padding:0;margin:0;vertical-align:baseline";
+          const paragraph = element.matches("p") ? element : element.querySelector("p");
+          if (!paragraph) throw new Error("Missing label paragraph");
+          paragraph.prepend(probe);
+          try {
+            if (!probe.isConnected || probe.getClientRects().length === 0) throw new Error("Baseline is not laid out");
+            return probe.getBoundingClientRect().top - paper.top;
+          } finally { probe.remove(); }
+        });
+      }).toPass({ timeout: 10_000, intervals: [200] });
       ink[id] = await previewInk(element, rgb);
     }
 
