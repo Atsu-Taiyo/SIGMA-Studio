@@ -61,6 +61,7 @@ test("a character typed beside a box stays outside its frame, and boxing a line 
     const applyBox = bar.getByRole("button", { name: "囲み文字を適用", exact: true });
     const removeBox = bar.getByRole("button", { name: "囲み文字を解除", exact: true });
     await expect(shape).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
     await installLineReader(page);
     const plain = await lineMetrics(page);
 
@@ -74,6 +75,8 @@ test("a character typed beside a box stays outside its frame, and boxing a line 
     await placeCaret(page, 1, 2);
     await trackLine(page);
     await applyBox.click();
+    await expect(shape.locator(".ProseMirror .boxed-text")).toHaveCount(1);
+    await expect.poll(async () => (await lineMetrics(page)).line).toBeGreaterThan(plain.line + 2);
     await page.waitForTimeout(1500);
     const track = await untrackLine(page);
     const settled = track.at(-1)!;

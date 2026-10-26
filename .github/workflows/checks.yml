@@ -161,7 +161,7 @@ jobs:
           xvfb-run --auto-servernum dbus-run-session -- bash -euo pipefail -c '
             printf "%s" "sigma-ci-fixture" | gnome-keyring-daemon --daemonize --components=secrets --unlock >/dev/null
             export XDG_CURRENT_DESKTOP=GNOME
-            npm run test:e2e:electron -- --shard=${{ matrix.shard }}/2 \
+            npm --workspace @sigma-studio/desktop run test:e2e:electron -- --shard=${{ matrix.shard }}/2 \
               tests/electron/ai-svg-conversion.spec.ts \
               tests/electron/svg-to-sigma-double-arrows.spec.ts \
               tests/electron/svg-small-circles.spec.ts tests/electron/svg-to-sigma-crop-arrows.spec.ts \
