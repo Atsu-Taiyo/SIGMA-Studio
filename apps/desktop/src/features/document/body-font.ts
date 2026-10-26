@@ -57,6 +57,9 @@ const LEGACY_SYMBOLS_FIRST_SERIF_FONT_FAMILY =
 
 const legacyFontFamilies = new Map([
   [fontFamilyKey(LEGACY_STANDARD_SERIF_FONT_FAMILY), DEFAULT_SERIF_BODY_FONT_FAMILY],
+  // Earlier documents used this shorter standard stack. A single explicitly
+  // selected OS font (for example "Yu Mincho", serif) remains a custom choice.
+  [fontFamilyKey('"Yu Mincho", YuMincho, "Hiragino Mincho ProN", "BIZ UDPMincho", serif'), DEFAULT_SERIF_BODY_FONT_FAMILY],
   [fontFamilyKey(LEGACY_SYSTEM_BODY_FONT_FAMILY), DEFAULT_BODY_FONT_FAMILY],
   [fontFamilyKey(LEGACY_SYMBOLS_FIRST_BODY_FONT_FAMILY), DEFAULT_BODY_FONT_FAMILY],
   [fontFamilyKey(LEGACY_SYMBOLS_FIRST_SERIF_FONT_FAMILY), DEFAULT_SERIF_BODY_FONT_FAMILY],

@@ -5,6 +5,7 @@ import { createCurrentLocaleTranslator } from "@/lib/i18n";
 const te = createCurrentLocaleTranslator("error");
 
 import { FREEZE_ANIMATED_IMAGES_SOURCE } from "./pdf-animated-image-freeze";
+import { SNAPSHOT_PDF_FLOW_SOURCE } from "./pdf-flow-snapshot";
 import {
   SETTLE_DOCUMENT_FONTS_MAX_ROUNDS,
   SETTLE_DOCUMENT_FONTS_SOURCE,
@@ -178,6 +179,7 @@ async function writeHiddenPdfPage(window: BrowserWindow, documentHtml: string): 
           if (images.some((image) => image.getAttribute("src") && image.naturalWidth === 0)) throw new Error("PDF_IMAGE_UNAVAILABLE");
         })
         .then(() => (${SETTLE_DOCUMENT_FONTS_SOURCE})(document, ${SETTLE_DOCUMENT_FONTS_MAX_ROUNDS}, ${SETTLE_DOCUMENT_FONTS_TIMEOUT_MS}, ${JSON.stringify(fontsNotReady)}))
+        .then(() => (${SNAPSHOT_PDF_FLOW_SOURCE})(document))
         .then(() => new Promise((resolve) => {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
         }));
