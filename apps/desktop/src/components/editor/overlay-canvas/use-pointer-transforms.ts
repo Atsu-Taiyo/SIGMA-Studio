@@ -7,6 +7,7 @@ import {
   getShapeRotation,
   getShapesSelectionBounds,
   getShapesSnapSourcePoints,
+  isOverlayMoveClick,
   mergeShapesById,
   resizeRotatedShapeToBounds,
   resizeRotatedShapeToVisualBounds,
@@ -62,7 +63,7 @@ import type { OverlayPointerSession } from "./use-pointer-session";
 interface Dependencies {
   session: Pick<OverlayPointerSession, "transitionMode" | "lastInteractionPointRef" | "resizePaddingRef">;
   editing: Pick<OverlayPointerEditingPort, "shapesRef" | "setShapes" | "assetsRef" | "replaceShape">;
-  geometry: Pick<OverlayPointerGeometryPort, "getOverlaySnapThreshold" | "createSnapGeometry" | "anchorMeasurementsRef">;
+  geometry: Pick<OverlayPointerGeometryPort, "clientPointFromPage" | "getOverlaySnapThreshold" | "createSnapGeometry" | "anchorMeasurementsRef">;
   snapDisabledRef: RefObject<boolean>;
   setSnapGuides: Dispatch<SetStateAction<OverlaySnapGuide[]>>;
   clearSnapGuides: () => void;
@@ -82,12 +83,21 @@ export function useOverlayPointerTransforms({
 }: Dependencies) {
   const { transitionMode, lastInteractionPointRef, resizePaddingRef } = session;
   const { shapesRef, setShapes, assetsRef, replaceShape } = editing;
-  const { getOverlaySnapThreshold, createSnapGeometry, anchorMeasurementsRef } = geometry;
+  const { clientPointFromPage, getOverlaySnapThreshold, createSnapGeometry, anchorMeasurementsRef } = geometry;
 
   const applyMoveInteractionAtPoint = useCallback((
     interaction: Extract<OverlayInteractionMode, { id: "overlay.move" }>,
     point: OverlayPoint,
   ) => {
+    // Selection jitter must not enter snapping, even when a sibling is only a few pixels away.
+    // Clear a previous preview too when the pointer returns to the click area.
+    if (isOverlayMoveClick({ start: clientPointFromPage(interaction.start) }, clientPointFromPage(point))) {
+      clearSnapGuides();
+      if (interaction.offset) {
+        transitionMode({ type: "updateMove", offset: { x: 0, y: 0 } });
+      }
+      return;
+    }
     const dx = point.x - interaction.start.x;
     const dy = point.y - interaction.start.y;
     const movedIdSet = new Set(interaction.shapes.map((shape) => shape.id));
@@ -124,7 +134,7 @@ export function useOverlayPointerTransforms({
     }
 
     transitionMode({ type: "updateMove", offset: { x: finalDx, y: finalDy } });
-  }, [clearSnapGuides, createSnapGeometry, getOverlaySnapThreshold, setSnapGuides, shapesRef, snapDisabledRef, transitionMode]);
+  }, [clientPointFromPage, clearSnapGuides, createSnapGeometry, getOverlaySnapThreshold, setSnapGuides, shapesRef, snapDisabledRef, transitionMode]);
 
   const applyResizeInteractionAtPoint = useCallback((
     interaction: Extract<OverlayInteractionMode, { id: "overlay.resize" }>,

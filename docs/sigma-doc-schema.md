@@ -553,6 +553,11 @@ interface ProblemNode extends BaseNode {
 
 interface ProblemAreaLayout {
   minHeightMm?: number;
+  paddingPx?: { top: number; right: number; bottom: number; left: number };
+  marginTopPx?: number;
+  marginBottomPx?: number;
+  widthMm?: number;
+  offsetXPx?: number;
   columnSpan?: "column" | "full";
   /** 導入文 (`lead`) だけが使う。導入文の行を出さない。 */
   hidden?: boolean;
@@ -562,6 +567,21 @@ interface ProblemNumbering {
   enabled?: boolean;
   fontSize?: number;
   value?: number;
+  fontFamily?: string;
+  fontWeight?: number;
+  format?: "decimal" | "fullwidth";
+  widthPx?: number;
+  heightPx?: number;
+  gapPx?: number;
+  borderWidthPx?: number;
+  borderRadiusPx?: number;
+  borderStyle?: "solid" | "double" | "none";
+  outlineWidthPx?: number;
+  outlineOffsetPx?: number;
+  textOffsetXPx?: number;
+  textOffsetYPx?: number;
+  offsetXPx?: number;
+  offsetYPx?: number;
 }
 
 interface ProblemFrame {
@@ -569,6 +589,8 @@ interface ProblemFrame {
   /** `fancybox`(標準) / `doublebox` / `cornerbox`(角付き) / `custom`。`custom` は `custom` に絵があるときだけ有効で、無ければ標準に戻る。 */
   styleId?: string;
   custom?: CustomFrame;
+  borderWidthPx?: number;
+  borderRadiusPx?: number;
 }
 
 /** ユーザーが自分で描いた枠。SVG 1枚を9分割 (CSS `border-image`) して使う。問題と箱で共通 (旧名 `ProblemCustomFrame` は別名)。 */
@@ -609,6 +631,12 @@ interface CustomFrame {
 
 
 `areaLayout.*.minHeightMm` は、そのエリアの最小高さです。内容が増えた場合は内容の高さが優先され、手動で広げた高さは最小高さとして保持されます。
+
+`paddingPx` は上下左右の内側余白 (0〜256 CSS px)、`marginTopPx` / `marginBottomPx` は領域の前後の間隔 (0〜400 CSS px) です。明示した余白に編集用のヒット領域の余白を加算しません。`widthMm` は領域の幅で、配置先の段幅を上限とします。未指定の項目は従来の見た目を保ちます。いずれも同じPageCanvasの計測に入り、PDF専用の改ページ処理は追加しません。
+
+番号の `fontFamily` / `fontWeight`、`format` (通常数字 / 全角数字)、`widthPx` / `heightPx`、`gapPx`、枠の線種・太さ・角丸、`offsetXPx` / `offsetYPx` は番号欄の表示設定です。番号の値と採番規則は変えません。寸法はCSS pxで、未指定なら従来の番号欄を使います。`frame.borderWidthPx` (0〜24) と `borderRadiusPx` (0〜128) は問題枠の太さ・角丸を指定します。
+
+これらの追加属性を扱う配布版を公開する前に、MISS R21に従い共有サーバーの文書スキーマを同じコミットへ同期・配備します。
 
 `areaLayout.lead.hidden` は導入文の行を出さない設定です。未指定または `false` は従来どおり導入文を常に描きます。`true` でも、導入文に空の段落以外のブロックがあるあいだは描きます (問題設定でオフにすると導入文を空にするので、AI編集などで後から書かれた場合の備えです)。
 

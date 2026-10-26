@@ -228,8 +228,11 @@ describe("AiEditInlinePreviewCard", () => {
     const contentIndex = html.indexOf("data-ai-proposal-content");
 
     expect(barIndex).toBeGreaterThanOrEqual(0);
-    // カードの最初の要素がバー: 改ページで切れても、操作は最初の帯 (正本) に残る。
-    expect(html.indexOf("<", html.indexOf(">") + 1)).toBe(html.lastIndexOf("<", barIndex));
+    // カードの最初の要素が先頭 (バーとすぐ下の行)、その最初がバー: 改ページで切れても、操作は最初の帯
+    // (正本) に残る。紙面では先頭を図形より上の層へ持ち上げる (`LiftedPageControl`)。
+    const headStart = html.indexOf("<", html.indexOf(">") + 1);
+    expect(html.slice(headStart, html.indexOf(">", headStart))).toContain("ai-proposal-card-head");
+    expect(html.indexOf("<", html.indexOf(">", headStart) + 1)).toBe(html.lastIndexOf("<", barIndex));
     expect(barIndex).toBeLessThan(headingIndex);
     expect(headingIndex).toBeLessThan(actionsIndex);
     // 参照元はバーの外 (バーの下の行)。バーは折り返さない 1 行なので、行が増えるものを入れない。

@@ -9,6 +9,7 @@ import {
   type PageArrangement,
 } from "@/features/rendering/core";
 import { FLOW_DX_ATTRIBUTE } from "./flow-probe";
+import { getEffectiveZoom } from "@/features/rendering/adapters";
 
 /**
  * ページの並び (`features/rendering/core/page-arrangement.ts`) を DOM から読む口。
@@ -87,8 +88,8 @@ export function readBodyLayerArrangement(element: Element | null | undefined): P
 
 /**
  * 描かれた本文の要素の矩形を、図形の層の座標 (モデル座標) で読む。`scale` は画面 px → 層の px。
- * 2 ページ並びでは層は並べた紙面の大きさなので、横幅から倍率を出し、要素のページのずらしを引く。
- * 1 列では従来どおり層の寸法 (`coordWidth` × `coordHeight`) に合わせる。
+ * 本文の層では実際の CSS 倍率を使い、2 ページ並びでは要素のページのずらしを引く。
+ * 本文以外の層は従来どおり層の寸法 (`coordWidth` × `coordHeight`) に合わせる。
  */
 export function createBodyLayerRectReader(
   layerElement: Element,
@@ -101,6 +102,16 @@ export function createBodyLayerRectReader(
   shiftOf: (element: Element) => ArrangementPoint;
 } {
   const arrangement = readBodyLayerArrangement(layerElement);
+  if (layerElement.closest(".page-canvas") && !layerElement.closest(".a4-page-sheet, .page-layout-controls")) {
+    // Paper millimetres are quantized to Chromium layout units. Inferring a
+    // scale from those rounded dimensions moves stored anchors on every save.
+    // Body flow already measures in CSS px with the actual zoom removed.
+    return {
+      scaleX: 1 / getEffectiveZoom(layerElement, "x"),
+      scaleY: 1 / getEffectiveZoom(layerElement, "y"),
+      shiftOf: arrangement ? readFlowPageShift : () => IDENTITY_PAGE_SHIFT,
+    };
+  }
   if (!arrangement) {
     return {
       scaleX: coordWidth / layerRect.width,

@@ -1061,6 +1061,18 @@
   white-space: normal;
 }
 
+.inline-math-node[data-zero-width-math-rule] {
+  position: relative;
+  --inline-math-node-margin-x: 0px;
+}
+
+/* Keep a small editing target outside the zero-width layout box. */
+.inline-math-node[data-zero-width-math-rule]::after {
+  content: "";
+  position: absolute;
+  inset: 0 -2px;
+}
+
 .math-preview-inline,
 .math-preview-inline .katex {
   display: inline;
@@ -1505,6 +1517,7 @@ li[data-list-marker-typography]::marker {
 }
 
 .print-problem-area {
+  position: relative;
   margin: 2px 0;
   padding: 0;
 }
@@ -1528,24 +1541,44 @@ li[data-list-marker-typography]::marker {
   margin: 0;
 }
 
+.print-problem-area {
+  --problem-number-font-family: initial;
+  --problem-number-font-weight: initial;
+  --problem-number-width: initial;
+  --problem-number-height: initial;
+  --problem-number-gap: initial;
+  --problem-number-border-width: initial;
+  --problem-number-border-radius: initial;
+  --problem-number-border-style: initial;
+  --problem-number-padding-x: initial;
+  --problem-number-offset-x: initial;
+  --problem-number-offset-y: initial;
+  --problem-number-outline-width: initial;
+  --problem-number-outline-offset: initial;
+  --problem-number-text-offset-x: initial;
+  --problem-number-text-offset-y: initial;
+  --problem-frame-border-width: initial;
+  --problem-frame-border-radius: initial;
+}
+
 .print-problem-area.with-frame {
   position: relative;
   box-sizing: border-box;
   padding: 2.5mm 3mm;
-  border-right: 0.3mm solid #111111;
-  border-left: 0.3mm solid #111111;
+  border-right: var(--problem-frame-border-width, 0.3mm) solid #111111;
+  border-left: var(--problem-frame-border-width, 0.3mm) solid #111111;
 }
 
 .print-problem-area.with-frame.first-frame-area {
-  border-top: 0.3mm solid #111111;
-  border-top-left-radius: 0.6mm;
-  border-top-right-radius: 0.6mm;
+  border-top: var(--problem-frame-border-width, 0.3mm) solid #111111;
+  border-top-left-radius: var(--problem-frame-border-radius, 0.6mm);
+  border-top-right-radius: var(--problem-frame-border-radius, 0.6mm);
 }
 
 .print-problem-area.with-frame.last-frame-area {
-  border-bottom: 0.3mm solid #111111;
-  border-bottom-right-radius: 0.6mm;
-  border-bottom-left-radius: 0.6mm;
+  border-bottom: var(--problem-frame-border-width, 0.3mm) solid #111111;
+  border-bottom-right-radius: var(--problem-frame-border-radius, 0.6mm);
+  border-bottom-left-radius: var(--problem-frame-border-radius, 0.6mm);
 }
 
 .print-problem-area.with-frame:not(.first-frame-area) {
@@ -1554,19 +1587,19 @@ li[data-list-marker-typography]::marker {
 
 .print-problem-area.with-frame.box-frame--double-rule {
   padding: 3mm 3.4mm;
-  border-right-width: 0.8mm;
+  border-right-width: var(--problem-frame-border-width, 0.8mm);
   border-right-style: double;
-  border-left-width: 0.8mm;
+  border-left-width: var(--problem-frame-border-width, 0.8mm);
   border-left-style: double;
 }
 
 .print-problem-area.with-frame.box-frame--double-rule.first-frame-area {
-  border-top-width: 0.8mm;
+  border-top-width: var(--problem-frame-border-width, 0.8mm);
   border-top-style: double;
 }
 
 .print-problem-area.with-frame.box-frame--double-rule.last-frame-area {
-  border-bottom-width: 0.8mm;
+  border-bottom-width: var(--problem-frame-border-width, 0.8mm);
   border-bottom-style: double;
 }
 
@@ -1673,7 +1706,7 @@ li[data-list-marker-typography]::marker {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   align-items: start;
-  column-gap: 8px;
+  column-gap: var(--problem-number-gap, 8px);
 }
 
 .print-problem-area-fragment .print-problem-area-content.with-number {
@@ -1682,14 +1715,12 @@ li[data-list-marker-typography]::marker {
 
 .print-problem-area-fragment .print-problem-number {
   position: absolute;
-  top: 0;
-  left: 0;
   z-index: 2;
 }
 
 .print-problem-area-fragment .print-problem-area-content.with-number .print-problem-area-body > :first-child {
   box-sizing: border-box;
-  padding-left: calc(1.9em + 8px);
+  padding-left: calc(var(--problem-number-width, 1.9em) + var(--problem-number-gap, 8px));
 }
 
 .print-problem-number {
@@ -1697,16 +1728,27 @@ li[data-list-marker-typography]::marker {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  min-width: 1.9em;
-  height: 1.9em;
+  min-width: var(--problem-number-width, 1.9em);
+  width: var(--problem-number-width, auto);
+  height: var(--problem-number-height, 1.9em);
   margin: 0;
-  padding: 0 0.24em;
-  border: 1px solid #111111;
-  border-radius: 2px;
-  font-weight: 750;
+  border: var(--problem-number-border-width, 1px) var(--problem-number-border-style, solid) #111111;
+  border-radius: var(--problem-number-border-radius, 2px);
+  font-family: var(--problem-number-font-family, inherit);
+  font-weight: var(--problem-number-font-weight, 750);
   font-variant-numeric: tabular-nums;
   line-height: 1.35;
   text-align: center;
+  position: relative;
+  left: var(--problem-number-offset-x, 0px);
+  top: var(--problem-number-offset-y, 0px);
+  outline: var(--problem-number-outline-width, 0px) solid currentColor;
+  outline-offset: var(--problem-number-outline-offset, 0px);
+  white-space: nowrap;
+  padding-left: calc(var(--problem-number-padding-x, 0.24em) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * 2)));
+  padding-right: calc(var(--problem-number-padding-x, 0.24em) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * -2)));
+  padding-top: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * 2)));
+  padding-bottom: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * -2)));
 }
 
 .print-problem-area-body {
@@ -1715,6 +1757,10 @@ li[data-list-marker-typography]::marker {
 
 .print-problem-area-body.empty-lead-placeholder {
   min-height: calc(max(34px, 1.78em) + 9.5px);
+}
+
+.print-problem-area[data-problem-padding="explicit"] .print-problem-area-body.empty-lead-placeholder {
+  min-height: var(--problem-number-height, 1.9em);
 }
 
 .print-empty-lead-shell {
@@ -2051,6 +2097,17 @@ li[data-list-marker-typography]::marker {
   margin: 2px 0;
 }
 
+/* Explicit area insets include the first and last paragraph's edge spacing. */
+[data-problem-padding="explicit"] :is(.text-flow-editor, .print-problem-area-body) > :first-child,
+.sigma-doc-nested-problem-area[data-problem-padding="explicit"] > :first-child {
+  margin-top: 0;
+}
+
+[data-problem-padding="explicit"] :is(.text-flow-editor, .print-problem-area-body) > :last-child,
+.sigma-doc-nested-problem-area[data-problem-padding="explicit"] > :last-child {
+  margin-bottom: 0;
+}
+
 /* spaceAfterPxは共有custom propertyからpaddingとして読み、ページ計測にも含める。
    図中テキスト (.overlay-text-shape-content) も同じ規則: 編集面と静的描画がこの1枚を読む。 */
 .text-flow-editor :is(p, h1, h2, h3, ul, ol, hr),
@@ -2315,13 +2372,32 @@ u:has(.math-preview) .inline-math-node {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   align-items: start;
-  column-gap: 8px;
+  column-gap: var(--problem-number-gap, 8px);
 }
 
 .sigma-doc-nested-problem-area[data-problem-number]::before {
   content: attr(data-problem-number);
   font-size: var(--nested-problem-number-size);
-  font-weight: 600;
+  font-family: var(--problem-number-font-family, inherit);
+  font-weight: var(--problem-number-font-weight, 600);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: var(--problem-number-width, auto);
+  height: var(--problem-number-height, auto);
+  border: var(--problem-number-border-width, 0px) var(--problem-number-border-style, solid) currentColor;
+  border-radius: var(--problem-number-border-radius, 0px);
+  position: relative;
+  left: var(--problem-number-offset-x, 0px);
+  top: var(--problem-number-offset-y, 0px);
+  outline: var(--problem-number-outline-width, 0px) solid currentColor;
+  outline-offset: var(--problem-number-outline-offset, 0px);
+  white-space: nowrap;
+  padding-left: calc(var(--problem-number-padding-x, 0px) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * 2)));
+  padding-right: calc(var(--problem-number-padding-x, 0px) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * -2)));
+  padding-top: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * 2)));
+  padding-bottom: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * -2)));
 }
 
 .column-rule-separator {
@@ -2331,4 +2407,18 @@ u:has(.math-preview) .inline-math-node {
   transform: translateX(-50%);
   border-left: var(--column-rule-width, 1px) var(--column-rule-style, none) var(--column-rule-color, #111111);
   pointer-events: none;
+}
+
+/* A hidden heading keeps its text in SigmaDoc and occupies no output space. */
+.box-frame--no-title > :is(.sigma-doc-box-title, .print-box-title),
+.box-frame--no-title > .sigma-doc-box-content > :is(.sigma-doc-box-title, .print-box-title) {
+  display: none !important;
+}
+
+.document-reference {
+  color: var(--accent, #2563eb);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
 }

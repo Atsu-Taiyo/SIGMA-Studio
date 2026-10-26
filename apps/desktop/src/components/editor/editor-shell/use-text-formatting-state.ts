@@ -49,6 +49,13 @@ export function useTextFormattingState(ownsInput: () => boolean = alwaysOwnInput
   const [textColor, setTextColor] = useState("#111111");
   const [textBackgroundColor, setTextBackgroundColor] = useState<string | null>("#fff3c2");
   const [strokeColor, setStrokeColor] = useState<string | null>("#000000");
+  const [recentFontFamilies, setRecentFontFamilies] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem("sigma-studio:recent-fonts") ?? "[]");
+      return Array.isArray(saved) ? saved.filter((item): item is string => typeof item === "string" && item.length > 0).slice(0, 8) : [];
+    } catch { return []; }
+  });
   const preferredFontFamilyRef = useRef(DEFAULT_FONT_FAMILY_VALUE);
   // Formatting commands read this before React commits the new preference (including a reset).
   const getPreferredFontFamily = useCallback(() => preferredFontFamilyRef.current, []);
@@ -64,6 +71,11 @@ export function useTextFormattingState(ownsInput: () => boolean = alwaysOwnInput
     fontPreferenceChangedRef.current = true;
     preferredFontFamilyRef.current = nextFontFamily;
     setPreferredFontFamily(nextFontFamily);
+    setRecentFontFamilies(current => {
+      const next = [nextFontFamily, ...current.filter(value => value !== nextFontFamily)].slice(0, 8);
+      try { localStorage.setItem("sigma-studio:recent-fonts", JSON.stringify(next)); } catch { /* Storage can be unavailable. */ }
+      return next;
+    });
     const bridge = getDesktopBridge();
     if (!bridge?.app.saveEditorPreferences) {
       return;
@@ -172,5 +184,5 @@ export function useTextFormattingState(ownsInput: () => boolean = alwaysOwnInput
     return () => window.removeEventListener(TEXT_FORMAT_STATE_EVENT, handleTextFormatState);
   }, [ownsInput]);
 
-  return { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive, setBoxedTextActive, boldActive, setBoldActive, italicActive, setItalicActive, underlineActive, setUnderlineActive, blockStyleState, setBlockStyleState, documentTextFormatTarget, setDocumentTextFormatTarget, hasMultiEditorTextRunSpan, setHasMultiEditorTextRunSpan, boxedTextVariant, setBoxedTextVariant, boxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, preferredFontFamily, getPreferredFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference };
+  return { recentFontFamilies, textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive, setBoxedTextActive, boldActive, setBoldActive, italicActive, setItalicActive, underlineActive, setUnderlineActive, blockStyleState, setBlockStyleState, documentTextFormatTarget, setDocumentTextFormatTarget, hasMultiEditorTextRunSpan, setHasMultiEditorTextRunSpan, boxedTextVariant, setBoxedTextVariant, boxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, preferredFontFamily, getPreferredFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference };
 }

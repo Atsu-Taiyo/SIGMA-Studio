@@ -1,6 +1,7 @@
 "use client";
 
-import { Clock3, Loader2, X } from "lucide-react";
+import { Clock3, Loader2, Users, X } from "lucide-react";
+import { Shimmer } from "@/components/ui/Shimmer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SigmaDocument } from "@/features/document";
 import type { DocumentSessionVersionHistory } from "@/features/document-session/contracts";
@@ -27,6 +28,8 @@ export type VersionHistorySource =
 export interface VersionHistorySelection {
   versionId: string;
   capturedAt: string;
+  /** 一覧の行と同じ種類の名前 (「自動で保存」など)。表示中の帯に添える。 */
+  label: string;
   document: SigmaDocument;
   shared: boolean;
 }
@@ -127,7 +130,7 @@ export function VersionHistoryPanel({
         setError(t("versionHistory.loadFailed"));
         return;
       }
-      onPreviewChange({ versionId: row.versionId, capturedAt: row.capturedAt, document, shared: Boolean(shared) });
+      onPreviewChange({ versionId: row.versionId, capturedAt: row.capturedAt, label: row.label, document, shared: Boolean(shared) });
       setFailedSelection(null);
       setError(null);
     } catch {
@@ -161,12 +164,10 @@ export function VersionHistoryPanel({
       </div>
       <div className="version-history-body">
         {historyWarning && <p className="version-history-warning" role="status">{historyWarning}</p>}
-        {shared && <p className="version-history-note">{shared.canRestore() ? t("versionHistory.sharedNote") : t("versionHistory.sharedNoteReadOnly")}</p>}
-        {loading && versions.length === 0 && <p className="version-history-state" role="status"><Loader2 className="save-state-spinner" size={15} aria-hidden="true" />{t("versionHistory.loading")}</p>}
         {error && (
-          <div className="version-history-state" role="alert">
+          <div className="version-history-error" role="alert">
             <span>{error}</span>
-            <button type="button" className="button" disabled={loading || pendingVersionId !== null} onClick={() => {
+            <button type="button" className="button subtle" disabled={loading || pendingVersionId !== null} onClick={() => {
               if (failedSelection) void selectVersion(failedSelection);
               else void refresh();
             }}>
@@ -174,6 +175,7 @@ export function VersionHistoryPanel({
             </button>
           </div>
         )}
+        {/* 版を縦の線でつないだ時系列。先頭は常に編集中の「現在の版」で、線の点が塗られている。 */}
         <div className="version-history-list" aria-label={t("versionHistory.list")} aria-busy={busy}>
           <button
             type="button"
@@ -182,11 +184,23 @@ export function VersionHistoryPanel({
             disabled={busy}
             onClick={selectCurrentVersion}
           >
+            <span className="version-history-marker" aria-hidden="true" />
             <span className="version-history-time">{t("versionHistory.currentVersion")}</span>
           </button>
+          {loading && versions.length === 0 && (
+            <div className="version-history-state version-history-skeleton" role="status">
+              <span className="visually-hidden">{t("versionHistory.loading")}</span>
+              {[0, 1, 2].map((index) => (
+                <span key={index} className="version-history-skeleton-row" aria-hidden="true">
+                  <Shimmer variant="surface" className="version-history-skeleton-time" />
+                  <Shimmer variant="surface" className="version-history-skeleton-label" />
+                </span>
+              ))}
+            </div>
+          )}
           {!loading && !error && versions.length === 0 && (
-            <div className="version-history-state">
-              <Clock3 size={20} aria-hidden="true" />
+            <div className="version-history-state version-history-empty">
+              <Clock3 size={18} aria-hidden="true" />
               <strong>{t("versionHistory.emptyTitle")}</strong>
               <span>{shared ? t("versionHistory.sharedEmptyBody") : t("versionHistory.emptyBody")}</span>
             </div>
@@ -204,15 +218,23 @@ export function VersionHistoryPanel({
                   disabled={busy || pendingVersionId === version.versionId}
                   onClick={() => void selectVersion(version)}
                 >
+                  <span className="version-history-marker" aria-hidden="true" />
                   <span className="version-history-time">{formatTime(version.capturedAt)}</span>
-                  <span>{version.label}</span>
-                  {pendingVersionId === version.versionId && <Loader2 className="save-state-spinner" size={14} aria-hidden="true" />}
+                  <span className="version-history-label">{version.label}</span>
+                  {pendingVersionId === version.versionId && <Loader2 className="save-state-spinner" size={13} aria-hidden="true" />}
                 </button>
               ))}
             </section>
           ))}
         </div>
       </div>
+      {/* 共有教材の版: 誰が見られて誰が戻せるか。一覧の邪魔をしないよう、下端に小さく置く。 */}
+      {shared && (
+        <p className="version-history-note">
+          <Users size={13} aria-hidden="true" />
+          <span>{shared.canRestore() ? t("versionHistory.sharedNote") : t("versionHistory.sharedNoteReadOnly")}</span>
+        </p>
+      )}
     </aside>
   );
 }

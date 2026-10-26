@@ -119,6 +119,7 @@ import  {
   type TextFormatSelectionRange,
   type TextFormatStateContext,
 } from "@/components/tiptap/text-format-controller";
+import { DocumentReferenceSuggestions } from "@/components/tiptap/document-reference-extension";
 import { UrlDetectionExtension } from "@/components/tiptap/url-detection-extension";
 import  {
   normalizeCodeBlockTheme,
@@ -812,6 +813,7 @@ function TextFlowEditorImpl({
   const documentSessionRef = useRef(documentSession);
   useLayoutEffect(() => { documentSessionRef.current = documentSession; }, [documentSession]);
   const t = useT("editor");
+  const tSettings = useT("settings");
   const locale = useAppLocale();
   countPerformanceEvent("TextFlowEditor.render");
   const mathEnvironment = useMathEnvironment();
@@ -1294,6 +1296,7 @@ function TextFlowEditorImpl({
       }),
       ExternalTextRangeHighlightExtension,
       UrlDetectionExtension,
+      DocumentReferenceSuggestions,
       // getGuards/onBlockedAttempt are stable ref-backed
       // callbacks read by the plugin when it runs (decorations) or a
       // transaction is dispatched (filterTransaction), not during render.
@@ -1802,7 +1805,11 @@ function TextFlowEditorImpl({
         button.title = label;
         button.setAttribute("aria-label", label);
       });
-  }, [editor, locale, t]);
+    dom.querySelectorAll<HTMLElement>("[data-box-title-region='true']").forEach((title) => {
+      title.setAttribute("data-placeholder", tSettings("box.titlePlaceholder"));
+      title.setAttribute("aria-label", tSettings("box.titleSection"));
+    });
+  }, [editor, locale, t, tSettings]);
 
   /**
    * 装飾の再描画合図をまとめる。
@@ -3026,7 +3033,9 @@ function TextFlowEditorImpl({
       return;
     }
 
-    const selection = TextSelection.near(editor.state.doc.resolve(target.pos + boxHeaderNodeSize(target.node)), -1);
+    const titleHidden = isRecord(target.node.attrs.frame) && target.node.attrs.frame.titleVisible === false;
+    const position = target.pos + boxHeaderNodeSize(target.node) + (titleHidden ? 2 : 0);
+    const selection = TextSelection.near(editor.state.doc.resolve(position), titleHidden ? 1 : -1);
     editor.view.focus();
     editor.view.dispatch(editor.state.tr.setSelection(selection).scrollIntoView());
   }, [editor]);

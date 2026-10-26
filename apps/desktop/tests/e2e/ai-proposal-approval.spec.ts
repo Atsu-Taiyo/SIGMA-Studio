@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
 import type { ParagraphNode, SigmaBlock, SigmaDocument } from "@/types/sigma-doc";
+import { pageProposalControls } from "./ai-proposal-controls";
 
 /**
  * 紙面の提案カードの正本 (本文フローの拡張ノードの直下)。改ページで切れたときの続きの複製は
@@ -199,7 +200,7 @@ test("Issue 1: run B starts on another block while run A's lock is engaged, and 
   // Run B (fast) finishes first: its card appears while A is still running, and applies independently.
   const previewDialogs = page.locator(PAGE_PROPOSAL_CARD);
   await expect(previewDialogs).toHaveCount(1, { timeout: 20_000 });
-  await previewDialogs.first().locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
+  await pageProposalControls(page).first().locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(previewDialogs).toHaveCount(0);
 
   // Issue 2: 確定済み提案が(mockのwatcher通知後も)pendingとして復活しない。
@@ -208,7 +209,7 @@ test("Issue 1: run B starts on another block while run A's lock is engaged, and 
 
   // A finishes: its own card appears and applies independently too.
   await expect(previewDialogs).toHaveCount(1, { timeout: 25_000 });
-  await previewDialogs.first().locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
+  await pageProposalControls(page).first().locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(previewDialogs).toHaveCount(0);
 
   const statuses = await listProposalStatuses(page);
@@ -228,7 +229,7 @@ test("problem and solution proposals keep their page-area layout in the preview"
   await expect(previewDialog.locator('[data-ai-proposal-hunk][data-problem-area="prompt"]')).toBeVisible();
   await expect(previewDialog.locator("[data-ai-proposal-area-label]")).toHaveText("問7 問題文");
   await closeInlineResult(page);
-  await previewDialog.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
+  await pageProposalControls(page).locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(previewDialog).toBeHidden();
 
   await startInlineRun(page, "problem_solution_1", "PROPOSAL 解答を書き換えて");
@@ -319,7 +320,7 @@ test("Issue 3: Ctrl+Z undoes an applied proposal in one step (body restored + st
   const previewDialog = page.locator(PAGE_PROPOSAL_CARD);
   await expect(previewDialog).toBeVisible({ timeout: 20_000 });
   await closeInlineResult(page);
-  await previewDialog.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
+  await pageProposalControls(page).locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(previewDialog).toBeHidden();
   await expect(paragraphA).toContainText("E2E提案で書き換えた本文");
 
@@ -396,7 +397,7 @@ test("適用はいま開いている教材だけを編集する: 打鍵した入
   const previewDialogs = page.locator(PAGE_PROPOSAL_CARD);
   await expect(previewDialogs).toHaveCount(1, { timeout: 20_000 });
   await closeInlineResult(page);
-  await previewDialogs.first().locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
+  await pageProposalControls(page).first().locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(previewDialogs).toHaveCount(0);
 
   // AIの変更と自分の入力が同じ教材に共存する。

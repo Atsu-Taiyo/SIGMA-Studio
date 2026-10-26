@@ -1,5 +1,7 @@
 "use client";
 
+import { Inline, Inset } from "@/components/ui/layout";
+
 import { PersistentWorkspaceEditors, PersistentWorkspaceCanvas, usePersistentWorkspacePane, usePersistentPaneLifecycle, workspacePersistenceState } from "./editor-shell/persistent-workspace";
 import { EditorInputContext } from "./editor-input-context";
 import { isTextPointerSelectionClick } from "@/components/editor/text-pointer-selection";
@@ -60,9 +62,11 @@ export type { EmbeddedEditorHost } from "./editor-shell/document-lifecycle-types
 
 import {
 Eye,
+History,
 Loader2,
 PanelLeft,
 RotateCcw,
+TriangleAlert,
 X,
 } from "lucide-react";
 import type { CSSProperties,MouseEvent,ReactNode,SetStateAction } from "react";
@@ -298,6 +302,7 @@ import type { LedgerSchemaFailure } from "@/lib/library-schema";
 import { buildOutlineNavigation } from "@/lib/outline-navigation";
 import { getSupportedOverlayImageFiles } from "@/lib/overlay-image-files";
 import { countPerformanceEvent,measurePerformance } from "@/lib/performance";
+import { DOCUMENT_REFERENCE_CANDIDATES_EVENT, referenceAt, type ReferenceCandidatesRequest } from "@/lib/document-reference";
 import { OPEN_LINK_REQUEST_EVENT, readOpenLinkRequest } from "@/lib/link-open-request";
 import { generateQrPngFile } from "@/lib/qr-code";
 import type { SigmaDocumentRecoveryIssue } from "@/lib/sigma-doc-schema";
@@ -694,7 +699,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setSaveState("warning");
     setStatusMessage(message);
   }, [setSaveState, setStatusMessage, tE]);
-  const { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY: reportedBoxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive: reportedBoxedTextActive, boldActive: reportedBoldActive, italicActive: reportedItalicActive, underlineActive: reportedUnderlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant: reportedBoxedTextVariant, setBoxedTextVariant, boxedTextRoundness: reportedBoxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, preferredFontFamily, getPreferredFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState(ownsWorkspaceInput);
+  const { recentFontFamilies, textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY: reportedBoxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive: reportedBoxedTextActive, boldActive: reportedBoldActive, italicActive: reportedItalicActive, underlineActive: reportedUnderlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant: reportedBoxedTextVariant, setBoxedTextVariant, boxedTextRoundness: reportedBoxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, preferredFontFamily, getPreferredFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState(ownsWorkspaceInput);
   // ツールバーの入力欄へフォーカスが移っても、本文の選択を見せ続ける (`HeldBodySelectionOverlay`)。
   const chromeHeldBodyEditor = useChromeHeldBodySelection();
   const zoom = useStore(editorStore, (state) => state.zoom);
@@ -839,6 +844,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const versionHistoryPreviewActive = versionHistoryPreview !== null;
   // 共有教材の版を戻せるのは編集者以上 (見るのは全員)。ローカル教材の版はいつでも戻せる。
   const versionHistoryCanRestore = !versionHistoryPreview?.shared || Boolean(documentSession?.versionHistory?.canRestore());
+  const versionHistoryPreviewDate = versionHistoryPreview
+    ? new Intl.DateTimeFormat(getAppLocale(), { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+      .format(new Date(versionHistoryPreview.capturedAt))
+    : "";
   const [versionHistoryRestoreError, setVersionHistoryRestoreError] = useState<string | null>(null);
   const [versionHistoryRestoring, setVersionHistoryRestoring] = useState(false);
   // 共有教材の版を戻すと参加者全員の教材が置き換わるので、帯の中でもう一度確かめる。
@@ -1241,7 +1250,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       setCommentsPanelOpen(true);
     }
     setStatusMessage(tEditor("status.commentReady"));
-  }, [setCommentsPanelOpen, setActiveCommentThreadId, setPendingCommentAnchor, setPendingCommentPlacement, setStatusMessage]);
+  }, [setCommentsPanelOpen, setActiveCommentThreadId, setPendingCommentAnchor, setPendingCommentDraft, setPendingCommentPlacement, setStatusMessage]);
 
   const focusCommentLocation = useCallback((threadId?: string | null) => {
     if (typeof window === "undefined") {
@@ -1369,7 +1378,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     clearAiEditPinnedReferences();
     setVersionHistoryPreviewState(null);
     setVersionHistoryRestoreError(null);
-  }, [documentHistory, setFontSizeInput, setTextFontSize, setTextFontSizeMixed, setSelectedId, setSelectedInlineMath, closeGraphSettings, setSelectedOverlayGraph, closeChartSettings, setSelectedOverlayChart, closeGraph3DSettings, setCommentAnchorCandidate, setPendingCommentAnchor, clearCommentReplyDrafts, setActiveCommentThreadId, setHighlightedCommentThreadId, clearAiEditPinnedReferences, commentsInRail, setCommentsPanelOpen]);
+  }, [documentHistory, setFontSizeInput, setTextFontSize, setTextFontSizeMixed, setSelectedId, setSelectedInlineMath, closeGraphSettings, setSelectedOverlayGraph, closeChartSettings, setSelectedOverlayChart, closeGraph3DSettings, setCommentAnchorCandidate, setPendingCommentAnchor, clearCommentReplyDrafts, setActiveCommentThreadId, setHighlightedCommentThreadId, clearAiEditPinnedReferences, commentsInRail, setCommentsPanelOpen, setPendingCommentDraft, setVersionHistoryRestoreError]);
 
   const rememberLeavingEditorTabViewState = useCallback((leavingFileId: string | null, nextFileId: string) => {
     if (!leavingFileId || leavingFileId === nextFileId) {
@@ -2205,6 +2214,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     materialLibraryOpen,
     setMaterialLibraryOpen,
     materials,
+    setMaterialSearch,
     materialEditingOpenRef,
     materialAddDialogOpen,
     setMaterialActionMenu,
@@ -2213,6 +2223,42 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     insertContentAt,
     insertMaterialAt,
   } = materialLibrary;
+
+  useEffect(() => {
+    if (!editorCanvasElement) return;
+    const candidates = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !(event.target instanceof Node) || !editorCanvasElement.contains(event.target)) return;
+      const request = event.detail as ReferenceCandidatesRequest;
+      request.candidates = [
+        ...documentMetadatas.filter(item => item.fileId !== activeFileId).map(item => ({ label: item.title, reference: { kind: "document" as const, id: item.fileId } })),
+        ...materials.map(item => ({ label: item.name, reference: { kind: "material" as const, id: item.id } })),
+      ];
+    };
+    const open = (event: Event) => {
+      if (event instanceof KeyboardEvent && event.key !== "Enter" && event.key !== " ") return;
+      if (!(event.target instanceof Element) || !editorCanvasElement.contains(event.target)) return;
+      const element = event.target.closest("[data-document-reference-id]");
+      const reference = element && referenceAt(element);
+      if (!reference) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (reference.kind === "document") void openSourceReferenceDocument({ fileId: reference.id });
+      else {
+        const material = materials.find(item => item.id === reference.id);
+        if (!material) { setStatusMessage(tEditor("reference.unavailable")); return; }
+        setMaterialSearch(material.name);
+        setMaterialLibraryOpen(true);
+      }
+    };
+    editorCanvasElement.addEventListener(DOCUMENT_REFERENCE_CANDIDATES_EVENT, candidates);
+    editorCanvasElement.addEventListener("click", open, true);
+    editorCanvasElement.addEventListener("keydown", open, true);
+    return () => {
+      editorCanvasElement.removeEventListener(DOCUMENT_REFERENCE_CANDIDATES_EVENT, candidates);
+      editorCanvasElement.removeEventListener("click", open, true);
+      editorCanvasElement.removeEventListener("keydown", open, true);
+    };
+  }, [editorCanvasElement, documentMetadatas, activeFileId, materials, openSourceReferenceDocument, setMaterialSearch, setMaterialLibraryOpen, setStatusMessage]);
 
   useLayoutEffect(() => { materialMenuCloseRef.current = () => setMaterialActionMenu(null); }, [setMaterialActionMenu]);
   const restoreDocumentVersion = async (version: VersionHistorySelection): Promise<DocumentVersionRestoreResult> => {
@@ -2775,6 +2821,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       `${option.label} ${option.value}`.toLocaleLowerCase("ja").includes(query)
     ));
   }, [customFontOptions, fontFamilyQuery]);
+  const visibleRecentFontOptions = recentFontFamilies.flatMap(value => {
+    const option = [...availableFontFamilyGroups.flatMap(group => group.options), ...customFontOptions].find(option => option.value === value);
+    return option && `${option.label} ${option.value}`.toLocaleLowerCase("ja").includes(fontFamilyQuery.trim().toLocaleLowerCase("ja")) ? [option] : [];
+  });
   const activeFontFamilyLabel = getFontFamilyLabel(fontFamily, customFontOptions);
   // Empty = the selection mixes fonts, so there is no "current font" to show. Without this the
   // dropdown would render a nameless row marked as the checked option.
@@ -3337,6 +3387,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, []);
   // ポケットの項目を紙面へ置く窓口。ホワイトボードは本文が無いので、本文のコピーも文章の図形として置く。
   usePocketPageHost({
+    ownsInput: ownsWorkspaceInput,
+    ownsDropLocation: location => !persistent || persistent.pane.canvas.contains(window.document.elementFromPoint(location.clientX, location.clientY)),
     bodyless: isWhiteboardDocument,
     getViewportCenter: getWhiteboardViewportCenter,
     requestOverlayAction,
@@ -4260,10 +4312,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // アウトラインの DocumentTitleText の memo が全部外れる。
   const documentTitle = useMemo(() => resolveDocumentTitleContent(document), [document]);
   const resolvedDocumentTitle = documentTitle.text;
-  const titleInputValue = documentTitleInputValue(document.metadata.title) || resolvedDocumentTitle;
+  const [titleInputFocused, setTitleInputFocused] = useState(false);
+  const titleInputValue = titleInputFocused ? documentTitleInputValue(document.metadata.title) : documentTitleInputValue(document.metadata.title) || resolvedDocumentTitle;
   // 数式を含むタイトルは、非フォーカス時だけリッチ表示を入力欄に重ねる。この state は JSX でしか
   // 読まない — effect の依存に入力まわりの state を置くと「1 文字しか打てない」事故を再発させる。
-  const [titleInputFocused, setTitleInputFocused] = useState(false);
   // 明示タイトルの入力欄には保存値がそのまま出る (正規化前) ので、重ねる側も同じ文字列から
   // 読む。派生タイトルは入力欄の値が導出結果そのものなので、潰していないノード列を使う。
   // 条件を 2 箇所に書くと必ずずれるので 1 変数に畳んでいる。
@@ -4604,6 +4656,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setCommentReplyDraft,
     setHighlightedCommentThreadId,
     setPendingCommentAnchor,
+    setPendingCommentDraft,
     showResolvedComments,
     toggleCommentReaction,
     updateCommentResolved,
@@ -4740,7 +4793,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize,
       startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen,
       textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef,
-      toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups,
+      toggleBoxedText, underlineActive, visibleRecentFontOptions, visibleCustomFontOptions, visibleFontFamilyGroups,
     },
     insert: {
       ActiveLineToolIcon, activeLineToolItem, activeOverlayTool, bodyToolbarLockedByAi,
@@ -5242,28 +5295,36 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           /></OverlayImagePreviewContext.Provider></SelectionToolbarProvider>}
           {versionHistoryPreview && (
             <div className="version-history-preview" data-version-history-preview="true">
-              <div className="version-history-preview-banner" role="status">
-                <strong>{t("versionHistory.viewingVersion", {
-                  date: new Intl.DateTimeFormat(getAppLocale(), {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }).format(new Date(versionHistoryPreview.capturedAt)),
-                })}</strong>
+              {/* 表示中の版の帯: 左にいつの何の版か、右に戻る操作。共有教材を戻す確かめは帯の下に1段足して聞く。 */}
+              <div className="version-history-preview-banner" role="status" aria-label={t("versionHistory.viewingVersion", { date: versionHistoryPreviewDate })}>
+                <span className="version-history-preview-icon" aria-hidden="true"><History size={15} /></span>
+                <div className="version-history-preview-heading">
+                  <strong>{versionHistoryPreviewDate}</strong>
+                  <span className="version-history-preview-meta">
+                    <span>{versionHistoryPreview.label}</span>
+                    <span>{t("versionHistory.readOnly")}</span>
+                    {!versionHistoryCanRestore && <span className="version-history-preview-note">{t("versionHistory.sharedRestoreNotAllowed")}</span>}
+                  </span>
+                </div>
                 <div className="version-history-preview-actions">
-                  {versionHistoryConfirmingSharedRestore && <span className="version-history-preview-confirm">{t("versionHistory.sharedRestoreConfirm")}</span>}
+                  <button
+                    type="button"
+                    className="button subtle"
+                    disabled={versionHistoryRestoring}
+                    onClick={() => handleVersionHistoryPreviewChange(null)}
+                  >
+                    {t("versionHistory.returnToCurrent")}
+                  </button>
                   {versionHistoryCanRestore && <button
                     type="button"
                     className="button primary"
-                    disabled={versionHistoryRestoring}
+                    disabled={versionHistoryRestoring || versionHistoryConfirmingSharedRestore}
                     onClick={() => {
                       if (versionHistoryPreview.shared && !versionHistoryConfirmingSharedRestore) {
                         setVersionHistoryConfirmingSharedRestore(true);
                         return;
                       }
-                      setVersionHistoryConfirmingSharedRestore(false);
+                      // 確かめの段は、戻し終わるまで残して進み具合をそこで見せる。
                       setVersionHistoryRestoring(true);
                       setVersionHistoryRestoreError(null);
                       void restoreDocumentVersion(versionHistoryPreview)
@@ -5272,27 +5333,61 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
                           else setVersionHistoryRestoreError(result.error);
                         })
                         .catch(() => setVersionHistoryRestoreError(t("versionHistory.restoreFailed")))
-                        .finally(() => setVersionHistoryRestoring(false));
+                        .finally(() => {
+                          setVersionHistoryRestoring(false);
+                          setVersionHistoryConfirmingSharedRestore(false);
+                        });
                     }}
                   >
-                    {versionHistoryRestoring ? <Loader2 className="save-state-spinner" size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}
-                    {versionHistoryConfirmingSharedRestore ? t("versionHistory.sharedRestoreConfirmAction") : t("versionHistory.restore")}
+                    {versionHistoryRestoring && !versionHistoryConfirmingSharedRestore ? <Loader2 className="save-state-spinner" size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}
+                    {t("versionHistory.restore")}
                   </button>}
-                  <button
-                    type="button"
-                    className="button"
-                    disabled={versionHistoryRestoring}
-                    onClick={() => {
-                      if (versionHistoryConfirmingSharedRestore) setVersionHistoryConfirmingSharedRestore(false);
-                      else handleVersionHistoryPreviewChange(null);
-                    }}
-                  >
-                    {versionHistoryConfirmingSharedRestore ? t("versionHistory.cancelRestore") : t("versionHistory.returnToCurrent")}
-                  </button>
                 </div>
               </div>
-              {!versionHistoryCanRestore && (
-                <p className="version-history-preview-note">{t("versionHistory.sharedRestoreNotAllowed")}</p>
+              {versionHistoryConfirmingSharedRestore && (
+                <Inset className="version-history-preview-confirm" role="alert" space="sm">
+                  <Inline className="version-history-preview-confirm-content" gap="sm">
+                  <TriangleAlert size={15} aria-hidden="true" />
+                  <span>{t("versionHistory.sharedRestoreConfirm")}</span>
+                  <div className="version-history-preview-actions">
+                    <button
+                      type="button"
+                      className="button subtle"
+                      disabled={versionHistoryRestoring}
+                      onClick={() => setVersionHistoryConfirmingSharedRestore(false)}
+                    >
+                      {t("versionHistory.cancelRestore")}
+                    </button>
+                    <button
+                      type="button"
+                      className="button primary"
+                      disabled={versionHistoryRestoring}
+                      onClick={() => {
+                      if (versionHistoryPreview.shared && !versionHistoryConfirmingSharedRestore) {
+                        setVersionHistoryConfirmingSharedRestore(true);
+                        return;
+                      }
+                      // 確かめの段は、戻し終わるまで残して進み具合をそこで見せる。
+                      setVersionHistoryRestoring(true);
+                      setVersionHistoryRestoreError(null);
+                      void restoreDocumentVersion(versionHistoryPreview)
+                        .then((result) => {
+                          if (result.ok) setVersionHistoryPreviewState(null);
+                          else setVersionHistoryRestoreError(result.error);
+                        })
+                        .catch(() => setVersionHistoryRestoreError(t("versionHistory.restoreFailed")))
+                        .finally(() => {
+                          setVersionHistoryRestoring(false);
+                          setVersionHistoryConfirmingSharedRestore(false);
+                        });
+                    }}
+                    >
+                      {versionHistoryRestoring ? <Loader2 className="save-state-spinner" size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}
+                      {t("versionHistory.sharedRestoreConfirmAction")}
+                    </button>
+                  </div>
+                  </Inline>
+                </Inset>
               )}
               {versionHistoryRestoreError && <p className="version-history-preview-error" role="alert">{versionHistoryRestoreError}</p>}
               <div className="version-history-preview-scroll">

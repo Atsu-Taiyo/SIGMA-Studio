@@ -24,7 +24,7 @@ describe("switchToAsciiInputSource", () => {
     expect(execFile.mock.calls[0]?.[0]).toBe("/usr/bin/osascript");
     expect(execFile.mock.calls[0]?.[1]).toEqual(expect.arrayContaining(["-l", "JavaScript"]));
     expect(execFile.mock.calls[0]?.[1].join("\n")).toContain("TISSelectInputSource");
-    expect(execFile.mock.calls[0]?.[2]).toEqual({ timeout: 250 });
+    expect(execFile.mock.calls[0]?.[2]).toEqual({ timeout: 250, windowsHide: true });
 
     if (!result.ok || !result.restoreToken) {
       throw new Error("restore token missing");
@@ -38,7 +38,7 @@ describe("switchToAsciiInputSource", () => {
     expect(execFile.mock.calls[1]?.[1]).toEqual(expect.arrayContaining(["-l", "JavaScript", "ja"]));
     expect(execFile.mock.calls[1]?.[1].join("\n")).toContain("TISCopyInputSourceForLanguage");
     expect(execFile.mock.calls[1]?.[1].join("\n")).toContain("currentInputSourceId !== expectedCurrentInputSourceId");
-    expect(execFile.mock.calls[1]?.[2]).toEqual({ timeout: 260 });
+    expect(execFile.mock.calls[1]?.[2]).toEqual({ timeout: 260, windowsHide: true });
   });
 
   it("does not restore macOS input source when the user changed it during math editing", async () => {
@@ -86,7 +86,9 @@ describe("switchToAsciiInputSource", () => {
       _options: { timeout: number },
       callback: (error: Error | null, stdout: string, stderr: string) => void,
     ) => {
-      callback(null, "{\"imeOpen\":true}\n", "");
+      callback(null, _args.join("\n").includes("$targetOpen =")
+        ? '{"restored":true}\n'
+        : '{"imeOpen":true,"ascii":true,"windowHandle":"123456"}\n', "");
     });
 
     const result = await switchToAsciiInputSource({
@@ -99,8 +101,15 @@ describe("switchToAsciiInputSource", () => {
     expect(execFile).toHaveBeenCalledTimes(1);
     expect(execFile.mock.calls[0]?.[0]).toBe("powershell.exe");
     expect(execFile.mock.calls[0]?.[1]).toEqual(expect.arrayContaining(["-NoProfile", "-NonInteractive", "-Command"]));
-    expect(execFile.mock.calls[0]?.[1].join("\n")).toContain("ImmSetOpenStatus");
-    expect(execFile.mock.calls[0]?.[2]).toEqual({ timeout: 300 });
+    const switchScript = execFile.mock.calls[0]?.[1].at(-1) ?? "";
+    expect(switchScript).toContain("ImmGetDefaultIMEWnd");
+    expect(switchScript).toContain("GetGUIThreadInfo");
+    expect(switchScript).toContain("processId != expectedProcessId");
+    expect(switchScript).toContain(`GetImeWindow($hwnd, ${process.pid})`);
+    expect(switchScript).toContain("SendMessageTimeoutW");
+    expect(switchScript).not.toContain("ImmGetContext");
+    expect(switchScript).toContain("$ErrorActionPreference = 'Stop'");
+    expect(execFile.mock.calls[0]?.[2]).toEqual({ timeout: 300, windowsHide: true });
 
     if (!result.ok || !result.restoreToken) {
       throw new Error("restore token missing");
@@ -111,10 +120,12 @@ describe("switchToAsciiInputSource", () => {
     })).resolves.toEqual({ ok: true, platform: "win32", restored: true });
     expect(execFile).toHaveBeenCalledTimes(2);
     expect(execFile.mock.calls[1]?.[0]).toBe("powershell.exe");
-    expect(execFile.mock.calls[1]?.[1]).toEqual(expect.arrayContaining(["-NoProfile", "-NonInteractive", "-Command", "true"]));
-    expect(execFile.mock.calls[1]?.[1].join("\n")).toContain("Boolean]::Parse");
+    expect(execFile.mock.calls[1]?.[1]).toEqual(expect.arrayContaining(["-NoProfile", "-NonInteractive", "-Command"]));
+    expect(execFile.mock.calls[1]?.[1].join("\n")).toContain("$targetOpen = $true");
+    expect(execFile.mock.calls[1]?.[1].join("\n")).toContain("123456");
+    expect(execFile.mock.calls[1]?.[1].join("\n")).toContain("$hwnd.ToInt64() -ne $expectedWindow");
     expect(execFile.mock.calls[1]?.[1].join("\n")).toContain("$currentOpen -ne $false");
-    expect(execFile.mock.calls[1]?.[2]).toEqual({ timeout: 310 });
+    expect(execFile.mock.calls[1]?.[2]).toEqual({ timeout: 310, windowsHide: true });
   });
 
   it("does not restore Windows IME state when the user reopened IME during math editing", async () => {
@@ -125,7 +136,7 @@ describe("switchToAsciiInputSource", () => {
         _options: { timeout: number },
         callback: (error: Error | null, stdout: string, stderr: string) => void,
       ) => {
-        callback(null, "{\"imeOpen\":false}\n", "");
+        callback(null, '{"imeOpen":true,"ascii":true,"windowHandle":"123456"}\n', "");
       })
       .mockImplementationOnce((
         _file: string,
@@ -148,6 +159,61 @@ describe("switchToAsciiInputSource", () => {
       ok: true,
       platform: "win32",
       restored: false,
+    });
+  });
+
+  it.each([
+    '{"imeOpen":null}',
+    '{"imeOpen":true}',
+    '{"imeOpen":true,"ascii":false,"windowHandle":"123456"}',
+    '{"imeOpen":true,"ascii":true,"windowHandle":"0"}',
+    '{"imeOpen":true,"ascii":true,"windowHandle":"invalid"}',
+    "",
+    "invalid JSON",
+  ])("does not report an unverified Windows switch as successful: %s", async (stdout) => {
+    const execFile = vi.fn((_file, _args, _options, callback) => callback(null, stdout, ""));
+    await expect(switchToAsciiInputSource({ execFile, platform: "win32" })).resolves.toMatchObject({
+      ok: false,
+      platform: "win32",
+      error: expect.any(String),
+    });
+  });
+
+  it("allows Windows helper startup time and skips restore when IME was already off", async () => {
+    const execFile = vi.fn((_file, _args, _options, callback) => (
+      callback(null, '{"imeOpen":false,"ascii":true,"windowHandle":"123456"}', "")
+    ));
+    const result = await switchToAsciiInputSource({ execFile, platform: "win32" });
+    expect(execFile.mock.calls[0]?.[2]).toEqual({ timeout: 5000, windowsHide: true });
+    if (!result.ok || !result.restoreToken) throw new Error("restore token missing");
+    await expect(restorePreviousInputSource(result.restoreToken, { execFile })).resolves.toEqual({
+      ok: true, platform: "win32", restored: false,
+    });
+    expect(execFile).toHaveBeenCalledTimes(1);
+    await expect(restorePreviousInputSource(result.restoreToken, { execFile })).resolves.toMatchObject({
+      ok: false, skipped: true,
+    });
+  });
+
+  it("does not treat missing Windows restore confirmation as success", async () => {
+    const execFile = vi.fn()
+      .mockImplementationOnce((_file, _args, _options, callback) => (
+        callback(null, '{"imeOpen":true,"ascii":true,"windowHandle":"123456"}', "")
+      ))
+      .mockImplementationOnce((_file, _args, _options, callback) => callback(null, "", ""));
+    const result = await switchToAsciiInputSource({ execFile, platform: "win32" });
+    if (!result.ok || !result.restoreToken) throw new Error("restore token missing");
+    await expect(restorePreviousInputSource(result.restoreToken, { execFile })).resolves.toEqual({
+      ok: true, platform: "win32", restored: false,
+    });
+  });
+
+  it("reports Windows helper errors without throwing", async () => {
+    const execFile = vi.fn((_file, _args, _options, callback) => (
+      callback(new Error("PowerShell failed"), "", "IME did not switch")
+    ));
+    await expect(switchToAsciiInputSource({ execFile, platform: "win32" })).resolves.toEqual({
+      ok: false, platform: "win32", error: "IME did not switch",
     });
   });
 

@@ -62,6 +62,8 @@ export interface HoveredTopLevelBlock {
    * 領域の中の末尾へ足す ＋ を出す場所。描かれている領域だけ (`measureProblemAreaEnds`)。
    */
   areaEnds?: readonly ProblemAreaEndBox[];
+  /** A boundary of a nested box in the active column. */
+  nestedInsertPoint?: BlockInsertPoint | null;
 }
 
 /**
@@ -77,7 +79,7 @@ export interface ProblemAreaEndBox {
 }
 
 /** ＋ が入れる先。無ければトップレベルの `anchorBlockId` の前後。 */
-export type BlockInsertContainer = {
+export type BlockInsertContainer = { kind: "blockSibling"; problemId?: never; area?: never } | {
   /** 問題の領域の中の末尾。 */
   kind: "problemAreaEnd";
   problemId: string;
@@ -386,6 +388,10 @@ export function resolveBlockAffordanceHover(
     return EMPTY_BLOCK_AFFORDANCE_HOVER;
   }
 
+  if (hovered.nestedInsertPoint) {
+    return { handle: null, insertPoint: hovered.nestedInsertPoint, spaceAfter: null };
+  }
+
   const { box } = hovered;
   const withinColumn = point.x >= box.left - gutterWidthPx && point.x <= box.right;
   // A gap-resolved hit is adjacent by construction, so it skips the vertical range test the
@@ -431,7 +437,7 @@ export function resolveBlockAffordanceHover(
       && Math.abs(end.bottom - box.top) > edgeThresholdPx * 2
     ))
     : hovered.areaEnds;
-  const insertPoint = pickInsertPoint(
+  const insertPoint = hovered.nestedInsertPoint ?? pickInsertPoint(
     edgeInsertPoint,
     resolveProblemAreaEndInsertPoint(areaEnds, point, edgeThresholdPx, gutterWidthPx),
     point,

@@ -63,6 +63,9 @@ export function useDocumentBodyCommands({ getDocument, selectedId, getSelectedId
       scheduleEditorBlockFocus(insertedBodyBlockId);
       return;
     }
+    if (block.type === "boxBlock") {
+      scheduleEditorBlockFocus(block.id, { boxTitle: true });
+    }
     if (block.type === "heading" || block.type === "paragraph" || block.type === "section") {
       scheduleEditorBlockFocus(block.id);
     }
@@ -279,6 +282,16 @@ export function useDocumentBodyCommands({ getDocument, selectedId, getSelectedId
   const insertBodyBlockAt = (anchorBlockId: string | null, position: "before" | "after", container?: BlockInsertContainer) => {
     if (container?.kind === "problemAreaEnd") {
       insertProblemAreaEndBlock(container.problemId, container.area);
+      return;
+    }
+    if (container?.kind === "blockSibling" && anchorBlockId) {
+      const block = createBlock("paragraph", tEditor);
+      commitDocumentChange(current => moveBlocksByDrag({ ...current, content: [...current.content, block] }, {
+        unitIds: [block.id], target: { kind: "sibling", anchorId: anchorBlockId, position },
+      }));
+      setSelectedInlineMath(null);
+      setSelectedId(block.id);
+      scheduleEditorBlockFocus(block.id);
       return;
     }
     // Clicking the blank strip under the text repeatedly must not stack empty paragraphs:

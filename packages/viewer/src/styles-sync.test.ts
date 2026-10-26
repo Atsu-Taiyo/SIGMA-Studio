@@ -174,7 +174,9 @@ describe("viewer stylesheet size", () => {
   // 枠の下に線の分の余白を足す) で約 1.8KB 増えた。印刷・viewer も同じ下線を描くので 86KiB へ上げた。
   // 図中テキストの段落下余白 (`.overlay-text-shape-content` を既存の `spaceAfterPx` 3 規則へ足した)
   // で約 0.3KB 増えた。印刷・viewer も同じ余白を描くので 87KiB へ上げた。
-  const MAX_AUTHORED_CSS_BYTES = 87 * 1024;
+  // 番号の寸法・罫線・文字位置、領域の明示余白、ゼロ幅数式の規則は印刷と viewer も共有する。
+  // 約 4 KiB の文書用スタイルを加えたため手書き分を 91 KiB にする。dist の 128 KiB は維持する。
+  const MAX_AUTHORED_CSS_BYTES = 91 * 1024;
   const MAX_DIST_CSS_BYTES = 128 * 1024;
 
   it("keeps the authored CSS (viewer + shared document surface) small", () => {

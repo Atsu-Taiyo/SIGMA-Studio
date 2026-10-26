@@ -16,7 +16,7 @@ jobs:
   required-ci:
     name: Required CI
     if: ${{ always() }}
-    needs: [desktop, dependency-security, electron-smoke, public-packages, file-lock]
+    needs: [desktop, dependency-security, electron-smoke, electron-smoke-required, public-packages, file-lock, pdf-parity]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -26,7 +26,7 @@ jobs:
         run: |
           node <<'NODE'
           const results = JSON.parse(process.env.REQUIRED_CI_RESULTS ?? "{}");
-          const required = ["desktop", "dependency-security", "electron-smoke", "public-packages", "file-lock"];
+          const required = ["desktop", "dependency-security", "electron-smoke", "electron-smoke-required", "public-packages", "file-lock", "pdf-parity"];
           const incomplete = required.filter((name) => results[name]?.result !== "success");
           if (incomplete.length > 0) {
             for (const name of incomplete) {
@@ -64,6 +64,34 @@ jobs:
       - run: npm run build
       - run: npm run electron:build
 
+  pdf-parity:
+    name: B4 three-column PDF (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Build the actual desktop renderer, main and preload
+        run: npm --workspace @sigma-studio/desktop run electron:prepare
+      - name: Compare B4 portrait and landscape editor, preview and saved PDF at 100%, 125% and 150% display scale
+        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/pdf-b4-columns.spec.ts
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: pdf-parity-${{ matrix.os }}
+          path: apps/desktop/test-results/
+          retention-days: 7
+
   dependency-security:
     name: Dependency security
     runs-on: ubuntu-latest
@@ -81,7 +109,11 @@ jobs:
       - run: npm run security:audit
 
   electron-smoke:
-    name: Electron persistence and IPC smoke
+    name: Electron persistence and IPC smoke (${{ matrix.shard }}/2)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     runs-on: ubuntu-latest
     # Includes the static build plus the growing persistence suite. A recent run
     # reached only test 14/80 before the old 20-minute job limit canceled it.
@@ -129,15 +161,18 @@ jobs:
           xvfb-run --auto-servernum dbus-run-session -- bash -euo pipefail -c '
             printf "%s" "sigma-ci-fixture" | gnome-keyring-daemon --daemonize --components=secrets --unlock >/dev/null
             export XDG_CURRENT_DESKTOP=GNOME
-            npm run test:e2e:electron -- \
+            npm --workspace @sigma-studio/desktop run test:e2e:electron -- --shard=${{ matrix.shard }}/2 \
               tests/electron/ai-svg-conversion.spec.ts \
               tests/electron/svg-to-sigma-double-arrows.spec.ts \
               tests/electron/svg-small-circles.spec.ts tests/electron/svg-to-sigma-crop-arrows.spec.ts \
               tests/electron/open-document.spec.ts tests/electron/ipc-sender-security.spec.ts \
-              tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts \
+              tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts tests/electron/ai-proposal-controls-above-shapes.spec.ts \
               tests/electron/math-ime-placeholder.spec.ts \
               tests/electron/math-selection-format.spec.ts \
               tests/electron/font-format-roundtrip.spec.ts tests/electron/clipboard-routing.spec.ts \
+              tests/electron/pocket.spec.ts \
+              tests/electron/editor-state-regressions.spec.ts \
+              tests/electron/group-selection-position.spec.ts tests/electron/unanchored-shape-position.spec.ts \
               tests/electron/math-shortcut-type-ahead.spec.ts \
               tests/electron/shared-missing-asset-repair.spec.ts \
               tests/electron/whiteboard-focus.spec.ts tests/electron/graph-crop.spec.ts \
@@ -149,6 +184,7 @@ jobs:
               tests/electron/shared-lazy-open.spec.ts \
               tests/electron/profile-avatar-crop.spec.ts \
               tests/electron/problem-display.spec.ts tests/electron/problem-lead-line.spec.ts \
+              tests/electron/problem-layout.spec.ts \
               tests/electron/whiteboard-image-save.spec.ts \
               tests/electron/small-shape-handles.spec.ts \
               tests/electron/ai-chat-merge-recovery.spec.ts tests/electron/shared-ai-read-merge.spec.ts \
@@ -179,9 +215,21 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: electron-smoke-failure
+          name: electron-smoke-failure-${{ matrix.shard }}
           path: apps/desktop/test-results/
           retention-days: 7
+
+  electron-smoke-required:
+    name: Electron persistence and IPC smoke
+    if: ${{ always() }}
+    needs: [electron-smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require both Electron shards to succeed
+        env:
+          ELECTRON_SMOKE_RESULT: ${{ needs.electron-smoke.result }}
+        run: test "$ELECTRON_SMOKE_RESULT" = success
 
   public-packages:
     name: Public package build and contracts

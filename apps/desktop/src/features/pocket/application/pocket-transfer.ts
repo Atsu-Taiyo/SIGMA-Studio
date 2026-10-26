@@ -121,11 +121,11 @@ function findPocketItem(id: string): PocketItem | undefined {
 }
 
 /**
- * ポケットの項目を、いまの貼り付け先へ入れる。⌘V と同じ経路で、コピーが書いたのと同じ
- * 内容を持つ paste イベントを送る。キャレットの位置・図形の置き場所・Undo のまとまりは
- * 通常の貼り付けのままで、ポケットの項目は消えない (何度でも入れられる)。
+ * ポケットの項目を、いまの貼り付け先へ入れる。紙面へ置くものは紙面の窓口へ渡し、
+ * 本文へ入れるものはコピー時と同じ内容の paste イベントを送る。ID の振り直しと Undo は
+ * 通常の貼り付けが所有し、ポケットの項目は消えない (何度でも入れられる)。
  *
- * 本文を持たない紙面 (ホワイトボード) は、紙面の窓口が項目を図形として置く。
+ * 図形全般と、本文を持たない紙面 (ホワイトボード) の本文は、紙面の窓口が図形として置く。
  */
 export function insertPocketItem(id: string): PocketInsertResult {
   const item = findPocketItem(id);
@@ -138,7 +138,7 @@ export function insertPocketItem(id: string): PocketInsertResult {
   // 図形だけの項目は、本文のキャレットではなく紙面へ貼る。キャレットのある本文エディタへ
   // 送ると、図形を編集中のとき ProseMirror が (何も入らないまま) 貼り付けを引き受けてしまい、
   // 紙面側の受け手が見送る。2 つ目以降の図形が入らなくなるのはこのため。
-  const target = item.preview.kind === "shapes" ? document.body : resolveTransferTarget();
+  const target = item.transferTarget === "page" ? document.body : resolveTransferTarget();
   const outcome = pasteItemInto(item, target);
   if (outcome === "unsupported") {
     showPocketNotice("unsupported");
@@ -251,13 +251,14 @@ export async function dropPocketItem(
   if (!item) {
     return "missing";
   }
-  if (location.pagePoint && getPocketPageHost()?.placeOnPage(item, location.pagePoint)) {
+  const host = getPocketPageHost(location);
+  if (location.pagePoint && host?.placeOnPage(item, location.pagePoint)) {
     return "inserted";
   }
-  if (item.preview.kind !== "shapes") {
-    getPocketPageHost()?.beforePlaceCaret?.();
+  if (item.transferTarget === "caret") {
+    host?.beforePlaceCaret?.();
   }
-  const editable = item.preview.kind === "shapes" ? null : placeCaretAtPoint(location.clientX, location.clientY);
+  const editable = item.transferTarget === "page" ? null : placeCaretAtPoint(location.clientX, location.clientY);
   if (!editable) {
     showPocketNotice("rejected");
     return "rejected";

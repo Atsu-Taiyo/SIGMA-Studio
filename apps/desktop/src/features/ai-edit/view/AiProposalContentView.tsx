@@ -104,6 +104,9 @@ function ProposalBlock({
             minHeightMm={unit.minHeightMm}
             problemNumber={unit.problemNumber}
             numberFontSize={unit.numberFontSize}
+            numbering={unit.numbering}
+            areaLayout={unit.areaLayout}
+            frame={unit.frame}
             hasFrame={unit.hasFrame}
             frameStyleId={unit.frameStyleId}
             frameCustom={unit.frameCustom}

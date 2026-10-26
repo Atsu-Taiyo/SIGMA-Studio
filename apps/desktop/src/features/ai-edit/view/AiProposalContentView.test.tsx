@@ -19,6 +19,7 @@ import {
 } from "../model/proposal-content";
 import { resolveProposalMergePreview } from "../model/proposal-merge-preview";
 import { AiProposalContentView } from "./AiProposalContentView";
+import { PocketItemPreview } from "@/features/pocket/view/PocketPreview";
 
 function paragraph(id: string, text: string): SigmaBlock {
   return { id, type: "paragraph", children: [{ type: "text", text }] };
@@ -163,6 +164,31 @@ describe("AiProposalContentView", () => {
 
     expect(page.length).toBeGreaterThan(0);
     expect(panel).toEqual(page);
+  });
+
+  it("retains number, area and frame geometry in AI and pocket previews", () => {
+    const replacement = { ...problem("problem_1", { frame: true }),
+      numbering: { enabled: true, value: 4, heightPx: 70, widthPx: 56 },
+      areaLayout: { prompt: { paddingPx: { top: 13, right: 17, bottom: 19, left: 23 }, widthMm: 80 } },
+      frame: { enabled: true, borderWidthPx: 4 },
+    } as SigmaBlock;
+    const content = pending(documentOf([problem()]), previewOf([{
+      operation: "replace", summary: "配置", targetId: "problem_1", replacementBlock: replacement as never,
+    }]));
+    const htmls = [render(content, "page"), render(content, "panel"), renderToStaticMarkup(
+      <PocketItemPreview preview={{ kind: "blocks", blocks: [replacement], blockCount: 1, text: "問題" }} />,
+    )];
+    for (const html of htmls) {
+      const { container, close } = parse(html);
+      const scope = container.querySelector('[data-change="added"]') ?? container;
+      const area = scope.querySelector('[data-problem-area="prompt"]')!;
+      expect(area.getAttribute("style")).toContain("padding-left:23px");
+      expect(area.getAttribute("style")).toContain("width:min(80mm, 100%)");
+      expect(area.getAttribute("style")).toContain("--problem-number-height:70px");
+      expect(area.getAttribute("style")).toContain("--problem-number-width:56px");
+      expect(area.getAttribute("style")).toContain("--problem-frame-border-width:4px");
+      close();
+    }
   });
 
   it("uses the shared print renderer for every kind of block", () => {

@@ -1509,6 +1509,19 @@ code {
   height: calc(100vh / var(--whiteboard-zoom, 1));
 }
 
+/* 紙面の操作の層 (`page-canvas/page-controls-layer.tsx`)。本文・図形より上に、拡張が置く操作
+   (AI 提案の承認バーなど) を描く。層そのものは押下を受けず、置かれた操作だけが受ける。 */
+.page-controls-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 24;
+  pointer-events: none;
+}
+
+.page-controls-layer > * {
+  pointer-events: auto;
+}
+
 /* Block handle, insertion line and the trailing "write here" strip. The layer itself never
    takes a pointer event — only the three controls do — so text selection, figure hit-testing
    and the margin drag-select gutter underneath keep working unchanged. */

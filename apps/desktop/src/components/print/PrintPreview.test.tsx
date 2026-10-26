@@ -223,6 +223,16 @@ describe("PrintPreview layout modes", () => {
     expect(html).toContain('data-tex="x^2+y^2"');
   });
 
+  it("keeps a hidden box title in the document while omitting it from previews", () => {
+    const box = createBoxBlock("bandbox", "非表示の見出し", { id: "hidden_heading", bodyText: "表示する本文" });
+    box.frame = { ...box.frame, titleVisible: false };
+    const html = renderToStaticMarkup(<PrintPreview document={documentWithColumns(1, [box])} profile="teacher" />);
+    expect(html).not.toContain('class="print-box-title"');
+    expect(html).not.toContain("非表示の見出し");
+    expect(html).toContain("表示する本文");
+    expect(box.title).toEqual([{ type: "text", text: "非表示の見出し" }]);
+  });
+
   it("does not render a print title element for an empty box title", () => {
     const html = renderToStaticMarkup(
       <PrintPreview
@@ -1965,6 +1975,54 @@ describe("paginateMeasuredPrintBlocks problem-area reservations and nested secti
     expect(run()).toEqual(first);
     return first;
   }
+
+  it("reserves a tall problem number only on the first fragment", () => {
+    const unit = { ...problemArea("tall_number", "prompt", [
+      richParagraph("number_first", "first"), richParagraph("number_last", "last"),
+    ]), problemNumber: 1, numbering: { heightPx: 90, offsetYPx: 5 } };
+    const pages = paginateTwice([unit], [140], measured({ number_first: 70, number_last: 70 }));
+    const fragments = pages.flatMap(page => page.columns.flatMap(column => column.blocks))
+      .filter((block): block is Extract<PrintContentUnit, { type: "problemAreaFragment" }> => block.type === "problemAreaFragment");
+    expect(fragments.map(fragment => fragment.fragmentRole)).toEqual(["first", "last"]);
+    expect(fragments.map(fragment => fragment.estimatedHeightPx)).toEqual([95, 70]);
+    expect(pages.every(page => page.columns.every(column => column.estimatedContentHeightPx <= 100))).toBe(true);
+  });
+
+  it("reserves the default font-sized number plus its vertical offset when fragmenting", () => {
+    const unit = { ...problemArea("default_number", "prompt", [
+      richParagraph("short_first", "first"), richParagraph("short_last", "last"),
+    ]), problemNumber: 1, numbering: { offsetYPx: 55 } };
+    const pages = paginateTwice([unit], [110], measured({ short_first: 20, short_last: 90 }));
+    const fragments = pages.flatMap(page => page.columns.flatMap(column => column.blocks))
+      .filter((block): block is Extract<PrintContentUnit, { type: "problemAreaFragment" }> => block.type === "problemAreaFragment");
+    expect(fragments.map(fragment => fragment.fragmentRole)).toEqual(["first", "last"]);
+    expect(fragments[0].estimatedHeightPx).toBeCloseTo(12 * (96 / 72) * 1.9 + 55);
+    expect(fragments[1].estimatedHeightPx).toBe(90);
+  });
+
+  it("budgets explicit outer margins only at the first and last problem fragments", () => {
+    const unit = { ...problemArea("margins", "prompt", [
+      richParagraph("margin_1", "first"), richParagraph("margin_2", "middle"), richParagraph("margin_3", "last"),
+    ]), areaLayout: { marginTopPx: 24, marginBottomPx: 32 } };
+    const pages = paginateTwice([unit], [176], measured({ margin_1: 40, margin_2: 40, margin_3: 40 }));
+    const fragments = pages.flatMap(page => page.columns.flatMap(column => column.blocks))
+      .filter((block): block is Extract<PrintContentUnit, { type: "problemAreaFragment" }> => block.type === "problemAreaFragment");
+    expect(fragments.map(fragment => fragment.fragmentRole)).toEqual(["first", "middle", "last"]);
+    expect(fragments.map(fragment => fragment.estimatedHeightPx)).toEqual([64, 40, 72]);
+    expect(pages.every(page => page.columns.every(column => column.estimatedContentHeightPx <= 100))).toBe(true);
+  });
+
+  it("budgets explicit padding for unframed problem fragments and splits over-tall children", () => {
+    const unit = { ...problemArea("padding", "prompt", [richParagraph("padding_child", "text")]),
+      areaLayout: { paddingPx: { top: 20, right: 0, bottom: 20, left: 0 } } };
+    const pages = paginateTwice([unit], [130], measured({ padding_child: 90 }));
+    const fragments = pages.flatMap(page => page.columns.flatMap(column => column.blocks))
+      .filter((block): block is Extract<PrintContentUnit, { type: "problemAreaFragment" }> => block.type === "problemAreaFragment");
+    expect(fragments).toHaveLength(2);
+    expect(fragments.map(fragment => fragment.estimatedHeightPx)).toEqual([100, 50]);
+    expect(fragments.reduce((sum, fragment) => sum + (fragment.blockSlice?.sliceHeight ?? 0), 0)).toBe(90);
+    expect(pages.every(page => page.columns.every(column => column.estimatedContentHeightPx <= 100))).toBe(true);
+  });
 
   it("automatically fragments a framed area taller than one page", () => {
     const blocks = [
