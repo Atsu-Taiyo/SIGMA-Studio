@@ -1,5 +1,6 @@
 export * from "./block-rect-estimate";
 export * from "./block-space-after";
+export * from "./list-marker";
 export * from "./comment-relations";
 export * from "./comment-operations";
 export * from "./document-change-origin";

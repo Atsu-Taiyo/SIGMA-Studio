@@ -5,9 +5,11 @@ import { useMemo, type CSSProperties } from "react";
 import {
   blockSpaceAfterPx,
   blockSpaceAfterStyleVars,
+  listIndentStyleVars,
   listItemSpaceAfterStyleVars,
   normalizeBlockSpaceAfterPx,
   normalizeCodeBlockTheme,
+  orderedListMarkerDataAttr,
   type CodeBlockNode,
   type TextAlign,
   type DividerNode,
@@ -127,6 +129,19 @@ function selfContainedSpaceAfterStyle(
 ): CSSProperties | undefined {
   const px = selfContained ? blockSpaceAfterPx(block) : 0;
   return px > 0 ? { paddingBottom: `${px}px` } : undefined;
+}
+
+/**
+ * 字下げのスタイルシート抜きの版。変数を読む規則が無いので値そのものを書く。既定 (値なし) は
+ * 面ごとの `styles.list` が持つ (図中テキストは 1.6em)。
+ */
+function selfContainedListIndentStyle(
+  block: Extract<RichBlock, { type: "list" }>,
+  selfContained: boolean,
+): CSSProperties | undefined {
+  return selfContained && block.indentEm !== undefined
+    ? { paddingInlineStart: `${block.indentEm}em` }
+    : undefined;
 }
 
 /**
@@ -512,10 +527,10 @@ function TextFlowStaticList({
         data-sigma-doc-id={blockIdAttr(block.id, omitBlockIds)}
         // `document-surface.css` swaps the counter style on this attribute, matching what the
         // editor's `orderedList` node renders. No marker style means the UA default decimal.
-        data-list-marker={block.markerStyle === "paren" ? "paren" : undefined}
+        data-list-marker={orderedListMarkerDataAttr(block.markerStyle)}
         className={classNames.list}
         start={block.start}
-        style={{ ...blockSpaceAfterStyleVars(block), ...selfContainedSpaceAfterStyle(block, shared.selfContained), ...styles.list } as CSSProperties}
+        style={{ ...blockSpaceAfterStyleVars(block), ...listIndentStyleVars(block.indentEm), ...selfContainedSpaceAfterStyle(block, shared.selfContained), ...styles.list, ...selfContainedListIndentStyle(block, shared.selfContained) } as CSSProperties}
       >
         {items}
       </ol>
@@ -524,7 +539,7 @@ function TextFlowStaticList({
       <ul
         data-sigma-doc-id={blockIdAttr(block.id, omitBlockIds)}
         className={classNames.list}
-        style={{ ...blockSpaceAfterStyleVars(block), ...selfContainedSpaceAfterStyle(block, shared.selfContained), ...styles.list } as CSSProperties}
+        style={{ ...blockSpaceAfterStyleVars(block), ...listIndentStyleVars(block.indentEm), ...selfContainedSpaceAfterStyle(block, shared.selfContained), ...styles.list, ...selfContainedListIndentStyle(block, shared.selfContained) } as CSSProperties}
       >
         {items}
       </ul>

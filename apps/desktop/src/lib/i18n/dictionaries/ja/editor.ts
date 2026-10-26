@@ -221,6 +221,9 @@ export const editor = {
     areaHeight: "エリアの高さ",
     spaceAfter: "ブロック下の余白",
     spaceAfterHint: "下へドラッグで余白を追加（ダブルクリックで 0）",
+    listIndent: "リストの字下げ",
+    listIndentHint: "左右にドラッグで文字の始まる位置を変更（ダブルクリックで既定に戻す）",
+    listIndentValue: "{{value}}字",
     /** 問題文だけは何問目かが付く。区分の呼び名そのものは `block.problem*` が出典。 */
     areaPrompt: "問{{number}} 問題文",
     /** 段組の 2 段目以降で段の間に縦書きで出すときの短い形。 */

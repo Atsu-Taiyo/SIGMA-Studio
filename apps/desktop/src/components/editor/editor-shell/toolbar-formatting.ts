@@ -165,6 +165,8 @@ export type BlockStyleCommandValue =
   | "bulletList"
   | "orderedList"
   | "orderedListParen"
+  | "orderedListParenAlpha"
+  | "orderedListParenRoman"
   | "quote"
   | "code"
   | "divider";
@@ -172,5 +174,5 @@ export type BlockStyleCommandValue =
 /** ツールバーのブロックボタンが送る値。段落スタイル (見出し・本文) はここに含めない。 */
 export type BlockStructureCommandValue = Extract<
   BlockStyleCommandValue,
-  "bulletList" | "orderedList" | "orderedListParen" | "quote" | "code" | "divider"
+  "bulletList" | "orderedList" | "orderedListParen" | "orderedListParenAlpha" | "orderedListParenRoman" | "quote" | "code" | "divider"
 >;

@@ -424,13 +424,26 @@ describe("SigmaDoc schema", () => {
     expect(getDocumentIssues(document)).toEqual([]);
   });
 
-  it("rejects an unknown marker style instead of persisting it", () => {
-    expect(() =>
-      parseSigmaDocument({
-        ...sampleDocument,
-        content: [{ ...parenList(), markerStyle: "roman" }],
-      }),
-    ).toThrow();
+  it("drops an unknown marker style to the plain numbering instead of persisting it", () => {
+    const parsed = parseSigmaDocument({
+      ...sampleDocument,
+      content: [{ ...parenList(), markerStyle: "roman" }],
+    });
+    const list = parsed.content[0];
+    expect(list?.type === "list" ? list.markerStyle : "not a list").toBeUndefined();
+    expect(list?.type === "list" ? list.items.length : 0).toBeGreaterThan(0);
+  });
+
+  it("keeps the (a) / (i) marker styles and a list indent, and drops an out-of-range indent", () => {
+    const parsed = parseSigmaDocument({
+      ...sampleDocument,
+      content: [
+        { ...parenList(), id: "alpha", markerStyle: "parenLowerAlpha", indentEm: 2.5 },
+        { ...parenList(), id: "roman", markerStyle: "parenUpperRoman", indentEm: 99 },
+      ],
+    });
+    expect(parsed.content.map((block) => block.type === "list" ? [block.markerStyle, block.indentEm] : null))
+      .toEqual([["parenLowerAlpha", 2.5], ["parenUpperRoman", 8]]);
   });
 
   it("accepts paragraph-based layout sections with column settings", () => {

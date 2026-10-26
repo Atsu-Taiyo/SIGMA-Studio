@@ -15,6 +15,7 @@ import {
   createParenOrderedListInputRules,
   normalizeNestedOrderedListMarkerStyles,
   ORDERED_LIST_MARKER_INPUT_RULES,
+  resolveOrderedListMarkerInput,
 } from "@/components/tiptap/paren-ordered-list-extension";
 import { createRichTextEngineExtensions } from "@/components/tiptap/rich-text-engine";
 
@@ -74,11 +75,67 @@ function firstChild(doc: ProseMirrorNode): ProseMirrorNode {
   return doc.child(0);
 }
 
+function orderedListOf(markerStyle: string, count: number): ProseMirrorNode {
+  return schema.nodeFromJSON({
+    type: "orderedList",
+    attrs: { start: 1, markerStyle },
+    content: Array.from({ length: count }, (_, index) => ({
+      type: "listItem",
+      content: [{ type: "paragraph", content: [{ type: "text", text: `項目${index + 1}` }] }],
+    })),
+  });
+}
+
+const alphaListOf = (count: number) => orderedListOf("parenLowerAlpha", count);
+const romanListOf = (count: number) => orderedListOf("parenLowerRoman", count);
+
 const parenRules = () => createParenOrderedListInputRules(schema.nodes.orderedList);
 
 describe("ordered list marker input rules", () => {
   it("lists every supported marker form in one table so近い形式を後から足せる", () => {
-    expect(ORDERED_LIST_MARKER_INPUT_RULES.map((rule) => rule.markerStyle)).toEqual(["paren"]);
+    expect(ORDERED_LIST_MARKER_INPUT_RULES.map((rule) => rule.markerStyle)).toEqual([
+      "paren", "parenLowerAlpha", "parenUpperAlpha", "parenLowerRoman", "parenUpperRoman",
+    ]);
+  });
+
+  it.each([
+    ["(a)", "parenLowerAlpha", 1],
+    ["(c)", "parenLowerAlpha", 3],
+    ["(B)", "parenUpperAlpha", 2],
+    ["(i)", "parenLowerRoman", 1],
+    ["(iv)", "parenLowerRoman", 4],
+    ["(I)", "parenUpperRoman", 1],
+  ])("wraps a line that starts with %s into a %s list starting at %i", (typed, markerStyle, start) => {
+    const list = firstChild(typeCharacter(paragraphState(typed), parenRules(), " ")!.doc);
+    expect(list.type.name).toBe("orderedList");
+    expect(list.attrs.markerStyle).toBe(markerStyle);
+    expect(list.attrs.start).toBe(start);
+  });
+
+  it("does not fire on letters that are neither one letter nor a roman numeral", () => {
+    expect(typeCharacter(paragraphState("(ab)"), parenRules(), " ")).toBeNull();
+    expect(typeCharacter(paragraphState("(Ab)"), parenRules(), " ")).toBeNull();
+  });
+
+  it("reads (i) after (h) as the next letter, and (v) after (iv) as the next roman numeral", () => {
+    expect(resolveOrderedListMarkerInput("i", alphaListOf(8))).toEqual({ markerStyle: "parenLowerAlpha", start: 9 });
+    expect(resolveOrderedListMarkerInput("v", romanListOf(4))).toEqual({ markerStyle: "parenLowerRoman", start: 5 });
+    expect(resolveOrderedListMarkerInput("v", null)).toEqual({ markerStyle: "parenLowerAlpha", start: 22 });
+    expect(resolveOrderedListMarkerInput("i", null)).toEqual({ markerStyle: "parenLowerRoman", start: 1 });
+  });
+
+  it("joins (b) onto the (a) list right before it", () => {
+    const doc = schema.nodeFromJSON({
+      type: "doc",
+      content: [
+        alphaListOf(1).toJSON(),
+        { type: "paragraph", content: [{ type: "text", text: "(b)" }] },
+      ],
+    });
+    const state = EditorState.create({ schema, doc });
+    const next = typeCharacter(state.apply(state.tr.setSelection(TextSelection.atEnd(state.doc))), parenRules(), " ");
+    expect(next!.doc.childCount).toBe(1);
+    expect(firstChild(next!.doc).childCount).toBe(2);
   });
 
   it("wraps a line that starts with (1) into a paren-marked ordered list", () => {

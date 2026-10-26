@@ -5,6 +5,7 @@ import { isGraphFillPattern } from "./graph-fill-style";
 import { isGraph3DSpec } from "./graph3d-validation";
 import { OVERLAY_ARROWHEADS } from "./overlay-model";
 import type { InlineNode } from "./model";
+import { normalizeListIndentEm, normalizeOrderedListMarkerStyle } from "./model/blocks";
 import type {
   OverlayAnchor,
   OverlayArrowhead,
@@ -357,7 +358,8 @@ export function isOverlayTextBlock(value: unknown): value is OverlayTextBlock {
 function isOverlayTextListBody(value: Record<string, unknown>): boolean {
   return (value.listType === "bullet" || value.listType === "ordered") &&
     (value.start === undefined || isPositiveInteger(value.start)) &&
-    (value.markerStyle === undefined || value.markerStyle === "decimal" || value.markerStyle === "paren") &&
+    (value.markerStyle === undefined || normalizeOrderedListMarkerStyle(value.markerStyle) !== undefined) &&
+    (value.indentEm === undefined || normalizeListIndentEm(value.indentEm) === value.indentEm) &&
     Array.isArray(value.items) &&
     value.items.every(isOverlayTextListItem);
 }

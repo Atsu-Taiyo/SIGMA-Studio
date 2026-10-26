@@ -2,8 +2,10 @@ import { Extension } from "@tiptap/core";
 
 import {
   BLOCK_SPACE_AFTER_ATTRIBUTE,
+  LIST_INDENT_ATTRIBUTE,
   LIST_ITEM_LEADING_SPACE_AFTER_ATTRIBUTE,
   LIST_ITEM_SPACE_AFTER_ATTRIBUTE,
+  ORDERED_LIST_MARKER_STYLE_ATTRIBUTE,
 } from "@/components/tiptap/block-space-after-attributes";
 
 /**
@@ -70,13 +72,13 @@ export const OverlayTextBlockAttrs = Extension.create({
         // style would be dropped from the schema and lost on the next save.
         types: ["orderedList"],
         attributes: {
-          markerStyle: {
-            default: null,
-            parseHTML: (element) => element.getAttribute("data-list-marker"),
-            renderHTML: (attributes) => (
-              attributes.markerStyle === "paren" ? { "data-list-marker": "paren" } : {}
-            ),
-          },
+          markerStyle: ORDERED_LIST_MARKER_STYLE_ATTRIBUTE,
+        },
+      },
+      {
+        types: ["bulletList", "orderedList"],
+        attributes: {
+          indentEm: LIST_INDENT_ATTRIBUTE,
         },
       },
     ];

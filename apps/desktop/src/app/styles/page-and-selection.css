@@ -4086,3 +4086,96 @@ body.page-block-dragging * {
   width: auto;
   min-height: 30px;
 }
+
+/* リストの字下げのつまみ (`ListIndentSlider`)。キャレットのあるリストの上辺、文字の始まる線に
+   ▼を置く。ふだんは灰色の小さな印だけで、乗る・引くと線と目盛りと字数が出る。
+   編集面だけの道具なので document-surface.css には置かない。 */
+.list-indent-slider {
+  position: absolute;
+  z-index: 3;
+  width: 0;
+  pointer-events: none;
+}
+
+.list-indent-slider-knob {
+  position: absolute;
+  top: 0;
+  left: var(--list-indent-text-left);
+  width: 14px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ew-resize;
+  pointer-events: auto;
+  touch-action: none;
+  transform: translate(-50%, -100%);
+}
+
+/* ▼の形。掴む範囲 (ボタン) より小さく描き、先端を線の上端に合わせる。 */
+.list-indent-slider-knob::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 7px solid var(--text-muted, #8a8a8a);
+  transform: translateX(-50%);
+}
+
+.list-indent-slider-knob:hover::before,
+.list-indent-slider-knob:focus-visible::before,
+.list-indent-slider[data-dragging="true"] .list-indent-slider-knob::before {
+  border-top-color: var(--accent, #2563eb);
+}
+
+.list-indent-slider-knob:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent, #2563eb) 45%, transparent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+.list-indent-slider-guide,
+.list-indent-slider-track {
+  position: absolute;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+/* 文字の始まる線。リストの高さいっぱいに通す。 */
+.list-indent-slider-guide {
+  top: 0;
+  bottom: 0;
+  left: var(--list-indent-text-left);
+  border-left: 1px dashed var(--accent, #2563eb);
+}
+
+/* 動かせる範囲 (リストの左端から字下げの上限まで) を示す横の目盛り。 */
+.list-indent-slider-track {
+  top: -3px;
+  left: 0;
+  width: var(--list-indent-track);
+  height: 1px;
+  background: var(--border, #dadada);
+}
+
+.list-indent-slider:has(.list-indent-slider-knob:hover) :is(.list-indent-slider-guide, .list-indent-slider-track),
+.list-indent-slider[data-dragging="true"] :is(.list-indent-slider-guide, .list-indent-slider-track) {
+  opacity: 1;
+}
+
+.list-indent-slider-value {
+  position: absolute;
+  top: -14px;
+  left: var(--list-indent-text-left);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--text-primary, #111111);
+  color: var(--background, #ffffff);
+  font: 500 11px/16px var(--font-ui, system-ui, sans-serif);
+  white-space: nowrap;
+  transform: translate(8px, -100%);
+}

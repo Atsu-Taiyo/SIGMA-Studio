@@ -6,6 +6,7 @@ import {
   normalizeBlockSpaceAfterPx,
   normalizeCodeBlockTheme,
   normalizeLineHeight,
+  normalizeListIndentEm,
   normalizeOrderedListMarkerStyle,
   inlineNodesToPlainText,
   PROBLEM_AREA_ORDER,
@@ -455,6 +456,7 @@ function listNodeToTiptapNode(list: ListNode): TiptapNode {
       spaceAfterPx: spaceAfterAttr(list),
       ...(list.listType === "ordered" && list.start ? { start: list.start } : {}),
       ...(list.listType === "ordered" && list.markerStyle ? { markerStyle: list.markerStyle } : {}),
+      ...(list.indentEm !== undefined ? { indentEm: list.indentEm } : {}),
     },
     content: list.items.map(listItemNodeToTiptapNode),
   };
@@ -891,6 +893,7 @@ function tiptapListNodeToTextBlock(node: TiptapNode): ListNode {
   const isOrdered = node.type === "orderedList";
   const start = normalizePositiveInteger(node.attrs?.start);
   const markerStyle = normalizeOrderedListMarkerStyle(node.attrs?.markerStyle);
+  const indentEm = normalizeListIndentEm(node.attrs?.indentEm);
   return {
     type: "list",
     id: typeof node.attrs?.sigmaDocId === "string" ? node.attrs.sigmaDocId : createId("list"),
@@ -899,6 +902,7 @@ function tiptapListNodeToTextBlock(node: TiptapNode): ListNode {
     ...(spaceAfterFromAttrs(node) ? { spaceAfterPx: spaceAfterFromAttrs(node) } : {}),
     ...(isOrdered && start && start !== 1 ? { start } : {}),
     ...(isOrdered && markerStyle && markerStyle !== "decimal" ? { markerStyle } : {}),
+    ...(indentEm !== undefined ? { indentEm } : {}),
     items: (node.content ?? [])
       .filter((child) => child.type === "listItem")
       .map(tiptapListItemNodeToSigmaNode),

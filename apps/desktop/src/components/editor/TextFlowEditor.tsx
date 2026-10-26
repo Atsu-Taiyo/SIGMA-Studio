@@ -5,6 +5,7 @@ import { registerTextPointerSelectionCommit } from "./text-pointer-selection";
 import { resolveTextSelectionBlockId } from "./text-flow/text-selection-block";
 import { retainedSelectionFingerprint } from "./text-flow/retained-selection-fingerprint";
 import { usePreferredFontSeed } from "./text-flow/preferred-font-context";
+import { ListIndentSlider } from "./text-flow/ListIndentSlider";
 import { applyEditorDocumentProjection } from "@/components/tiptap/document-projection";
 
 const sessionProjectionEditors = new WeakSet<TiptapEditor>();
@@ -813,6 +814,7 @@ function TextFlowEditorImpl({
   const documentSessionRef = useRef(documentSession);
   useLayoutEffect(() => { documentSessionRef.current = documentSession; }, [documentSession]);
   const t = useT("editor");
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const tSettings = useT("settings");
   const locale = useAppLocale();
   countPerformanceEvent("TextFlowEditor.render");
@@ -3144,6 +3146,7 @@ function TextFlowEditorImpl({
 
   return (
     <div
+      ref={shellRef}
       className={`text-flow-shell ${columnFlowBlockLayouts ? "column-flow-positioned" : ""}`}
       onCopy={(event) => {
         // ProseMirror のコピー処理はエディタ根の DOM に付いていて、React に委譲されたこの
@@ -3283,6 +3286,7 @@ function TextFlowEditorImpl({
     >
       <div className="text-flow-side-selection-gutter" aria-hidden="true" />
       <EditorContent editor={editor} className={boxFragmentReplicaId ? "text-flow-fragment-content" : undefined} />
+      {!boxFragmentReplicaId && <ListIndentSlider editor={editor} shellRef={shellRef} />}
       {editGuardNotice && (
         <p className="text-flow-edit-guard-notice" role="status" aria-live="polite">
           {editGuardNotice}
