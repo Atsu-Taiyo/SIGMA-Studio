@@ -4,6 +4,23 @@
 通常の `npm ci` で再現でき、`npm run security:audit` は再現・互換性テストとnpm監査を両方実行する。
 警告の除外や監査対象の縮小は行っていない。
 
+## Electron内蔵Node.jsのUndici
+
+- 対象: [GHSA-qrxm-fqhp-jwvm](https://github.com/nodejs/undici/security/advisories/GHSA-qrxm-fqhp-jwvm)。
+  npmの`undici`へのoverrideは、Electron内蔵Node.jsの`fetch`実装を更新しない。
+- 2026-10-28に実runtimeを確認すると、Electron44.9.3と更新候補45.0.0はNode24.22.0 / Undici7.29.1だった。
+  `npm audit`は0件でも、内蔵HTTP/1・HTTP/2のエラーハンドラには公式指摘のassertionが残っていた。
+  認証・共同編集のElectron mainはglobal `fetch`を使う。TLS接続や認証情報の流出を実際に再現したという意味ではない。
+- 更新候補をElectron45.1.0（Node24.22.1 / Undici7.30.1）へ進める。
+  既存の45系更新PRの補修であり、44系からのメジャー更新の互換性は別に検証する。
+  44系の保守版44.10.0もNode24.22.1への更新を公表しているが、本変更の実runtime検証は45.1.0を対象にする。
+- `dependency-security.test.mjs`は、配布に使うElectronをNodeモードで起動し、内蔵ソースの実ハンドラへ
+  合成した`ERR_TLS_CERT_ALTNAME_INVALID`を渡す。更新前はassertionで失敗、更新後はHTTP/1・HTTP/2の3経路で
+  エラーを通知して戻ることを確認する。外部通信・TLS再交渉は行わず、ネットワーク全体の検証と区別する。
+  内蔵ソースやハンドラ名が変わった場合は黙ってskipせず再確認を要求する。
+- 同日に更新されたAgentの独自TLS検証・cache/decompress interceptor・WebSocketの公式指摘は、
+  各機能の使用条件が異なるため、このクラッシュ検査だけで全指摘の到達性や修正を実証したとは扱わない。
+
 ## Next.jsのlint用ファイル検索
 
 - 対象: [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)
