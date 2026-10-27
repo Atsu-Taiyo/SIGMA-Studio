@@ -15,6 +15,7 @@
   既存の45系更新PRの補修であり、44系からのメジャー更新の互換性は別に検証する。
   44系の保守版44.10.0もNode24.22.1への更新を公表しているが、本変更の実runtime検証は45.1.0を対象にする。
 - 開発用`.mise.toml`のNode24.15.0も内蔵Undici7.24.4を持つため、セキュリティ版24.22.1へ更新する。
+  通常CI・Windows検査・配布・npm公開workflowも24.22.1へ固定し、setup-nodeが古い24系cacheを選ばないようにする。
   同じ合成エラー検査をビルド用Nodeにも実行する。グローバルのNode選択設定や他のプロジェクトのpinは変更しない。
 - `dependency-security.test.mjs`は、配布に使うElectronをNodeモードで起動し、内蔵ソースの実ハンドラへ
   合成した`ERR_TLS_CERT_ALTNAME_INVALID`を渡す。更新前はassertionで失敗、更新後はHTTP/1・HTTP/2の3経路で
