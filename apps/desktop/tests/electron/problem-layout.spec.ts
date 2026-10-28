@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type Page } from "@playwright/test";
-import type { ProblemNode, SigmaDocument } from "@/features/document";
+import { DEFAULT_SERIF_BODY_FONT_FAMILY, type ProblemNode, type SigmaDocument } from "@/features/document";
 
 const APP_ROOT = path.resolve(__dirname, "../..");
 const source: SigmaDocument = {
@@ -44,7 +44,7 @@ test(`number geometry and area insets are editable, saved and retained after res
     await expect(area("prompt")).toBeVisible();
     await area("prompt").locator(".problem-action-button").dispatchEvent("click");
     await page.getByRole("menuitem", { name: "問題の設定…" }).click();
-    await page.getByText("番号の書式と配置", { exact: true }).click();
+    await page.getByRole("button", { name: "番号の形と位置" }).click();
     await page.getByTestId("problem-number-font-size").fill("10");
     await page.getByTestId("problem-number-widthPx").fill("24");
     await page.getByTestId("problem-number-heightPx").fill("22");
@@ -54,7 +54,9 @@ test(`number geometry and area insets are editable, saved and retained after res
     await page.getByTestId("problem-number-outlineWidthPx").fill("0.5");
     await page.getByTestId("problem-number-outlineOffsetPx").fill("1.5");
     await page.getByTestId("problem-number-textOffsetXPx").fill("1.25");
-    await page.getByTestId("problem-number-format").selectOption("fullwidth");
+    await page.getByTestId("problem-number-format").click();
+    await page.getByRole("option", { name: "１, ２, ３" }).click();
+    await page.getByRole("button", { name: "エリアの寸法と余白" }).click();
     await page.getByTestId("problem-area-padding-enabled").check();
     for (const [side, value] of [["top", "2"], ["right", "5"], ["bottom", "4"], ["left", "3"]]) await page.getByTestId(`problem-area-padding-${side}`).fill(value);
     await page.getByTestId("problem-area-margin-top").fill("0");
@@ -63,7 +65,8 @@ test(`number geometry and area insets are editable, saved and retained after res
     await page.getByTestId("problem-area-width").fill("70");
     await page.getByTestId("problem-frame-borderWidthPx").fill("0.5");
     // Escape dismisses without a blur: the last visible edit must already be canonical.
-    await page.getByTestId("problem-number-font-family").fill('"Noto Serif JP", serif');
+    await page.getByTestId("problem-number-font-family").click();
+    await page.getByRole("option", { name: "Noto Serif JP" }).click();
     await page.screenshot({ path: testInfo.outputPath("problem-layout-settings.png") });
     await page.keyboard.press("Escape");
     async function checkGeometry(p: Page) {
@@ -72,7 +75,7 @@ test(`number geometry and area insets are editable, saved and retained after res
       await expect(marker).toHaveText("１");
       await expect(marker).toHaveCSS("width", "24px");
       await expect(marker).toHaveCSS("height", "22px");
-      await expect(marker).toHaveCSS("font-family", '"Noto Serif JP", serif');
+      await expect(marker).toHaveCSS("font-family", DEFAULT_SERIF_BODY_FONT_FAMILY);
       await expect(marker).toHaveCSS("border-radius", "0px");
       // Chromium snaps nonzero rules to at least one device pixel. Keep the authored
       // half CSS pixel exact, then check its used width at both display densities.
@@ -94,7 +97,7 @@ test(`number geometry and area insets are editable, saved and retained after res
     const load = () => page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), fileId);
     await expect.poll(async () => ((await load())?.content[0] as ProblemNode).areaLayout?.prompt?.widthMm).toBe(70);
     const saved = (await load())!.content[0] as ProblemNode;
-    expect(saved.numbering).toMatchObject({ fontSize: 10, widthPx: 24, heightPx: 22, gapPx: 3, format: "fullwidth", borderWidthPx: 0.5, outlineWidthPx: 0.5, fontFamily: '"Noto Serif JP", serif' });
+    expect(saved.numbering).toMatchObject({ fontSize: 10, widthPx: 24, heightPx: 22, gapPx: 3, format: "fullwidth", borderWidthPx: 0.5, outlineWidthPx: 0.5, fontFamily: DEFAULT_SERIF_BODY_FONT_FAMILY });
     expect(saved.areaLayout?.prompt?.paddingPx).toEqual({ top: 2, right: 5, bottom: 4, left: 3 });
     expect(saved.frame).toMatchObject({ borderWidthPx: 0.5 });
     expect(saved.prompt).toEqual((source.content[0] as ProblemNode).prompt);

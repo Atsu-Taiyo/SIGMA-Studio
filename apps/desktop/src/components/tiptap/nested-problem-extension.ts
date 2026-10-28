@@ -3,7 +3,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
-import { PROBLEM_AREA_ORDER, getProblemNumberLayoutStyle, getProblemAreaLayoutStyle, getProblemFrameLayoutStyle, formatProblemNumberLabel, type ProblemNode } from "@/features/document";
+import { PROBLEM_AREA_ORDER, getProblemNumberLayoutStyle, getProblemAreaLayoutStyle, getProblemFontStyle, getProblemFrameLayoutStyle, formatProblemNumberLabel, type ProblemNode } from "@/features/document";
 import { isProblemAreaDisplayed, type ProblemDisplayFilter } from "@/features/rendering/core";
 import { getProblemNumberFontSize, isRecord } from "@/features/text-editing/model";
 import {
@@ -69,7 +69,7 @@ export function createNestedProblemDecorations(
       const style = [!visible ? "display:none" : "", minHeight ? `min-height:${minHeight}mm` : "",
         showNumber ? `--nested-problem-number-size:${getProblemNumberFontSize(metadata)}pt` : "",
         ...customFrameStyle,
-        ...Object.entries({ ...getProblemAreaLayoutStyle(metadata.areaLayout?.[area]), ...getProblemNumberLayoutStyle(metadata.numbering), ...getProblemFrameLayoutStyle(framed ? metadata.frame : undefined) })
+        ...Object.entries({ ...getProblemAreaLayoutStyle(metadata.areaLayout?.[area]), ...getProblemNumberLayoutStyle(metadata.numbering), ...getProblemFontStyle(metadata.fontFamily), ...getProblemFrameLayoutStyle(framed ? metadata.frame : undefined) })
           .map(([name, value]) => `${name.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}:${value}`),
       ].filter(Boolean).join(";");
       decorations.push(Decoration.node(pos + 1 + offset, pos + 1 + offset + areaNode.nodeSize, {

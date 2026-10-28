@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { sampleDocument } from "@/lib/sample-document";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
-import { getProblemAreaLayoutStyle, getProblemFrameLayoutStyle, getProblemNumberLayoutStyle, formatProblemNumberLabel } from "./problem-layout";
+import { getProblemAreaLayoutStyle, getProblemFontStyle, getProblemFrameLayoutStyle, getProblemNumberLayoutStyle, formatProblemNumberLabel } from "./problem-layout";
+import { DEFAULT_SERIF_BODY_FONT_FAMILY, LEGACY_STANDARD_SERIF_FONT_FAMILY } from "./body-font";
 import type { ProblemNode } from "./model/blocks";
 
 describe("problem dimensions", () => {
@@ -34,5 +35,28 @@ describe("problem dimensions", () => {
     expect(() => parseSigmaDocument({ ...sampleDocument, content: [{ ...problem, areaLayout: { prompt: { paddingPx: { top: -1, right: 0, bottom: 0, left: 0 } } } }] })).toThrow();
     expect(getProblemNumberLayoutStyle({ widthPx: Infinity, gapPx: -1, fontFamily: 'serif;position:fixed' })).toEqual({});
     expect(getProblemFrameLayoutStyle({ borderWidthPx: NaN })).toEqual({});
+  });
+});
+
+describe("problem font", () => {
+  const base: ProblemNode = { type: "problem", id: "font_problem", tags: [], lead: [], prompt: [], solution: [], hints: [] };
+  const roundTrip = (problem: ProblemNode) => parseSigmaDocument(JSON.parse(JSON.stringify({
+    ...sampleDocument, version: "2.0", metadata: { ...sampleDocument.metadata, styleUnits: { fontSize: "pt" } }, content: [problem],
+  }))).content[0] as ProblemNode;
+
+  it("keeps the problem font through a file round trip and hands it to the areas as a variable", () => {
+    const restored = roundTrip({ ...base, fontFamily: '"Noto Serif JP", serif' });
+    expect(restored.fontFamily).toBe('"Noto Serif JP", serif');
+    expect(getProblemFontStyle(restored.fontFamily)).toEqual({ "--problem-font-family": '"Noto Serif JP", serif' });
+  });
+
+  it("emits nothing without a font and resolves legacy OS stacks to the bundled face", () => {
+    expect(getProblemFontStyle(undefined)).toEqual({});
+    expect(getProblemFontStyle(LEGACY_STANDARD_SERIF_FONT_FAMILY)).toEqual({ "--problem-font-family": DEFAULT_SERIF_BODY_FONT_FAMILY });
+  });
+
+  it("rejects a font value that would break out of the declaration", () => {
+    expect(() => roundTrip({ ...base, fontFamily: "serif;position:fixed" })).toThrow();
+    expect(getProblemFontStyle("serif;position:fixed")).toEqual({});
   });
 });

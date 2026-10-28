@@ -1,15 +1,62 @@
+/* 問題設定。ページ設定と同じ組み方で、左に問題のプレビュー、右に設定を置く。色は無彩色を基本に、
+   プレビューで触っている部分だけをアクセントで示す (docs/design-rules.md: Monochrome And Gray First)。 */
+
 .dialog {
-  width: min(100%, 680px);
+  height: min(88vh, 760px);
 }
 
-.content {
-  display: grid;
-  gap: var(--space-xl);
+.title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
 }
 
-.section {
+.body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.workbench {
   display: grid;
+  grid-template-columns: 296px minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.previewPane {
+  display: flex;
+  flex-direction: column;
   gap: var(--space-md);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-xl) var(--space-lg);
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-soft);
+}
+
+/* 紙に見立てた面。問題は紙面と同じ大きさの文字で描き、幅だけを縮める。 */
+.previewStage {
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-primary);
+}
+
+.previewSummary {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.form {
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-xl);
+  overscroll-behavior: contain;
 }
 
 .section + .section {
@@ -17,63 +64,56 @@
   border-top: 1px solid var(--border-subtle);
 }
 
-.sectionTitle {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.numberingGrid {
+.fieldGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-md);
 }
 
-.checkboxField {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-sm);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 600;
+.fieldGrid[data-columns="2"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fieldGrid[data-columns="3"] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.fieldGrid[data-columns="4"] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.disclosureStack {
+  display: grid;
+  gap: var(--space-md);
 }
 
 .hint {
   margin: 0;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
-.field {
-  display: grid;
-  gap: var(--space-xs);
-  min-width: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.field input,
-.field select {
+/* 選択欄は数値欄と同じ箱に揃える (Select はトリガーの見た目を画面側に任せている)。 */
+.select {
   width: 100%;
   min-height: 34px;
-  padding: 6px 8px;
+  padding: 0 var(--space-md);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--background);
-  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
 }
 
-.layoutDetails summary {
-  cursor: pointer;
-  color: var(--text-secondary);
-  font-size: 12px;
+.select:hover:not(:disabled),
+.select[aria-expanded="true"] {
+  border-color: var(--border-strong);
 }
 
-.layoutDetails[open] > div {
-  margin-top: var(--space-md);
+.select:focus-visible {
+  border-color: var(--border-strong);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--surface-strong);
 }
 
 .frameGrid {
@@ -100,8 +140,86 @@
   outline: none;
 }
 
+/* ---- プレビュー ---- */
+
+.previewProblem {
+  display: grid;
+  gap: var(--space-sm);
+  font-family: var(--editor-body-font-family);
+  font-size: var(--editor-font-size, 12pt);
+  line-height: 1.7;
+}
+
+.previewText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 導入文の行は、番号の箱が高いときに箱の縦の中央へ置く (紙面と同じ見え方)。 */
+.previewLead :global(.problem-area-paper-content.with-number) > .previewText {
+  align-self: center;
+}
+
+.previewEmpty {
+  color: var(--text-disabled);
+}
+
+.previewMath {
+  color: var(--text-secondary);
+  font-family: "STIX Two Math", serif;
+  font-style: italic;
+}
+
+.previewPlain {
+  min-width: 0;
+}
+
+.previewFrame {
+  min-width: 0;
+}
+
+.previewExtra {
+  display: grid;
+  gap: var(--space-xs);
+  padding-top: var(--space-sm);
+  border-top: 1px dashed var(--border);
+}
+
+.previewAreaLabel {
+  color: var(--text-muted);
+  font-family: var(--font-ui, inherit);
+  font-size: 11px;
+}
+
+/* 触っている欄の部分。番号の箱は outline を自分の外枠に使うので、輪は box-shadow で描く。 */
+.previewProblem[data-highlight="font"] .previewText,
+.previewProblem[data-highlight="lead"] [data-preview-part="lead"],
+.previewProblem[data-highlight="prompt"] [data-preview-part="prompt"],
+.previewProblem[data-highlight="hints"] [data-preview-part="hints"],
+.previewProblem[data-highlight="solution"] [data-preview-part="solution"] {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.previewProblem[data-highlight="number"] [data-preview-part="number"],
+.previewProblem[data-highlight="frame"] [data-preview-part="frame"] {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
 @media (max-width: 720px) {
-  .numberingGrid,
+  .workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .previewPane {
+    display: none;
+  }
+
+  .fieldGrid[data-columns="3"],
+  .fieldGrid[data-columns="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .frameGrid {
     grid-template-columns: minmax(0, 1fr);
   }
