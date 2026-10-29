@@ -1035,6 +1035,7 @@ export function paginateMeasuredPrintBlocks(
         problemNumber: unit.problemNumber,
         numberFontSize: unit.numberFontSize,
         numbering: unit.numbering,
+        fontFamily: unit.fontFamily,
         areaLayout: unit.areaLayout,
         frame: unit.frame,
         hasFrame: unit.hasFrame,

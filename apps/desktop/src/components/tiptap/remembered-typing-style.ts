@@ -1,7 +1,7 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
-import { resolveBoxFontContext } from "./text-format-controller";
+import { readProblemFontFamily, resolveBoxFontContext } from "./text-format-controller";
 
 type TypingStyle = { fontFamily: string | null; fontSize: number | null };
 // Editors belonging to one window share the last typed style. The document model
@@ -13,14 +13,14 @@ function styleAt(state: EditorState): TypingStyle {
   return { fontFamily: mark?.attrs.fontFamily ?? null, fontSize: mark?.attrs.fontSize ?? null };
 }
 
-function seedTransaction(state: EditorState, remembered: TypingStyle | undefined) {
+function seedTransaction(state: EditorState, remembered: TypingStyle | undefined, containerFontFamily?: () => string | undefined) {
   const { $from, empty } = state.selection;
   const type = state.schema.marks.styledText;
   if (!remembered || !type || !empty || !$from.parent.isTextblock || !$from.parent.type.allowsMarkType(type) || $from.parent.content.size > 0) return null;
   const marks = state.storedMarks ?? $from.marks();
   const current = marks.find(mark => mark.type === type);
   const frame = resolveBoxFontContext(state);
-  const frameFont = frame.inBoxTitle ? frame.titleFontFamily : frame.bodyFontFamily;
+  const frameFont = (frame.inBoxTitle ? frame.titleFontFamily : frame.bodyFontFamily) ?? containerFontFamily?.();
   const frameSize = frame.inBoxTitle ? frame.titleFontSizePx : frame.bodyFontSizePx;
   // A toolbar choice at this insertion point always wins over the remembered style.
   // Frame typography is inherited; do not persist another editor's style over it.
@@ -32,7 +32,7 @@ function seedTransaction(state: EditorState, remembered: TypingStyle | undefined
 }
 
 function seed(view: EditorView) {
-  const transaction = seedTransaction(view.state, preferences.get(view.dom.ownerDocument));
+  const transaction = seedTransaction(view.state, preferences.get(view.dom.ownerDocument), () => readProblemFontFamily(view.dom));
   if (transaction) view.dispatch(transaction);
 }
 
@@ -40,6 +40,7 @@ export const RememberedTypingStyle = Extension.create({
   name: "rememberedTypingStyle",
   addProseMirrorPlugins() {
     let ownerDocument: Document | null = null;
+    let editorDom: Element | null = null;
     return [new Plugin({
       key: new PluginKey("rememberedTypingStyle"),
       state: {
@@ -54,10 +55,10 @@ export const RememberedTypingStyle = Extension.create({
           return value;
         },
       },
-      view: view => { ownerDocument = view.dom.ownerDocument; return {}; },
+      view: view => { ownerDocument = view.dom.ownerDocument; editorDom = view.dom; return {}; },
       appendTransaction: (transactions, _previous, next) => {
         if (!ownerDocument || transactions.some(transaction => transaction.getMeta("preventUpdate"))) return null;
-        return seedTransaction(next, preferences.get(ownerDocument));
+        return seedTransaction(next, preferences.get(ownerDocument), () => readProblemFontFamily(editorDom));
       },
       props: {
         handleDOMEvents: {

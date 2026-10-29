@@ -1,3 +1,4 @@
+import { resolveDocumentFontFamily } from "./body-font";
 import { isSafeCssFontFamily } from "./css-safety";
 import type { ProblemAreaLayout, ProblemFrame, ProblemNumbering } from "./model/blocks";
 
@@ -22,6 +23,15 @@ export function getProblemNumberLayoutStyle(numbering: ProblemNumbering | undefi
   if (style["--problem-number-width"]) style["--problem-number-padding-x"] = "0px";
   if (["solid", "double", "none"].includes(numbering.borderStyle ?? "")) style["--problem-number-border-style"] = numbering.borderStyle!;
   return style;
+}
+
+/**
+ * 問題の書体 (`ProblemNode.fontFamily`)。エリアの中身 (`.problem-area-paper-content` /
+ * `.print-problem-area`) がこの変数で書体を決めるので、紙面の脇の札などの編集用の飾りには届かない。
+ */
+export function getProblemFontStyle(fontFamily: string | undefined): LayoutStyle {
+  const resolved = resolveDocumentFontFamily(fontFamily);
+  return resolved && isSafeCssFontFamily(resolved) ? { "--problem-font-family": resolved } : {};
 }
 
 export function getProblemAreaLayoutStyle(layout: ProblemAreaLayout | undefined, baseLeft: string | number = 0): LayoutStyle {

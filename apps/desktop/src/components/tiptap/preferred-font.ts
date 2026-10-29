@@ -1,6 +1,6 @@
 import { DEFAULT_BODY_FONT_FAMILY } from "@/features/document";
 import type { Editor } from "@tiptap/core";
-import { resolveBoxFontContext } from "./text-format-controller";
+import { readProblemFontFamily, resolveBoxFontContext } from "./text-format-controller";
 
 /** Arm an unformatted empty paragraph; the next input writes the font into SigmaDoc. */
 export function applyPreferredFontToEmptyParagraph(editor: Editor, fontFamily: string | undefined): void {
@@ -10,5 +10,7 @@ export function applyPreferredFontToEmptyParagraph(editor: Editor, fontFamily: s
   if (storedMarks?.some((mark) => mark.type.name === "styledText" && mark.attrs.fontFamily)) return;
   const frame = resolveBoxFontContext(editor.state);
   if (frame.inBoxTitle ? frame.titleFontFamily : frame.bodyFontFamily) return;
+  // 書体を決めた問題の中では、その書体で書く。好みの書体で上書きしない。
+  if (readProblemFontFamily(editor.view.dom)) return;
   editor.commands.setFontFamily(fontFamily);
 }
