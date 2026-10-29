@@ -5,7 +5,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProblemSettingsDialog } from "@/components/editor/ProblemSettingsDialog";
-import { ProblemNumberLayoutSettings } from "@/components/editor/ProblemLayoutSettings";
 import type { ProblemNode } from "@/features/document";
 import { setAppLocale } from "@/lib/i18n/react";
 
@@ -32,23 +31,37 @@ function createProblem(tags: string[] = []): ProblemNode {
   };
 }
 
-it("commits number fonts without blur and reflects canonical external updates", async () => {
-  current = createProblem();
-  const onChange = (update: (problem: ProblemNode) => ProblemNode) => { current = update(current); };
-  const renderField = () => act(async () => root.render(<ProblemNumberLayoutSettings problem={current} onChange={onChange} />));
-  await renderField();
-  const field = () => document.body.querySelector<HTMLInputElement>('[data-testid="problem-number-font-family"]')!;
-  const write = (value: string) => act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field(), value);
-    field().dispatchEvent(new InputEvent("input", { bubbles: true }));
+describe("ProblemSettingsDialog fonts", () => {
+  const trigger = (testId: string) => document.body.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!;
+  const pick = async (testId: string, label: string) => {
+    await act(async () => trigger(testId).click());
+    const option = Array.from(document.body.querySelectorAll<HTMLElement>('[role="option"]'))
+      .find((element) => element.textContent?.trim() === label);
+    expect(option, label).toBeDefined();
+    await act(async () => option!.click());
+  };
+  const preview = () => document.body.querySelector<HTMLElement>('[data-testid="problem-settings-preview"]')!;
+
+  it("sets the problem text font, shows it in the preview, and clears it back to the material default", async () => {
+    await render();
+    expect(trigger("problem-font-family").textContent).toContain("教材の既定");
+
+    await pick("problem-font-family", "Noto Serif JP");
+    expect(current.fontFamily).toMatch(/Noto Serif JP/);
+    expect(preview().style.getPropertyValue("--problem-font-family")).toBe(current.fontFamily);
+
+    await pick("problem-font-family", "教材の既定");
+    expect(current).not.toHaveProperty("fontFamily");
+    expect(preview().style.getPropertyValue("--problem-font-family")).toBe("");
   });
-  await write('"Noto Serif JP", serif');
-  expect(current.numbering?.fontFamily).toBe('"Noto Serif JP", serif');
-  current = { ...current, numbering: { ...current.numbering, fontFamily: "monospace" } };
-  await renderField();
-  expect(field().value).toBe("monospace");
-  await write("serif;position:fixed");
-  expect(current.numbering?.fontFamily).toBe("monospace");
+
+  it("keeps a number font that is not in the menu selectable instead of dropping it", async () => {
+    await render({ ...createProblem(), numbering: { fontFamily: '"Some Local Face", serif' } });
+    expect(trigger("problem-number-font-family").textContent).toContain("Some Local Face");
+
+    await pick("problem-number-font-family", "問題の文字と同じ");
+    expect(current.numbering).toBeUndefined();
+  });
 });
 
 async function render(initial = createProblem()) {
@@ -174,7 +187,10 @@ describe("ProblemSettingsDialog tags", () => {
 });
 
 describe("ProblemSettingsDialog lead line", () => {
-  const leadSwitch = () => document.body.querySelector<HTMLInputElement>('[data-testid="problem-lead-shown"]')!;
+  const leadSwitch = () => {
+    const element = document.body.querySelector<HTMLButtonElement>('[data-testid="problem-lead-shown"]')!;
+    return { click: () => element.click(), get checked() { return element.getAttribute("aria-checked") === "true"; }, get disabled() { return element.disabled; } };
+  };
 
   it("turns the lead line off and back on, leaving no layout behind", async () => {
     await render();

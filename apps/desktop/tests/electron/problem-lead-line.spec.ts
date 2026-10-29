@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
-import type { ParagraphNode, ProblemNode, SigmaBlock, SigmaDocument } from "@/features/document";
+import { DEFAULT_SERIF_BODY_FONT_FAMILY, type ParagraphNode, type ProblemNode, type SigmaBlock, type SigmaDocument } from "@/features/document";
 
 /**
  * 問題の上の「番号の右隣の1行」(導入文) を、問題設定からオン・オフできることを実機で固定する。
@@ -157,6 +157,76 @@ test("turning the lead line off with text in it can be undone", async () => {
     await expect(area(page, "q1", "lead")).toHaveCount(1);
     await expect(area(page, "q1", "lead")).toContainText("次の問いに答えよ。");
     await expect(area(page, "q1", "lead").locator(".problem-number-marker")).toHaveText("1");
+  } finally {
+    await app.close();
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+/** 番号の箱と、その右の行 (文字) の縦の中心。 */
+async function leadCenters(page: Page, problemId: string) {
+  return area(page, problemId, "lead").evaluate((section) => {
+    const marker = section.querySelector(".problem-number-marker")!.getBoundingClientRect();
+    const line = section.querySelector(".text-flow-editor p")!.getBoundingClientRect();
+    return { marker: marker.top + marker.height / 2, line: line.top + line.height / 2, area: section.getBoundingClientRect().height };
+  });
+}
+
+test("the lead line sits at the vertical middle of a large number box without changing the area height", async () => {
+  const { app, page, profile } = await launch([
+    problem("small", "次の問いに答えよ。", "問題文"),
+    { ...problem("large", "次の問いに答えよ。", "問題文"), numbering: { fontSize: 28 } },
+    { ...problem("empty", "", "問題文"), numbering: { fontSize: 28 } },
+  ]);
+  try {
+    for (const id of ["large", "empty"]) {
+      await expect.poll(async () => {
+        const { marker, line } = await leadCenters(page, id);
+        return Math.abs(marker - line);
+      }).toBeLessThan(1);
+    }
+    // ふだんの大きさの番号は今まで通り (行が箱を包むので、動かさない)。
+    const small = await leadCenters(page, "small");
+    expect(Math.abs(small.marker - small.line)).toBeLessThan(2);
+    // 下げるのは translate だけ。エリアの高さ (ページ割り) は番号の箱の高さのまま。
+    const large = await leadCenters(page, "large");
+    const markerHeight = await area(page, "large", "lead").locator(".problem-number-marker").evaluate((element) => element.getBoundingClientRect().height);
+    expect(Math.abs(large.area - markerHeight)).toBeLessThan(1);
+  } finally {
+    await app.close();
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("the problem font is chosen in the problem settings, drawn on the page, shown in the toolbar and saved", async () => {
+  const source = problem("q1", "次の問いに答えよ。", "問題文");
+  source.prompt.push({ type: "paragraph", id: "q1_own", children: [{ type: "text", text: "等幅の文字", fontFamily: "monospace" }] });
+  const { app, page, fileId, profile } = await launch([source, problem("q2", "", "ほかの問題")]);
+  try {
+    await openProblemSettings(page, "q1");
+    await page.getByTestId("problem-font-family").click();
+    await page.getByRole("option", { name: "Noto Serif JP" }).click();
+    await expect(page.getByTestId("problem-settings-preview").locator("p, .problem-area-paper-body").first()).toHaveCSS("font-family", DEFAULT_SERIF_BODY_FONT_FAMILY);
+    await closeDialog(page);
+
+    const promptLine = area(page, "q1", "prompt").locator("p").first();
+    await expect(promptLine).toHaveCSS("font-family", DEFAULT_SERIF_BODY_FONT_FAMILY);
+    await expect(area(page, "q1", "lead").locator("p").first()).toHaveCSS("font-family", DEFAULT_SERIF_BODY_FONT_FAMILY);
+    // 文字に付けた書体は問題の書体より強い。ほかの問題は変わらない。
+    await expect(area(page, "q1", "prompt").getByText("等幅の文字")).toHaveCSS("font-family", "monospace");
+    await expect(area(page, "q2", "prompt").locator("p").first()).not.toHaveCSS("font-family", DEFAULT_SERIF_BODY_FONT_FAMILY);
+
+    // カーソルを置くと、ツールバーはその問題の書体を出す。
+    await promptLine.click();
+    await page.keyboard.press("End");
+    await expect(page.getByRole("button", { name: /フォント: Noto Serif JP/ })).toBeVisible();
+
+    await page.keyboard.press("ControlOrMeta+s");
+    await expect.poll(async () => (await savedProblem(page, fileId, "q1"))?.fontFamily).toBe(DEFAULT_SERIF_BODY_FONT_FAMILY);
+    expect((await savedProblem(page, fileId, "q2"))?.fontFamily).toBeUndefined();
+    await page.reload();
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    await expect(area(page, "q1", "prompt").locator("p").first()).toHaveCSS("font-family", DEFAULT_SERIF_BODY_FONT_FAMILY);
   } finally {
     await app.close();
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

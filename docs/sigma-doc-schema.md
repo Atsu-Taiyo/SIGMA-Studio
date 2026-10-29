@@ -554,6 +554,7 @@ interface ProblemNode extends BaseNode {
   hints: ProblemAreaBlock[];
   areaLayout?: Partial<Record<"lead" | "prompt" | "solution" | "hints", ProblemAreaLayout>>;
   numbering?: ProblemNumbering;
+  fontFamily?: string;
   frame?: ProblemFrame;
 }
 
@@ -619,6 +620,7 @@ interface CustomFrame {
 - `hints`: コメント。`heading`、`paragraph`、`list`、`layoutSection`、`boxBlock`
 - `solution`: 解答。`heading`、`paragraph`、`list`、`layoutSection`、`boxBlock`
 - `areaLayout`: 導入文・問題文・コメント・解答エリアの表示用レイアウト
+- `fontFamily`: 問題の文字の書体 (CSS の font-family)。導入文・問題文・コメント・解答のうち、書体を指定していない文字と番号に効きます。文字に付けた書体と `numbering.fontFamily` がこれより優先し、未指定なら教材の既定の書体です。紙面・プレビュー・PDF・ビューアは `getProblemFontStyle` が置く `--problem-font-family` を共通に使い、ツールバーの書体表示と打ち始めの書体も、問題の中ではこれを既定として扱います
 - `numbering`: 問題番号の表示設定。未指定または `enabled: true` は本文順の連番を表示し、`enabled: false` はその問題を採番対象から外す。`fontSize` は番号表示の文字サイズ(pt)、`value` は任意の指定番号
 - `frame`: 問題文側の枠線設定。`enabled: true` のときだけ問題文に枠線を表示する。`styleId` は問題枠styleの識別子として使える
 
@@ -643,6 +645,8 @@ interface CustomFrame {
 番号の `fontFamily` / `fontWeight`、`format` (通常数字 / 全角数字)、`widthPx` / `heightPx`、`gapPx`、枠の線種・太さ・角丸、`offsetXPx` / `offsetYPx` は番号欄の表示設定です。番号の値と採番規則は変えません。寸法はCSS pxで、未指定なら従来の番号欄を使います。`frame.borderWidthPx` (0〜24) と `borderRadiusPx` (0〜128) は問題枠の太さ・角丸を指定します。
 
 これらの追加属性を扱う配布版を公開する前に、MISS R21に従い共有サーバーの文書スキーマを同じコミットへ同期・配備します。
+
+導入文の行は、番号の箱が行より高いとき (番号を大きくしたとき) は箱の縦の中央に置きます。下げるのは表示上の移動 (translate) だけで、エリアの高さとページ割りは変わりません。
 
 `areaLayout.lead.hidden` は導入文の行を出さない設定です。未指定または `false` は従来どおり導入文を常に描きます。`true` でも、導入文に空の段落以外のブロックがあるあいだは描きます (問題設定でオフにすると導入文を空にするので、AI編集などで後から書かれた場合の備えです)。
 

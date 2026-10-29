@@ -8,6 +8,7 @@ import { useHeadingNumber } from "@/components/editor/text-flow/HeadingNumbering
 import {
   blockSpaceAfterStyleVars,
   PROBLEM_AREA_ORDER,
+  getProblemFontStyle,
   getProblemNumberLayoutStyle,
   getProblemAreaLayoutStyle,
   getProblemFrameLayoutStyle,
@@ -95,6 +96,7 @@ export type PrintContentUnit =
       problemNumber?: number;
       numberFontSize: number;
       numbering?: ProblemNumbering;
+      fontFamily?: string;
       areaLayout?: ProblemAreaLayout;
       frame?: ProblemFrame;
       hasFrame: boolean;
@@ -122,6 +124,7 @@ export type PrintContentUnit =
       problemNumber?: number;
       numberFontSize: number;
       numbering?: ProblemNumbering;
+      fontFamily?: string;
       areaLayout?: ProblemAreaLayout;
       frame?: ProblemFrame;
       hasFrame: boolean;
@@ -171,6 +174,7 @@ export function buildProblemAreaPrintUnits(
     problemNumber,
     numberFontSize: getProblemNumberFontSize(problem),
     numbering: problem.numbering,
+    fontFamily: problem.fontFamily,
     areaLayout: problem.areaLayout?.[areaUnit.area],
     frame: problem.frame,
     hasFrame: problem.frame?.enabled === true && isProblemFrameArea(areaUnit.area),
@@ -225,6 +229,7 @@ export function PrintBlock({
         problemNumber={unit.problemNumber}
         numberFontSize={unit.numberFontSize}
         numbering={unit.numbering}
+        fontFamily={unit.fontFamily}
         areaLayout={unit.areaLayout}
         frame={unit.frame}
         hasFrame={unit.hasFrame}
@@ -499,6 +504,7 @@ export function PrintProblemArea({
   problemNumber,
   numberFontSize,
   numbering,
+  fontFamily,
   areaLayout,
   frame,
   hasFrame,
@@ -523,6 +529,7 @@ export function PrintProblemArea({
   problemNumber?: number;
   numberFontSize: number;
   numbering?: ProblemNumbering;
+  fontFamily?: string;
   areaLayout?: ProblemAreaLayout;
   frame?: ProblemFrame;
   hasFrame: boolean;
@@ -553,6 +560,7 @@ export function PrintProblemArea({
     ...getProblemAreaLayoutStyle(areaLayout),
     ...getProblemFrameLayoutStyle(hasFrame ? frame : undefined),
     ...getProblemNumberLayoutStyle(numbering),
+    ...getProblemFontStyle(fontFamily),
     ...(areaLayout?.paddingPx && !isFirstFragment ? { paddingTop: 0 } : {}),
     ...(areaLayout?.marginTopPx !== undefined && !isFirstFragment ? { marginTop: 0 } : {}),
     ...(areaLayout?.marginBottomPx !== undefined && !isLastFragment ? { marginBottom: 0 } : {}),

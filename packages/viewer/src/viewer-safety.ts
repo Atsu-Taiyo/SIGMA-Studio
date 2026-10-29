@@ -188,6 +188,7 @@ function visitSigmaBlock(block: SigmaBlock, path: string, report: SafetyReporter
     return;
   }
   if (block.type === "problem") {
+    validateFontFamily(block.fontFamily, `${path}.fontFamily`, report);
     (["lead", "prompt", "hints", "solution"] as const).forEach((area) => {
       block[area].forEach((child, index) => visitProblemAreaBlock(child, `${path}.${area}.${index}`, report));
     });

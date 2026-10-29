@@ -8,17 +8,16 @@ import {
   FileMinus,
   FileText,
   Files,
-  Minus,
-  Plus,
   RectangleHorizontal,
   RectangleVertical,
   Square,
 } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import { ColumnRuleControls } from "./ColumnRuleControls";
 import { PageSetupPreview, type PageSetupPreviewPart } from "./PageSetupPreview";
+import { SettingsNumberField } from "./SettingsNumberField";
 import { Button } from "@/components/ui/Button";
 import { ChoiceGroup } from "@/components/ui/ChoiceGroup";
 import { Inline, Stack } from "@/components/ui/layout";
@@ -365,7 +364,7 @@ export function PageSettingsDialog({
 
                   <FormSection id="page-settings-numbering" title={t("page.pageNumbering")}>
                     <div className={styles.fieldGrid} data-columns="2">
-                      <NumberField
+                      <SettingsNumberField
                         id="page-number-start"
                         label={t("page.pageNumberStart")}
                         value={draft.pageNumberStart ?? DEFAULT_PAGE_NUMBER_START}
@@ -603,7 +602,7 @@ function RunningRegionSection({
 }
 
 /**
- * mm の数値欄 (0.5 刻みで動かし、0.1mm に丸める)。中身は `NumberField`。
+ * mm の数値欄 (1 ずつ動かし、0.1mm に丸める)。中身は `SettingsNumberField`。
  */
 function MmField({
   min = 0,
@@ -618,119 +617,7 @@ function MmField({
   onMouseEnter?: () => void;
 }) {
   const t = useT("settings");
-  return <NumberField {...props} min={min} unit={t("page.mmUnit")} />;
-}
-
-/**
- * 数値欄。−/＋ で 1 ずつ、矢印キーでも動かせる。入力途中の空欄や「1.」は
- * そのまま打てるよう下書きの文字列で持ち、確かな数になったときだけ反映する。
- * `integer` は整数だけ (ページ番号など)。範囲を超えた入力は確定 (離れる・Enter) のときに範囲内へ寄せる。
- * 単位が無い欄は `unit` を省く。
- */
-function NumberField({
-  id,
-  label,
-  value,
-  min = 0,
-  max,
-  integer = false,
-  unit,
-  onChange,
-  onFocus,
-  onMouseEnter,
-}: {
-  id: string;
-  label: string;
-  value: number;
-  min?: number;
-  max?: number;
-  integer?: boolean;
-  unit?: string;
-  onChange: (value: number) => void;
-  onFocus?: () => void;
-  onMouseEnter?: () => void;
-}) {
-  const t = useT("settings");
-  const unitId = useId();
-  const [text, setText] = useState<string | null>(null);
-  const formatValue = integer ? String : formatMm;
-  const shown = text ?? formatValue(value);
-  const inRange = (next: number) => next >= min && (max === undefined || next <= max);
-  const commit = (next: number) => {
-    setText(null);
-    const rounded = integer ? Math.round(next) : roundTenth(next);
-    onChange(Math.min(max ?? Number.POSITIVE_INFINITY, Math.max(min, rounded)));
-  };
-  const stepBy = (direction: 1 | -1) => {
-    const current = Number(shown);
-    commit((Number.isFinite(current) ? current : value) + direction);
-  };
-  return (
-    <div className={styles.mmField} onMouseEnter={onMouseEnter}>
-      <label className={styles.mmLabel} htmlFor={id}>{label}</label>
-      <div className={styles.mmControl} data-unitless={unit ? undefined : true}>
-        <button
-          type="button"
-          className={styles.stepButton}
-          aria-label={t("page.decrease", { label })}
-          disabled={value <= min}
-          onClick={() => stepBy(-1)}
-          onFocus={onFocus}
-        >
-          <Minus size={13} aria-hidden="true" />
-        </button>
-        <input
-          id={id}
-          type="number"
-          inputMode={integer ? "numeric" : "decimal"}
-          min={min}
-          max={max}
-          step={integer ? 1 : 0.5}
-          value={shown}
-          aria-describedby={unit ? unitId : undefined}
-          onFocus={(event) => {
-            event.currentTarget.select();
-            onFocus?.();
-          }}
-          onChange={(event) => {
-            const raw = event.target.value;
-            setText(raw);
-            const next = Number(raw);
-            if (raw.trim() !== "" && Number.isFinite(next) && inRange(next) && (!integer || Number.isInteger(next))) {
-              onChange(next);
-            }
-          }}
-          onBlur={() => {
-            const next = Number(shown);
-            if (shown.trim() !== "" && Number.isFinite(next)) {
-              commit(next);
-            } else {
-              setText(null);
-            }
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-              event.preventDefault();
-              stepBy(event.key === "ArrowUp" ? 1 : -1);
-            } else if (event.key === "Enter") {
-              event.currentTarget.blur();
-            }
-          }}
-        />
-        {unit ? <span className={styles.mmUnit} id={unitId}>{unit}</span> : null}
-        <button
-          type="button"
-          className={styles.stepButton}
-          aria-label={t("page.increase", { label })}
-          disabled={max !== undefined && value >= max}
-          onClick={() => stepBy(1)}
-          onFocus={onFocus}
-        >
-          <Plus size={13} aria-hidden="true" />
-        </button>
-      </div>
-    </div>
-  );
+  return <SettingsNumberField {...props} min={min} unit={t("page.mmUnit")} />;
 }
 
 function formatMarginPreset(margins: Record<PageMarginSide, number>): string {
@@ -741,9 +628,5 @@ function formatMarginPreset(margins: Record<PageMarginSide, number>): string {
 }
 
 function formatMm(value: number): string {
-  return Number.isInteger(value) ? String(value) : String(roundTenth(value));
-}
-
-function roundTenth(value: number): number {
-  return Math.round(value * 10) / 10;
+  return Number.isInteger(value) ? String(value) : String(Math.round(value * 10) / 10);
 }
