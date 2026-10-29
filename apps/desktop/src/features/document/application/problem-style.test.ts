@@ -9,6 +9,17 @@ const problem = (id: string): ProblemNode => ({
 });
 
 describe("new problem presentation", () => {
+  it("inherits the problem body font independently of the number's explicit font", () => {
+    const previous = { ...problem("previous"), fontFamily: "monospace", numbering: { fontFamily: "serif" } };
+    const next = problem("next");
+    const result = inheritProblemStyle(next, previous);
+    expect(result.fontFamily).toBe("monospace");
+    expect(result.numbering?.fontFamily).toBe("serif");
+    expect(result.prompt).toBe(next.prompt);
+    expect(previous.fontFamily).toBe("monospace");
+    expect(inheritProblemStyle({ ...next, fontFamily: "sans-serif" }, problem("unstyled")).fontFamily).toBe("sans-serif");
+  });
+
   it("inherits number, frame and area settings while retaining fresh content and automatic numbering", () => {
     const previous: ProblemNode = {
       ...problem("previous"), tags: ["private tag"], answer: { type: "text", expected: "answer" },

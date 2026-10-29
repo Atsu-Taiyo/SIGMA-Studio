@@ -1,6 +1,6 @@
 import { PROBLEM_AREA_ORDER, type ProblemNode, type SigmaBlock } from "../model/blocks";
 
-export type ProblemStyle = Pick<ProblemNode, "numbering" | "frame" | "areaLayout">;
+export type ProblemStyle = Pick<ProblemNode, "numbering" | "frame" | "areaLayout" | "fontFamily">;
 
 /** New content keeps its identity and answer; only the preceding problem's presentation is reused. */
 export function inheritProblemStyle(problem: ProblemNode, previous: ProblemStyle): ProblemNode {
@@ -11,6 +11,7 @@ export function inheritProblemStyle(problem: ProblemNode, previous: ProblemStyle
   }
   return {
     ...problem,
+    ...(previous.fontFamily ? { fontFamily: previous.fontFamily } : {}),
     ...(numbering ? { numbering } : {}),
     ...(previous.frame ? { frame: structuredClone(previous.frame) } : {}),
     ...(previous.areaLayout ? { areaLayout: structuredClone(previous.areaLayout) } : {}),

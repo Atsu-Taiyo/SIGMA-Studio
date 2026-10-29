@@ -7,6 +7,7 @@ import type { ProblemNode, SigmaDocument } from "@/features/document";
 const root = path.resolve(__dirname, "../..");
 const seed: ProblemNode = {
   type: "problem", id: "previous", tags: ["元のタグ"], lead: [], hints: [],
+  fontFamily: "monospace",
   prompt: [{ type: "paragraph", id: "previous_prompt", children: [{ type: "text", text: "元の問題文" }] }],
   solution: [{ type: "paragraph", id: "previous_solution", children: [{ type: "text", text: "元の解答" }] }],
   answer: { type: "text", expected: "元の正答" },
@@ -63,6 +64,9 @@ for (const mode of ["menu", "slash", "nested-slash", "first-in-box"] as const) {
       expect(inserted.numbering).toEqual(expectedNumbering);
       expect(inserted.frame).toEqual(seed.frame);
       expect(inserted.areaLayout).toEqual(seed.areaLayout);
+      expect(inserted.fontFamily).toBe(seed.fontFamily);
+      const promptSelector = `[data-sigma-doc-id="${inserted.prompt[0].id}"]`;
+      await expect(page.locator(promptSelector).first()).toHaveCSS("font-family", "monospace");
       expect(inserted.tags).toEqual([]);
       expect(JSON.stringify(inserted.prompt)).not.toContain("元の問題文");
       expect(inserted.answer?.expected).toBe("");
@@ -77,6 +81,7 @@ for (const mode of ["menu", "slash", "nested-slash", "first-in-box"] as const) {
       await app.close();app = await launch();page = await app.firstWindow();
       await expect(page.locator(`[data-problem-id="${inserted.id}"]`).first()).toBeVisible();
       expect(problems((await load())!)[1]).toEqual(inserted);
+      await expect(page.locator(promptSelector).first()).toHaveCSS("font-family", "monospace");
     } finally {
       await app.close();
       rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
