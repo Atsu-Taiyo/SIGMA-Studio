@@ -224,16 +224,16 @@ export class CatalogCache {
       if (location.workspaceId === SHARED_ITEMS_WORKSPACE_ID) hasSharedItems = true;
       if (node.kind === "workspace") {
         const prior = workspaces.find(w => w.id === id);
-        if (prior) Object.assign(prior, { name: node.name, sharing });
-        else workspaces.push({ id, name: node.name, createdAt: stamp, updatedAt: stamp, sharing });
+        if (prior) Object.assign(prior, { name: node.name, ...catalogDates(node, prior), sharing });
+        else workspaces.push({ id, name: node.name, ...catalogDates(node), sharing });
       } else if (node.kind === "folder") {
         const prior = folders.find(f => f.id === id);
-        const value = { id, ...location, parentFolderId: location.folderId, name: node.name, fileCount: 0, createdAt: stamp, updatedAt: stamp, sharing };
+        const value = { id, ...location, parentFolderId: location.folderId, name: node.name, fileCount: 0, ...catalogDates(node, prior), sharing };
         if (prior) Object.assign(prior, value); else folders.push(value);
       } else {
         const mapping = this.data.mappings[node.id];
         const prior = local.files.find(f => f.fileId === id);
-        files.push({ ...prior, fileId: id, ...location, docId: mapping?.docId ?? "", title: node.name, revision: prior?.revision ?? 1, createdAt: prior?.createdAt ?? stamp, updatedAt: prior?.updatedAt ?? stamp, sharing } satisfies DocumentMetadata);
+        files.push({ ...prior, fileId: id, ...location, docId: mapping?.docId ?? "", title: node.name, revision: prior?.revision ?? 1, ...catalogDates(node, prior), sharing } satisfies DocumentMetadata);
       }
     }
     if (hasSharedItems) workspaces.push({ id: SHARED_ITEMS_WORKSPACE_ID, name: createCurrentLocaleTranslator("workspace")("sharedItems"), createdAt: stamp, updatedAt: stamp });
@@ -250,4 +250,18 @@ export class CatalogCache {
 }
 export function localTargetKey(target: LocalSharingTarget): string {
   return target.kind === "document" ? `document:${target.fileId}` : target.kind === "folder" ? `folder:${target.workspaceId}:${target.folderId}` : `workspace:${target.workspaceId}`;
+}
+
+/** Use only metadata already in the catalog/local ledger; never fetch document bodies for dates. */
+function catalogDates(node: CatalogNode, local?: { createdAt: string; updatedAt: string }): { createdAt: string; updatedAt: string } {
+  const valid = (value: string | undefined): value is string => {
+    const time = value ? Date.parse(value) : Number.NaN;
+    return Number.isFinite(time) && time !== 0;
+  };
+  const updates = [node.updatedAt, local?.updatedAt].filter(valid);
+  const createdAt = [local?.createdAt, node.createdAt].find(valid);
+  // A local copy can be stale, while a local edit can be newer than the catalog.
+  // Compare instants (including time-zone offsets), not ISO text.
+  const updatedAt = updates.sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? createdAt ?? new Date(0).toISOString();
+  return { createdAt: createdAt ?? updatedAt, updatedAt };
 }
