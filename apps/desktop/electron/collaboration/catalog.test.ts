@@ -700,3 +700,33 @@ it("uses the newer valid local or catalog date and falls back to creation metada
   delete shared.updatedAt;
   expect(formatDateTime(projected().updatedAt, "ja")).toBe("");
 });
+
+it.each(["createdAt", "updatedAt"] as const)("rejects non-string %s before changing the durable catalog", async field => {
+  for (const value of [null, 123, [], {}, { toString: null }]) {
+    const f = await fixture(); const document = node("document");
+    f.setNodes([document]); await f.catalog.refresh();
+    const cache = await CatalogCache.open(f.directory, "participant");
+    const before = await fs.readFile(cache.file, "utf8");
+    const prior = f.sessions.request;
+    f.sessions.request = async (route, body) => route === "/catalog/delta"
+      ? { revision: 2, nodes: [{ ...document, revision: 2, [field]: value }], tombstones: [] } as never
+      : prior(route, body);
+    expect(await f.catalog.refresh()).toMatchObject({ state: "offline", error: "INVALID_CATALOG_RESPONSE" });
+    expect(await fs.readFile(cache.file, "utf8")).toBe(before);
+    expect((await CatalogCache.open(f.directory, "participant")).data.revision).toBe(1);
+  }
+});
+
+it.each(["createdAt", "updatedAt"] as const)("ignores a non-string %s left in an older durable cache", async field => {
+  const f = await fixture();
+  const document = { ...node("document"), createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-02-01T00:00:00Z" };
+  const cache = await CatalogCache.open(f.directory, "participant");
+  cache.apply({ revision: 1, nodes: [{ ...document, [field]: { toString: null } } as unknown as CatalogNode], tombstones: [] });
+  await cache.save();
+  const reopened = await CatalogCache.open(f.directory, "participant");
+  const overview = reopened.project(await f.local.getLocalLibrarySnapshot(), undefined, new Set(), true);
+  const file = overview.files.find(item => item.fileId === reopened.navigationId(document));
+  expect(file).toMatchObject({ updatedAt: field === "updatedAt" ? document.createdAt : document.updatedAt });
+  expect(reopened.data.revision).toBe(1);
+  expect(f.open).not.toHaveBeenCalled();
+});

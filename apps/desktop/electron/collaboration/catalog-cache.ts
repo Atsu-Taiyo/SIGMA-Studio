@@ -254,8 +254,9 @@ export function localTargetKey(target: LocalSharingTarget): string {
 
 /** Use only metadata already in the catalog/local ledger; never fetch document bodies for dates. */
 function catalogDates(node: CatalogNode, local?: { createdAt: string; updatedAt: string }): { createdAt: string; updatedAt: string } {
-  const valid = (value: string | undefined): value is string => {
-    const time = value ? Date.parse(value) : Number.NaN;
+  const valid = (value: unknown): value is string => {
+    // Older caches may predate validation of these optional server fields.
+    const time = typeof value === "string" ? Date.parse(value) : Number.NaN;
     return Number.isFinite(time) && time !== 0;
   };
   const updates = [node.updatedAt, local?.updatedAt].filter(valid);
