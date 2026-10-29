@@ -1611,6 +1611,8 @@
   z-index: 1;
   display: block;
   min-width: 0;
+  /* 問題の書体 (`getProblemFontStyle`)。中身だけに効かせ、脇の札などの編集用の飾りには届かせない。 */
+  font-family: var(--problem-font-family, inherit);
 }
 
 /* Explicit insets describe the content box. The editor's selection hit area
@@ -1629,6 +1631,13 @@
   grid-template-columns: max-content minmax(0, 1fr);
   align-items: start;
   column-gap: var(--problem-number-gap, 8px);
+}
+
+/* 導入文は番号の右隣の1行。番号の箱が行より高いとき (番号を大きくしたとき) は、行を箱の上端に
+   寄せず、箱の縦の中央へ下げる。下げ幅は `useProblemLeadCentering` が実測して置く。translate なので
+   エリアの高さ (ページ割り) は変わらない。 */
+.problem-area-paper-body[data-lead-offset] {
+  translate: 0 var(--problem-lead-offset, 0px);
 }
 
 .problem-number-marker {

@@ -338,6 +338,16 @@ export function collectSelectionFontFamilies(state: EditorState): (string | null
   return [...distinct];
 }
 
+/**
+ * 問題の書体 (`ProblemNode.fontFamily`)。問題のエリアのエディタは問題そのものを doc に持たないので、
+ * 紙面のエリアが置く変数 (`getProblemFontStyle`) から読む。問題の中では、これが教材の既定の書体の代わりになる。
+ */
+export function readProblemFontFamily(dom: Element | null | undefined): string | undefined {
+  if (!dom || typeof getComputedStyle !== "function") return undefined;
+  const value = getComputedStyle(dom).getPropertyValue("--problem-font-family").trim();
+  return value || undefined;
+}
+
 /** The enclosing frame's fonts and sizes, and whether the caret is in its title. */
 export function resolveBoxFontContext(state: EditorState): {
   bodyFontFamily?: string;
@@ -464,7 +474,7 @@ function resolveEffectiveFont(fontContext: TextFormatFontContext | undefined) {
     boxBodyFontFamily: boxContext.bodyFontFamily,
     boxTitleFontFamily: boxContext.titleFontFamily,
     inBoxTitle: boxContext.inBoxTitle,
-    documentFontFamily,
+    documentFontFamily: readProblemFontFamily(fontContext?.view?.dom) ?? documentFontFamily,
   });
 }
 

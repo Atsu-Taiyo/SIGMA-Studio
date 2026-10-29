@@ -172,6 +172,11 @@ export interface ProblemNode extends BaseNode {
     areaLayout?: Partial<Record<ProblemAreaKind, ProblemAreaLayout>>;
     numbering?: ProblemNumbering;
     frame?: ProblemFrame;
+    /**
+     * 問題の文字の書体 (CSS の font-family)。導入文・問題文・コメント・解答の、書体を指定していない
+     * 文字と番号がこの書体になる。文字に付けた書体と番号の書体はこれより優先する。
+     */
+    fontFamily?: string;
 }
 
 export type ProblemAreaKind = "lead" | "prompt" | "solution" | "hints";

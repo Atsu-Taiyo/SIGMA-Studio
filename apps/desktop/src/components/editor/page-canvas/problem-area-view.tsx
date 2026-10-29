@@ -35,11 +35,11 @@ import {
   problemFrameClassName,
 } from "@/lib/problem-frame";
 import { getCustomFrameStyle } from "@/lib/custom-frame";
-import { getProblemNumberLayoutStyle, getProblemAreaLayoutStyle, getProblemFrameLayoutStyle, formatProblemNumberLabel } from "@/features/document";
+import { getProblemNumberLayoutStyle, getProblemAreaLayoutStyle, getProblemFontStyle, getProblemFrameLayoutStyle, formatProblemNumberLabel } from "@/features/document";
 import type { MaterialItem } from "@/types/material";
 import { MoreHorizontal } from "lucide-react";
 import type { CSSProperties,PointerEvent as ReactPointerEvent } from "react";
-import { useCallback,useMemo } from "react";
+import { useCallback,useLayoutEffect,useMemo,useRef } from "react";
 import { resolvePageBreakMarkerKind } from "./block-context-menu";
 import { hasBreakBefore,isProblemFrameArea } from "./block-ops";
 import type { PageCanvasInlineContent } from "./editor-extension";
@@ -158,6 +158,7 @@ export function ProblemAreaFlowUnit({
     ...getProblemAreaLayoutStyle(problem.areaLayout?.[area], displacementProps.style?.left ?? layoutStyle?.left),
     ...getProblemFrameLayoutStyle(hasFrame ? problem.frame : undefined),
     ...getProblemNumberLayoutStyle(problem.numbering),
+    ...getProblemFontStyle(problem.fontFamily),
     minHeight: minHeightPx > 0 ? `${minHeightPx}px` : undefined,
   } as CSSProperties;
   const problemNumber = unit.problemNumber;
@@ -166,6 +167,7 @@ export function ProblemAreaFlowUnit({
   // 隠した表示では、いちばん上に出る領域が番号を持つ (どの問題の解答か分からなくなるため)。
   const showNumber = isFirstArea && typeof problemNumber === "number";
   const problemNumberStyle = showNumber ? { fontSize: `${getProblemNumberFontSize(problem)}pt` } : undefined;
+  const leadBodyRef = useProblemLeadCentering(showNumber && area === "lead");
   const frameClasses = hasFrame ? problemFrameClassName("with-frame", frameStyleId) : "";
   // A manual break can split a framed area into several page/column segments (see
   // isProblemAreaColumnBlockFlowEligible). When that happens, the border can no
@@ -268,6 +270,7 @@ export function ProblemAreaFlowUnit({
           </span>
         )}
         <div
+          ref={leadBodyRef}
           className="problem-area-paper-body"
         >
           <TextFlowWithInlineContent
@@ -452,4 +455,53 @@ export function problemAreaSideLabel(
   }
 
   return problemAreaLabel(area, t);
+}
+
+/**
+ * 番号の箱が導入文の行より高いとき、導入文の行を箱の縦の中央へ下げる。
+ *
+ * 本文の殻は当たり判定のために行の上に 2px、下に 12px の余白を持つので、CSS の中央寄せでは
+ * 行が箱の中央より上にずれる。行 (エディタ本体) と箱の実寸から下げ幅を求めて translate で置く。
+ * translate はレイアウトに影響しないので、エリアの高さとページ割りは変わらず、測り直しても
+ * 値が揺れない。行の方が高いとき (ふだんの大きさの番号) は何もしない。
+ */
+function useProblemLeadCentering(enabled: boolean) {
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    const marker = body?.parentElement?.querySelector<HTMLElement>(":scope > .problem-number-marker");
+    if (!enabled || !body || !marker) {
+      return;
+    }
+    const apply = () => {
+      const editor = body.querySelector<HTMLElement>(".text-flow-editor");
+      if (!editor) return;
+      // 両方とも translate の影響を受けない実寸で測る (body を動かしても editor との差は同じ)。
+      const markerRect = marker.getBoundingClientRect();
+      const bodyRect = body.getBoundingClientRect();
+      const editorRect = editor.getBoundingClientRect();
+      const lineCenterInBody = editorRect.top - bodyRect.top + editorRect.height / 2;
+      const currentOffset = Number.parseFloat(body.style.getPropertyValue("--problem-lead-offset")) || 0;
+      const bodyTop = bodyRect.top - currentOffset;
+      const offset = Math.max(0, markerRect.top + markerRect.height / 2 - (bodyTop + lineCenterInBody));
+      const rounded = Math.round(offset * 100) / 100;
+      if (rounded > 0.5) {
+        body.dataset.leadOffset = "";
+        body.style.setProperty("--problem-lead-offset", `${rounded}px`);
+      } else {
+        delete body.dataset.leadOffset;
+        body.style.removeProperty("--problem-lead-offset");
+      }
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(marker);
+    observer.observe(body);
+    return () => {
+      observer.disconnect();
+      delete body.dataset.leadOffset;
+      body.style.removeProperty("--problem-lead-offset");
+    };
+  }, [enabled]);
+  return bodyRef;
 }

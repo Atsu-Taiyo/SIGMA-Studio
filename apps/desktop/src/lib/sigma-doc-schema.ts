@@ -525,6 +525,7 @@ const ProblemNodeSchema = BaseNodeSchema.extend({
       hints: ProblemAreaLayoutSchema.optional(),
     })
     .optional(),
+  fontFamily: z.string().refine(isSafeCssFontFamily).optional(),
   numbering: z
     .object({
       enabled: z.boolean().optional(),
