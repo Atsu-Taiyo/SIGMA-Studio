@@ -19,6 +19,11 @@ export interface TextInlineNode {
   backgroundColor?: string;
   fontFamily?: string;
   fontSize?: number;
+  /** Additional advance after each character, in CSS pixels. May be negative. */
+  letterSpacingPx?: number;
+  fontKerning?: "auto" | "normal" | "none";
+  /** CSS pixels; positive values raise the text baseline. */
+  baselineShiftPx?: number;
   boxedPaddingY?: number;
   boxedVariant?: BoxedVariant;
   boxedTone?: BoxedTone;

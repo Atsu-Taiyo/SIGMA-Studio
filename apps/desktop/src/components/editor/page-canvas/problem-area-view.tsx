@@ -261,7 +261,7 @@ export function ProblemAreaFlowUnit({
         </div>
       )}
       {isFirstArea && hasBreakBefore(problem) && (
-        <PageBreakMarker blockId={problem.id} onRemove={onRemoveBreak} displacement={markerDisplacements?.[unit.id]} />
+        <PageBreakMarker blockId={problem.id} kind={resolvePageBreakMarkerKind(isColumnPage)} onRemove={onRemoveBreak} displacement={markerDisplacements?.[unit.id]} />
       )}
       <div className={`problem-area-paper-content ${showNumber ? "with-number" : ""}`}>
         {showNumber && (

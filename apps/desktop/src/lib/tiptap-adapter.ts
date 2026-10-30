@@ -158,10 +158,13 @@ export function inlineNodesToTiptapNodes(children: InlineNode[]): TiptapNode[] {
     }
     const fontSize = normalizeFontSize(child.fontSize);
     const fontFamily = resolveDocumentFontFamily(child.fontFamily);
-    if (child.color || child.backgroundColor || fontFamily || fontSize) {
+    if (child.color || child.backgroundColor || fontFamily || fontSize || child.fontKerning !== undefined || child.letterSpacingPx !== undefined || child.baselineShiftPx !== undefined) {
       marks.push({
         type: "styledText",
         attrs: {
+          letterSpacingPx: child.letterSpacingPx,
+          fontKerning: child.fontKerning,
+          baselineShiftPx: child.baselineShiftPx,
           color: child.color,
           backgroundColor: child.backgroundColor,
           fontFamily,
@@ -196,6 +199,9 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
         getUnderlineStyle(node),
         getBoxedTextRoundness(node),
         readDocumentReference(node.marks?.find(mark => mark.type === "documentReference")?.attrs?.reference),
+        getLetterSpacing(node),
+        getBaselineShift(node),
+        getFontKerning(node),
       );
       continue;
     }
@@ -216,6 +222,10 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
         undefined,
         previous?.type === "text" ? previous.underlineStyle : undefined,
         previous?.type === "text" ? previous.boxedRoundness : undefined,
+        undefined,
+        previous?.type === "text" ? previous.letterSpacingPx : undefined,
+        previous?.type === "text" ? previous.baselineShiftPx : undefined,
+        previous?.type === "text" ? previous.fontKerning : undefined,
       );
       continue;
     }
@@ -264,6 +274,10 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
             child.mentionUserId,
             child.underlineStyle,
             child.boxedRoundness,
+            child.reference,
+            child.letterSpacingPx,
+            child.baselineShiftPx,
+            child.fontKerning,
           );
         } else {
           result.push(child);
@@ -311,6 +325,9 @@ function pushText(
   underlineStyle?: UnderlineStyle,
   boxedRoundness?: number,
   reference?: DocumentReference,
+  letterSpacingPx?: number,
+  baselineShiftPx?: number,
+  fontKerning?: "auto" | "normal" | "none",
 ): void {
   const previous = nodes[nodes.length - 1];
   const normalizedMarks = marks?.length ? marks : undefined;
@@ -327,6 +344,9 @@ function pushText(
     previous.backgroundColor === backgroundColor &&
     previous.fontFamily === fontFamily &&
     previous.fontSize === normalizedFontSize &&
+    previous.letterSpacingPx === letterSpacingPx &&
+    previous.baselineShiftPx === baselineShiftPx &&
+    previous.fontKerning === fontKerning &&
     previous.boxedPaddingY === normalizedBoxedPaddingY &&
     previous.boxedVariant === normalizedBoxedVariant &&
     previous.boxedTone === normalizedBoxedTone &&
@@ -350,6 +370,9 @@ function pushText(
     ...(backgroundColor ? { backgroundColor } : {}),
     ...(fontFamily ? { fontFamily } : {}),
     ...(normalizedFontSize ? { fontSize: normalizedFontSize } : {}),
+    ...(letterSpacingPx !== undefined ? { letterSpacingPx } : {}),
+    ...(baselineShiftPx !== undefined ? { baselineShiftPx } : {}),
+    ...(fontKerning !== undefined ? { fontKerning } : {}),
     ...(normalizedBoxedPaddingY !== undefined ? { boxedPaddingY: normalizedBoxedPaddingY } : {}),
     ...(normalizedBoxedVariant ? { boxedVariant: normalizedBoxedVariant } : {}),
     ...(normalizedBoxedTone ? { boxedTone: normalizedBoxedTone } : {}),
@@ -496,4 +519,19 @@ function getCommentMentionUserId(node: TiptapNode): string | undefined {
 function getUnderlineStyle(node: TiptapNode): UnderlineStyle | undefined {
   const value = node.marks?.find((mark) => mark.type === "underline")?.attrs?.style;
   return value === "solid" || value === "wavy" || value === "dotted" || value === "double" ? value : undefined;
+}
+
+function getFontKerning(node: TiptapNode): "auto" | "normal" | "none" | undefined {
+  const value = node.marks?.find(mark => mark.type === "styledText")?.attrs?.fontKerning;
+  return value === "auto" || value === "normal" || value === "none" ? value : undefined;
+}
+
+function getLetterSpacing(node: TiptapNode): number | undefined {
+  const value = node.marks?.find(mark => mark.type === "styledText")?.attrs?.letterSpacingPx;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function getBaselineShift(node: TiptapNode): number | undefined {
+  const value = node.marks?.find(mark => mark.type === "styledText")?.attrs?.baselineShiftPx;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

@@ -82,7 +82,7 @@ export async function renderPdfOutputSession(
       expectation.pageCount - 1,
     );
 
-    const merged = await mergePdfPages(pagePdfs);
+    const merged = await mergePdfPages(pagePdfs, expectation);
     await assertPdfPages(merged, expectation, expectation.pageCount);
     return merged;
   } finally {
@@ -506,13 +506,21 @@ async function assertPdfPages(
   }
 }
 
-async function mergePdfPages(pagePdfs: readonly Uint8Array[]): Promise<Buffer> {
+async function mergePdfPages(pagePdfs: readonly Uint8Array[], expectation: PdfOutputSessionExpectation): Promise<Buffer> {
   const merged = await PDFDocument.create();
   merged.setCreator("Sigma Studio");
   merged.setProducer("Sigma Studio");
   for (const pagePdf of pagePdfs) {
     const source = await PDFDocument.load(pagePdf);
     const [page] = await merged.copyPages(source, [0]);
+    // Chromium rounds the physical sheet to its print device grid. Restore
+    // the document's exact paper size without scaling or relaying out content.
+    // PDF coordinates start at the bottom; retain the settled top-left origin.
+    const width = mmToPoints(expectation.pageWidthMm);
+    const height = mmToPoints(expectation.pageHeightMm);
+    const oldHeight = page.getHeight();
+    if (height !== oldHeight) page.translateContent(0, height - oldHeight);
+    page.setSize(width, height);
     merged.addPage(page);
   }
   return Buffer.from(await merged.save());

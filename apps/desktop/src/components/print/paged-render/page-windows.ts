@@ -9,6 +9,32 @@
 
 import { stripWrappingMarkdownCodeFence } from "@/features/rendering/core";
 import { visibleBlockClientRect } from "@/components/editor/page-canvas/visible-block-rect";
+import { getEffectiveZoom } from "@/features/rendering/adapters";
+
+/**
+ * Preserve the settled text boxes in the derived output DOM. Chromium's PDF
+ * paint pass can round intrinsic font metrics differently from screen layout;
+ * letting each paragraph grow again accumulates displacement through the full
+ * canvas, even though the page windows and pagination have already settled.
+ * These are copies of the canonical measured boxes, not a second layout pass.
+ */
+export function preserveSettledTextBlockHeights(source: HTMLElement, clone: HTMLElement): void {
+  const selector = ".text-flow-editor :is(p, h1, h2, h3, h4, h5, h6)";
+  const originals = source.querySelectorAll<HTMLElement>(selector);
+  const copies = clone.querySelectorAll<HTMLElement>(selector);
+  if (originals.length !== copies.length) throw new Error("Output text clone differs from settled canvas");
+  originals.forEach((element, index) => {
+    const height = element.getBoundingClientRect().height / getEffectiveZoom(element, "y");
+    if (!Number.isFinite(height) || height <= 0) return;
+    copies[index].style.boxSizing = "border-box";
+    // CSSOM serializes ordinary dimensions with limited decimal precision.
+    // The hidden PDF renderer reparses that HTML; rounding down many heights
+    // would accumulate another offset. Custom-property tokens retain the exact
+    // settled value across that serialization boundary.
+    copies[index].style.setProperty("--paged-settled-text-height", `${height}px`);
+    copies[index].style.height = "var(--paged-settled-text-height)";
+  });
+}
 
 export interface PagedCanvasMetrics {
   pageCount: number;
@@ -295,6 +321,7 @@ export function buildPageWindows({
   const fragment = ownerDocument.createDocumentFragment();
   const ownership = measurePageOwnership(canvas, metrics);
   const cloneTemplate = stageRoot.cloneNode(true) as HTMLElement;
+  preserveSettledTextBlockHeights(stageRoot, cloneTemplate);
   sanitizePagedClone(cloneTemplate);
   const templateCanvas = cloneTemplate.querySelector(".page-canvas");
   const visibleShapePages = templateCanvas ? measureVisibleShapePages(canvas, templateCanvas, metrics) : new Map();

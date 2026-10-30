@@ -21,6 +21,16 @@ describe("problem dimensions", () => {
     expect(getProblemAreaLayoutStyle(restored.areaLayout?.prompt)).toMatchObject({ paddingTop: "0px", paddingLeft: "2px", marginTop: "0px", width: "min(80mm, 100%)", boxSizing: "border-box" });
     expect(getProblemFrameLayoutStyle(restored.frame)).toMatchObject({ "--problem-frame-border-width": "0.5px" });
   });
+  it("preserves an explicit trailing extent through schema round trips without widening other areas", () => {
+    const file = { ...sampleDocument, content: [{ ...problem, areaLayout: { prompt: { widthMm: 120, rightOverhangPx: 0.75 } } }] };
+    const restored = parseSigmaDocument(JSON.parse(JSON.stringify(file))).content[0] as ProblemNode;
+    expect(restored.areaLayout?.prompt).toEqual({ widthMm: 120, rightOverhangPx: 0.75 });
+    expect(getProblemAreaLayoutStyle(restored.areaLayout?.prompt).width).toBe("min(120mm, calc(100% + 0.75px))");
+    for (const rightOverhangPx of [-1, 257, Infinity]) {
+      expect(() => parseSigmaDocument({ ...file, content: [{ ...problem, areaLayout: { prompt: { widthMm: 120, rightOverhangPx } } }] })).toThrow();
+      expect(getProblemAreaLayoutStyle({ widthMm: 120, rightOverhangPx }).width).toBe("min(120mm, 100%)");
+    }
+  });
   it("does not add overrides to older files", () => {
     expect(getProblemNumberLayoutStyle(undefined)).toEqual({});
     expect(getProblemAreaLayoutStyle({ minHeightMm: 8 })).toEqual({});

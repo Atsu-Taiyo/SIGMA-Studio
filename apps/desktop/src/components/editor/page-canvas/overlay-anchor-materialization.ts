@@ -232,18 +232,23 @@ export function pointInsideOverlayRect(point: OverlayPoint, rect: OverlayRect): 
     point.y >= rect.y && point.y <= rect.y + rect.h;
 }
 
-export function getTopmostBodyModeOverlayHit(shapes: OverlayShape[], point: OverlayPoint): OverlayShape | null {
+export function getTopmostBodyModeOverlayHit(shapes: OverlayShape[], point: OverlayPoint, hasVisibleInk: (shape: OverlayShape) => boolean = () => true): OverlayShape | null {
+  let emptyGraph: OverlayShape | null = null;
   for (let index = shapes.length - 1; index >= 0; index -= 1) {
     const shape = shapes[index];
     const margin = isBodyModeOpenStrokeShape(shape)
       ? BODY_MODE_OPEN_STROKE_HIT_MARGIN
       : BODY_MODE_OVERLAY_HIT_MARGIN;
     if (hitTestShape(shape, point, margin)) {
+      if (shape.type === "graph2dShape" && !hasVisibleInk(shape)) {
+        emptyGraph ??= shape;
+        continue;
+      }
       return shape;
     }
   }
 
-  return null;
+  return emptyGraph;
 }
 
 export function isBodyModeOpenStrokeShape(shape: OverlayShape): boolean {

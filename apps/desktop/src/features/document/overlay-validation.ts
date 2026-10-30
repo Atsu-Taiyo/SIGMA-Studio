@@ -794,6 +794,9 @@ function isInlineNode(value: unknown): value is InlineNode {
       (value.backgroundColor === undefined || typeof value.backgroundColor === "string") &&
       (value.fontFamily === undefined || typeof value.fontFamily === "string") &&
       (value.fontSize === undefined || (isFiniteNumber(value.fontSize) && value.fontSize > 0)) &&
+      (value.fontKerning === undefined || value.fontKerning === "auto" || value.fontKerning === "normal" || value.fontKerning === "none") &&
+      (value.letterSpacingPx === undefined || isFiniteNumber(value.letterSpacingPx)) &&
+      (value.baselineShiftPx === undefined || isFiniteNumber(value.baselineShiftPx)) &&
       (value.boxedPaddingY === undefined || (isFiniteNumber(value.boxedPaddingY) && value.boxedPaddingY >= 0)) &&
       isOptionalBoxStyle(value) && isOptionalUnderlineStyle(value);
   }

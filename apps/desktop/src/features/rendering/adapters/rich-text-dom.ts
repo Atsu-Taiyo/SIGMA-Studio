@@ -221,6 +221,12 @@ function buildInlinePieceDom(
   let children: RichTextDomNode[] = child.kind === "text"
     ? (piece.text ?? "").length > 0 ? [{ kind: "text", key: `${key}-text`, text: piece.text ?? "" }] : []
     : [mathFrame(child, options, boxed?.variant === "compact" || hasDecoration(child.decorations, "underline"))];
+  // Whitespace-only anonymous flex items are discarded, even with pre-wrap on
+  // the flex container. Keep saved spaces as an explicit item inside boxed runs.
+  if (boxed && child.kind === "text" && /^[ \t]+$/.test(piece.text ?? "")) {
+    children = [{ kind: "element", tag: "span", key: `${key}-boxed-space`,
+      style: { "white-space": "pre-wrap" }, children }];
+  }
   if (options.preserveInheritedFontSize && findDecoration(child.decorations, "style")?.style.fontSizePt === undefined) {
     children = [{
       kind: "element", tag: "span", key: `${key}-inherited-font`,
@@ -375,6 +381,8 @@ export function boxedSelfContainedStyle(boxed: RichTextBoxDecoration, underline?
   }
   if (boxed.variant === "compact") {
     Object.assign(style, { "--boxed-text-padding-y": "1px", "padding-inline": "1px" });
+    if (boxed.connectLeft) style["padding-left"] = "0";
+    if (boxed.connectRight) style["padding-right"] = "0";
   }
   return style;
 }
@@ -520,12 +528,19 @@ function inlineStyleSource(style: RichTextRenderStyle | undefined): {
   color?: string;
   fontFamily?: string;
   fontSizePt?: number;
+  letterSpacingPx?: number;
+  fontKerning?: "auto" | "normal" | "none";
+  /** CSS pixels; positive values raise the text baseline. */
+  baselineShiftPx?: number;
 } {
   return {
     backgroundColor: style?.backgroundColor,
     color: style?.color,
     fontFamily: style?.fontFamily,
     fontSizePt: style?.fontSizePt,
+    letterSpacingPx: style?.letterSpacingPx,
+    fontKerning: style?.fontKerning,
+    baselineShiftPx: style?.baselineShiftPx,
   };
 }
 

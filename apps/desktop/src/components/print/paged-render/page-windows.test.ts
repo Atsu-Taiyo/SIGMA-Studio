@@ -2,7 +2,42 @@
 
 import { describe, expect, it } from "vitest";
 
-import { buildPageWindows, compactPagedCodeBlocks, measurePageOwnership } from "./page-windows";
+import { buildPageWindows, compactPagedCodeBlocks, measurePageOwnership, preserveSettledTextBlockHeights } from "./page-windows";
+
+describe("settled output text boxes", () => {
+  it("retains fractional border-box heights without mutating the editor or its content", () => {
+    const source = document.createElement("div");
+    source.innerHTML = '<div class="text-flow-editor"><p style="padding-bottom: 12px">日本語 <em>text</em></p><h2>Heading</h2><p><br></p></div>';
+    const blocks = source.querySelectorAll<HTMLElement>("p, h2");
+    [26.078125, 42.375, 14.7421875].forEach((height, index) => {
+      blocks[index].getBoundingClientRect = () => domRect(0, index * 50, 200, height);
+    });
+    const original = source.outerHTML;
+    const clone = source.cloneNode(true) as HTMLElement;
+    preserveSettledTextBlockHeights(source, clone);
+    expect(source.outerHTML).toBe(original);
+    const reparsed = document.createElement("div");
+    reparsed.innerHTML = clone.outerHTML;
+    expect(Array.from(reparsed.querySelectorAll<HTMLElement>("p, h2"), p => p.style.getPropertyValue("--paged-settled-text-height"))).toEqual(["26.078125px", "42.375px", "14.7421875px"]);
+    expect(clone.querySelector("p")!.style.height).toBe("var(--paged-settled-text-height)");
+    expect(clone.querySelector("p")!.style.boxSizing).toBe("border-box");
+    expect(clone.querySelector("p")!.style.paddingBottom).toBe("12px");
+    expect(clone.textContent).toBe(source.textContent);
+  });
+
+  it("normalizes a transformed source and leaves unmeasured boxes alone", () => {
+    const source = document.createElement("div");
+    source.style.transform = "matrix(2, 0, 0, 2, 0, 0)";
+    source.innerHTML = '<div class="text-flow-editor"><p>Scaled</p><p>Hidden</p></div>';
+    document.body.append(source);
+    source.querySelector("p")!.getBoundingClientRect = () => domRect(0, 0, 400, 50.25);
+    const clone = source.cloneNode(true) as HTMLElement;
+    preserveSettledTextBlockHeights(source, clone);
+    source.remove();
+    expect(clone.querySelector("p")!.style.getPropertyValue("--paged-settled-text-height")).toBe("25.125px");
+    expect(clone.querySelectorAll<HTMLElement>("p")[1].style.height).toBe("");
+  });
+});
 
 describe("buildPageWindows", () => {
   it("keeps a continued paragraph's identity on the page showing its visible lines", () => {

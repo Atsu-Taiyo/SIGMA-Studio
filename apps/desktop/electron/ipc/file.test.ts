@@ -1,4 +1,4 @@
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, PDFArray, PDFRawStream, decodePDFRawStream } from "pdf-lib";
 import { BrowserWindow } from "electron";
 import { JSDOM } from "jsdom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -235,6 +235,28 @@ describe("file:export-pdf", () => {
     expect(mocks.printToPDF).not.toHaveBeenCalled();
     expect(mocks.writeFile).not.toHaveBeenCalled();
     expect(mocks.hiddenClose).toHaveBeenCalled();
+  });
+
+  it("restores exact paper dimensions while retaining the printed top-left content origin", async () => {
+    const source = await PDFDocument.create();
+    const page = source.addPage([516, 729.12]);
+    page.drawRectangle({ x: 20, y: 699.12, width: 4, height: 5 });
+    mocks.showSaveDialog.mockResolvedValue({ canceled: false, filePath: "/Users/test/Downloads/教材.pdf" });
+    mocks.printToPDF.mockResolvedValue(Buffer.from(await source.save()));
+    registerFileIpc({ getMainWindow: () => null });
+    await mocks.handlers.get("file:export-pdf")?.({ sender }, B5);
+    const result = await PDFDocument.load(mocks.writeFile.mock.calls[0][1]);
+    for (const output of result.getPages()) {
+      expect(output.getWidth()).toBeCloseTo(182 / 25.4 * 72, 9);
+      expect(output.getHeight()).toBeCloseTo(257 / 25.4 * 72, 9);
+      const contents = output.node.Contents() as PDFArray;
+      const streams = contents.asArray().map(ref => Buffer.from(decodePDFRawStream(result.context.lookup(ref) as PDFRawStream).decode()).toString()).join("\n");
+      const translations = [...streams.matchAll(/1 0 0 1 ([-\d.]+) ([-\d.]+) cm/g)];
+      const first = translations[0];
+      expect(Number(first[1])).toBe(0);
+      expect(output.getHeight() - (699.12 + Number(first[2]))).toBeCloseTo(30, 9);
+      expect(streams).toContain("1 0 0 1 20 699.12 cm");
+    }
   });
 
   it("fails closed when Chromium returns more than one page for an isolated page", async () => {

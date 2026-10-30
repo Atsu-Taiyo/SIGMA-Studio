@@ -57,6 +57,19 @@ function textShape(id: string): OverlayTextShape {
 }
 
 describe("overlay snapshot normalization", () => {
+  it.each([-1.375, 0, 1.25])("preserves text spacing and baseline %s through reload and static rendering", (offset) => {
+    const original = textShape("text-offsets");
+    const children = [{ type: "text" as const, text: "文字", fontSize: 12, letterSpacingPx: offset, baselineShiftPx: offset === 0 ? 0 : -offset }];
+    original.props.blocks = [{ type: "paragraph", id: "offset-paragraph", children }];
+    const normalized = normalizeOverlaySnapshot({ version: 1, assets: {}, shapes: [original] });
+    const reloaded = normalizeOverlaySnapshot(JSON.parse(JSON.stringify(normalized)));
+    expect(reloaded.shapes).toEqual([original]);
+    const projected = overlayTextBlocksToInlineNodes((reloaded.shapes[0] as OverlayTextShape).props.blocks);
+    const dom = JSON.stringify(buildInlineRichTextDom(projected, { keyPrefix: "offsets" }));
+    expect(dom).toContain(`"letter-spacing":"${offset}px"`);
+    expect(dom).toContain(`"vertical-align":"${-offset}px"`);
+  });
+
   it("round trips text-box fill and border independently of glyph formatting", () => {
     const shape = textShape("decorated");
     Object.assign(shape.props, {

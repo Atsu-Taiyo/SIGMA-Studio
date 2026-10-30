@@ -715,6 +715,12 @@
   cursor: text;
 }
 
+/* The numbered lead's editor shell starts 6px above its content box.
+   Its margin-selection gutter must not cover ink in the preceding problem. */
+.problem-area-paper-content.with-number .text-flow-side-selection-gutter {
+  top: 6px;
+}
+
 /* Only the leading column owns the page margin. Later columns used to extend
    a page-margin-wide hit area over their left neighbour; grid gap clicks are
    routed by the shared column pointer handler instead. */

@@ -352,6 +352,10 @@ export function buildFlowModel(tree: ProbeTree, options: BuildFlowModelOptions):
       flowLines[0].top = Math.min(flowLines[0].top, unit.frame.top);
     }
 
+    // Natural flow already contains this margin. Only forced starts consume
+    // leadingSpace; automatic overflow continues to trim it.
+    if (flowLines[0]) flowLines[0].leadingSpace = Math.max(0, unit.leadingSpace ?? 0);
+
     if (unit.reservation) {
       const closing = unit.frame?.last ? Math.max(0, unit.frame.bottom - unit.reservation.bottom) : 0;
       const blank: FlowBlank = {

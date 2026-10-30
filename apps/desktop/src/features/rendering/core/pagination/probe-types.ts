@@ -85,6 +85,8 @@ export interface ProbeUnit {
   span: "column" | "full";
   /** ユニット単位の手動改ページ (問題そのものに付いた改ページなど)。 */
   breakBefore: boolean;
+  /** Explicit unit margin to retain after a manual page/column break. */
+  leadingSpace?: number;
   /** 編集面の最上位ブロックと拡張ノード (文書順)。 */
   nodes: readonly ProbeNode[];
   /** 独立段組 (layoutSection) の各列。あるときは `nodes` は空。 */

@@ -255,6 +255,7 @@ import {
 import { assignTextRunGroupIds } from "./page-canvas/text-run-groups";
 import type { RenderUnit } from "./page-canvas/types";
 import { useBlockDrag } from "./page-canvas/use-block-drag";
+import { hasRenderedGraphInk } from "./overlay-canvas/graph-ink-hit-test";
 import { useOverlayPreviewHandoff } from "./page-canvas/use-overlay-preview-handoff";
 import { usePageCanvasCommentGeometry } from "./page-canvas/use-page-canvas-comments";
 import { usePageCanvasMeasurement } from "./page-canvas/use-page-canvas-measurement";
@@ -2494,7 +2495,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     if (target?.closest(".page-column-rule-control")) return;
     const canvas = canvasRef.current;
     const overlayPoint = !runningRegionEditKind ? getOverflowOverlayPointFromClient(event.clientX, event.clientY) : null;
-    const svgImage = overlayPoint ? getTopmostBodyModeOverlayHit(visibleBodyHitShapes, overlayPoint) : null;
+    const svgImage = overlayPoint ? getTopmostBodyModeOverlayHit(visibleBodyHitShapes, overlayPoint, shape => hasRenderedGraphInk(canvasRef.current, shape.id, { x: event.clientX, y: event.clientY })) : null;
     if (canvas && svgImage?.type === "image" && isSvgImageAsset(overlay?.overlaySnapshot?.assets[svgImage.props.assetId])) {
       event.preventDefault();
       event.stopPropagation();
@@ -2688,7 +2689,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     const overlayPoint = !isOverlayEditing && !runningRegionEditKind && !target?.closest(PAGE_CONTROL_SELECTOR)
       ? getOverflowOverlayPointFromClient(event.clientX, event.clientY)
       : null;
-    const hitShape = overlayPoint ? getTopmostBodyModeOverlayHit(visibleBodyHitShapes, overlayPoint) : null;
+    const hitShape = overlayPoint ? getTopmostBodyModeOverlayHit(visibleBodyHitShapes, overlayPoint, shape => hasRenderedGraphInk(canvasRef.current, shape.id, { x: event.clientX, y: event.clientY })) : null;
     const bodyPointerRoute = resolveBodyPointerRoute({
       hitShapeId: hitShape?.id ?? null,
       selectedShapeIds: routableOverlayShapeIds,

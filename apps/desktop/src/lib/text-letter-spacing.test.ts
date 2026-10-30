@@ -1,0 +1,42 @@
+import { expect, it } from "vitest";
+import { InlineNodeSchema } from "./sigma-doc-schema";
+
+it("retains signed fractional character spacing independently of font size", () => {
+  for (const letterSpacingPx of [-1.37, 0, 1.4457]) {
+    const node = { type: "text", text: "見出し", fontSize: 12, letterSpacingPx };
+    expect(InlineNodeSchema.parse(JSON.parse(JSON.stringify(node)))).toEqual(node);
+  }
+  for (const letterSpacingPx of [NaN, Infinity, -Infinity]) {
+    expect(InlineNodeSchema.safeParse({ type: "text", text: "x", letterSpacingPx }).success).toBe(false);
+  }
+  expect(InlineNodeSchema.parse({ type: "text", text: "existing" })).toEqual({ type: "text", text: "existing" });
+});
+
+import { inlineNodesToTiptapNodes, tiptapNodesToInlineNodes } from "./tiptap-adapter";
+import { inlineTextStyleDeclarations } from "@/features/rendering/adapters/boxed-inline-dom";
+import type { InlineNode } from "@/features/document";
+
+it("keeps differently spaced runs distinct across editor serialization", () => {
+  const nodes: InlineNode[] = [
+    { type: "text", text: "前", letterSpacingPx: 1.4457 },
+    { type: "text", text: "後", letterSpacingPx: -1.37 },
+    { type: "text", text: "標準", letterSpacingPx: 0 },
+  ];
+  expect(tiptapNodesToInlineNodes(inlineNodesToTiptapNodes(nodes))).toEqual(nodes);
+  expect(inlineTextStyleDeclarations({ letterSpacingPx: -1.37 })).toEqual({ "letter-spacing": "-1.37px" });
+  expect(inlineTextStyleDeclarations({ letterSpacingPx: 0 })).toEqual({ "letter-spacing": "0px" });
+  expect(inlineTextStyleDeclarations({ letterSpacingPx: Infinity })).toBeUndefined();
+});
+
+import { normalizePageLayout } from "@/features/document/application/page-layout";
+import { buildInlineRichTextDom } from "@/features/rendering/adapters/rich-text-dom";
+
+it("keeps spacing in running regions and projects it into static DOM", () => {
+  for (const region of ["header", "footer"] as const) {
+    const layout = normalizePageLayout({ [region]: { enabled: true, blocks: [{ type: "paragraph", id: "running", children: [{ type: "text", text: "見出し", letterSpacingPx: 1.4457 }] }] } });
+    const node = layout[region]!.blocks![0];
+    expect(node).toMatchObject({ children: [{ letterSpacingPx: 1.4457 }] });
+    const dom = buildInlineRichTextDom([{ type: "text", text: "見出し", letterSpacingPx: 1.4457 }], { keyPrefix: "test" });
+    expect(JSON.stringify(dom)).toContain('"letter-spacing":"1.4457px"');
+  }
+});

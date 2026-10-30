@@ -29,6 +29,19 @@ const REAL_BOX_HEIGHT_EM: readonly (readonly [tex: string, realEm: number])[] = 
 const MAX_OVERESTIMATE_FACTOR = 1.4;
 
 describe("measureTexBoxEm", () => {
+  it("reserves space for visible fallback symbols absent from KaTeX fonts", () => {
+    const one = measureTexBoxEm(String.raw`\text{❲}`, DEFAULT_MATH_RENDER_ENVIRONMENT);
+    const two = measureTexBoxEm(String.raw`\text{❲❳}`, DEFAULT_MATH_RENDER_ENVIRONMENT);
+    expect(one.widthEm).toBeGreaterThan(0.3);
+    expect(two.widthEm).toBeCloseTo(2 * one.widthEm, 8);
+  });
+  it("measures font-styled operands without counting unsupported command names", () => {
+    for (const operand of [String.raw`C`, String.raw`\text{❲}`, String.raw`\frac{x+1}{y}`]) {
+      const plain = measureTexBoxEm(operand, DEFAULT_MATH_RENDER_ENVIRONMENT);
+      const styled = measureTexBoxEm(`\\htmlStyle{font-family: 'STIX Two Math'}{${operand}}`, DEFAULT_MATH_RENDER_ENVIRONMENT);
+      expect(styled.widthEm).toBeCloseTo(plain.widthEm, 8);
+    }
+  });
   it("measures single kana fallback glyphs in full-em cells, matching combined kana", () => {
     const one = measureTexBoxEm(String.raw`\text{ア}`, DEFAULT_MATH_RENDER_ENVIRONMENT);
     const two = measureTexBoxEm(String.raw`\text{アイ}`, DEFAULT_MATH_RENDER_ENVIRONMENT);

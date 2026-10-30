@@ -44,7 +44,9 @@ export function getProblemAreaLayoutStyle(layout: ProblemAreaLayout | undefined,
     if (finite(layout[key], 0, 400)) style[key === "marginTopPx" ? "marginTop" : "marginBottom"] = `${layout[key]}px`;
   }
   if (finite(layout.widthMm, 0.01, 1000)) {
-    style.width = `min(${layout.widthMm}mm, 100%)`;
+    const limit = finite(layout.rightOverhangPx, 0, 256) && layout.rightOverhangPx > 0
+      ? `calc(100% + ${layout.rightOverhangPx}px)` : "100%";
+    style.width = `min(${layout.widthMm}mm, ${limit})`;
     style.boxSizing = "border-box";
   }
   if (finite(layout.offsetXPx, -256, 256)) {

@@ -64,7 +64,14 @@ const KATEX_MEASURE_OPTIONS = {
   output: "html" as const,
   strict: "ignore" as const,
   throwOnError: true,
-  trust: trustSigmaKatexMacro,
+  // This tree is inspected for dimensions and is never inserted into the DOM.
+  // Without accepting a font-only wrapper, KaTeX measures the red unsupported
+  // command name instead of its operand, inflating editable formula boxes.
+  // The displayed markup continues to use the separate sanitizer/trust policy.
+  trust: (context: { command: string; class?: string; style?: string }) =>
+    trustSigmaKatexMacro(context)
+    || (context.command === "\\htmlStyle"
+      && /^\s*font-family\s*:\s*[\p{L}\p{N} ,'_.-]+\s*;?\s*$/u.test(context.style ?? "")),
 };
 
 // Macros whose rendered box is reliably taller than one text line even when both measurers fail
@@ -307,6 +314,13 @@ function computeLeafWidthEm(node: KatexTreeNode): number {
     // KaTeX gives CJK fallback leaves a Latin placeholder advance. The actual
     // browser face draws these characters in a full-em cell.
     if (classesIncludeCjkFallback(node) && isFullWidthChar(chars[0])) return CJK_FALLBACK_CHAR_WIDTH_EM;
+    // KaTeX emits a zero-width symbol node for visible Unicode glyphs absent
+    // from its fonts. Browser fallback still paints those glyphs (e.g. ❲❳).
+    // Preserve real zero-width format/combining characters, but reserve an
+    // advance for visible letters, numbers, punctuation and symbols.
+    if (node.width === 0 && /[\p{L}\p{N}\p{P}\p{S}]/u.test(chars[0])) {
+      return estimateFallbackCharWidthEm(chars[0]);
+    }
     return typeof node.width === "number" ? node.width : estimateFallbackCharWidthEm(chars[0]);
   }
 
