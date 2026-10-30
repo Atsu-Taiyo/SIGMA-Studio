@@ -7,6 +7,7 @@ import {
   listItemContinuationInlineNodes,
   normalizeOverlaySnapshot,
   PROBLEM_AREA_ORDER,
+  inheritPreviousProblemStyle,
   type OverlayShape,
   type OverlayTableShape,
   type SigmaTableSpec,
@@ -487,13 +488,18 @@ export function insertBlockAtSelection(
   document: SigmaDocument,
   block: SigmaBlock,
   selectedId: string | null,
-  options: { replaceEmpty?: boolean } = {},
+  options: { replaceEmpty?: boolean; inheritProblemStyle?: boolean } = {},
 ): SigmaDocument {
+  const inheritStyle = (next: SigmaDocument): SigmaDocument => {
+    if (!options.inheritProblemStyle || block.type !== "problem") return next;
+    const styled = inheritPreviousProblemStyle(next.content, block.id);
+    return styled && styled !== block ? updateBlockInDocument(next, block.id, () => styled) : next;
+  };
   const box = findContainingBoxBlock(document, selectedId);
   if (!box || !selectedId) {
-    return options.replaceEmpty
+    return inheritStyle(options.replaceEmpty
       ? insertTopLevelBlockReplacingEmptySelection(document, block, selectedId)
-      : insertTopLevelBlock(document, block, selectedId);
+      : insertTopLevelBlock(document, block, selectedId));
   }
   const index = box.blocks.findIndex(child => blockSubtreeContainsId(child, selectedId));
   if (index < 0) return document;
@@ -501,7 +507,7 @@ export function insertBlockAtSelection(
   const replace = options.replaceEmpty && selected.id === selectedId && isEmptyTopLevelTextFlowBlock(selected);
   const blocks = [...box.blocks];
   blocks.splice(replace ? index : index + 1, replace ? 1 : 0, block);
-  return updateBlockInDocument(document, box.id, current => current.type === "boxBlock" ? { ...current, blocks } : current);
+  return inheritStyle(updateBlockInDocument(document, box.id, current => current.type === "boxBlock" ? { ...current, blocks } : current));
 }
 
 /**

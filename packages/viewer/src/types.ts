@@ -174,7 +174,8 @@ export interface ProblemNode extends BaseNode {
     frame?: ProblemFrame;
     /**
      * 問題の文字の書体 (CSS の font-family)。導入文・問題文・コメント・解答の、書体を指定していない
-     * 文字と番号がこの書体になる。文字に付けた書体と番号の書体はこれより優先する。
+     * 文字と番号がこの書体になる。文字に付けた書体 (`TextInlineNode.fontFamily`) と番号の書体
+     * (`numbering.fontFamily`) はこれより優先する。無ければ教材の既定の書体。
      */
     fontFamily?: string;
 }
