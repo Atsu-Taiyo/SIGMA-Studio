@@ -9,6 +9,103 @@ import { placeClipboardCaret } from "../e2e/clipboard-caret";
 
 const APP_ROOT = path.resolve(__dirname, "../..");
 
+test("copying inside an itembox pastes only its contents and survives undo and restart", async () => {
+  test.setTimeout(120_000);
+  const profile = mkdtempSync(path.join(tmpdir(), "sigma-box-clipboard-"));
+  const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  env.SIGMA_STUDIO_USER_DATA_DIR = profile;
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.SIGMA_STUDIO_DEV_SERVER_URL;
+  let app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
+  const originalClipboard = await app.evaluateHandle(async ({ clipboard, ClipboardItem }) => Promise.all((await clipboard.read()).filter(item => item.types.length > 0).map(async item =>
+    new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async type => [type, await item.getType(type)])))),
+  )));
+  let restoreClipboard = true;
+  try {
+    let page = await app.firstWindow();
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    const document = createBlankDocument("箱の中身をコピー");
+    document.content = [
+      { type: "boxBlock", id: "clipboard_box", styleId: "itembox", title: [{ type: "text", text: "箱の題名" }], blocks: [
+        { type: "paragraph", id: "clipboard_inside", children: [{ type: "text", text: "選んだ本文", marks: ["bold"] }] },
+        { type: "paragraph", id: "clipboard_inside_target", children: [{ type: "text", text: "箱内:" }] },
+      ] },
+      { type: "paragraph", id: "clipboard_outside", children: [{ type: "text", text: "箱外:" }] },
+    ];
+    const fileId = await page.evaluate(async document => {
+      await window.desktopAPI!.settings!.setUiLocale!("ja");
+      const storage = window.desktopAPI!.storage;
+      const { file } = await storage.createFileFromDocument({ document });
+      await storage.saveWorkspace({ openFileIds: [file.fileId], activeFileId: file.fileId });
+      return file.fileId;
+    }, document);
+    await page.reload();
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    const body = (id: string) => page.locator(`.page-flow [data-sigma-doc-id="${id}"]`).first();
+    await expect(body("clipboard_inside")).toBeVisible();
+    await body("clipboard_inside").evaluate(element => {
+      element.closest<HTMLElement>(".ProseMirror")!.focus();
+      const range = window.document.createRange();
+      range.selectNodeContents(element);
+      window.getSelection()!.removeAllRanges();
+      window.getSelection()!.addRange(range);
+      window.document.dispatchEvent(new Event("selectionchange"));
+    });
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe("選んだ本文");
+    // Observe after React's delegated copy handler, before the overlay's window listener.
+    await page.evaluate(() => window.document.addEventListener("copy", event => {
+      window.document.body.dataset.e2eCopiedSlice = event.clipboardData!.getData("application/x-sigma-studio-text-slice");
+    }, { once: true }));
+    await page.keyboard.press("ControlOrMeta+c");
+    await expect.poll(() => page.evaluate(() => JSON.parse(window.document.body.dataset.e2eCopiedSlice || "null"))).toMatchObject({
+      slice: { openStart: 1, openEnd: 1, content: [{ type: "paragraph" }] },
+    });
+    await page.evaluate(() => delete window.document.body.dataset.e2eCopiedSlice);
+    await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toContain("選んだ本文");
+    const load = () => page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), fileId);
+    await placeClipboardCaret(page, body("clipboard_outside"));
+    await page.keyboard.press("ControlOrMeta+v");
+    await expect(body("clipboard_outside")).toHaveText("箱外:選んだ本文");
+    await expect.poll(async () => (await load())?.content.filter(block => block.type === "boxBlock").length).toBe(1);
+    await expect.poll(async () => (await load())?.content.find(block => block.id === "clipboard_outside")).toMatchObject({
+      type: "paragraph", children: [{ type: "text", text: "箱外:" }, { type: "text", text: "選んだ本文", marks: ["bold"] }],
+    });
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(body("clipboard_outside")).toHaveText("箱外:");
+    await page.keyboard.press("ControlOrMeta+Shift+Z");
+    await expect(body("clipboard_outside")).toHaveText("箱外:選んだ本文");
+    await placeClipboardCaret(page, body("clipboard_inside_target"));
+    await page.keyboard.press("ControlOrMeta+v");
+    await expect(body("clipboard_inside_target")).toHaveText("箱内:選んだ本文");
+    await expect.poll(load).toMatchObject({ content: [
+      { type: "boxBlock", id: "clipboard_box", title: [{ type: "text", text: "箱の題名" }], blocks: [
+        { id: "clipboard_inside", children: [{ type: "text", text: "選んだ本文", marks: ["bold"] }] },
+        { id: "clipboard_inside_target", children: [{ type: "text", text: "箱内:" }, { type: "text", text: "選んだ本文", marks: ["bold"] }] },
+      ] },
+      { id: "clipboard_outside" },
+    ] });
+    const savedContent = (await load())!.content;
+    await app.evaluate(({ clipboard }, original) => clipboard.write(original), originalClipboard);
+    await originalClipboard.dispose();
+    restoreClipboard = false;
+    await app.close();
+    app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
+    page = await app.firstWindow();
+    await expect(body("clipboard_inside_target")).toHaveText("箱内:選んだ本文");
+    expect((await load())!.content).toEqual(savedContent);
+  } finally {
+    try {
+      if (restoreClipboard) {
+        await app.evaluate(({ clipboard }, original) => clipboard.write(original), originalClipboard);
+        await originalClipboard.dispose();
+      }
+    } finally {
+      await app.close();
+      rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
+  }
+});
+
 function withoutIds(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withoutIds);
   if (!value || typeof value !== "object") return value;
