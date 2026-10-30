@@ -8,8 +8,9 @@ const require = createRequire(new URL("../apps/desktop/package.json", import.met
 const builderRequire = createRequire(require.resolve("electron-builder/package.json"));
 const packagePath = builderRequire.resolve("app-builder-lib/package.json");
 const { version } = JSON.parse(await readFile(packagePath, "utf8"));
-// Both reviewed releases still pass the certificate password to keychain ACL setup.
-if (!["25.1.8", "26.15.3"].includes(version)) {
+// Legacy releases need the backport; 26.18.0 contains the reviewed upstream fix.
+// Keep the source checks below for both already-fixed and unpatched installs.
+if (!["25.1.8", "26.15.3", "26.18.0"].includes(version)) {
   throw new Error(`Review the keychain backport before using app-builder-lib ${version}`);
 }
 const sourcePath = path.join(path.dirname(packagePath), "out/codeSign/macCodeSign.js");
@@ -29,7 +30,7 @@ const replacements = [
   ],
 ];
 if (replacements.every(([before, after]) => !original.includes(before) && original.split(after).length === 2)) {
-  console.log("electron-builder keychain backport already applied");
+  console.log("electron-builder keychain password handling already correct");
 } else {
   let patched = original;
   for (const [before, after] of replacements) {

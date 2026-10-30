@@ -30,6 +30,50 @@ test("the desktop runtime retains the compromised-certificate mitigation baselin
     `Electron ${version} is below the desktop security baseline 44.9.1 (GHSA-jr5w-w6x2-84p9)`);
 });
 
+for (const runtime of ["shipped", "build"]) {
+  test(`the ${runtime} runtime handles TLS hostname errors without the Undici process-crash assertion`, () => {
+    // npm overrides do not change Node's embedded Undici (GHSA-qrxm-fqhp-jwvm).
+    // Exercise the installed Electron's real handlers with an injected socket error;
+    // this does not contact a server or perform TLS renegotiation.
+    const result = spawnSync(runtime === "shipped" ? require("electron") : process.execPath, ["--input-type=commonjs", "-e", `
+      const assert = require("node:assert/strict");
+      const { runInNewContext } = require("node:vm");
+      const ts = require(process.argv[1]);
+      const source = process.binding("natives")["internal/deps/undici/undici"];
+      assert.equal(typeof source, "string", "Review the embedded runtime before changing this check");
+      const ast = ts.createSourceFile("undici.js", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+      const names = ["onHttpSocketError", "onHttp2SessionError", "onHttp2SocketError"];
+      const handlers = new Map();
+      function visit(node) {
+        if (ts.isFunctionDeclaration(node) && node.name && names.includes(node.name.text)) {
+          assert.ok(!handlers.has(node.name.text), "Review duplicate runtime handlers");
+          handlers.set(node.name.text, node.getText(ast));
+        }
+        ts.forEachChild(node, visit);
+      }
+      visit(ast);
+      for (const name of names) {
+        assert.ok(handlers.has(name), "Review missing embedded handler " + name);
+        const calls = [];
+        const receiver = { parser: {}, socket: {}, client: { onError: error => calls.push(error) } };
+        const handler = runInNewContext("(" + handlers.get(name) + ")", {
+          assert, kParser: "parser", kError: "error", kClient: "client", kOnError: "onError", kSocket: "socket",
+        });
+        const error = Object.assign(new Error("synthetic hostname mismatch"), { code: "ERR_TLS_CERT_ALTNAME_INVALID" });
+        assert.doesNotThrow(() => handler.call(receiver, error), name);
+        assert.equal(calls.length, 1, name);
+        assert.equal(calls[0], error, name);
+        assert.equal(name === "onHttp2SessionError" ? receiver.socket.error : receiver.error, error, name);
+      }
+      console.log(JSON.stringify({ electron: process.versions.electron, node: process.versions.node, undici: process.versions.undici }));
+    `, require.resolve("typescript-compiler-api")], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, timeout: 15_000, killSignal: "SIGKILL", encoding: "utf8",
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+  });
+}
+
 test("the MCP rate-limit IPv6 parser bounds malformed zone identifiers and preserves valid addresses", () => {
   const sdkRequire = createRequire(require.resolve("@modelcontextprotocol/sdk/package.json"));
   const rateLimitRequire = createRequire(sdkRequire.resolve("express-rate-limit"));
