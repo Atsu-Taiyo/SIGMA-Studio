@@ -73,6 +73,7 @@ import { registerFileIpc } from "./ipc/file";
 import { ApplicationFontStore } from "./application-font-store";
 import { extensionsBuildConfig } from "./plugins/config";
 import { PluginHost } from "./plugins/host";
+import { documentMeasurementScript } from "./plugins/document-measurement";
 import { registerPluginIpc } from "./ipc/plugins";
 import { documentPathsFromArgv, ExternalDocumentOpenQueue } from "./external-document-open";
 import { registerMaterialsIpc } from "./ipc/materials";
@@ -225,6 +226,7 @@ const pluginHost = new PluginHost({
   config: extensionsBuildConfig(), auth: collaborationSessions.auth, fontStore: applicationFontStore,
   getMainContents: () => mainWindow?.webContents ?? null,
   partialFontNote: () => te("electron.plugins.partialFont"),
+  measureDocument: measurePluginDocument,
 });
 const localFontService = new LocalFontService();
 const appUpdateController = new AppUpdateController({ releaseUrl: RELEASE_PAGE_URL });
@@ -730,6 +732,43 @@ async function renderAiSvgPng(request: RenderSvgRequest): Promise<RenderSvgResul
   }
 }
 
+/** Measure conversion output with the same settled page canvas as editing and PDF. */
+export async function measurePluginDocument(document: unknown, blockIds: string[]): Promise<unknown> {
+  const script = documentMeasurementScript(blockIds);
+  const parsed = parseSigmaDocument(document);
+  const renderId = createRenderId();
+  let window: BrowserWindow | null = null;
+  let revokePreview: () => void = () => {};
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    pendingRenderDocuments.set(renderId, parsed);
+    window = new BrowserWindow({ width: 1600, height: 1200, show: false, webPreferences: {
+      preload: path.join(__dirname, "preview-preload.cjs"), nodeIntegration: false,
+      contextIsolation: true, sandbox: true, backgroundThrottling: false,
+    } });
+    const previewUrl = DEV_SERVER_URL ? new URL("/print", DEV_SERVER_URL) : pathToFileURL(path.join(DIST_RENDERER_DIR, "print.html"));
+    previewUrl.search = new URLSearchParams({ renderId, profile: "teacher" }).toString();
+    revokePreview = authorizePreviewSender(window.webContents, renderId, previewUrl.href);
+    window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    window.webContents.on("will-navigate", event => event.preventDefault());
+    window.webContents.on("will-redirect", event => event.preventDefault());
+    const task = async () => {
+      await window!.loadURL(previewUrl.href);
+      const ready = await waitForPrintPreviewReady(window!, 45_000);
+      const measurement = await window!.webContents.executeJavaScript(script, true) as Record<string, unknown>;
+      return { ...measurement, pageCount: ready.pageCount };
+    };
+    return await Promise.race([task(), new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Document measurement timed out")), 60_000);
+    })]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    revokePreview();
+    if (window && !window.isDestroyed()) window.destroy();
+    pendingRenderDocuments.delete(renderId);
+  }
+}
+
 /** How long one conversion may take, from opening the hidden page to its result. */
 const CONVERT_SVG_TIMEOUT_MS = 30_000;
 let convertSvgInFlight = 0;
@@ -1044,12 +1083,12 @@ function createRenderId(): string {
   return `ai_render_${crypto.randomUUID()}`;
 }
 
-async function waitForPrintPreviewReady(win: BrowserWindow): Promise<PrintPreviewReadyState> {
+async function waitForPrintPreviewReady(win: BrowserWindow, timeoutMs = 15_000): Promise<PrintPreviewReadyState> {
   const documentLoadFailed = te("electron.preview.documentLoadFailed");
   const preparationTimedOut = te("electron.preview.preparationTimedOut");
   return win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
-      const timeoutMs = 15000;
+      const timeoutMs = ${timeoutMs};
       const stableFramesRequired = 8;
       const startedAt = Date.now();
       let lastSignature = "";

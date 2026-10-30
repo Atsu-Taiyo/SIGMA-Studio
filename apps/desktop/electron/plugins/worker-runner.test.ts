@@ -20,6 +20,37 @@ async function worker(source: string): Promise<string> {
 }
 
 describe("createWorkerRunner", () => {
+  it("returns canonical document measurements to the requesting worker", async () => {
+    const filename = await worker(`
+      parentPort.once("message", message => parentPort.postMessage({ok:true,result:message}));
+      parentPort.postMessage({type:"document-measure-request",document:{version:"2.0"},blockIds:["paragraph"]});`);
+    const seen: unknown[] = [];
+    const run = createWorkerRunner({ measureDocument: async (document, ids) => {
+      seen.push({ document, ids }); return { rows: [{ id: "paragraph", baseline: 40 }], pageCount: 1 };
+    } });
+    expect(await run(filename, {})).toEqual({ type: "document-measure-response", measurement: { rows: [{ id: "paragraph", baseline: 40 }], pageCount: 1 } });
+    expect(seen).toEqual([{ document: { version: "2.0" }, ids: ["paragraph"] }]);
+  });
+
+  it("rejects cyclic measurement documents without throwing in the main process", async () => {
+    const filename = await worker(`const document={};document.self=document;
+      parentPort.postMessage({type:"document-measure-request",document,blockIds:["p"]});`);
+    let calls = 0;
+    await expect(createWorkerRunner({ measureDocument: async () => { calls++; return {}; } })(filename, {}))
+      .rejects.toMatchObject({ code: "import-failed" });
+    expect(calls).toBe(0);
+  });
+
+  it("bounds repeated measurement work and rejects unsupported hosts", async () => {
+    const filename = await worker(`let count=0;
+      function next(){if(++count===10){parentPort.postMessage({ok:true,result:count});return;}
+        parentPort.once("message",next);parentPort.postMessage({type:"document-measure-request",document:{},blockIds:["p"]});}next();`);
+    await expect(createWorkerRunner()(filename, {})).rejects.toMatchObject({ code: "import-failed" });
+    let calls = 0;
+    await expect(createWorkerRunner({ measureDocument: async () => { calls++; return {}; } })(filename, {}))
+      .rejects.toMatchObject({ code: "import-failed" });
+    expect(calls).toBe(8);
+  });
   it("returns the result a worker posts and passes the payload through", async () => {
     const filename = await worker(`parentPort.postMessage({ ok: true, result: { echoed: workerData.value } });`);
     expect(await createWorkerRunner()(filename, { value: 42 })).toEqual({ echoed: 42 });

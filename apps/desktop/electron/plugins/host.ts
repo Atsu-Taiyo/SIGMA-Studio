@@ -12,6 +12,7 @@ import { LocalFontReader } from "./local-fonts";
 import { PluginManager } from "./manager";
 import type { CatalogFile, CatalogPlugin } from "./manifest";
 import { PluginError } from "./manifest";
+import { createWorkerRunner, type MeasurePluginDocument } from "./worker-runner";
 
 /** ワーカーに渡せる取り込み元ファイルの上限。 */
 export const IMPORT_MAX_INPUT_BYTES = 64 * 1024 * 1024;
@@ -43,6 +44,7 @@ export interface PluginHostOptions {
   partialFontNote: () => string;
   fetchImpl?: typeof fetch;
   env?: Record<string, string | undefined>;
+  measureDocument?: MeasurePluginDocument;
 }
 
 /** 開発・テスト用の差し替え。配布版 (isPackaged) では無視する。 */
@@ -98,6 +100,11 @@ export class PluginHost {
       userId: readUserId,
       loadLocalFonts: (families, context) => this.localFonts.readFamilies(families, context.bundledFamilies, context.ownFamilyPrefixes),
       registerFonts: (plugin, directory) => this.registerFonts(plugin, directory),
+      ...(options.measureDocument ? { runWorker: createWorkerRunner({
+        loadLocalFonts: (families, context) => this.localFonts.readFamilies(families, context.bundledFamilies, context.ownFamilyPrefixes),
+        measureDocument: options.measureDocument,
+        timeoutMs: 240_000,
+      }) } : {}),
     });
     this.ready = this.manager.initialize().catch(() => undefined);
   }
