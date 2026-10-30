@@ -5,6 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { CatalogNode, CatalogNodeId, SharedDocumentId } from "@/features/collaboration/model/catalog";
+import { buildWorkspaceRows } from "@/components/workspace/workspace-list-model";
+import { formatDateTime } from "@/components/workspace/workspace-format";
+import { createTranslator } from "@/lib/i18n";
 import { createBlankDocument } from "@/lib/blank-document";
 import { LocalSigmaDocStore } from "../local-sigma-doc-store";
 import { CatalogCache } from "./catalog-cache";
@@ -650,4 +653,80 @@ it("slows unchanged visible polls, resets on explicit refresh, and stops when hi
   const count = f.request.mock.calls.length;
   await vi.advanceTimersByTimeAsync(120_000);
   expect(f.request).toHaveBeenCalledTimes(count);
+});
+
+it("persists catalog dates for unopened shared items and uses them for display and sorting without body requests", async () => {
+  const f = await fixture();
+  const workspace = { ...node("workspace"), createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-02T00:00:00Z" };
+  const folder = { ...node("folder", workspace.id), createdAt: workspace.createdAt, updatedAt: "2026-10-03T00:00:00Z" };
+  const older = { ...node("document", workspace.id), name: "A", createdAt: workspace.createdAt, updatedAt: "2026-10-10T09:00:00+09:00" };
+  const newer = { ...node("document", workspace.id), name: "Z", createdAt: workspace.createdAt, updatedAt: "2026-10-10T01:00:00Z" };
+  f.setNodes([workspace, folder, older, newer]);
+  await f.catalog.refresh();
+  const local = await f.local.getLocalLibrarySnapshot();
+  const cache = await CatalogCache.open(f.directory, "participant");
+  const project = () => cache.project(local, cache.navigationId(workspace));
+  const overview = project();
+  expect(overview.workspaces.find(w => w.id === cache.navigationId(workspace))).toMatchObject({ updatedAt: workspace.updatedAt });
+  expect(overview.folders[0]).toMatchObject({ updatedAt: folder.updatedAt });
+  const input = { folders: [], files: overview.files, sortKey: "updatedAt" as const, t: createTranslator("ja", "workspace") };
+  expect(buildWorkspaceRows({ ...input, sortDirection: "desc" }).map(row => row.name)).toEqual(["Z", "A"]);
+  expect(buildWorkspaceRows({ ...input, sortDirection: "asc" }).map(row => row.name)).toEqual(["A", "Z"]);
+  expect(overview.files.every(file => formatDateTime(file.updatedAt, "ja").length > 0)).toBe(true);
+  expect(project()).toEqual(overview);
+  expect(f.open).not.toHaveBeenCalled();
+  expect(f.request.mock.calls.every(([route]) => route.startsWith("/catalog/"))).toBe(true);
+});
+
+it("uses the newer valid local or catalog date and falls back to creation metadata", async () => {
+  const f = await fixture();
+  const local = await f.local.getLocalLibrarySnapshot();
+  const file = local.files[0];
+  const shared: CatalogNode = { ...node("document"), createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-02-01T00:00:00Z" };
+  const cache = await CatalogCache.open(f.directory, "participant");
+  cache.apply({ revision: 1, nodes: [shared], tombstones: [] });
+  cache.data.mappings[shared.id].local = { kind: "document", fileId: file.fileId };
+  const projected = () => cache.project(local, undefined, new Set(), true).files.find(item => item.fileId === file.fileId)!;
+  file.updatedAt = "2026-01-20T00:00:00Z";
+  expect(projected().updatedAt).toBe(shared.updatedAt);
+  file.updatedAt = "2026-03-01T00:00:00Z";
+  expect(projected().updatedAt).toBe(file.updatedAt);
+  shared.updatedAt = "invalid";
+  expect(projected().updatedAt).toBe(file.updatedAt);
+  file.updatedAt = new Date(0).toISOString();
+  file.createdAt = "";
+  expect(projected().updatedAt).toBe(shared.createdAt);
+  delete shared.createdAt;
+  delete shared.updatedAt;
+  expect(formatDateTime(projected().updatedAt, "ja")).toBe("");
+});
+
+it.each(["createdAt", "updatedAt"] as const)("rejects non-string %s before changing the durable catalog", async field => {
+  for (const value of [null, 123, [], {}, { toString: null }]) {
+    const f = await fixture(); const document = node("document");
+    f.setNodes([document]); await f.catalog.refresh();
+    const cache = await CatalogCache.open(f.directory, "participant");
+    const before = await fs.readFile(cache.file, "utf8");
+    const prior = f.sessions.request;
+    f.sessions.request = async (route, body) => route === "/catalog/delta"
+      ? { revision: 2, nodes: [{ ...document, revision: 2, [field]: value }], tombstones: [] } as never
+      : prior(route, body);
+    expect(await f.catalog.refresh()).toMatchObject({ state: "offline", error: "INVALID_CATALOG_RESPONSE" });
+    expect(await fs.readFile(cache.file, "utf8")).toBe(before);
+    expect((await CatalogCache.open(f.directory, "participant")).data.revision).toBe(1);
+  }
+});
+
+it.each(["createdAt", "updatedAt"] as const)("ignores a non-string %s left in an older durable cache", async field => {
+  const f = await fixture();
+  const document = { ...node("document"), createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-02-01T00:00:00Z" };
+  const cache = await CatalogCache.open(f.directory, "participant");
+  cache.apply({ revision: 1, nodes: [{ ...document, [field]: { toString: null } } as unknown as CatalogNode], tombstones: [] });
+  await cache.save();
+  const reopened = await CatalogCache.open(f.directory, "participant");
+  const overview = reopened.project(await f.local.getLocalLibrarySnapshot(), undefined, new Set(), true);
+  const file = overview.files.find(item => item.fileId === reopened.navigationId(document));
+  expect(file).toMatchObject({ updatedAt: field === "updatedAt" ? document.createdAt : document.updatedAt });
+  expect(reopened.data.revision).toBe(1);
+  expect(f.open).not.toHaveBeenCalled();
 });
