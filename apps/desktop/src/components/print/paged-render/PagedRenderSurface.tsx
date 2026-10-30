@@ -48,6 +48,8 @@ export interface PagedRenderSurfaceProps {
   profile: OutputProfileName;
   displayMode?: PagedRenderDisplayMode;
   onRenderStateChange?: (snapshot: PagedRenderStateSnapshot) => void;
+  /** Hidden layout probes need the settled canvas, without one full DOM clone per page. */
+  measurementOnly?: boolean;
 }
 
 /**
@@ -63,6 +65,7 @@ export function PagedRenderSurface({
   profile,
   displayMode = "vertical",
   onRenderStateChange,
+  measurementOnly = false,
 }: PagedRenderSurfaceProps) {
   const t = useT("print");
   useCustomFonts();
@@ -111,7 +114,7 @@ export function PagedRenderSurface({
       if (!pages || !stageRoot || !canvas || !metrics) {
         return false;
       }
-      const written = buildPageWindows({ stageRoot, canvas, container: pages, metrics });
+      const written = measurementOnly ? metrics.pageCount : buildPageWindows({ stageRoot, canvas, container: pages, metrics });
       cutSignature = signature;
       setPageCount(written);
       setRevision((current) => current + 1);
@@ -202,7 +205,7 @@ export function PagedRenderSurface({
         window.clearTimeout(timerId);
       }
     };
-  }, [printable, retryRevision]);
+  }, [printable, retryRevision, measurementOnly]);
 
   const displayState = renderedDocument === printable ? state : "pending";
 

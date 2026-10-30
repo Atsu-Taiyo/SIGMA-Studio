@@ -747,14 +747,14 @@ export async function measurePluginDocument(document: unknown, blockIds: string[
       contextIsolation: true, sandbox: true, backgroundThrottling: false,
     } });
     const previewUrl = DEV_SERVER_URL ? new URL("/print", DEV_SERVER_URL) : pathToFileURL(path.join(DIST_RENDERER_DIR, "print.html"));
-    previewUrl.search = new URLSearchParams({ renderId, profile: "teacher" }).toString();
+    previewUrl.search = new URLSearchParams({ renderId, profile: "teacher", task: "document-measure" }).toString();
     revokePreview = authorizePreviewSender(window.webContents, renderId, previewUrl.href);
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     window.webContents.on("will-navigate", event => event.preventDefault());
     window.webContents.on("will-redirect", event => event.preventDefault());
     const task = async () => {
       await window!.loadURL(previewUrl.href);
-      const ready = await waitForPrintPreviewReady(window!, 90_000);
+      const ready = await waitForPrintPreviewReady(window!, 90_000, false);
       const measurement = await window!.webContents.executeJavaScript(script, true) as Record<string, unknown>;
       return { ...measurement, pageCount: ready.pageCount };
     };
@@ -1083,7 +1083,7 @@ function createRenderId(): string {
   return `ai_render_${crypto.randomUUID()}`;
 }
 
-async function waitForPrintPreviewReady(win: BrowserWindow, timeoutMs = 15_000): Promise<PrintPreviewReadyState> {
+async function waitForPrintPreviewReady(win: BrowserWindow, timeoutMs = 15_000, requirePageWindows = true): Promise<PrintPreviewReadyState> {
   const documentLoadFailed = te("electron.preview.documentLoadFailed");
   const preparationTimedOut = te("electron.preview.preparationTimedOut");
   return win.webContents.executeJavaScript(`
@@ -1133,7 +1133,8 @@ async function waitForPrintPreviewReady(win: BrowserWindow, timeoutMs = 15_000):
         const stack = document.querySelector(".paged-surface");
         const renderedPageCount = document.querySelectorAll(".paged-surface-page").length;
         const pageCount = Number(stack?.getAttribute("data-paged-surface-page-count") ?? "0");
-        if (stack && pageCount > 0 && renderedPageCount > 0) {
+        const surfaceReady = ${requirePageWindows} ? renderedPageCount > 0 : stack?.getAttribute("data-paged-surface-state") === "ready";
+        if (stack && pageCount > 0 && surfaceReady) {
           const signature = [
             pageCount,
             renderedPageCount,

@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SigmaDocument } from "@/features/document";
+import { buildPageWindows, readCanvasLayoutSignature, readPagedCanvasMetrics } from "./page-windows";
 
 const canvasMockState = vi.hoisted(() => ({ showPendingImage: false }));
 
@@ -50,6 +51,9 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  vi.mocked(buildPageWindows).mockReset();
+  vi.mocked(readCanvasLayoutSignature).mockReturnValue("");
+  vi.mocked(readPagedCanvasMetrics).mockReturnValue(null);
   canvasMockState.showPendingImage = false;
   container = document.createElement("div");
   document.body.append(container);
@@ -64,6 +68,19 @@ afterEach(async () => {
 });
 
 describe("PagedRenderSurface", () => {
+  it("settles a measurement canvas without cloning the full document for every page", async () => {
+    vi.mocked(readCanvasLayoutSignature).mockReturnValue("settled");
+    vi.mocked(readPagedCanvasMetrics).mockReturnValue({pageCount:43,pageWidthPx:700,pageHeightPx:970,pageStridePx:1006});
+    const onRenderStateChange = vi.fn();
+    const value = {pageLayout:{paperSize:"a4",orientation:"portrait"},outputProfiles:{}} as unknown as SigmaDocument;
+    await act(async () => {
+      root.render(<PagedRenderSurface document={value} profile="teacher" measurementOnly onRenderStateChange={onRenderStateChange} />);
+      await Promise.resolve();
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(buildPageWindows).not.toHaveBeenCalled();
+    expect(onRenderStateChange).toHaveBeenLastCalledWith(expect.objectContaining({state:"ready",pageCount:43,revision:1}));
+  });
   it("shows a recoverable error after pagination stalls and returns to pending on retry", async () => {
     const onRenderStateChange = vi.fn();
     const document = {

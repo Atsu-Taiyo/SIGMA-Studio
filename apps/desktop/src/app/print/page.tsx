@@ -44,6 +44,7 @@ export default function PrintPage() {
     reason: DEFAULT_PRINT_TRANSLATE("load.checkingAvailability"),
   });
   const [profile, setProfile] = useState<OutputProfileName>("teacher");
+  const [measurementOnly, setMeasurementOnly] = useState(false);
   const [renderState, setRenderState] = useState<PagedRenderStateSnapshot>({
     state: "pending",
     surfaceId: "",
@@ -60,6 +61,7 @@ export default function PrintPage() {
         const params = new URLSearchParams(window.location.search);
         const requestedFileId = params.get("fileId");
         const renderId = params.get("renderId");
+        setMeasurementOnly(Boolean(renderId) && params.get("task") === "document-measure");
         setProfile(toOutputProfileName(params.get("profile")));
 
         // The AI's convert_svg_image: this hidden page only converts one SVG image of its document,
@@ -219,6 +221,7 @@ export default function PrintPage() {
           document={document}
           profile={profile}
           onRenderStateChange={setRenderState}
+          measurementOnly={measurementOnly}
         />
       ) : loadState === "error" ? (
         <section className="print-load-error" data-print-load-state="error" role="alert">
