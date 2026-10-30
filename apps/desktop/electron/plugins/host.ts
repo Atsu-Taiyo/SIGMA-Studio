@@ -103,7 +103,7 @@ export class PluginHost {
       ...(options.measureDocument ? { runWorker: createWorkerRunner({
         loadLocalFonts: (families, context) => this.localFonts.readFamilies(families, context.bundledFamilies, context.ownFamilyPrefixes),
         measureDocument: options.measureDocument,
-        timeoutMs: 240_000,
+        timeoutMs: 600_000,
       }) } : {}),
     });
     this.ready = this.manager.initialize().catch(() => undefined);

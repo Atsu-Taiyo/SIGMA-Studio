@@ -754,12 +754,12 @@ export async function measurePluginDocument(document: unknown, blockIds: string[
     window.webContents.on("will-redirect", event => event.preventDefault());
     const task = async () => {
       await window!.loadURL(previewUrl.href);
-      const ready = await waitForPrintPreviewReady(window!, 45_000);
+      const ready = await waitForPrintPreviewReady(window!, 90_000);
       const measurement = await window!.webContents.executeJavaScript(script, true) as Record<string, unknown>;
       return { ...measurement, pageCount: ready.pageCount };
     };
     return await Promise.race([task(), new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("Document measurement timed out")), 60_000);
+      timer = setTimeout(() => reject(new Error("Document measurement timed out")), 105_000);
     })]);
   } finally {
     if (timer) clearTimeout(timer);
