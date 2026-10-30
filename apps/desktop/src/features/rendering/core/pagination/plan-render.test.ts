@@ -89,3 +89,22 @@ describe("fragments split by a manual break inside a block", () => {
     expect(paged.pageCount).toBe(editor.pageCount);
   });
 });
+
+
+describe("fractional displacement across an explicit page break", () => {
+  it("keeps the next page origin independent of fractional height on the preceding page", () => {
+    const positions = [0.125, 0.453125, 0.796875].map(extra => {
+      const top = 30 + extra;
+      const tree: ProbeTree = { units: [
+        { id: "before", rect: { top: 10, bottom: top, left: 20, width: 200 }, span: "column", breakBefore: false, attachments: [], nodes: [{ id: "a", rect: { top: 10, bottom: top, left: 20, width: 200 }, ink: [{ kind: "text", top: 10, bottom: top }], chrome: [], breakBefore: false }] },
+        { id: "after", rect: { top, bottom: top + 20, left: 20, width: 200 }, span: "column", breakBefore: true, attachments: [], nodes: [{ id: "b", rect: { top, bottom: top + 20, left: 20, width: 200 }, ink: [{ kind: "text", top, bottom: top + 20 }], chrome: [], breakBefore: false }] },
+      ] };
+      const built = buildFlowModel(tree, { breakTarget: "page" });
+      const placement = placeFlow(built.model, geometry);
+      const plan = planFlowRender(built, placement);
+      expect(plan.pageCount).toBe(2);
+      return top + plan.unitDisplacements.after.dy + plan.nodeDisplacements.b.dy;
+    });
+    for (const y of positions) expect(y).toBeCloseTo(166, 2);
+  });
+});

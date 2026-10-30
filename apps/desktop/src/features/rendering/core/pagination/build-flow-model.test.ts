@@ -168,3 +168,23 @@ describe("extension nodes (feature content placed after a body block)", () => {
     expect(plan.nodeDisplacements.b).toEqual({ dx: 0, dy: 65 });
   });
 });
+
+describe("explicit unit spacing at a manual break", () => {
+  const geometry: PageGeometry = { pageHeight: 120, pageGap: 36, contentTop: 10, contentHeight: 100, contentLeft: 0, contentWidth: 400, columnCount: 1, columnWidth: 400, columnGap: 0 };
+  function tree(forced: boolean): ProbeTree {
+    return { units: [10, 100].map((top, index) => {
+      const rect = { top, bottom: top + (index ? 20 : 80), left: 0, width: 400 };
+      return { id: `u${index}`, rect, span: "column", breakBefore: index === 1 && forced, leadingSpace: index ? 7.25 : 0,
+        nodes: [{ id: `p${index}`, rect, ink: [{ top, bottom: rect.bottom, kind: "text" }], chrome: [], breakBefore: false }], attachments: [] };
+    }) };
+  }
+  it.each([1, 2])("retains specified spacing after a manual break with %i columns", (columns) => {
+    const built = buildFlowModel(tree(true), { breakTarget: columns === 1 ? "page" : "column" });
+    const placed = placeFlow(built.model, { ...geometry, columnCount: columns });
+    expect(placed.lines.get("p1#0")?.y).toBe((columns === 1 ? 166 : 10) + 7.25);
+  });
+  it("still trims spacing when overflow automatically starts a new page", () => {
+    const built = buildFlowModel(tree(false), { breakTarget: "page" });
+    expect(placeFlow(built.model, geometry).lines.get("p1#0")?.y).toBe(166);
+  });
+});

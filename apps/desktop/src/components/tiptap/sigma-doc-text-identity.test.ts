@@ -66,6 +66,9 @@ describe("SigmaDoc text identity", () => {
       color: "#1d4ed8",
       fontFamily: '"Yu Mincho", serif',
       fontSize: 18,
+      letterSpacingPx: 0.5,
+      baselineShiftPx: 1,
+      fontKerning: "none",
     });
     const doc = schema.nodes.doc.create(null, [
       schema.nodes.paragraph.create(
@@ -99,6 +102,9 @@ describe("SigmaDoc text identity", () => {
           color: "#1d4ed8",
           fontFamily: '"Yu Mincho", serif',
           fontSize: 18,
+          letterSpacingPx: 0.5,
+          baselineShiftPx: 1,
+          fontKerning: "none",
         },
         type: "styledText",
       },

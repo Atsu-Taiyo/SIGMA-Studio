@@ -91,6 +91,8 @@ import {
   type MeasuredBlock
 } from "./overlay-canvas/anchor";
 import { isOverlayActionBlockedByEditPolicy, isOverlayShapeUnselectable, pruneUnselectableSelection } from "./overlay-canvas/edit-policy";
+import { hasRenderedGraphInk } from "./overlay-canvas/graph-ink-hit-test";
+import { pickShapeAtPoint } from "./overlay-canvas/pick-shape-at-point";
 import { findEditableTextShapeAtPoint } from "./overlay-canvas/double-click-target";
 import { EMPTY_OVERLAY_EDIT_POLICY, type OverlayEditPolicy, type OverlayShapeDecoration } from "./overlay-canvas/editor-extension";
 import { focusOverlaySurface } from "./overlay-canvas/focus-overlay-surface";
@@ -1139,17 +1141,21 @@ export default function OverlayCanvasEditorClient({
   }, [refreshAnchorMeasurements]);
 
   const getShapeAtPoint = useCallback((point: OverlayPoint, margin = 8): OverlayShape | undefined => {
-    for (const shape of getRenderableShapesInReverseVisualStackOrder(shapesRef.current)) {
+    let emptyGraph: OverlayShape | undefined;
+    const client = clientPointFromPage(point);
+    const picked = pickShapeAtPoint(getRenderableShapesInReverseVisualStackOrder(shapesRef.current), point, margin, (shape) => {
       if (isOverlayShapeUnselectable(shape.id, editPolicyUnselectableShapeIdsRef.current)) {
-        continue;
+        return false;
       }
-      if (hitTestShape(shape, point, margin)) {
-        return shape;
+      if (shape.type === "graph2dShape" && !hasRenderedGraphInk(canvasRef.current, shape.id, client)) {
+        emptyGraph ??= shape;
+        return false;
       }
-    }
+      return true;
+    });
 
-    return undefined;
-  }, [shapesRef]);
+    return picked ?? emptyGraph;
+  }, [clientPointFromPage, shapesRef]);
 
   const getOpenStrokeShapeAtPoint = useCallback((point: OverlayPoint): OverlayShape | undefined => {
     for (const shape of getRenderableShapesInReverseVisualStackOrder(shapesRef.current)) {

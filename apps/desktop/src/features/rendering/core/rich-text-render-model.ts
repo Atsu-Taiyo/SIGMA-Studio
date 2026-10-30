@@ -18,6 +18,10 @@ export interface RichTextRenderStyle {
   color?: string;
   fontFamily?: string;
   fontSizePt?: number;
+  letterSpacingPx?: number;
+  fontKerning?: "auto" | "normal" | "none";
+  /** CSS pixels; positive values raise the text baseline. */
+  baselineShiftPx?: number;
   fontStyle?: string;
   fontWeight?: string;
   textDecoration?: string;
@@ -207,6 +211,9 @@ function inlineNodeStyle(child: InlineNode): RichTextRenderStyle | undefined {
     color: child.color,
     fontFamily: resolveDocumentFontFamily(child.fontFamily),
     fontSizePt,
+    baselineShiftPx: child.type === "text" ? child.baselineShiftPx : undefined,
+    letterSpacingPx: child.type === "text" ? child.letterSpacingPx : undefined,
+      fontKerning: child.type === "text" ? child.fontKerning : undefined,
   };
   return Object.values(style).some((value) => value !== undefined) ? style : undefined;
 }

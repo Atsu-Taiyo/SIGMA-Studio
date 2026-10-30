@@ -43,6 +43,18 @@ const supportedDocument: OverlayTextBlock[] = [
   ];
 
 describe("overlay rich-text validation", () => {
+  it.each(["letterSpacingPx", "baselineShiftPx"])("validates finite signed text offsets: %s", (field) => {
+    const blocks = (value: unknown) => [{ type: "paragraph", id: "offset-validation", children: [
+      { type: "text", text: "文字", [field]: value },
+    ] }];
+    for (const value of [-1.375, 0, 1.25, undefined]) {
+      expect(isOverlayTextBlocks(blocks(value))).toBe(true);
+    }
+    for (const value of [NaN, Infinity, -Infinity, "1px", null]) {
+      expect(isOverlayTextBlocks(blocks(value))).toBe(false);
+    }
+  });
+
   it("accepts semantic blocks backed by canonical InlineNode arrays", () => {
     expect(isOverlayTextBlocks(supportedDocument)).toBe(true);
     expect(isOverlayTextBlocks([{ type: "paragraph", id: "compact_boxed_test", children: [

@@ -107,6 +107,10 @@ export function inlineTextStyleDeclarations(style: {
   color?: string;
   fontFamily?: string;
   fontSizePt?: number;
+  letterSpacingPx?: number;
+  fontKerning?: "auto" | "normal" | "none";
+  /** CSS pixels; positive values raise the text baseline. */
+  baselineShiftPx?: number;
 }): Record<string, string> | undefined {
   // Empty strings and a zero font size are dropped: React omits such declarations entirely, and
   // an emitted `color:` / `font-size:0pt` would be both meaningless and a parity break.
@@ -123,6 +127,15 @@ export function inlineTextStyleDeclarations(style: {
     // than this styled run. A custom property survives that nesting and keeps `\\text{...}` on
     // the same bundled body face in the editor, preview, SVG and PDF.
     declarations["--sigma-math-text-font-family"] = style.fontFamily;
+  }
+  if (typeof style.baselineShiftPx === "number" && Number.isFinite(style.baselineShiftPx)) {
+    declarations["vertical-align"] = `${style.baselineShiftPx}px`;
+  }
+  if (style.fontKerning === "auto" || style.fontKerning === "normal" || style.fontKerning === "none") {
+    declarations["font-kerning"] = style.fontKerning;
+  }
+  if (typeof style.letterSpacingPx === "number" && Number.isFinite(style.letterSpacingPx)) {
+    declarations["letter-spacing"] = `${style.letterSpacingPx}px`;
   }
   if (style.fontSizePt) {
     declarations["font-size"] = `${style.fontSizePt}pt`;

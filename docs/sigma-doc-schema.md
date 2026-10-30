@@ -564,6 +564,7 @@ interface ProblemAreaLayout {
   marginTopPx?: number;
   marginBottomPx?: number;
   widthMm?: number;
+  rightOverhangPx?: number;
   offsetXPx?: number;
   columnSpan?: "column" | "full";
   /** 導入文 (`lead`) だけが使う。導入文の行を出さない。 */
@@ -640,7 +641,7 @@ interface CustomFrame {
 
 `areaLayout.*.minHeightMm` は、そのエリアの最小高さです。内容が増えた場合は内容の高さが優先され、手動で広げた高さは最小高さとして保持されます。
 
-`paddingPx` は上下左右の内側余白 (0〜256 CSS px)、`marginTopPx` / `marginBottomPx` は領域の前後の間隔 (0〜400 CSS px) です。明示した余白に編集用のヒット領域の余白を加算しません。`widthMm` は領域の幅で、配置先の段幅を上限とします。未指定の項目は従来の見た目を保ちます。いずれも同じPageCanvasの計測に入り、PDF専用の改ページ処理は追加しません。
+`paddingPx` は上下左右の内側余白 (0〜256 CSS px)、`marginTopPx` / `marginBottomPx` は領域の前後の間隔 (0〜400 CSS px) です。明示した余白に編集用のヒット領域の余白を加算しません。`widthMm` は領域の幅で、配置先の段幅を上限とします。`rightOverhangPx` (0〜256 CSS px) を明示した場合は、その分だけ右端への張り出しを上限に加えます。原本に保存された行末の張り出しを保持するための寸法であり、文字サイズや段の開始位置は変えません。未指定の項目は従来の見た目を保ちます。いずれも同じPageCanvasの計測に入り、PDF専用の改ページ処理は追加しません。
 
 番号の `fontFamily` / `fontWeight`、`format` (通常数字 / 全角数字)、`widthPx` / `heightPx`、`gapPx`、枠の線種・太さ・角丸、`offsetXPx` / `offsetYPx` は番号欄の表示設定です。番号の値と採番規則は変えません。寸法はCSS pxで、未指定なら従来の番号欄を使います。`frame.borderWidthPx` (0〜24) と `borderRadiusPx` (0〜128) は問題枠の太さ・角丸を指定します。
 
@@ -679,6 +680,9 @@ interface TextInlineNode {
   color?: string;
   fontFamily?: string;
   fontSize?: number;
+  letterSpacingPx?: number;
+  fontKerning?: "auto" | "normal" | "none";
+  baselineShiftPx?: number;
   boxedPaddingY?: number;
   boxedVariant?: "frame" | "oval" | "shade";
   boxedTone?: "gray" | "blue" | "green" | "red" | "yellow";
@@ -686,7 +690,7 @@ interface TextInlineNode {
 }
 ```
 
-通常の文字列です。`fontSize` はpt単位の正の数だけを受け付けます。色やフォントは必要な場合だけ保存します。`boxed` は文字の囲みを表し、`boxedPaddingY` で上下余白を調整します。`boxedVariant` は囲みの形、`boxedTone` は囲みの色調です。
+通常の文字列です。`fontSize` はpt単位の正の数だけを受け付けます。`letterSpacingPx` は文字ごとの追加送りをCSS px単位で保持する有限数で、負値と0も指定できます。未指定では通常のフォントの文字送りを使います。`fontKerning` は文字ペアの自動字詰めを制御します（`auto`・`normal`・`none`）。未指定ではブラウザーの通常動作を維持します。`baselineShiftPx` は基線の移動量をCSS px単位で保持する有限数で、正値で上、負値で下へ移動します。字体・文字サイズは変更せず、編集とヘッダー・フッターでも保持します。色やフォントは必要な場合だけ保存します。`boxed` は文字の囲みを表し、`boxedPaddingY` で上下余白を調整します。`boxedVariant` は囲みの形、`boxedTone` は囲みの色調です。
 
 囲みの角は尖っていて、丸めるのは `boxedVariant: "oval"` (角丸) と `"shade"` だけです。`boxedRoundness` は角丸の丸め具合で、既定の丸み (0.9em) に対する割合を0〜100 (%) で持ちます。省略時は100 (既定の丸み) で、角丸以外の囲みは読みません。描画時に100へ丸めるので、schemaは0以上だけを確かめます。この属性を知らない古い版は読み込み時に捨てて、既定の丸みで描きます。
 

@@ -207,6 +207,20 @@ const runSegment = {
 };
 
 describe("the self-contained boxed style mirrors document-surface.css", () => {
+  it("preserves whitespace-only boxed text as an explicit flex item", () => {
+    const tree = buildInlineRichTextDom([
+      { type: "text", text: "  ", marks: ["boxed"], boxedVariant: "compact" },
+    ], { keyPrefix: "saved-space" });
+    const find = (nodes: RichTextDomNode[]): RichTextDomElement | undefined => {
+      for (const node of nodes) {
+        if (node.kind !== "element") continue;
+        if (node.style?.["white-space"] === "pre-wrap") return node;
+        const child = find(node.children); if (child) return child;
+      }
+    };
+    expect(find(tree)?.children).toEqual([expect.objectContaining({ kind: "text", text: "  " })]);
+  });
+
   it("matches .boxed-text for plain boxed text", () => {
     expect(boxedSelfContainedStyle(boxed()))
       .toEqual(mergedRules(documentSurfaceCss, ".boxed-text"));
@@ -233,6 +247,19 @@ describe("the self-contained boxed style mirrors document-surface.css", () => {
     expect(mergedRuleDeclarations(`${selector} .inline-math-node`)["margin-inline"]).toBe("0");
     expect(mergedRuleDeclarations(`${selector} :is(.inline-math-node, .math-preview, .ML__latex)`)["line-height"])
       .toBe("0");
+  });
+
+  it.each([
+    [false, false], [false, true], [true, true], [true, false],
+  ])("keeps compact frame padding only at outside edges (%s, %s)", (connectLeft, connectRight) => {
+    const style = boxedSelfContainedStyle(boxed({ variant: "compact", connectLeft, connectRight }));
+    expect(style["padding-inline"]).toBe("1px");
+    for (const [side, connected] of [["left", connectLeft], ["right", connectRight]] as const) {
+      expect(style[`padding-${side}`]).toBe(connected ? "0" : undefined);
+      const selector = `.boxed-text[data-sigma-doc-boxed-variant="compact"][data-boxed-run-connect-${side}="true"]`;
+      expect(ruleDeclarations(documentSurfaceCss, selector)[`padding-${side}`].replace(/\s*!important$/, ""))
+        .toBe("0");
+    }
   });
 
   // Every segment of a boxed run carries `data-boxed-run-height-target`, whose rule comes after

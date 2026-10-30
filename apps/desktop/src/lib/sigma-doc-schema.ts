@@ -109,6 +109,9 @@ const TextInlineSchema = z.object({
   backgroundColor: z.string().optional(),
   fontFamily: z.string().optional(),
   fontSize: z.number().positive().optional(),
+  letterSpacingPx: z.number().finite().optional(),
+  fontKerning: z.enum(["auto", "normal", "none"]).optional(),
+  baselineShiftPx: z.number().finite().optional(),
   underlineStyle: z.enum(["solid", "wavy", "dotted", "double"]).optional(),
   boxedPaddingY: z.number().min(0).optional(),
   boxedVariant: BoxedVariantSchema,
@@ -491,6 +494,7 @@ const ProblemAreaLayoutSchema = z.object({
   marginTopPx: z.number().min(0).max(400).optional(),
   marginBottomPx: z.number().min(0).max(400).optional(),
   widthMm: z.number().positive().max(1000).optional(),
+  rightOverhangPx: z.number().min(0).max(256).optional(),
   offsetXPx: z.number().min(-256).max(256).optional(),
   columnSpan: z.enum(["column", "full"]).optional(),
 });

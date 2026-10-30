@@ -302,6 +302,7 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
       rect,
       span,
       breakBefore,
+      leadingSpace: Math.max(0, Number.parseFloat(unitElement.style.marginTop) || 0),
       nodes,
       ...(columns ? { columns } : {}),
       attachments,

@@ -277,6 +277,21 @@ export const StyledTextExtension = Mark.create({
         parseHTML: (element) => element.style.backgroundColor || null,
         renderHTML: () => ({}),
       },
+      baselineShiftPx: {
+        default: null,
+        parseHTML: (element) => parsePixelOffset(element.style.verticalAlign),
+        renderHTML: () => ({}),
+      },
+      fontKerning: {
+        default: null,
+        parseHTML: (element) => parseFontKerning(element.style.fontKerning),
+        renderHTML: () => ({}),
+      },
+      letterSpacingPx: {
+        default: null,
+        parseHTML: (element) => parsePixelOffset(element.style.letterSpacing),
+        renderHTML: () => ({}),
+      },
       fontFamily: {
         default: null,
         parseHTML: (element) => element.style.fontFamily || null,
@@ -307,6 +322,9 @@ export const StyledTextExtension = Mark.create({
       color: asNonEmptyString(mark.attrs.color),
       fontFamily: asNonEmptyString(mark.attrs.fontFamily),
       fontSizePt: normalizeFontSize(mark.attrs.fontSize) ?? undefined,
+      baselineShiftPx: typeof mark.attrs.baselineShiftPx === "number" ? mark.attrs.baselineShiftPx : undefined,
+      fontKerning: parseFontKerning(mark.attrs.fontKerning) ?? undefined,
+      letterSpacingPx: typeof mark.attrs.letterSpacingPx === "number" ? mark.attrs.letterSpacingPx : undefined,
     }));
     return ["span", mergeAttributes(HTMLAttributes, style ? { style } : {}), 0];
   },
@@ -527,9 +545,13 @@ function normalizeFontSize(value: unknown): number | null {
   return parseCssFontSizeToPt(value) ?? null;
 }
 
+function parseFontKerning(value: unknown): "auto" | "normal" | "none" | null {
+  return value === "auto" || value === "normal" || value === "none" ? value : null;
+}
+
 function hasTextStyleDeclaration(element: HTMLElement): boolean {
   const { backgroundColor, color, fontFamily, fontSize } = element.style;
-  return Boolean(color || backgroundColor || fontFamily || normalizeFontSize(fontSize));
+  return Boolean(parseFontKerning(element.style.fontKerning) || color || backgroundColor || fontFamily || normalizeFontSize(fontSize) || parsePixelOffset(element.style.letterSpacing) !== null || parsePixelOffset(element.style.verticalAlign) !== null);
 }
 
 function asNonEmptyString(value: unknown): string | undefined {
@@ -555,4 +577,10 @@ function normalizeBoxedTone(value: unknown): "gray" | "blue" | "green" | "red" |
 
 function normalizeUnderlineStyle(value: unknown): UnderlineStyle | null {
   return value === "solid" || value === "wavy" || value === "dotted" || value === "double" ? value : null;
+}
+
+function parsePixelOffset(value: string): number | null {
+  if (!/^-?(?:\d+(?:\.\d*)?|\.\d+)px$/.test(value)) return null;
+  const number = Number.parseFloat(value);
+  return Number.isFinite(number) ? number : null;
 }

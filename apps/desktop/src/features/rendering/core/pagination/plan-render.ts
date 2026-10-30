@@ -94,8 +94,14 @@ function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+// Match Chromium layout units so subtracting an applied displacement recovers
+// the same natural position without whole-pixel drift across page boundaries.
+function snapDisplacement(value: number): number {
+  return Math.round(value * 64) / 64;
+}
+
 function sameDisplacement(a: PlacedLine, b: { regionIndex: number; dx: number; dy: number }): boolean {
-  return a.regionIndex === b.regionIndex && Math.round(a.dy) === b.dy && Math.round(a.dx) === b.dx;
+  return a.regionIndex === b.regionIndex && snapDisplacement(a.dy) === b.dy && snapDisplacement(a.dx) === b.dx;
 }
 
 export interface PlanFlowRenderOptions {
@@ -131,7 +137,7 @@ export function planFlowRender(
 
   for (const unit of built.units) {
     const unitDisplacement = firstDisplacement(unit, built, placement) ?? previousUnit;
-    plan.unitDisplacements[unit.id] = { dx: round(unitDisplacement.dx), dy: round(unitDisplacement.dy) };
+    plan.unitDisplacements[unit.id] = { dx: snapDisplacement(unitDisplacement.dx), dy: snapDisplacement(unitDisplacement.dy) };
     if (unit.breakBefore) plan.markerDisplacements[unit.id] = relative(lastPlaced, unitDisplacement);
     previousUnit = unitDisplacement;
     let previousNode = unitDisplacement;
@@ -176,9 +182,9 @@ export function planFlowRender(
           fragmentIndex: index,
           sourceOffsetY: round(start - node.top),
           height: round(Math.max(1, end - start)),
-          x: Math.round(node.left + group.dx),
-          y: Math.round(start + group.dy),
-          width: Math.round(node.width),
+          x: snapDisplacement(node.left + group.dx),
+          y: snapDisplacement(start + group.dy),
+          width: snapDisplacement(node.width),
           totalHeight: round(totalHeight),
         };
       });
@@ -192,7 +198,7 @@ export function planFlowRender(
       if (blank && pieces.length > 0) {
         const last = pieces[pieces.length - 1];
         const naturalTop = blank.top + pieces.slice(0, -1).reduce((sum, piece) => sum + piece.height, 0);
-        lastPlaced = { dx: Math.round(placement.regions[last.regionIndex]?.dx ?? 0), dy: Math.round(last.y - naturalTop) };
+        lastPlaced = { dx: snapDisplacement(placement.regions[last.regionIndex]?.dx ?? 0), dy: snapDisplacement(last.y - naturalTop) };
       }
     }
     planFramePieces(unit, built, placement, unitDisplacement, plan);
@@ -201,7 +207,7 @@ export function planFlowRender(
 }
 
 function relative(value: FlowDisplacement, base: FlowDisplacement): FlowDisplacement {
-  return { dx: round(value.dx - base.dx), dy: round(value.dy - base.dy) };
+  return { dx: snapDisplacement(value.dx - base.dx), dy: snapDisplacement(value.dy - base.dy) };
 }
 
 function firstDisplacement(unit: BuiltUnit, built: BuiltFlowModel, placement: FlowPlacement): FlowDisplacement | null {
@@ -210,7 +216,7 @@ function firstDisplacement(unit: BuiltUnit, built: BuiltFlowModel, placement: Fl
     const placed = placement.lines.get(key);
     const line = built.lines.get(key);
     if (placed && line) {
-      if (!best || line.top < best.top) best = { top: line.top, displacement: { dx: Math.round(placed.dx), dy: Math.round(placed.dy) } };
+      if (!best || line.top < best.top) best = { top: line.top, displacement: { dx: snapDisplacement(placed.dx), dy: snapDisplacement(placed.dy) } };
       continue;
     }
     const blank = built.blanks.get(key);
@@ -218,7 +224,7 @@ function firstDisplacement(unit: BuiltUnit, built: BuiltFlowModel, placement: Fl
     const piece = placement.blanks.find((candidate) => candidate.key === key);
     if (piece && (!best || blank.top < best.top)) {
       const region = placement.regions[piece.regionIndex];
-      best = { top: blank.top, displacement: { dx: Math.round(region?.dx ?? 0), dy: Math.round(piece.y - blank.top) } };
+      best = { top: blank.top, displacement: { dx: snapDisplacement(region?.dx ?? 0), dy: snapDisplacement(piece.y - blank.top) } };
     }
   }
   return best?.displacement ?? null;
@@ -234,9 +240,9 @@ function groupLines(keys: readonly string[], built: BuiltFlowModel, placement: F
     if (last && sameDisplacement(placed, last)) {
       last.lines.push(line);
     } else {
-      // 変位は整数 px にする。レイアウトの丸め (1/64 px) の上で「表示位置 − 変位 = 自然位置」が
-      // 厳密に成り立ち、次の計測が同じ自然配置を読む (端数の変位は計測のたびに揺れる)。
-      groups.push({ regionIndex: placed.regionIndex, dx: Math.round(placed.dx), dy: Math.round(placed.dy), lines: [line] });
+      // 変位をブラウザーと同じ 1/64 px にそろえ、自然位置の復元を安定させる。
+      // 整数 px に丸めると、前ページの端数高さが次ページの位置に残ってしまう。
+      groups.push({ regionIndex: placed.regionIndex, dx: snapDisplacement(placed.dx), dy: snapDisplacement(placed.dy), lines: [line] });
     }
   }
   return groups;
@@ -265,7 +271,7 @@ function planFramePieces(
     const line = built.lines.get(key);
     const placed = placement.lines.get(key);
     if (line && placed) {
-      note(placed.regionIndex, line.top + Math.round(placed.dy), line.fitBottom + Math.round(placed.dy), Math.round(placed.dx));
+      note(placed.regionIndex, line.top + snapDisplacement(placed.dy), line.fitBottom + snapDisplacement(placed.dy), snapDisplacement(placed.dx));
       continue;
     }
     const blank = built.blanks.get(key);

@@ -242,3 +242,9 @@ describe("probeFlow extension nodes", () => {
     expect(unit.reservation).toEqual({ top: 120, bottom: 300 });
   });
 });
+
+it("carries a unit's explicit top margin into the pagination probe", () => {
+  const flow = html('<section data-flow-unit-id="spaced" style="margin-top: 7.25px"></section>');
+  place(find(flow, '[data-flow-unit-id="spaced"]'), { top: 7.25, bottom: 40 });
+  expect(probeFlow(flow, OPTIONS).units[0].leadingSpace).toBe(7.25);
+});
