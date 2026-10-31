@@ -3,6 +3,7 @@ import { fetchProblemSearch } from "./problem-search-client";
 import { app, BrowserWindow, Menu, nativeImage, shell, protocol } from "electron";
 import crypto from "node:crypto";
 import { fetchProblemSolution } from "./problem-solution-client";
+import { fetchLibraryAccess, fetchLibraryFacets, fetchLibraryProblem, fetchLibrarySearch } from "./problem-library-client";
 import { createInterface } from "node:readline";
 import { resolveDevServerUrl } from "./dev-server";
 import http from "node:http";
@@ -1657,6 +1658,11 @@ function registerIpc() {
   registerTikzIpc();
   ipcMain.handle("problems:search", (_event, query: unknown) => fetchProblemSearch(query, collaborationSessions.auth));
   ipcMain.handle("problems:solution", (_event, request: unknown) => fetchProblemSolution(request, collaborationSessions.auth));
+  // The members-only library. The token is read per request in main and never crosses to the renderer.
+  ipcMain.handle("problems:library-access", () => fetchLibraryAccess(collaborationSessions.auth));
+  ipcMain.handle("problems:library-search", (_event, request: unknown) => fetchLibrarySearch(request, collaborationSessions.auth));
+  ipcMain.handle("problems:library-facets", (_event, request: unknown) => fetchLibraryFacets(request, collaborationSessions.auth));
+  ipcMain.handle("problems:library-get", (_event, request: unknown) => fetchLibraryProblem(request, collaborationSessions.auth, applicationFontStore));
   ipcMain.handle("app:close-ack", (event) => {
     return activeWindowCloseHandshake?.acknowledge(event.sender) ?? false;
   });

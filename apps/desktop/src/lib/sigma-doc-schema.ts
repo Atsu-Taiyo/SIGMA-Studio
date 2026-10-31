@@ -499,7 +499,7 @@ const ProblemAreaLayoutSchema = z.object({
   columnSpan: z.enum(["column", "full"]).optional(),
 });
 
-const ProblemAreaBlockSchema: z.ZodType<ProblemAreaBlock> = z.lazy(() => z.union([
+export const ProblemAreaBlockSchema: z.ZodType<ProblemAreaBlock> = z.lazy(() => z.union([
   RichBlockSchema,
   QuoteBlockNodeSchema,
   CodeBlockNodeSchema,
