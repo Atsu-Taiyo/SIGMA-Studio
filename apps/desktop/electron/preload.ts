@@ -20,6 +20,12 @@ const desktopAPI = {
   problems: {
     search: (query: unknown) => ipcRenderer.invoke("problems:search", query),
     getSolution: (request: unknown) => ipcRenderer.invoke("problems:solution", request),
+    library: {
+      access: () => ipcRenderer.invoke("problems:library-access"),
+      search: (request: unknown) => ipcRenderer.invoke("problems:library-search", request),
+      facets: (request: unknown) => ipcRenderer.invoke("problems:library-facets", request),
+      get: (request: unknown) => ipcRenderer.invoke("problems:library-get", request),
+    },
   },
   isDesktop: true as const,
   platform: process.platform,

@@ -23,6 +23,8 @@ export interface ProblemLibraryBridge {
   getSolution(request: { problemId: string }): Promise<
     { ok: true; solution: Record<string, unknown> } | { ok: false; error: string }
   >;
+  /** The members-only library. Missing in builds that predate it. */
+  library?: import("./problem-library-provider").MemberLibraryBridge;
 }
 
 // Validate the upstream payload before it reaches either the preview or the importer.
@@ -59,10 +61,15 @@ export interface LibrarySolution {
 /** Only safe, localized failures from this boundary may be displayed by the dialog. */
 export class ProblemLibraryImportError extends Error {}
 
-/** Fetch only on import; never silently turn an answer-bearing item into a prompt-only import. */
-export async function prepareLibraryProblemImport(problem: LibraryProblem, bridge: ProblemLibraryBridge | undefined): Promise<SigmaDocument> {
+/**
+ * Fetch only on import; never silently turn an answer-bearing item into a prompt-only import.
+ * Leaving the solution out is the user's explicit choice (`includeSolution: false`), and then nothing is fetched.
+ */
+export async function prepareLibraryProblemImport(
+  problem: LibraryProblem, bridge: ProblemLibraryBridge | undefined, options: { includeSolution?: boolean } = {},
+): Promise<SigmaDocument> {
   const checked = problemSchema.parse(problem);
-  if (checked.has_solution === false) return problemToSigmaDocument(checked);
+  if (checked.has_solution === false || options.includeSolution === false) return problemToSigmaDocument(checked);
   const t = createCurrentLocaleTranslator("editor");
   if (typeof bridge?.getSolution !== "function") {
     throw new ProblemLibraryImportError(t("problemLibrary.restartRequired"));

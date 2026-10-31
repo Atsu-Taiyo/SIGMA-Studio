@@ -107,12 +107,321 @@
   color: var(--text-muted);
 }
 
+/* 道具列の下。ライブラリを選んだときだけ、左に分類パネル、右に結果を並べる。 */
+.main {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 /* 結果領域の幅を基準にした列数の切り替え (下の @container) のため、ここを container にする。 */
 .results {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   container-type: inline-size;
+}
+
+/* 取得元の切り替え。選択中は濃い枠ではなく薄いグレーの面で示す (タブと同じ扱い)。 */
+.sourceSwitch {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  max-width: 100%;
+  /* 2px は外枠と選択面の間の光学補正。 */
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-round);
+}
+
+.sourceSwitch button {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 var(--space-md);
+  border: 0;
+  border-radius: var(--radius-round);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.sourceSwitch button span {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sourceSwitch button:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.sourceSwitch button[aria-checked="true"] {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.sourceSwitch button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  outline-offset: 2px;
+}
+
+.sourceSwitch button:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+/* 「解答を含める」。スイッチと短いラベルを道具列の右端へ置く。 */
+.solutionToggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-inline-start: auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* 分類パネル。結果とは独立してスクロールし、選んだ分類を左右の行き来なしで足し引きできる。 */
+.facetPanel {
+  flex: 0 0 248px;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-lg);
+  border-inline-end: 1px solid var(--border-subtle);
+  background: var(--surface);
+}
+
+.facetSectionToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 650;
+  text-align: start;
+  cursor: pointer;
+}
+
+.facetSectionToggle svg {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.facetList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 下位分類は一段ずつ字下げする。 */
+.facetList .facetList {
+  padding-inline-start: var(--space-lg);
+}
+
+.facetRow {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.facetExpand,
+.facetExpandSpacer {
+  display: inline-flex;
+  flex: 0 0 20px;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+}
+
+.facetExpand {
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.facetExpand:hover {
+  color: var(--text-primary);
+}
+
+.facetOption {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  min-width: 0;
+  min-height: 26px;
+  padding: 0 var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.facetOption:hover:not(:disabled) {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+.facetOption[aria-pressed="true"] {
+  background: var(--surface-strong);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.facetOption[data-empty] {
+  color: var(--text-muted);
+}
+
+.facetOption:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+.facetExpand:focus-visible,
+.facetOption:focus-visible,
+.facetSectionToggle:focus-visible,
+.chipRemove:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  outline-offset: 1px;
+}
+
+.facetLabel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
+.facetGroup {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.facetCount {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.facetMessage {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.facetList .facetMessage {
+  padding-inline-start: var(--space-xl);
+}
+
+/* 選んだ分類。チップの × で一つずつ外せる。 */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 0 var(--space-xs) 0 var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-round);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.chipLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipRemove {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-round);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.chipRemove:hover:not(:disabled) {
+  background: var(--surface-strong);
+  color: var(--text-primary);
+}
+
+/* 取得元のバッジ。混在表示でどちらの問題かを一目で分ける。色ではなく面と枠の違いで示す。 */
+.sourceBadge {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 20px;
+  padding: 0 var(--space-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-round);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sourceBadge[data-source="library"] {
+  border-color: var(--text-primary);
+  background: var(--text-primary);
+  color: var(--background);
+}
+
+/* 狭い幅では分類パネルを結果の上へ積む。 */
+@media (max-width: 760px) {
+  .main {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .facetPanel {
+    flex: 0 0 auto;
+    max-height: 40%;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
 }
 
 .heading {

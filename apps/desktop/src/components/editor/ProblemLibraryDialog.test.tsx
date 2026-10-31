@@ -8,6 +8,8 @@ import * as library from "@/lib/problem-library";
 import { ProblemLibraryImportError, type ProblemLibrarySearchResult } from "@/lib/problem-library";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 import { createTranslator } from "@/lib/i18n";
+import { importTexProblem } from "@/lib/tex-import";
+import type { LibraryFacet, LibraryProblemSummary, MemberLibraryBridge } from "@/lib/problem-library-provider";
 
 let root: Root;
 let container: HTMLDivElement;
@@ -212,5 +214,208 @@ describe("problem library dialog", () => {
     expect(en("problemLibrary.solutionState.available")).toBe("With solution");
     expect(en("problemLibrary.solutionState.unknown")).toBe("Solution unchecked");
     expect(en("problemLibrary.solutionLabels.official")).toBe("Official solution");
+  });
+});
+
+const LABEL = "Partner Library";
+const summary = (id: string, extra: Partial<LibraryProblemSummary> = {}): LibraryProblemSummary => ({
+  id, title: `ライブラリ問題 ${id}`, source_label: "関西学院大", exam_year: 2019, has_solution: true, tags: ["微分法", "接線", "極値", "最大最小"],
+  preview: [{ type: "paragraph", id: `p_${id}`, children: [{ type: "text", text: `ライブラリ本文 ${id}` }] }], ...extra,
+});
+const facet = (key: string, label: string, extra: Partial<LibraryFacet> = {}): LibraryFacet => {
+  const [group, type] = key.split("|");
+  return { key, group, type, label, count: 10, hasChildren: false, ...extra };
+};
+const UNIT = "db|単元|数学Ⅱ";
+const UNIT_CHILD = "db|単元|数学Ⅱ>微分法";
+const LEVEL = "db|難易度|教科書標準";
+
+function libraryBridge(overrides: Partial<{ [K in keyof MemberLibraryBridge]: ReturnType<typeof vi.fn> }> = {}) {
+  const document = parseSigmaDocument(importTexProblem({ title: "ライブラリ問題", prompt: "$f(x)=x^3$を微分せよ。", solution: "$f'(x)=3x^2$" }));
+  return {
+    access: vi.fn().mockResolvedValue({ available: true, label: LABEL }),
+    search: vi.fn().mockResolvedValue({ ok: true, search: { total: 1, results: [summary("lib_a")], facetCounts: { [UNIT]: 1, [LEVEL]: 0 } } }),
+    facets: vi.fn(async ({ parent }: { parent: string | null }) => ({ ok: true, facets: parent === null
+      ? [facet(UNIT, "数学Ⅱ", { hasChildren: true }), facet(LEVEL, "教科書標準")]
+      : [facet(UNIT_CHILD, "微分法")] })),
+    get: vi.fn().mockResolvedValue({ ok: true, document }),
+    ...overrides,
+  };
+}
+function setupMember(library: ReturnType<typeof libraryBridge>, search = vi.fn<(query: unknown) => Promise<ProblemLibrarySearchResult>>().mockResolvedValue(response())) {
+  const onClose = vi.fn();
+  const onImport = vi.fn<(file: File) => Promise<boolean>>().mockResolvedValue(true);
+  const getSolution = vi.fn();
+  vi.spyOn(desktop, "getDesktopBridge").mockReturnValue({ problems: { search, getSolution, library }, shell: { openExternal: vi.fn() } } as unknown as ReturnType<typeof desktop.getDesktopBridge>);
+  act(() => root.render(<ProblemLibraryDialog onImport={onImport} onClose={onClose} />));
+  return { search, getSolution, onImport, onClose, library };
+}
+async function flush() {
+  for (let index = 0; index < 4; index++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+}
+const radio = (name: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="radio"]')).find(item => item.textContent === name)!;
+const facetButton = (key: string) => document.querySelector<HTMLButtonElement>(`[data-facet-key="${key}"]`)!;
+async function importedDocument(onImport: ReturnType<typeof vi.fn>) {
+  return parseSigmaDocument(JSON.parse(await (onImport.mock.calls.at(-1)![0] as File).text()));
+}
+
+describe("members-only library", () => {
+  it("shows no trace of the library to a non-member", async () => {
+    const library = libraryBridge({ access: vi.fn().mockResolvedValue({ available: false }) });
+    const f = setupMember(library); await flush();
+    expect(library.access).toHaveBeenCalledOnce();
+    expect(document.querySelector('[role="radiogroup"]')).toBeNull();
+    expect(document.body.textContent).not.toContain(LABEL);
+    expect(library.search).not.toHaveBeenCalled();
+    expect(library.facets).not.toHaveBeenCalled();
+    expect(f.search).toHaveBeenCalledWith({ sort: "likes", limit: 6 });
+    expect(document.querySelector('[role="combobox"]')?.getAttribute("aria-label")).toBe("タグ");
+    expect(document.querySelector("[data-source]")?.textContent).not.toContain("受験数学研究所問題");
+  });
+  it("treats a failing access check as no library", async () => {
+    const library = libraryBridge({ access: vi.fn().mockRejectedValue(new Error("offline")) });
+    setupMember(library); await flush();
+    expect(document.querySelector('[role="radiogroup"]')).toBeNull();
+    expect(library.search).not.toHaveBeenCalled();
+  });
+  it("gives a member a source switch and mixes both providers with a badge on every card", async () => {
+    const f = setupMember(libraryBridge()); await flush();
+    const radios = Array.from(document.querySelectorAll('[role="radio"]')).map(item => item.textContent);
+    expect(radios).toEqual(["すべて", "受験数学研究所", LABEL]);
+    expect(radio("すべて").getAttribute("aria-checked")).toBe("true");
+    expect(f.library.search).toHaveBeenCalledWith({ facets: [], limit: 6, offset: 0 });
+    const cards = Array.from(document.querySelectorAll("article"));
+    expect(cards.map(card => card.dataset.source)).toEqual(["jukenmath", "library"]);
+    expect(cards[0].querySelector('[data-source="jukenmath"]')?.textContent).toBe("受験数学研究所");
+    expect(cards[1].querySelector('[data-source="library"]')?.textContent).toBe(LABEL);
+    // The library card: its preview, origin, solution state and at most three tags.
+    expect(cards[1].textContent).toContain("ライブラリ本文 lib_a");
+    expect(cards[1].textContent).toContain("関西学院大 2019年");
+    expect(cards[1].textContent).toContain("解答付き");
+    expect(cards[1].textContent).toContain("極値");
+    expect(cards[1].textContent).not.toContain("最大最小");
+    // In すべて the keyword goes to both providers; the tag filter belongs to 受験数学研究所 alone.
+    expect(document.querySelector('[role="combobox"]')).toBeNull();
+    const input = document.querySelector<HTMLInputElement>('input[type="search"], input')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "微分");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { document.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    await flush();
+    expect(f.search).toHaveBeenLastCalledWith({ q: "微分", sort: "likes", limit: 20 });
+    expect(f.library.search).toHaveBeenLastCalledWith({ q: "微分", facets: [], limit: 20, offset: 0 });
+  });
+  it("keeps one provider's results when the other fails, and retries only the failed one", async () => {
+    const library = libraryBridge({ search: vi.fn().mockResolvedValueOnce({ ok: false, error: "問題ライブラリに接続できませんでした。" })
+      .mockResolvedValue({ ok: true, search: { total: 1, results: [summary("lib_a")], facetCounts: {} } }) });
+    const f = setupMember(library); await flush();
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(`${LABEL}の問題を取得できませんでした。`);
+    expect(Array.from(document.querySelectorAll("article")).map(card => card.dataset.source)).toEqual(["jukenmath"]);
+    await act(async () => button("再読み込み").click());
+    await flush();
+    expect(f.search).toHaveBeenCalledOnce();
+    expect(library.search).toHaveBeenCalledTimes(2);
+    expect(Array.from(document.querySelectorAll("article")).map(card => card.dataset.source)).toEqual(["jukenmath", "library"]);
+  });
+  it("filters the library by classification: lazy tree, counts, chips, and AND-ed keys", async () => {
+    const f = setupMember(libraryBridge()); await flush();
+    await act(async () => radio(LABEL).click());
+    await flush();
+    expect(f.library.facets).toHaveBeenCalledWith({ parent: null });
+    expect(f.library.search).toHaveBeenLastCalledWith({ facets: [], limit: 24, offset: 0 });
+    expect(document.querySelector("article")?.dataset.source).toBe("library");
+    expect(document.querySelector("h3")?.textContent).toBe(LABEL);
+    // Sections follow the server's `type`; counts come from facetCounts.
+    const panel = document.querySelector("nav")!;
+    expect(Array.from(panel.querySelectorAll("section > button")).map(item => item.textContent)).toEqual(["単元", "難易度"]);
+    expect(facetButton(UNIT).textContent).toBe("数学Ⅱ1");
+    expect(facetButton(LEVEL).hasAttribute("data-empty")).toBe(true);
+    await act(async () => facetButton(UNIT).click());
+    await flush();
+    expect(f.library.search).toHaveBeenLastCalledWith({ facets: [UNIT], limit: 24, offset: 0 });
+    expect(facetButton(UNIT).getAttribute("aria-pressed")).toBe("true");
+    // Children load only when opened.
+    expect(f.library.facets).toHaveBeenCalledTimes(1);
+    await act(async () => panel.querySelector<HTMLButtonElement>('[aria-expanded="false"][aria-label]')!.click());
+    await flush();
+    expect(f.library.facets).toHaveBeenLastCalledWith({ parent: UNIT });
+    await act(async () => facetButton(UNIT_CHILD).click());
+    await flush();
+    expect(f.library.search).toHaveBeenLastCalledWith({ facets: [UNIT, UNIT_CHILD], limit: 24, offset: 0 });
+    const chips = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label$="の絞り込みを外す"]'));
+    expect(chips.map(chip => chip.getAttribute("aria-label"))).toEqual(["単元: 数学Ⅱの絞り込みを外す", "単元: 数学Ⅱ › 微分法の絞り込みを外す"]);
+    await act(async () => chips[0].click());
+    await flush();
+    expect(f.library.search).toHaveBeenLastCalledWith({ facets: [UNIT_CHILD], limit: 24, offset: 0 });
+    await act(async () => button("絞り込みを解除").click());
+    await flush();
+    expect(f.library.search).toHaveBeenLastCalledWith({ facets: [], limit: 24, offset: 0 });
+    // Back in すべて the classifications are not applied, and the jukenmath tag filter stays hidden.
+    await act(async () => radio("すべて").click());
+    await flush();
+    expect(document.querySelector("nav")).toBeNull();
+  });
+  it("shows the total and pages the library with もっと見る", async () => {
+    const page = (from: number, size: number) => Array.from({ length: size }, (_, index) => summary(`lib_${from + index}`));
+    const library = libraryBridge({ search: vi.fn(async (request: { offset: number }) => ({ ok: true, search: {
+      total: 30, results: request.offset === 0 ? page(0, 24) : page(24, 6), facetCounts: {},
+    } })) });
+    setupMember(library); await flush();
+    await act(async () => radio(LABEL).click());
+    await flush();
+    expect(document.body.textContent).toContain("30件中 24件を表示");
+    expect(document.querySelectorAll("article")).toHaveLength(24);
+    await act(async () => button("もっと見る").click());
+    await flush();
+    expect(library.search).toHaveBeenLastCalledWith({ facets: [], limit: 24, offset: 24 });
+    expect(document.querySelectorAll("article")).toHaveLength(30);
+    expect(document.body.textContent).toContain("30件中 30件を表示");
+    expect(Array.from(document.querySelectorAll("button")).some(item => item.textContent === "もっと見る")).toBe(false);
+  });
+  it("imports a library problem as a new document, with its solution by default and without it when switched off", async () => {
+    const f = setupMember(libraryBridge()); await flush();
+    const importLibrary = () => Array.from(document.querySelectorAll("article")).find(card => card.dataset.source === "library")!.querySelector<HTMLButtonElement>("button")!;
+    expect(importLibrary().title).toBe("解答付きで新しい教材として取り込む");
+    await act(async () => importLibrary().click());
+    expect(f.library.get).toHaveBeenCalledWith({ id: "lib_a" });
+    expect((f.onImport.mock.calls[0][0] as File).name).toBe("ライブラリ問題 lib_a.sigma");
+    const withSolution = await importedDocument(f.onImport);
+    expect(withSolution.content[0]).toMatchObject({ type: "problem", solution: [expect.objectContaining({ type: "paragraph" })] });
+    expect(f.onClose).toHaveBeenCalledOnce();
+
+    const toggle = document.querySelector<HTMLButtonElement>('[role="switch"]')!;
+    expect(toggle.getAttribute("aria-label")).toBe("解答を含める");
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    act(() => toggle.click());
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(importLibrary().title).toBe("解答を含めずに新しい教材として取り込む");
+    await act(async () => importLibrary().click());
+    const withoutSolution = await importedDocument(f.onImport);
+    expect(withoutSolution.content[0]).toMatchObject({ type: "problem", solution: [] });
+    expect(withoutSolution.content[0]).toMatchObject({ prompt: withSolution.content[0].type === "problem" ? withSolution.content[0].prompt : [] });
+  });
+  it("leaves out a 受験数学研究所 solution without fetching it when solutions are switched off", async () => {
+    const f = setupMember(libraryBridge(), vi.fn<(query: unknown) => Promise<ProblemLibrarySearchResult>>().mockResolvedValue(response("確認用の問題", { has_solution: true })));
+    await flush();
+    act(() => document.querySelector<HTMLButtonElement>('[role="switch"]')!.click());
+    await act(async () => Array.from(document.querySelectorAll("article")).find(card => card.dataset.source === "jukenmath")!.querySelector<HTMLButtonElement>("article button")!.click());
+    expect(f.getSolution).not.toHaveBeenCalled();
+    expect((await importedDocument(f.onImport)).content[0]).toMatchObject({ type: "problem", solution: [] });
+  });
+  it("shows the main process's message when a library import fails and keeps the dialog open", async () => {
+    const f = setupMember(libraryBridge({ get: vi.fn().mockResolvedValue({ ok: false, error: "教材で使うフォントを取得できませんでした。もう一度お試しください。" }) }));
+    await flush();
+    await act(async () => Array.from(document.querySelectorAll("article")).find(card => card.dataset.source === "library")!.querySelector<HTMLButtonElement>("button")!.click());
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("フォントを取得できませんでした");
+    expect(f.onImport).not.toHaveBeenCalled();
+    expect(f.onClose).not.toHaveBeenCalled();
+  });
+  it("provides English copy for the library controls", () => {
+    const en = createTranslator("en", "editor");
+    expect(en("problemLibrary.allSources")).toBe("All");
+    expect(en("problemLibrary.includeSolution")).toBe("Include solutions");
+    expect(en("problemLibrary.showing", { total: 30, shown: 24 })).toBe("Showing 24 of 30");
+    expect(en("problemLibrary.libraryErrors.fontFailed")).toBe("Could not load the fonts this material uses. Please try again.");
   });
 });
