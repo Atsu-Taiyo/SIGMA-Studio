@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createTranslator, SUPPORTED_LOCALES } from "@/lib/i18n";
 
 test("library credentials stay in main across decoded responses and application restart", async () => {
   const root = path.resolve(__dirname, "../..");
@@ -70,7 +71,11 @@ test("library credentials stay in main across decoded responses and application 
       return [await library.access(), await library.search({}), await library.facets({ parent: null }), await library.get({ id: "fixture_problem" })];
     });
     expect(replies[0]).toEqual({ available: false });
-    for (const reply of replies.slice(1)) expect(reply).toEqual({ ok: false, error: "問題ライブラリの応答を安全に処理できませんでした。" });
+    const safeErrors = SUPPORTED_LOCALES.map(locale => createTranslator(locale, "editor")("problemLibrary.libraryErrors.unsafeResponse"));
+    for (const reply of replies.slice(1)) {
+      expect(reply).toEqual({ ok: false, error: expect.any(String) });
+      expect(safeErrors).toContain("error" in reply ? reply.error : undefined);
+    }
     expect(JSON.stringify(replies)).not.toContain(token);
     echo = false;
     const clean = await page.evaluate(() => window.desktopAPI!.problems!.library!.get({ id: "fixture_problem" }));
