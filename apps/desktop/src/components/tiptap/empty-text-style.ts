@@ -15,6 +15,8 @@ export const EmptyTextStyle = Extension.create({
       key: new PluginKey("emptyTextStyle"),
       appendTransaction(transactions, previous, next) {
         if (transactions.some(tr => tr.getMeta("preventUpdate") || isHistoryTransaction(tr))) return null;
+        // Focus/default-font seeding only arms the caret. Persist Enter and explicit toolbar edits.
+        if (transactions.every(tr => !tr.docChanged && tr.getMeta("addToHistory") === false)) return null;
         const { $from, empty } = next.selection;
         const node = $from.parent;
         const type = next.schema.marks.styledText;
