@@ -356,6 +356,21 @@ describe("members-only library", () => {
     await flush();
     expect(document.querySelector("nav")).toBeNull();
   });
+  it("lays the library alone out in two columns of plain cards with every preview block", async () => {
+    const preview = Array.from({ length: 12 }, (_, index) => ({ type: "paragraph" as const, id: `p_${index}`, children: [{ type: "text" as const, text: `段落 ${index}` }] }));
+    const library = libraryBridge({ search: vi.fn().mockResolvedValue({ ok: true, search: { total: 1, results: [summary("lib_a", { preview })], facetCounts: {} } }) });
+    setupMember(library); await flush();
+    expect(document.querySelector("[data-columns]")?.getAttribute("data-columns")).toBe("3");
+    await act(async () => radio(LABEL).click());
+    await flush();
+    expect(document.querySelector("[data-columns]")?.getAttribute("data-columns")).toBe("2");
+    const card = document.querySelector("article")!;
+    // The heading already names the library, so the card drops its badge.
+    expect(card.querySelector('[data-source="library"]')).toBeNull();
+    expect(preview.every(block => card.textContent!.includes(block.children[0].text))).toBe(true);
+    expect(card.textContent).toContain("ライブラリ問題 lib_a");
+    expect(card.textContent).toContain("解答付き");
+  });
   it("shows the total and pages the library with もっと見る", async () => {
     const page = (from: number, size: number) => Array.from({ length: size }, (_, index) => summary(`lib_${from + index}`));
     const library = libraryBridge({ search: vi.fn(async (request: { offset: number }) => ({ ok: true, search: {
