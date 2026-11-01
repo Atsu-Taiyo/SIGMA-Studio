@@ -10,6 +10,7 @@ import type { TextRunScopeContainer } from "./text-run-span";
 import type { MaterialItem } from "@/types/material";
 import type {
   MathFractionSizing,
+  ProblemStyle,
   SigmaCommentThread,
 } from "@/features/document";
 
@@ -176,6 +177,7 @@ export interface TextFlowEditorProps {
   onBoxCommand?: (request: TextFlowBoxCommandRequest) => boolean;
   enableProblemCommands?: boolean;
   onProblemCommand?: (request: TextFlowProblemCommandRequest) => boolean;
+  getPreviousProblemStyle?: (triggerBlockId: string) => ProblemStyle | null;
   onBodyBlockCommand?: (request: TextFlowBodyBlockCommandRequest) => boolean;
   enableHeadingCommands?: boolean;
   onHeadingCommand?: (request: TextFlowHeadingCommandRequest) => boolean;

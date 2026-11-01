@@ -46,6 +46,7 @@ import {
 } from "@/components/editor/page-overlay-types";
 import {
   createEmptyOverlaySnapshot,
+  inheritPreviousProblemStyle,
   normalizeOverlaySnapshot,
   type SigmaBlock,
   type SigmaDocument,
@@ -218,7 +219,10 @@ export function MaterialEditSurface({
 
   const addBlock = useCallback((type: SigmaBlock["type"]) => {
     // 箱は「前に決めた見た目」で入る (設定ダイアログで変えた色や罫がそのまま次にも効く)。
-    const block = applyRememberedBoxFrame(createBlock(type, tEditor));
+    const created = applyRememberedBoxFrame(createBlock(type, tEditor));
+    const block = created.type === "problem"
+      ? inheritPreviousProblemStyle([...content.blocks, created], created.id) ?? created
+      : created;
     onContentChange({
       ...content,
       blocks: [...content.blocks, block],

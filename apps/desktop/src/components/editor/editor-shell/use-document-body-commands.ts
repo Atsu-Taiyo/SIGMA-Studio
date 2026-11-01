@@ -47,7 +47,7 @@ export function useDocumentBodyCommands({ getDocument, selectedId, getSelectedId
     const block = applyRememberedBoxFrame(createBlock(type, tEditor));
     let insertedBodyBlockId: string | null = null;
     commitDocumentChange((current) => {
-      const next = insertBlockAtSelection(current, block, selectedId, { replaceEmpty: block.type === "problem" });
+      const next = insertBlockAtSelection(current, block, selectedId, { replaceEmpty: block.type === "problem", inheritProblemStyle: true });
       if (block.type !== "problem") {
         return next;
       }
@@ -89,7 +89,7 @@ export function useDocumentBodyCommands({ getDocument, selectedId, getSelectedId
         if (!findBlock(current, triggerBlockId)) {
           return current;
         }
-        const next = insertBlockAtSelection(current, problem, triggerBlockId, { replaceEmpty: true });
+        const next = insertBlockAtSelection(current, problem, triggerBlockId, { replaceEmpty: true, inheritProblemStyle: true });
         const result = ensureBodyBlockAfterProblem(next, problem.id);
         insertedBodyBlockId = result.bodyBlock?.id ?? null;
         return result.document;

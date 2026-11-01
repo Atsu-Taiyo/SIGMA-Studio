@@ -791,6 +791,7 @@ function TextFlowEditorImpl({
   onBoxCommand,
   enableProblemCommands = false,
   onProblemCommand,
+  getPreviousProblemStyle,
   onBodyBlockCommand,
   enableHeadingCommands = false,
   onHeadingCommand,
@@ -870,6 +871,7 @@ function TextFlowEditorImpl({
   const onMaterialInsertRef = useRef(onMaterialInsert);
   const onBoxCommandRef = useRef(onBoxCommand);
   const onProblemCommandRef = useRef(onProblemCommand);
+  const getPreviousProblemStyleRef = useRef(getPreviousProblemStyle);
   const onBodyBlockCommandRef = useRef(onBodyBlockCommand);
   const onHeadingCommandRef = useRef(onHeadingCommand);
   const openCodeBlockSettingsRef = useRef<(codeBlockId: string, button: HTMLButtonElement) => void>(() => {});
@@ -1147,8 +1149,9 @@ function TextFlowEditorImpl({
 
   useEffect(() => {
     onProblemCommandRef.current = onProblemCommand;
+    getPreviousProblemStyleRef.current = getPreviousProblemStyle;
     onHeadingCommandRef.current = onHeadingCommand;
-  }, [onHeadingCommand, onProblemCommand]);
+  }, [onHeadingCommand, onProblemCommand, getPreviousProblemStyle]);
 
   useEffect(() => {
     onBodyBlockCommandRef.current = onBodyBlockCommand;
@@ -1354,6 +1357,7 @@ function TextFlowEditorImpl({
           onHeadingCommandRef,
           setSlashCommandQuery,
           onManualBreakCommandRef,
+          getPreviousProblemStyleRef,
         )) {
           return true;
         }
@@ -2873,6 +2877,7 @@ function TextFlowEditorImpl({
       onHeadingCommandRef,
       setSlashCommandQuery,
       onManualBreakCommandRef,
+      getPreviousProblemStyleRef,
     );
   }, [editor, setSlashCommandQuery]);
 

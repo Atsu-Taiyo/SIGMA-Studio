@@ -165,6 +165,7 @@ export function TextFlowWithInlineContent({
   enableBoxCommands = true,
   enableProblemCommands = false,
   onProblemCommand,
+  getPreviousProblemStyle,
   onBodyBlockCommand,
   onHeadingCommand,
   enableHeadingCommands = false,
@@ -225,6 +226,7 @@ export function TextFlowWithInlineContent({
   enableBoxCommands?: boolean;
   enableProblemCommands?: boolean;
   onProblemCommand?: (request: TextFlowProblemCommandRequest) => boolean;
+  getPreviousProblemStyle?: (triggerBlockId: string) => import("@/features/document").ProblemStyle | null;
   onBodyBlockCommand?: (request: TextFlowBodyBlockCommandRequest) => boolean;
   onHeadingCommand?: (request: TextFlowHeadingCommandRequest) => boolean;
   enableHeadingCommands?: boolean;
@@ -326,6 +328,7 @@ export function TextFlowWithInlineContent({
             enableBoxCommands={enableBoxCommands}
             enableProblemCommands={enableProblemCommands}
             onProblemCommand={onProblemCommand}
+            getPreviousProblemStyle={getPreviousProblemStyle}
             onBodyBlockCommand={onBodyBlockCommand}
             enableHeadingCommands={enableHeadingCommands}
             onHeadingCommand={onHeadingCommand}

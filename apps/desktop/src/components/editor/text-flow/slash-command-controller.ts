@@ -6,7 +6,7 @@ import type { EditorView } from "@tiptap/pm/view";
 import { findAncestorNodeDepth, findBoxTitleAncestorDepth } from "@/components/tiptap/node-queries";
 import { parseTextFlowCommandTrigger, type TextFlowBlock, type TextFlowCommandDefinition } from "@/features/text-editing";
 import { createBlock } from "@/lib/document-tree";
-import type { CustomFrame } from "@/features/document";
+import { inheritProblemStyle, type CustomFrame, type ProblemNode } from "@/features/document";
 import { createBoxBlock, createCustomFrameBoxBlock } from "@/lib/box-blocks";
 import { createTranslator, getAppLocale } from "@/lib/i18n";
 import { applyRememberedBoxFrame } from "@/lib/remembered-box-style";
@@ -51,6 +51,7 @@ export function handleSlashCommandQueryKeyDown(
   onHeadingCommandRef: { current: TextFlowEditorProps["onHeadingCommand"] },
   setSlashCommandQuery: (query: ActiveSlashCommandQuery | null) => void,
   onManualBreakCommandRef: { current: TextFlowEditorProps["onManualBreakCommand"] } = { current: undefined },
+  getPreviousProblemStyleRef: { current: TextFlowEditorProps["getPreviousProblemStyle"] } = { current: undefined },
 ): boolean {
   if (!slashCommandQueryRef.current) {
     return false;
@@ -93,6 +94,7 @@ export function handleSlashCommandQueryKeyDown(
       onHeadingCommandRef,
       setSlashCommandQuery,
       onManualBreakCommandRef,
+      getPreviousProblemStyleRef,
     );
     return true;
   }
@@ -112,6 +114,7 @@ export function insertSlashCommandFromQuery(
   onHeadingCommandRef: { current: TextFlowEditorProps["onHeadingCommand"] },
   setSlashCommandQuery: (query: ActiveSlashCommandQuery | null) => void,
   onManualBreakCommandRef: { current: TextFlowEditorProps["onManualBreakCommand"] } = { current: undefined },
+  getPreviousProblemStyleRef: { current: TextFlowEditorProps["getPreviousProblemStyle"] } = { current: undefined },
 ): void {
   if (candidate.kind === "pageBreak") {
     insertPageBreakCommandFromQuery(view, slashCommandQueryRef, onManualBreakCommandRef, setSlashCommandQuery);
@@ -119,7 +122,7 @@ export function insertSlashCommandFromQuery(
   }
 
   if (candidate.kind === "problem") {
-    insertProblemCommandFromQuery(view, slashCommandQueryRef, onProblemCommandRef, setSlashCommandQuery);
+    insertProblemCommandFromQuery(view, slashCommandQueryRef, onProblemCommandRef, setSlashCommandQuery, getPreviousProblemStyleRef);
     return;
   }
 
@@ -248,6 +251,7 @@ function insertProblemCommandFromQuery(
   slashCommandQueryRef: { current: ActiveSlashCommandQuery | null },
   onProblemCommandRef: { current: TextFlowEditorProps["onProblemCommand"] },
   setSlashCommandQuery: (query: ActiveSlashCommandQuery | null) => void,
+  getPreviousProblemStyleRef: { current: TextFlowEditorProps["getPreviousProblemStyle"] },
 ): void {
   const query = slashCommandQueryRef.current;
   if (!query) {
@@ -268,8 +272,16 @@ function insertProblemCommandFromQuery(
   }
 
   if (isSelectionInsideBoxBlock(state) && $from.node($from.depth - 1).type.name === "boxBlockBody") {
-    const problem = createBlock("problem", createTranslator(getAppLocale(), "editor"));
     const from = $from.before($from.depth);
+    let problem = createBlock("problem", createTranslator(getAppLocale(), "editor"));
+    let previous: Partial<ProblemNode> | undefined;
+    state.doc.descendants((node, pos) => {
+      if (pos >= from) return false;
+      if (node.type.name === "problem") previous = node.attrs.problemMetadata;
+      return true;
+    });
+    const style = getPreviousProblemStyleRef.current?.(query.blockId) ?? previous;
+    if (problem.type === "problem" && style) problem = inheritProblemStyle(problem, style);
     const node = state.schema.nodeFromJSON(textFlowBlockToTiptapNode(problem));
     const paragraph = state.schema.nodes.paragraph.create();
     const transaction = state.tr.replaceWith(from, $from.after($from.depth), [node, paragraph]);
