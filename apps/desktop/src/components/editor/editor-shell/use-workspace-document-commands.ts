@@ -1,12 +1,13 @@
 "use client";
 
-import { useLayoutEffect, type RefObject } from "react";
+import { useEffect, useLayoutEffect, type RefObject } from "react";
 import { useStableCallback } from "@/lib/react/use-stable-callback";
 import { getDefaultPageLayout, type SigmaDocument } from "@/features/document";
 import type { EditorSaveState } from "@/features/editor-state/types";
 import type { TextFlowSelectionBookmark } from "@/features/text-editing";
 import { navigateToAppRoute, registerAppNavigationGuard } from "@/lib/app-navigation";
 import { createBlankDocument } from "@/lib/blank-document";
+import { rememberEditorOpenFileIds, workspaceReturnSearch } from "@/lib/workspace-return-location";
 import type { Translate } from "@/lib/i18n";
 import {
   createDocumentFromSigmaDocument,
@@ -92,6 +93,18 @@ export function useWorkspaceDocumentCommands({
     return registerAppNavigationGuard(prepareExternalNavigation);
   }, [embeddedHostRef, prepareExternalNavigation]);
 
+  // The workspace screen reads this window's tabs for its "back to editor"
+  // button and "editing" marks. Only the closing paths record an empty list.
+  useEffect(() => {
+    if (!workspaceReady || embeddedHostRef.current || openFileIds.length === 0) return;
+    rememberEditorOpenFileIds(openFileIds);
+  }, [embeddedHostRef, openFileIds, workspaceReady]);
+
+  const leaveToWorkspace = (remainingOpenFileIds: string[]) => {
+    rememberEditorOpenFileIds(remainingOpenFileIds);
+    navigateToAppRoute("/workspace", workspaceReturnSearch());
+  };
+
   const openWorkspaceScreen = async () => {
     setActiveMenu(null);
     if (embeddedHostRef.current) {
@@ -105,7 +118,7 @@ export function useWorkspaceDocumentCommands({
       if (!(await saveCurrentDocumentBeforeReplacement())) return;
     }
 
-    navigateToAppRoute("/workspace");
+    navigateToAppRoute("/workspace", workspaceReturnSearch());
   };
 
   const openDocumentAsTab = async (record: DocumentFileRecord, status: string) => {
@@ -242,7 +255,7 @@ export function useWorkspaceDocumentCommands({
       workspaceReadyRef.current = false;
       setWorkspaceReady(false);
     },
-    navigateToWorkspace: () => navigateToAppRoute("/workspace"),
+    navigateToWorkspace: leaveToWorkspace,
     canCleanupUntouchedDocument: async (fileId) => {
       const metadata = (await listSavedDocuments()).find((item) => item.fileId === fileId);
       return Boolean(metadata && !metadata.sharing && !metadata.sharingPending);
@@ -265,11 +278,16 @@ export function useWorkspaceDocumentCommands({
   const duplicateDocumentFromList = (fileId: string) => duplicateAndOpen(() => fileId, () => setDocumentListOpen(false));
 
   const deleteDocumentFromList = (fileId: string) => deleteWorkspaceDocument(fileId, {
-    documentMetadatas,
     openFileIds,
     activeFileId,
   }, {
     deleteDocument,
+    cancelPendingAutosave: () => cancelPendingAutosaveRef.current(),
+    markWorkspaceNotReady: () => {
+      workspaceReadyRef.current = false;
+      setWorkspaceReady(false);
+    },
+    navigateToWorkspace: leaveToWorkspace,
     openDocumentInWorkspace,
     setOpenFileIds,
     saveWorkspaceState,

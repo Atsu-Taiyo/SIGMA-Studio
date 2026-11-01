@@ -3,7 +3,7 @@ import type { LineHeight } from "../model/rich-text";
 export const MIN_LINE_HEIGHT = 0.8;
 export const MAX_LINE_HEIGHT = 3;
 export const LINE_HEIGHT_STEP = 0.05;
-export const LINE_HEIGHT_PRESETS = ["1", "1.15", "1.35", "1.5", "1.75", "2"] as const satisfies readonly LineHeight[];
+export const LINE_HEIGHT_PRESETS = ["1", "1.15", "1.35", "1.5", "1.75", "2", "2.5", "3"] as const satisfies readonly LineHeight[];
 
 const LINE_HEIGHT_PATTERN = /^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/;
 

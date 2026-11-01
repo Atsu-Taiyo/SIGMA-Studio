@@ -4,6 +4,7 @@ import { Folder } from "lucide-react";
 import type { CSSProperties, DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
 import { WorkspaceSharedBadge } from "./WorkspaceSharedBadge";
+import { WorkspaceOpenInEditorBadge } from "./WorkspaceOpenInEditorBadge";
 import { WorkspaceBookmarkButton } from "./WorkspaceBookmarkButton";
 import { WorkspaceItemMenuButton } from "./WorkspaceItemMenuButton";
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
@@ -66,6 +67,8 @@ interface WorkspaceItemGridProps {
   /** `file:<id>` / `folder:<id>` of every bookmarked item. */
   bookmarkedKeys: ReadonlySet<string>;
   onToggleBookmark: (kind: "file" | "folder", id: string) => void;
+  /** Materials open in this window's editor tabs. */
+  openInEditorFileIds?: ReadonlySet<string>;
 }
 
 export function WorkspaceItemGrid({
@@ -104,6 +107,7 @@ export function WorkspaceItemGrid({
   onCancelRename,
   bookmarkedKeys,
   onToggleBookmark,
+  openInEditorFileIds,
 }: WorkspaceItemGridProps) {
   const t = useT("workspace");
   const locationFor = (key: string) => { const row = rows.find(row => row.key === key); return row && locationLabel?.(row); };
@@ -242,7 +246,7 @@ export function WorkspaceItemGrid({
                         onCancel={onCancelRename}
                       />
                     ) : (
-                      <div className="workspace-file-card-title"><strong><DocumentTitleText title={displayName} /></strong>{file.sharing && <WorkspaceSharedBadge />}</div>
+                      <div className="workspace-file-card-title"><strong><DocumentTitleText title={displayName} /></strong>{file.sharing && <WorkspaceSharedBadge />}{openInEditorFileIds?.has(file.fileId) && <WorkspaceOpenInEditorBadge />}</div>
                     )}
                     {excerpt && !editing && <WorkspaceSearchExcerpt excerpt={excerpt} />}
                     <small>{locationLabel ? locationFor(`file:${file.fileId}`) : formatDateTime(file.updatedAt, locale)}</small>

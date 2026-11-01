@@ -50,9 +50,7 @@ function harness(openFileIds = ["a", "b", "c"], activeFileId = "b") {
     tEditor: (key: string) => `${view.locale}:${key}`,
   } satisfies Ports;
   const close = (id = activeFileId) => closeWorkspaceDocumentTab(id, state, ports);
-  const remove = (id = activeFileId, library = ["a", "b", "c"]) => deleteWorkspaceDocument(id, {
-    ...state, documentMetadatas: library.map((fileId) => ({ fileId })),
-  }, ports);
+  const remove = (id = activeFileId) => deleteWorkspaceDocument(id, state, ports);
   const draft = (id = activeFileId) => { state.untouchedNewDocumentsRef.current.set(id, document); };
   return { state, view, events, ports, loaded, close, remove, draft };
 }
@@ -212,18 +210,11 @@ describe("document tab close", () => {
 });
 
 describe("library document deletion", () => {
-  it("retains the last library file", async () => {
+  it("deletes the last library file and leaves for the workspace with no tabs", async () => {
     const h = harness(["a"], "a");
-    await h.remove("a", ["a"]);
-    expect(h.view.status).toBe("ja:status.lastDocumentStays");
-    expect(h.ports.deleteDocument).not.toHaveBeenCalled();
-  });
-
-  it("refuses deletion when the metadata has no surviving document", async () => {
-    const h = harness(["a"], "a");
-    await h.remove("a", ["a", "a"]);
-    expect(h.view).toMatchObject({ error: true, status: "ja:status.noDocumentToSwitchTo" });
-    expect(h.ports.deleteDocument).not.toHaveBeenCalled();
+    await h.remove("a");
+    expect(h.ports.deleteDocument).toHaveBeenCalledWith("a");
+    expect(h.ports.navigateToWorkspace).toHaveBeenCalledWith([]);
   });
 
   it.each(["disk failure", undefined])("keeps the library and tabs on storage failure (%s)", async (error) => {
@@ -235,20 +226,23 @@ describe("library document deletion", () => {
     expect(h.ports.openDocumentInWorkspace).not.toHaveBeenCalled();
   });
 
-  it.each([["a", "b", "c"], ["b"]])("refreshes the library before switching away from a deleted active file with tabs %j", async (...tabs) => {
+  it.each([["a", "b", "c"], ["b"]])("returns to the workspace screen after deleting the active file with tabs %j", async (...tabs) => {
     const h = harness(tabs, "b");
-    const pending = deferred<void>();
-    h.ports.refreshDocumentMetadatas.mockReturnValue(pending.promise);
-    const deleting = h.remove();
-    await vi.waitFor(() => expect(h.ports.refreshDocumentMetadatas).toHaveBeenCalled());
-    expect(h.ports.openDocumentInWorkspace).not.toHaveBeenCalled();
+    await h.remove();
     expect(h.ports.deleteDocument).toHaveBeenCalledWith("b");
-    h.view.locale = "en";
-    pending.resolve();
-    await deleting;
-    expect(h.ports.openDocumentInWorkspace).toHaveBeenCalledWith("a", {
-      nextOpenFileIds: tabs.length > 1 ? ["a", "c"] : ["a"], saveCurrent: false, status: "en:status.deleted",
-    });
+    expect(h.events).toEqual(["cancel-autosave", "delete", "workspace-not-ready", "navigate"]);
+    expect(h.ports.navigateToWorkspace).toHaveBeenCalledWith(tabs.filter((id) => id !== "b"));
+    expect(h.ports.openDocumentInWorkspace).not.toHaveBeenCalled();
+    expect(h.ports.saveWorkspaceState).not.toHaveBeenCalled();
+  });
+
+  it("stays in the editor when deleting the active file fails", async () => {
+    const h = harness();
+    h.ports.deleteDocument.mockResolvedValue({ ok: false, error: "disk failure" });
+    await h.remove();
+    expect(h.view).toMatchObject({ active: "b", error: true, status: "disk failure" });
+    expect(h.ports.markWorkspaceNotReady).not.toHaveBeenCalled();
+    expect(h.ports.navigateToWorkspace).not.toHaveBeenCalled();
   });
 
   it("persists tabs for an inactive deletion without replacing or saving the active document", async () => {
