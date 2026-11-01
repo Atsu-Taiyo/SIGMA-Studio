@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { Editor } from "@tiptap/core";
+import { Plugin } from "@tiptap/pm/state";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { textFlowToTiptap, tiptapToTextFlow } from "@/components/editor/text-flow/tiptap-document-adapter";
@@ -82,6 +83,17 @@ describe("Enter after a paragraph widened for math", () => {
   it("does not touch splits that are not a user Enter", () => {
     const target = mount([mathParagraph]);
     target.commands.setTextSelection(target.state.doc.firstChild!.nodeSize - 1);
+    target.commands.splitBlock();
+    expect(lineHeights(target, [mathParagraph])).toEqual(["3", "3"]);
+  });
+
+  it("does not treat a later programmatic split as an Enter consumed without a document change", async () => {
+    const target = mount([mathParagraph]);
+    target.commands.setTextSelection(target.state.doc.firstChild!.nodeSize - 1);
+    target.registerPlugin(new Plugin({ props: { handleKeyDown: () => true } }), (plugin, plugins) => [plugin, ...plugins]);
+    pressEnter(target);
+    expect(target.state.doc.childCount).toBe(1);
+    await Promise.resolve();
     target.commands.splitBlock();
     expect(lineHeights(target, [mathParagraph])).toEqual(["3", "3"]);
   });

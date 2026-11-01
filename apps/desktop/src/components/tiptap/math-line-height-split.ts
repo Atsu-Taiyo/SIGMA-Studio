@@ -27,6 +27,9 @@ export const MathLineHeightSplitExtension = Extension.create({
           handleDOMEvents: {
             keydown: (_view, event) => {
               enterPending = event.key === "Enter" && !event.isComposing;
+              // A menu or another key handler may consume Enter without a
+              // transaction. Its marker must not reach a later edit or sync.
+              queueMicrotask(() => { enterPending = false; });
               return false;
             },
           },
