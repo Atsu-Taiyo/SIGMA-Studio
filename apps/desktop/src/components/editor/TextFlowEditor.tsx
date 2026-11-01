@@ -85,7 +85,7 @@ import  {
 } from "@/components/tiptap/edit-guard-extension";
 import { ExternalTextRangeHighlightExtension, getPlainTextBlockLength, getTextRangeForBlock } from "@/components/tiptap/external-text-range-highlight-extension";
 import { registerAtomPointerSelectionStarter } from "@/components/tiptap/atom-pointer-selection";
-import { requestInlineMathEdit, sliceTextForClipboard } from "@/components/tiptap/inline-math-extension";
+import { requestInlineMathEdit } from "@/components/tiptap/inline-math-extension";
 // `refreshPageBreakGaps` (個別 dispatch) は使わない: 装飾の更新は 1 本の transaction に
 // まとめてあるので、meta キー (`paginationGapKey`) だけを取る。
 import { DEFAULT_FONT_FAMILY_VALUE } from "@/components/editor/editor-shell/constants";
@@ -182,7 +182,6 @@ import  {
   getLocalEditorClipboardPayload,
   readEditorClipboardPayload,
   writeEditorPayloadToSystemClipboard,
-  writeTextSliceClipboardData,
 } from "@/lib/editor-clipboard";
 import { useAppLocale, useT } from "@/lib/i18n/react";
 import { createId } from "@/lib/id";
@@ -209,6 +208,7 @@ import {
   pasteTextAndShapesFromClipboard,
   pasteTextFlowBlocksFromClipboard,
   TextFlowClipboardSession,
+  writeTextFlowSelectionSliceClipboard,
 } from "./text-flow/clipboard-transactions";
 import {
   deleteManualBreakSpanningSelection,
@@ -3164,8 +3164,7 @@ function TextFlowEditorImpl({
         if (!editor || editor.state.selection.empty || !event.clipboardData) {
           return;
         }
-        const slice = editor.state.selection.content();
-        writeTextSliceClipboardData(event.clipboardData, slice.toJSON(), sliceTextForClipboard(slice));
+        writeTextFlowSelectionSliceClipboard(editor.view, event.clipboardData);
       }}
       onMouseDownCapture={(event) => {
         if (event.button === 0 && getClosestBoxActionButton(event.target)) {
