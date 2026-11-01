@@ -35,7 +35,7 @@
     "@fontsource/noto-sans-symbols": "^5.3.0",
     "@fontsource/noto-serif-jp": "^5.3.1",
     "@fontsource/stix-two-math": "^5.3.0",
-    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@napi-rs/canvas": "^1.0.12",
     "@tiptap/core": "^3.32.0",
     "@tiptap/extension-placeholder": "^3.32.0",
