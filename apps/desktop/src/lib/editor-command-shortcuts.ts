@@ -229,6 +229,8 @@ export const EDITOR_COMMAND_SHORTCUTS: readonly EditorCommandShortcutDefinition[
   { id: "format.lineHeight.1.5", categoryId: "paragraphFormat", defaultBinding: null },
   { id: "format.lineHeight.1.75", categoryId: "paragraphFormat", defaultBinding: null },
   { id: "format.lineHeight.2", categoryId: "paragraphFormat", defaultBinding: null },
+  { id: "format.lineHeight.2.5", categoryId: "paragraphFormat", defaultBinding: null },
+  { id: "format.lineHeight.3", categoryId: "paragraphFormat", defaultBinding: null },
   { id: "format.font.default", categoryId: "font", defaultBinding: null },
   { id: "format.font.mPlus1p", categoryId: "font", defaultBinding: null },
   { id: "format.font.hiraginoSans", categoryId: "font", defaultBinding: null },

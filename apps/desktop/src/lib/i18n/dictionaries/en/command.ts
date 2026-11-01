@@ -143,6 +143,8 @@ export const command = {
     "format.lineHeight.1.5": "Line spacing: 1.5 lines",
     "format.lineHeight.1.75": "Line spacing: 1.75 lines",
     "format.lineHeight.2": "Line spacing: 2 lines",
+    "format.lineHeight.2.5": "Line spacing: 2.5 lines",
+    "format.lineHeight.3": "Line spacing: 3 lines",
     "format.font.default": "Clear the font override",
     "format.font.mPlus1p": "Font: M PLUS 1p",
     "format.font.hiraginoSans": "Font: Hiragino Sans",

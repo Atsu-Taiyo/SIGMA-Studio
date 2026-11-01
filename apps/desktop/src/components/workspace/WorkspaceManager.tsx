@@ -8,10 +8,11 @@ import {
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
+  PenLine,
   RefreshCw,
   UserRoundPlus,
 } from "lucide-react";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
 
 import { SigmaMark } from "@/components/branding/SigmaMark";
@@ -85,6 +86,7 @@ import { WorkspaceItemGrid } from "./WorkspaceItemGrid";
 import { setWorkspacePreviewLoadsPaused } from "./WorkspaceFileCardPreview";
 import { WorkspaceItemList } from "./WorkspaceItemList";
 import { canDeleteWorkspaceItem, canMutateWorkspaceItem } from "./workspace-sharing-permissions";
+import { editorOpenFileIdsSnapshot, readEditorOpenFileIds, rememberWorkspaceReturnLocation } from "@/lib/workspace-return-location";
 import type { WorkspaceInlineRenameTarget } from "./use-inline-rename";
 import { WorkspaceSharingDialog } from "./WorkspaceSharingDialog";
 import { SHARED_ITEMS_WORKSPACE_ID, type LibrarySharingTarget } from "@/lib/runtime/shared-catalog";
@@ -135,6 +137,9 @@ function listWorkspaceOverviewWithTimeout(
   });
 }
 
+const subscribeNever = () => () => {};
+const serverEditorTabsRecord = () => null;
+
 export function WorkspaceManager() {
   const t = useT("workspace");
   const tc = useT("chrome");
@@ -176,6 +181,11 @@ export function WorkspaceManager() {
   const [pendingDeleteConfirmation, setPendingDeleteConfirmation] = useState<PendingDeleteConfirmation | null>(null);
   const [pendingDeleteSaving, setPendingDeleteSaving] = useState(false);
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
+  // This window's editor tabs. Empty when the editor has never been opened here
+  // or its last tab was closed, so there is nothing to go back to.
+  // Only the editor page writes it, so it never changes while this page is shown.
+  const editorTabsRecord = useSyncExternalStore(subscribeNever, editorOpenFileIdsSnapshot, serverEditorTabsRecord);
+  const editorOpenFileIds = useMemo<ReadonlySet<string>>(() => new Set(readEditorOpenFileIds(editorTabsRecord) ?? []), [editorTabsRecord]);
 
   useEffect(() => {
     const file = getDesktopBridge()?.file;
@@ -424,6 +434,7 @@ export function WorkspaceManager() {
     if (selectedFolder) url.searchParams.set("folderId", selectedFolder.id);
     else url.searchParams.delete("folderId");
     window.history.replaceState(window.history.state, "", url);
+    rememberWorkspaceReturnLocation({ workspaceId: activeWorkspaceId, folderId: selectedFolder?.id ?? null });
   }, [activeWorkspaceId, selectedFolder, status]);
   const renameItem = (target: WorkspaceInlineRenameTarget) => target.type === "workspace"
     ? visibleWorkspaces.find((item) => item.id === target.id)
@@ -1342,6 +1353,16 @@ export function WorkspaceManager() {
             <LayoutTemplate size={15} />
             <span>{t("action.templatesShort")}</span>
           </button>
+          {editorOpenFileIds.size > 0 && (
+            <button
+              type="button"
+              className="workspace-template-button"
+              onClick={() => navigateToAppRoute("/")}
+            >
+              <PenLine size={15} />
+              <span>{t("action.backToEditor")}</span>
+            </button>
+          )}
           {(overviewLoadFailed || overview?.catalog?.state === "offline" || overview?.catalog?.state === "error") && (
             <button
               type="button"
@@ -1550,6 +1571,7 @@ export function WorkspaceManager() {
                 onCancelRename={inlineRename.cancel}
                 bookmarkedKeys={bookmarkedKeys}
                 onToggleBookmark={toggleBookmark}
+                openInEditorFileIds={editorOpenFileIds}
               />
             ) : (
               <WorkspaceItemList
@@ -1592,6 +1614,7 @@ export function WorkspaceManager() {
                 onCancelRename={inlineRename.cancel}
                 bookmarkedKeys={bookmarkedKeys}
                 onToggleBookmark={toggleBookmark}
+                openInEditorFileIds={editorOpenFileIds}
               />
             )}
             {searchActive && searchResult && hiddenSearchResults > 0 && (

@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, Folder, FileText } from "lucide-react";
 import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
 import { WorkspaceSharedBadge } from "./WorkspaceSharedBadge";
+import { WorkspaceOpenInEditorBadge } from "./WorkspaceOpenInEditorBadge";
 import { WorkspaceBookmarkButton } from "./WorkspaceBookmarkButton";
 import { WorkspaceItemMenuButton } from "./WorkspaceItemMenuButton";
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
@@ -69,6 +70,8 @@ interface WorkspaceItemListProps {
   /** `file:<id>` / `folder:<id>` of every bookmarked item. */
   bookmarkedKeys: ReadonlySet<string>;
   onToggleBookmark: (kind: "file" | "folder", id: string) => void;
+  /** Materials open in this window's editor tabs. */
+  openInEditorFileIds?: ReadonlySet<string>;
 }
 
 function nextSort(
@@ -130,6 +133,7 @@ export function WorkspaceItemList({
   onCancelRename,
   bookmarkedKeys,
   onToggleBookmark,
+  openInEditorFileIds,
 }: WorkspaceItemListProps) {
   const t = useT("workspace");
   const locale = useAppLocale();
@@ -257,6 +261,7 @@ export function WorkspaceItemList({
                           </span>
                         )}
                         {(row.kind === "file" ? row.file.sharing : row.folder.sharing) && <WorkspaceSharedBadge />}
+                        {row.kind === "file" && openInEditorFileIds?.has(row.file.fileId) && <WorkspaceOpenInEditorBadge />}
                       </span>
                       {row.kind === "file" && row.excerpt && !editing && <WorkspaceSearchExcerpt excerpt={row.excerpt} />}
                     </td>
