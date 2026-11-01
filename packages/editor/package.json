@@ -53,7 +53,7 @@
   },
   "dependencies": {
     "@sigma-studio/viewer": "0.531.0",
-    "zustand": "^5.0.15"
+    "zustand": "^5.0.16"
   },
   "peerDependencies": {
     "react": ">=18.2.0 <20",
