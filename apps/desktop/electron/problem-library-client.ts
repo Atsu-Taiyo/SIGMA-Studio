@@ -57,6 +57,23 @@ function functionBase(authUrl: string): URL | null {
 
 type Outcome<T> = { ok: true; data: T } | { ok: false; failure: Failure };
 
+/** JSON escapes must not hide a credential in a value or an object key. */
+function containsCredential(value: unknown, token: string): boolean {
+  const pending: unknown[] = [value];
+  while (pending.length) {
+    const current = pending.pop();
+    if (typeof current === "string") {
+      if (current.includes(token)) return true;
+    } else if (current !== null && typeof current === "object") {
+      for (const [key, child] of Object.entries(current)) {
+        if (key.includes(token)) return true;
+        pending.push(child);
+      }
+    }
+  }
+  return false;
+}
+
 async function readBounded(response: Response, maxBytes: number): Promise<Uint8Array | null> {
   const declared = Number(response.headers.get("content-length") ?? "");
   if (Number.isFinite(declared) && declared > maxBytes) {
@@ -86,7 +103,7 @@ async function readBounded(response: Response, maxBytes: number): Promise<Uint8A
 
 /**
  * One call to a fixed route. `route` is built only from validated values in this file. JSON bodies
- * are checked for the bearer token before parsing, so a misbehaving server cannot hand it to the renderer.
+ * are checked for the bearer token before and after decoding, so encoded values cannot hand it to the renderer.
  */
 async function call(
   connection: ProblemLibraryConnection | null | undefined,
@@ -135,7 +152,11 @@ async function call(
     if (expect === "bytes") return { ok: true, data: bytes };
     const text = Buffer.from(bytes).toString("utf8");
     if (text.includes(token)) return { ok: false, failure: "unsafeResponse" };
-    try { return { ok: true, data: JSON.parse(text) as unknown }; }
+    try {
+      const data: unknown = JSON.parse(text);
+      if (containsCredential(data, token)) return { ok: false, failure: "unsafeResponse" };
+      return { ok: true, data };
+    }
     catch { return { ok: false, failure: "invalidResponse" }; }
   } catch {
     return { ok: false, failure: "connectionFailed" };

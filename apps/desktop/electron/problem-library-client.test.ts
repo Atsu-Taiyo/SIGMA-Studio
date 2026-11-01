@@ -37,6 +37,42 @@ function memoryFontStore(existing: string[] = []) {
 }
 const json = (body: unknown, init?: ResponseInit) => Response.json(body, init);
 
+describe("decoded library response credentials", () => {
+  const encoded = (body: unknown) => new Response(
+    JSON.stringify(body).replaceAll(TOKEN, Array.from(TOKEN, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`).join("")),
+    { headers: { "content-type": "application/json" } },
+  );
+  const unsafe = { ok: false, error: "問題ライブラリの応答を安全に処理できませんでした。" };
+
+  it("keeps an encoded credential out of the access label", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(encoded({ available: true, label: TOKEN }));
+    expect(await fetchLibraryAccess(connection, fetcher)).toEqual({ available: false });
+  });
+  it.each([
+    { ...searchBody, results: [{ ...problem(), title: TOKEN }] },
+    { ...searchBody, results: [{ ...problem(), preview: [{ type: "paragraph", id: "p1", children: [{ type: "text", text: TOKEN }] }] }] },
+    { ...searchBody, facetCounts: { [`db|単元|${TOKEN}`]: 1 } },
+  ])("rejects an encoded credential in a search value or dictionary key", async body => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(encoded(body));
+    expect(await fetchLibrarySearch({}, connection, fetcher)).toEqual(unsafe);
+  });
+  it("rejects an encoded credential in facets", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(encoded({ facets: [{
+      key: "db|単元|微分", group: "db", type: "単元", label: TOKEN, count: 1, hasChildren: false,
+    }] }));
+    expect(await fetchLibraryFacets({ parent: null }, connection, fetcher)).toEqual(unsafe);
+  });
+  it("rejects an encoded credential in a document before touching fonts", async () => {
+    const document = documentWithFonts();
+    document.metadata.title = TOKEN;
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(encoded(document));
+    const { store } = memoryFontStore();
+    expect(await fetchLibraryProblem({ id: ID }, connection, store, fetcher)).toEqual(unsafe);
+    expect(store.ensure).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+});
+
 describe("library access", () => {
   it("asks the fixed route with the user's bearer token and returns the server's label", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json({ available: true, label: "Partner Library" }));
