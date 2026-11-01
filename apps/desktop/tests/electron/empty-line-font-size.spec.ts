@@ -85,12 +85,30 @@ for (const fontSize of [10, 18]) {
         type: "paragraph", children: [{ type: "text", text: "continued", fontSize }],
       });
       const saved = (await read())!;
+      const blankId = saved.content[1].id;
+      const blank = page.locator(`.page-flow [data-sigma-doc-id="${blankId}"]`).first();
+      const blankGeometry = () => blank.evaluate(el => ({ height: el.getBoundingClientRect().height, size: getComputedStyle(el).fontSize }));
+      const geometry = await blankGeometry();
+      expect(parseFloat(geometry.size) * 3 / 4).toBeCloseTo(fontSize, 2);
+      await body.click();
+      expect(await blankGeometry()).toEqual(geometry);
       expect(saved.content[0]).toEqual(source.content[0]);
-      expect(saved.content[1]).toMatchObject({ type: "paragraph", children: [] });
+      expect(saved.content[1]).toMatchObject({ type: "paragraph", children: [{ type: "text", text: "", fontSize }] });
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(page.locator(".startup-splash")).toBeHidden();
       await expect(page.locator(`.page-flow [data-sigma-doc-id="${saved.content.at(-1)!.id}"]`).first()).toHaveText("continued");
       expect((await read())!.content).toEqual(saved.content);
+      expect(await blankGeometry()).toEqual(geometry);
+      await page.getByRole("button", { name: "ファイル", exact: true }).click();
+      await page.getByRole("menuitem", { name: "エクスポート" }).hover();
+      await page.getByRole("menuitem", { name: "PDFを書き出し" }).click();
+      const preview = page.getByRole("dialog", { name: "PDFプレビュー" });
+      await expect(preview.locator('.paged-surface[data-paged-surface-state="ready"]')).toBeVisible();
+      const outputBlank = preview.locator(`[data-sigma-doc-id="${blankId}"]`).first();
+      await expect(outputBlank).toBeVisible();
+      const outputGeometry = await outputBlank.evaluate(el => ({ height: el.getBoundingClientRect().height, size: getComputedStyle(el).fontSize }));
+      expect(outputGeometry.size).toBe(geometry.size);
+      expect(outputGeometry.height).toBeCloseTo(geometry.height, 1);
     } finally {
       try { await app.close(); }
       finally { await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }

@@ -35,6 +35,9 @@ function blockTypography(node: ProseMirrorNode): BlockTypography {
       fontSizePt: parseCssFontSizeToPt(child.marks.find((mark) => mark.type.name === "styledText")?.attrs.fontSize),
     });
   });
+  if (node.content.size === 0 && node.attrs.emptyTextStyle?.fontSize) {
+    runs.push({ from: 1, to: 1, hasContent: true, fontSizePt: parseCssFontSizeToPt(node.attrs.emptyTextStyle.fontSize) });
+  }
   const typography = {
     style: cssTextFromDeclarations(textBlockTypographyVars(resolveTextBlockTypography(runs))),
     inheritedRuns: runs.filter((run) => run.fontSizePt === undefined),
@@ -76,27 +79,7 @@ export function createTextBlockTypographyPlugin(): Plugin<DecorationSet> {
         : previous,
     },
     props: {
-      decorations: (state) => {
-        const decorations = typographyPluginKey.getState(state) ?? DecorationSet.empty;
-        const { $from, empty } = state.selection;
-        const node = $from.parent;
-        if (!empty || node.content.size !== 0 || !["paragraph", "heading"].includes(node.type.name)) {
-          return decorations;
-        }
-
-        // An empty line has no inline runs yet. Enter keeps the insertion marks, so use the
-        // pending size for its baseline too. Read it on selection/stored-mark changes without
-        // walking the document or writing derived paragraph attributes into SigmaDoc.
-        const marks = state.storedMarks ?? $from.marks();
-        const fontSizePt = parseCssFontSizeToPt(marks.find(mark => mark.type.name === "styledText")?.attrs.fontSize);
-        if (fontSizePt === undefined) return decorations;
-        const style = cssTextFromDeclarations(textBlockTypographyVars({
-          minimumFontSizePt: fontSizePt,
-          hasInheritedFontSize: false,
-        }))!;
-        const pos = $from.before();
-        return decorations.add(state.doc, [Decoration.node(pos, pos + node.nodeSize, { style })]);
-      },
+      decorations: (state) => typographyPluginKey.getState(state) ?? DecorationSet.empty,
     },
   });
 }

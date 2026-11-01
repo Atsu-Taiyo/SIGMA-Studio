@@ -210,6 +210,9 @@ jobs:
               tests/electron/problem-display.spec.ts tests/electron/problem-lead-line.spec.ts \
               tests/electron/problem-layout.spec.ts \
               tests/electron/problem-style-inheritance.spec.ts \
+              tests/electron/empty-line-font-size.spec.ts \
+              tests/electron/math-line-height-split.spec.ts \
+              tests/electron/workspace-return-location.spec.ts \
               tests/electron/whiteboard-image-save.spec.ts \
               tests/electron/small-shape-handles.spec.ts \
               tests/electron/ai-chat-merge-recovery.spec.ts tests/electron/shared-ai-read-merge.spec.ts \

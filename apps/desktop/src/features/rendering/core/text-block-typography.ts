@@ -31,8 +31,9 @@ export function resolveTextBlockTypography(runs: Iterable<TextBlockFontRun>): Te
 }
 
 export function textBlockFontRuns(children: readonly InlineNode[]): TextBlockFontRun[] {
+  const allEmpty = children.every(node => node.type === "text" && node.text === "");
   return children.map((child) => ({
     fontSizePt: child.fontSize,
-    hasContent: child.type === "mathInline" || child.text.replace(/[\r\n]/g, "").length > 0,
+    hasContent: child.type === "mathInline" || child.text.replace(/[\r\n]/g, "").length > 0 || (allEmpty && child.fontSize !== undefined),
   }));
 }

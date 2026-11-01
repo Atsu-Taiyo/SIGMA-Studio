@@ -16,6 +16,7 @@ function styleAt(state: EditorState): TypingStyle {
 function seedTransaction(state: EditorState, remembered: TypingStyle | undefined, containerFontFamily?: () => string | undefined) {
   const { $from, empty } = state.selection;
   const type = state.schema.marks.styledText;
+  if ($from.parent.attrs.emptyTextStyle && !state.storedMarks) return null;
   if (!remembered || !type || !empty || !$from.parent.isTextblock || !$from.parent.type.allowsMarkType(type) || $from.parent.content.size > 0) return null;
   const marks = state.storedMarks ?? $from.marks();
   const current = marks.find(mark => mark.type === type);

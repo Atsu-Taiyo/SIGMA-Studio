@@ -26,10 +26,10 @@ describe("text block typography projection", () => {
     expect(empty.style.getPropertyValue("--sigma-doc-text-line-font-size")).toBe(`${fontSize}pt`);
     const before = editor.getJSON();
     editor.commands.setFontSize(7.5);
-    expect(empty.style.getPropertyValue("--sigma-doc-text-line-font-size")).toBe("7.5pt");
-    expect(editor.getJSON()).toEqual(before);
+    expect((editor.view.dom.querySelector("p:last-child") as HTMLElement).style.getPropertyValue("--sigma-doc-text-line-font-size")).toBe("7.5pt");
+    expect(editor.getJSON()).not.toEqual(before);
     editor.commands.unsetFontSize();
-    expect(empty.style.getPropertyValue("--sigma-doc-text-line-font-size")).toBe("");
+    expect((editor.view.dom.querySelector("p:last-child") as HTMLElement).style.getPropertyValue("--sigma-doc-text-line-font-size")).toBe("");
   });
 
   it("does not apply the caret's pending size to existing text or a range selection", () => {
@@ -43,7 +43,7 @@ describe("text block typography projection", () => {
     const empty = editor.view.dom.querySelector("p:last-child") as HTMLElement;
     expect(empty.style.getPropertyValue("--sigma-doc-text-line-font-size")).toBe("10pt");
     editor.commands.setTextSelection({ from: 1, to: 5 });
-    expect(empty.style.getPropertyValue("--sigma-doc-text-line-font-size")).toBe("");
+    expect(empty.style.getPropertyValue("--sigma-doc-text-line-font-size")).toBe("10pt");
     editor.commands.setTextSelection(2);
     editor.commands.setFontSize(18);
     expect(editor.view.dom.querySelector("p:first-child")?.getAttribute("style") ?? "").not.toContain("18pt");

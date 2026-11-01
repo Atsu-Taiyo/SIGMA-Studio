@@ -59,6 +59,7 @@ export function createRichFragment(
   const fragment = new Y.XmlFragment();
   const text = new Y.XmlText();
   fragment.insert(0, [text]);
+  if (nodes.length && nodes.every(node => node.type === "text" && node.text === "")) text.setAttribute("sigmaEmptyText", structuredClone(nodes));
   let offset = 0;
   // Yjs assigns character clocks inside a string insert. Creating one deferred
   // insert per character before integration makes large initial documents quadratic.
@@ -79,7 +80,10 @@ export function createRichFragment(
 
 export function readRichFragment(fragment: Y.XmlFragment): ObjectValue[] {
   const result: ObjectValue[] = [];
-  for (const part of richText(fragment).toDelta()) {
+  const text = richText(fragment);
+  const empty = text.getAttribute("sigmaEmptyText");
+  if (text.length === 0 && Array.isArray(empty) && empty.every(node => isObject(node) && node.type === "text" && node.text === "")) return structuredClone(empty);
+  for (const part of text.toDelta()) {
     if (typeof part.insert === "string") {
       if (part.insert)
         result.push({ type: "text", text: part.insert, ...part.attributes });
@@ -110,6 +114,9 @@ export function patchRichFragment(
   nodes: readonly ObjectValue[],
 ): void {
   const text = richText(fragment);
+  if (nodes.length && nodes.every(node => node.type === "text" && node.text === "")) {
+    if (!sameValue(text.getAttribute("sigmaEmptyText"), nodes)) text.setAttribute("sigmaEmptyText", structuredClone(nodes));
+  } else if (text.getAttribute("sigmaEmptyText") !== undefined) text.removeAttribute("sigmaEmptyText");
   const before = tokens(readRichFragment(fragment));
   const after = tokens(nodes);
   const offsets = [0];

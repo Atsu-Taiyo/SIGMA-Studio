@@ -39,9 +39,31 @@ export interface TiptapDoc extends TiptapNode {
   content: TiptapNode[];
 }
 
+/** PM cannot store an empty text node; carry its existing SigmaDoc run on the parent view. */
+export function emptyTextStyleAttrs(children: readonly InlineNode[]): Record<string, unknown> {
+  if (!children.length || children.some(node => node.type !== "text" || node.text !== "")) return {};
+  const run = children.find(node => node.type === "text" && (node.fontSize || node.fontFamily));
+  return run?.type === "text" ? { emptyTextStyle: {
+    ...(run.fontSize ? { fontSize: run.fontSize } : {}),
+    ...(run.fontFamily ? { fontFamily: run.fontFamily } : {}),
+  } } : {};
+}
+
+export function tiptapTextBlockChildren(node: TiptapNode | undefined): InlineNode[] {
+  const children = tiptapNodesToInlineNodes(node?.content ?? []);
+  if (children.length) return children;
+  const style = node?.attrs?.emptyTextStyle;
+  if (!style || typeof style !== "object") return children;
+  const attrs = style as Record<string, unknown>;
+  const fontSize = typeof attrs.fontSize === "number" ? normalizeFontSize(attrs.fontSize) : undefined;
+  const fontFamily = typeof attrs.fontFamily === "string" ? resolveDocumentFontFamily(attrs.fontFamily) : undefined;
+  return fontSize || fontFamily ? [{ type: "text", text: "", ...(fontSize ? { fontSize } : {}), ...(fontFamily ? { fontFamily } : {}) }] : children;
+}
+
 export function toTiptap(block: ParagraphNode | HeadingNode): TiptapDoc {
   const nodeType = block.type === "heading" ? "heading" : "paragraph";
   const attrs = {
+    ...emptyTextStyleAttrs(block.children),
     ...(block.type === "heading" ? { level: block.level } : {}),
     ...(block.align ? { textAlign: block.align } : {}),
     ...(block.lineHeight ? { lineHeight: block.lineHeight } : {}),
@@ -64,7 +86,7 @@ export function fromTiptap(
   previous: ParagraphNode | HeadingNode,
 ): ParagraphNode | HeadingNode {
   const firstBlock = doc.content?.[0];
-  const children = tiptapNodesToInlineNodes(firstBlock?.content ?? []);
+  const children = tiptapTextBlockChildren(firstBlock);
 
   if (previous.type === "heading") {
     const level = Number(firstBlock?.attrs?.level ?? previous.level);
@@ -96,6 +118,7 @@ export function inlineNodesToTiptapDoc(
       {
         type: "paragraph",
         attrs: {
+          ...emptyTextStyleAttrs(children),
           ...(align ? { textAlign: align } : {}),
           ...(lineHeight ? { lineHeight } : {}),
         },
@@ -124,7 +147,7 @@ function normalizeTextAlign(value: unknown): TextAlign | undefined {
 }
 
 export function tiptapDocToInlineNodes(doc: TiptapDoc): InlineNode[] {
-  return tiptapNodesToInlineNodes(doc.content?.[0]?.content ?? []);
+  return tiptapTextBlockChildren(doc.content?.[0]);
 }
 
 export function inlineNodesToTiptapNodes(children: InlineNode[]): TiptapNode[] {

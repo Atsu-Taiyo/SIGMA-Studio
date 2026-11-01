@@ -31,6 +31,8 @@ import {
 } from "@/features/document";
 import {
   inlineNodesToTiptapNodes,
+  emptyTextStyleAttrs,
+  tiptapTextBlockChildren,
   tiptapNodesToInlineNodes,
   type TiptapDoc,
   type TiptapNode,
@@ -260,6 +262,7 @@ export function textFlowBlockToTiptapNode(block: TextFlowBlock): TiptapNode {
         pagination: paginationAttr(block),
         spaceAfterPx: spaceAfterAttr(block),
         ...cappedEditorLayoutAttrs(capped),
+        ...emptyTextStyleAttrs(capped.children),
       },
       content: capped.children.length > 0 ? inlineNodesToTiptapNodes([...capped.children]) : undefined,
     };
@@ -278,6 +281,7 @@ export function textFlowBlockToTiptapNode(block: TextFlowBlock): TiptapNode {
         pagination: paginationAttr(block),
         spaceAfterPx: spaceAfterAttr(block),
         ...cappedEditorLayoutAttrs(capped),
+        ...emptyTextStyleAttrs(capped.children),
       },
       content: inlineNodesToTiptapNodes([...capped.children]),
     };
@@ -328,6 +332,7 @@ export function textFlowBlockToTiptapNode(block: TextFlowBlock): TiptapNode {
         language: normalizeCodeLanguage(block.language) ?? null,
         theme: normalizeCodeBlockTheme(block.theme) ?? "light",
         ...cappedEditorLayoutAttrs(capped),
+        ...emptyTextStyleAttrs(capped.children),
       },
       content: inlineNodesToTiptapNodes([...capped.children]),
     };
@@ -345,6 +350,7 @@ export function textFlowBlockToTiptapNode(block: TextFlowBlock): TiptapNode {
       textAlign: block.align ?? null,
       lineHeight: block.lineHeight ?? null,
       ...cappedEditorLayoutAttrs(capped),
+        ...emptyTextStyleAttrs(capped.children),
     },
     content: inlineNodesToTiptapNodes([...capped.children]),
   };
@@ -474,6 +480,7 @@ function listItemNodeToTiptapNode(item: ListItemNode): TiptapNode {
         attrs: {
           sigmaDocId: item.id,
           sigmaDocType: "listItem",
+          ...emptyTextStyleAttrs(item.children),
           ...(item.align ? { textAlign: item.align } : {}),
           ...(item.spaceAfterPx ? { listItemSpaceAfterPx: item.spaceAfterPx } : {}),
         },
@@ -731,7 +738,7 @@ function tiptapNodeToTextBlock(node: TiptapNode): TextFlowBlock {
 
   const previousType = node.attrs?.sigmaDocType;
   const id = typeof node.attrs?.sigmaDocId === "string" ? node.attrs.sigmaDocId : createId("text");
-  const children = tiptapNodesToInlineNodes(node.content ?? []);
+  const children = tiptapTextBlockChildren(node);
 
   const pagination = paginationFromAttrs(node);
   const spaceAfterPx = spaceAfterFromAttrs(node);
@@ -919,7 +926,7 @@ function tiptapListItemNodeToSigmaNode(node: TiptapNode): ListItemNode {
     child.type === "paragraph" || child.type === "heading"
   ));
   const firstBody = firstTextBlock >= 0 ? bodyBlocks[firstTextBlock] : undefined;
-  const children = tiptapNodesToInlineNodes(firstBody?.content ?? []).filter(isNonEmptyInlineNode);
+  const children = tiptapTextBlockChildren(firstBody).filter(node => isNonEmptyInlineNode(node) || (node.type === "text" && (node.fontSize !== undefined || node.fontFamily !== undefined)));
   const align = normalizeTextAlign(firstBody?.attrs?.textAlign);
   const spaceAfterPx = normalizeBlockSpaceAfterPx(firstBody?.attrs?.listItemSpaceAfterPx);
   const continuations = bodyBlocks
