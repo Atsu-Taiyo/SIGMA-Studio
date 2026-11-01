@@ -135,7 +135,6 @@ function OpenDocumentLibraryDialog({
                       label={t("action.deleteShort")}
                       tone="danger"
                       size="sm"
-                      disabled={documents.length <= 1}
                       onClick={() => setDeleteTargetId(metadata.fileId)}
                     >
                       <Trash2 size={15} aria-hidden="true" />

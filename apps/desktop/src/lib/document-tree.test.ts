@@ -34,6 +34,7 @@ import { createGraphShapeProps } from "@/components/editor/overlay-canvas/shapes
 import { ensurePageLayout } from "@/lib/page-layout";
 import { getDefaultPageLayout, type OverlayShape, type OverlayTableShape, type OverlayTextShape } from "@/features/document";
 import { getLayoutSectionColumns } from "@/features/text-editing";
+import { getProblemNumberMap } from "@/lib/problem-numbering";
 import type { ListNode, SigmaDocument, ParagraphNode, ProblemNode } from "@/types/sigma-doc";
 
 const paragraph = (id: string, text: string): ParagraphNode => ({
@@ -77,6 +78,26 @@ const problem = (id: string): ProblemNode => ({
 });
 
 describe("document tree", () => {
+  it("reuses the preceding style for a newly created problem and continues its number", () => {
+    const previous = { ...problem("previous"), numbering: { value: 137, fontFamily: "serif", widthPx: 20 }, frame: { enabled: true } };
+    const document = { ...baseDocument, content: [previous, paragraph("empty", ""), problem("later")] };
+    const inserted = problem("inserted");
+    const next = insertBlockAtSelection(document, inserted, "empty", { replaceEmpty: true, inheritProblemStyle: true });
+    expect(next.content.map(b => b.id)).toEqual(["previous", "inserted", "later"]);
+    expect(findBlock(next, "inserted")).toMatchObject({ numbering: { fontFamily: "serif", widthPx: 20 }, frame: { enabled: true } });
+    expect(getProblemNumberMap(next.content).get("inserted")).toBe(138);
+    expect(inserted.numbering).toBeUndefined();
+    const explicit = { ...problem("explicit"), numbering: { enabled: false } };
+    expect(findBlock(insertBlockAtSelection(document, explicit, "empty"), explicit.id)).toBe(explicit);
+  });
+
+  it("inherits the preceding nested problem when adding in the same box", () => {
+    const previous = { ...problem("previous"), numbering: { enabled: false }, areaLayout: { prompt: { minHeightMm: 42 } } };
+    const document: SigmaDocument = { ...baseDocument, content: [{ type: "boxBlock", id: "box", styleId: "plain", blocks: [previous, paragraph("empty", "")] }] };
+    const next = insertBlockAtSelection(document, problem("inserted"), "empty", { replaceEmpty: true, inheritProblemStyle: true });
+    expect(findBlock(next, "inserted")).toMatchObject({ numbering: { enabled: false }, areaLayout: { prompt: { minHeightMm: 42 } } });
+  });
+
   it("inserts a rich block after the selected block inside a problem area", () => {
     const inserted = createParagraph("inserted");
     const next = insertRichBlockNearSelection(baseDocument, "prompt_1", inserted);

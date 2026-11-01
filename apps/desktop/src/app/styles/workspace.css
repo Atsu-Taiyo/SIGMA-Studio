@@ -3125,6 +3125,18 @@ nav.app-menu-list[inert] *,
   color: var(--text-muted, #777);
 }
 
+.workspace-open-in-editor-badge {
+  flex: 0 0 auto;
+  margin-inline-start: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
 .workspace-file-card-title {
   display: flex;
   align-items: center;

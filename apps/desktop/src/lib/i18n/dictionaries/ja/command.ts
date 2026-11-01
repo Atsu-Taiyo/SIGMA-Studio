@@ -150,6 +150,8 @@ export const command = {
     "format.lineHeight.1.5": "行間: 1.5行",
     "format.lineHeight.1.75": "行間: 1.75行",
     "format.lineHeight.2": "行間: 2行",
+    "format.lineHeight.2.5": "行間: 2.5行",
+    "format.lineHeight.3": "行間: 3行",
     "format.font.default": "フォント指定を解除",
     "format.font.mPlus1p": "フォント: M PLUS 1p",
     "format.font.hiraginoSans": "フォント: ヒラギノ角ゴ",

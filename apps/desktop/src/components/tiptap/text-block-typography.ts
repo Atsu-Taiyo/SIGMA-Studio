@@ -35,6 +35,9 @@ function blockTypography(node: ProseMirrorNode): BlockTypography {
       fontSizePt: parseCssFontSizeToPt(child.marks.find((mark) => mark.type.name === "styledText")?.attrs.fontSize),
     });
   });
+  if (node.content.size === 0 && node.attrs.emptyTextStyle?.fontSize) {
+    runs.push({ from: 1, to: 1, hasContent: true, fontSizePt: parseCssFontSizeToPt(node.attrs.emptyTextStyle.fontSize) });
+  }
   const typography = {
     style: cssTextFromDeclarations(textBlockTypographyVars(resolveTextBlockTypography(runs))),
     inheritedRuns: runs.filter((run) => run.fontSizePt === undefined),

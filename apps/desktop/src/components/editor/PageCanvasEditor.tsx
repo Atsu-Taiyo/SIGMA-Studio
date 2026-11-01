@@ -53,6 +53,7 @@ import {
   type PageOverlay,
   type ProblemAreaKind,
   type ProblemNode,
+  findPreviousProblem,
 } from "@/features/document";
 import { EmbeddedDocumentFonts, PageColumnRules } from "@/features/rendering/adapters/react";
 import {
@@ -407,6 +408,7 @@ function PageCanvasEditorImpl({
   useLayoutEffect(() => {
     pageContentRef.current = pageDocument.content;
   }, [pageDocument.content]);
+  const getPreviousProblemStyle = useCallback((blockId: string) => findPreviousProblem(pageContentRef.current, blockId), []);
   const layout = pageDocument.pageLayout!;
   const isWhiteboard = isWhiteboardPageLayout(layout);
   const [textRunDocumentId] = useState(() => createId("text_run_document"));
@@ -3457,6 +3459,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                         enableSelectionFormatMenu={false}
                         enableProblemCommands
                         onProblemCommand={onProblemCommand}
+                        getPreviousProblemStyle={getPreviousProblemStyle}
                         onBodyBlockCommand={onBodyBlockCommand}
                         enableHeadingCommands
                         onHeadingCommand={onHeadingCommand}

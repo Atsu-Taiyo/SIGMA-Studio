@@ -6,6 +6,7 @@ import { ensurePageLayout,repairDuplicateTopLevelIds,type SigmaDocument } from "
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { createNewDocument,initializeDocumentWorkspace,listSavedDocuments } from "@/lib/storage";
 import { workspaceLayoutOpenFileIds,normalizeWorkspaceLayout,type WorkspaceLayoutV2 } from "@/lib/workspace-tab-groups";
+import { readEditorOpenFileIds } from "@/lib/workspace-return-location";
 import { usePersistentWorkspacePane } from "./persistent-workspace";
 import { useEffect } from "react";
 import { DOCUMENT_BLOCK_OPERATION_PORTS } from "./document-operation-ports";
@@ -76,9 +77,14 @@ export function useWorkspaceInitialization({ isEmbedded, workspaceReloadNonce, l
           const metadata = await listSavedDocuments();
           if (cancelled) return;
           const requestedFileId = getRequestedFileId();
+          // This window closed every editor tab (deleted its last open material).
+          // Storage still names a fallback tab; start from the requested material only.
+          const savedState = readEditorOpenFileIds()?.length === 0
+            ? { ...workspace.state, openFileIds: [], activeFileId: "", layout: undefined }
+            : workspace.state;
           const availableFileIds = new Set(metadata.map((item) => item.fileId));
           const layoutDocumentIds = new Set(
-            workspace.state.layout?.groups.flatMap((group) => group.tabs.flatMap((tab) => (
+            savedState.layout?.groups.flatMap((group) => group.tabs.flatMap((tab) => (
               tab.kind === "ai" ? [tab.documentFileId] : []
             ))) ?? [],
           );
@@ -96,9 +102,9 @@ export function useWorkspaceInitialization({ isEmbedded, workspaceReloadNonce, l
           }
           if (cancelled) return;
           const restoredLayout = normalizeWorkspaceLayout(
-            workspace.state.layout,
-            workspace.state.openFileIds,
-            workspace.state.activeFileId,
+            savedState.layout,
+            savedState.openFileIds,
+            savedState.activeFileId,
             availableFileIds,
             availableRoomIds,
           );
@@ -106,7 +112,7 @@ export function useWorkspaceInitialization({ isEmbedded, workspaceReloadNonce, l
           const firstLocalFileId = metadata[0]?.fileId;
           const candidateFileIds = uniqueStringIds([
             ...(requestedFileId ? [requestedFileId] : []),
-            ...(availableFileIds.has(workspace.state.activeFileId) ? [workspace.state.activeFileId] : []),
+            ...(availableFileIds.has(savedState.activeFileId) ? [savedState.activeFileId] : []),
             ...(metadata[0] ? [metadata[0].fileId] : []),
             ...(firstLocalFileId ? [firstLocalFileId] : []),
           ]);
@@ -139,7 +145,7 @@ export function useWorkspaceInitialization({ isEmbedded, workspaceReloadNonce, l
 
           if (openFailure) {
             const nextOpenFileIds = uniqueStringIds([
-              ...workspace.state.openFileIds.filter((fileId) => availableFileIds.has(fileId)),
+              ...savedState.openFileIds.filter((fileId) => availableFileIds.has(fileId)),
               openFailure.fileId,
             ]);
             await refreshDocumentMetadatas();
@@ -158,7 +164,7 @@ export function useWorkspaceInitialization({ isEmbedded, workspaceReloadNonce, l
               DOCUMENT_BLOCK_OPERATION_PORTS,
             );
             const nextOpenFileIds = uniqueStringIds([
-              ...workspace.state.openFileIds.filter((fileId) => availableFileIds.has(fileId)),
+              ...savedState.openFileIds.filter((fileId) => availableFileIds.has(fileId)),
               nextActiveFileId,
             ]);
             activateDocument(migrated, nextActiveFileId, nextOpenFileIds, activeDocument.observedRevision);

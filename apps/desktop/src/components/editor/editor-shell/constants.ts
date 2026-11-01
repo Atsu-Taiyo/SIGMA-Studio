@@ -248,6 +248,8 @@ export const SHORTCUT_LINE_HEIGHTS: Record<string, LineHeight> = {
   "format.lineHeight.1.5": "1.5",
   "format.lineHeight.1.75": "1.75",
   "format.lineHeight.2": "2",
+  "format.lineHeight.2.5": "2.5",
+  "format.lineHeight.3": "3",
 };
 export const SHORTCUT_BLOCK_STYLES: Record<string, CustomBlockStyleValue> = {
   "format.block.paragraph": "paragraph",

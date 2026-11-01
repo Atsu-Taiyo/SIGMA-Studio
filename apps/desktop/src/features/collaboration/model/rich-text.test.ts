@@ -112,3 +112,25 @@ describe("patchRichFragment", () => {
     doc.destroy();
   });
 });
+
+it("preserves an empty formatted run through encoding, remote patching and undo", () => {
+  const a = new Y.Doc(), b = new Y.Doc();
+  const nodes: ObjectValue[] = [{ type: "text", text: "", fontSize: 18, fontFamily: "monospace" }];
+  const fragment = createRichFragment(nodes);
+  a.getMap().set("body", fragment);
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+  const remote = b.getMap().get("body") as Y.XmlFragment;
+  expect(readRichFragment(remote)).toEqual(nodes);
+  const undo = new Y.UndoManager(fragment);
+  patchRichFragment(fragment, [{ ...nodes[0], fontSize: 10 }]);
+  expect(readRichFragment(fragment)).toEqual([{ ...nodes[0], fontSize: 10 }]);
+  undo.undo();
+  expect(readRichFragment(fragment)).toEqual(nodes);
+  undo.redo();
+  expect(readRichFragment(fragment)).toEqual([{ ...nodes[0], fontSize: 10 }]);
+  patchRichFragment(fragment, [{ type: "text", text: "入力", fontSize: 10 }]);
+  expect(readRichFragment(fragment)).toEqual([{ type: "text", text: "入力", fontSize: 10 }]);
+  patchRichFragment(fragment, []);
+  expect(readRichFragment(fragment)).toEqual([]);
+  a.destroy(); b.destroy();
+});

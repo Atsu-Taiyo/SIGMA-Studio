@@ -51,6 +51,9 @@ export interface CatalogNode {
   state: CatalogNodeState;
   role: MemberRole;
   capabilities: SharedCapabilities;
+  /** Server catalog timestamps; absent in older servers and persisted caches. */
+  createdAt?: string;
+  updatedAt?: string;
   titleVersion: number;
   revision: number;
 }

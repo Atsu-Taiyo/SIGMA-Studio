@@ -12,5 +12,8 @@ export function applyPreferredFontToEmptyParagraph(editor: Editor, fontFamily: s
   if (frame.inBoxTitle ? frame.titleFontFamily : frame.bodyFontFamily) return;
   // 書体を決めた問題の中では、その書体で書く。好みの書体で上書きしない。
   if (readProblemFontFamily(editor.view.dom)) return;
-  editor.commands.setFontFamily(fontFamily);
+  editor.chain().command(({ tr }) => {
+    tr.setMeta("addToHistory", false);
+    return true;
+  }).setFontFamily(fontFamily).run();
 }

@@ -1,6 +1,6 @@
 {
   "name": "sigma-studio-workspace",
-  "version": "0.531.0",
+  "version": "0.532.0",
   "private": true,
   "workspaces": [
     "apps/desktop",
@@ -64,7 +64,7 @@
     "lockfile:refresh": "npm install --package-lock-only --ignore-scripts --workspaces --include-workspace-root --no-audit --no-fund && npm run lockfile:check"
   },
   "devDependencies": {
-    "@next/eslint-plugin-next": "16.4.2",
+    "@next/eslint-plugin-next": "16.4.3",
     "typescript-compiler-api": "npm:typescript@5.9.3"
   },
   "overrides": {

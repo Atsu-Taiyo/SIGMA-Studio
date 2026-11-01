@@ -1,5 +1,5 @@
 import type { SigmaDocument } from "@/features/document";
-import type { DocumentLoadResult, DocumentMetadata, StorageResult, WorkspaceState } from "@/lib/runtime/types";
+import type { DocumentLoadResult, StorageResult, WorkspaceState } from "@/lib/runtime/types";
 
 import { isUntouchedNewDocument } from "./new-document-draft";
 
@@ -20,8 +20,6 @@ type TabMessageKey =
   | "status.deleteFailed"
   | "status.tabClosed"
   | "status.lastTabStays"
-  | "status.lastDocumentStays"
-  | "status.noDocumentToSwitchTo"
   | "status.deleted";
 
 interface DocumentTabPorts {
@@ -54,7 +52,8 @@ interface CloseDocumentTabPorts extends DocumentTabPorts {
   forgetTabView(fileId: string): void;
   cancelPendingAutosave(): void;
   markWorkspaceNotReady(): void;
-  navigateToWorkspace(): void;
+  /** Leave for the workspace screen; `openFileIds` are the editor tabs that remain. */
+  navigateToWorkspace(openFileIds: string[]): void;
   deleteAiDataForDocument(fileId: string): Promise<void>;
 }
 
@@ -106,7 +105,7 @@ export async function closeWorkspaceDocumentTab(
       if (remaining.length === 0) {
         cancelPendingAutosave();
         markWorkspaceNotReady();
-        navigateToWorkspace();
+        navigateToWorkspace([]);
       } else if (fileId === activeFileIdRef.current) {
         await openDocumentInWorkspace(remaining[0], { nextOpenFileIds: remaining, saveCurrent: false, status: tEditor("status.tabClosed") });
       } else {
@@ -139,30 +138,41 @@ export async function closeWorkspaceDocumentTab(
   });
 }
 
-/** Delete a library document, then make the open tabs and saved workspace agree. */
+interface DeleteWorkspaceDocumentPorts extends DocumentTabPorts {
+  cancelPendingAutosave(): void;
+  markWorkspaceNotReady(): void;
+  /** Leave for the workspace screen; `openFileIds` are the editor tabs that remain. */
+  navigateToWorkspace(openFileIds: string[]): void;
+}
+
+/**
+ * Delete a library document, then make the open tabs and saved workspace agree.
+ * Deleting the document being edited leaves the editor for the workspace screen
+ * instead of silently switching to some other document, so even the last
+ * document of the library can be deleted. Storage drops the deleted file from
+ * the saved tabs; the remaining tabs are handed to the workspace screen.
+ */
 export async function deleteWorkspaceDocument(
   fileId: string,
-  { documentMetadatas, openFileIds, activeFileId }: DocumentTabs & {
-    documentMetadatas: readonly Pick<DocumentMetadata, "fileId">[];
-  },
+  { openFileIds, activeFileId }: DocumentTabs,
   {
-    deleteDocument, openDocumentInWorkspace, setOpenFileIds, saveWorkspaceState,
+    deleteDocument, setOpenFileIds, saveWorkspaceState,
     refreshDocumentMetadatas, setSaveState, setStatusMessage, tEditor,
-  }: DocumentTabPorts,
+    cancelPendingAutosave, markWorkspaceNotReady, navigateToWorkspace,
+  }: DeleteWorkspaceDocumentPorts,
 ): Promise<void> {
-  if (documentMetadatas.length <= 1) {
-    setStatusMessage(tEditor("status.lastDocumentStays"));
-    return;
-  }
-
-  const nextOpenFileIds = openFileIds.filter((id) => id !== fileId);
-  const nextMetadata = documentMetadatas.filter((item) => item.fileId !== fileId);
-  const nextActiveId = fileId === activeFileId
-    ? nextOpenFileIds[0] ?? nextMetadata[0]?.fileId
-    : activeFileId;
-  if (!nextActiveId) {
-    setSaveState("error");
-    setStatusMessage(tEditor("status.noDocumentToSwitchTo"));
+  if (fileId === activeFileId) {
+    // A pending autosave must not write the deleted file back. If deletion fails
+    // the edits stay dirty and the next save boundary still writes them.
+    cancelPendingAutosave();
+    const result = await deleteDocument(fileId);
+    if (!result.ok) {
+      setSaveState("error");
+      setStatusMessage(result.error ?? tEditor("status.deleteFailed"));
+      return;
+    }
+    markWorkspaceNotReady();
+    navigateToWorkspace(openFileIds.filter((id) => id !== fileId));
     return;
   }
 
@@ -174,17 +184,9 @@ export async function deleteWorkspaceDocument(
   }
 
   await refreshDocumentMetadatas();
-  if (nextActiveId && fileId === activeFileId) {
-    await openDocumentInWorkspace(nextActiveId, {
-      nextOpenFileIds: nextOpenFileIds.length > 0 ? nextOpenFileIds : [nextActiveId],
-      status: tEditor("status.deleted"),
-      saveCurrent: false,
-    });
-    return;
-  }
-
-  const normalizedOpenFileIds = nextOpenFileIds.length > 0 ? nextOpenFileIds : [nextActiveId];
-  setOpenFileIds(normalizedOpenFileIds);
-  await saveWorkspaceState({ openFileIds: normalizedOpenFileIds, activeFileId: nextActiveId });
+  const remaining = openFileIds.filter((id) => id !== fileId);
+  const nextOpenFileIds = remaining.length > 0 ? remaining : [activeFileId];
+  setOpenFileIds(nextOpenFileIds);
+  await saveWorkspaceState({ openFileIds: nextOpenFileIds, activeFileId });
   setStatusMessage(tEditor("status.deleted"));
 }

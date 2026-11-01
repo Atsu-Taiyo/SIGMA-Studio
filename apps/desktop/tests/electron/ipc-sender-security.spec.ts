@@ -1,7 +1,158 @@
 import { _electron as electron, expect, test } from "@playwright/test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createTranslator, SUPPORTED_LOCALES } from "@/lib/i18n";
+
+test("library credentials stay in main across decoded responses and application restart", async () => {
+  const root = path.resolve(__dirname, "../..");
+  const profile = await mkdtemp(path.join(tmpdir(), "sigma-library-security-"));
+  const token = "synthetic-native-library-token-0123456789";
+  let echo = false;
+  let document: unknown;
+  let authorized = 0;
+  const server = createServer((request, response) => {
+    request.resume();
+    response.setHeader("Content-Type", "application/json");
+    const route = request.url?.replace("/functions/v1/problem-library/", "");
+    if (!request.url?.startsWith("/functions/v1/problem-library/")) {
+      response.writeHead(404).end("{}"); return;
+    }
+    if (request.headers.authorization !== `Bearer ${token}`) {
+      response.writeHead(401).end("{}"); return;
+    }
+    authorized++;
+    const label = echo ? token : "検査用問題集";
+    const body = route === "access" ? { available: true, label }
+      : route === "search" ? { total: 1, results: [{ id: "fixture_problem", title: label, has_solution: false, tags: [], preview: [] }] }
+        : route === "facets" ? { facets: [{ key: "db|単元|微分", group: "db", type: "単元", label, count: 1, hasChildren: false }] }
+          : route === "problems/fixture_problem" ? (echo ? { ...(document as object), metadata: { ...(document as { metadata: object }).metadata, title: token } } : document)
+            : {};
+    const text = JSON.stringify(body);
+    response.end(echo ? text.replaceAll(token, Array.from(token, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`).join("")) : text);
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("FIXTURE_PORT_REQUIRED");
+  const endpoint = `http://127.0.0.1:${address.port}`;
+  const env: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    NODE_ENV: "development", SIGMA_STUDIO_USER_DATA_DIR: profile,
+    SIGMA_SUPABASE_URL: endpoint, SIGMA_COLLABORATION_URL: endpoint, SIGMA_SUPABASE_ANON_KEY: "sb_publishable_fixture",
+  };
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.SIGMA_STUDIO_DEV_SERVER_URL;
+  let app: Awaited<ReturnType<typeof electron.launch>> | undefined;
+  const launch = async () => {
+    const nativeKeyring = process.platform === "linux"
+      ? { executablePath: createRequire(path.join(root, "package.json"))("electron") as string } : {};
+    app = await electron.launch({ ...nativeKeyring, args: [root], cwd: root, env, chromiumSandbox: true });
+    const page = await app.firstWindow();
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.problems?.library));
+    return page;
+  };
+  try {
+    let page = await launch();
+    const created = await page.evaluate(() => window.desktopAPI!.storage.createDocument({ title: "問題集の保存検査" }));
+    document = created.document;
+    const encrypted = await app!.evaluate(({ safeStorage }, accessToken) => {
+      if (!safeStorage.isEncryptionAvailable()) throw new Error("SECURE_STORAGE_REQUIRED");
+      return safeStorage.encryptString(JSON.stringify({ access_token: accessToken, refresh_token: "fixture", expires_at: Math.floor(Date.now() / 1000) + 3600, expires_in: 3600, user: { id: "00000000-0000-4000-8000-000000000001" } })).toString("base64");
+    }, token);
+    await app!.close(); app = undefined;
+    await writeFile(path.join(profile, "collaboration-v1/auth.enc"), encrypted, { mode: 0o600 });
+    page = await launch();
+    expect(await page.evaluate(() => window.desktopAPI!.problems!.library!.access())).toEqual({ available: true, label: "検査用問題集" });
+    echo = true;
+    const replies = await page.evaluate(async () => {
+      const library = window.desktopAPI!.problems!.library!;
+      return [await library.access(), await library.search({}), await library.facets({ parent: null }), await library.get({ id: "fixture_problem" })];
+    });
+    expect(replies[0]).toEqual({ available: false });
+    const safeErrors = SUPPORTED_LOCALES.map(locale => createTranslator(locale, "editor")("problemLibrary.libraryErrors.unsafeResponse"));
+    for (const reply of replies.slice(1)) {
+      expect(reply).toEqual({ ok: false, error: expect.any(String) });
+      expect(safeErrors).toContain("error" in reply ? reply.error : undefined);
+    }
+    expect(JSON.stringify(replies)).not.toContain(token);
+    echo = false;
+    const clean = await page.evaluate(() => window.desktopAPI!.problems!.library!.get({ id: "fixture_problem" }));
+    if (!clean.ok) throw new Error("VALID_LIBRARY_DOCUMENT_REQUIRED");
+    const loaded = await page.evaluate(id => window.desktopAPI!.storage.loadDocumentWithRecovery!(id), created.file.fileId);
+    if (!loaded.ok) throw new Error("Document load failed");
+    const saved = await page.evaluate(({ id, document, revision }) => window.desktopAPI!.storage.saveDocument(id, document, { expectedRevision: revision }), { id: created.file.fileId, document: clean.document, revision: loaded.revision });
+    expect(saved.ok).toBe(true);
+    await app!.close(); app = undefined;
+    page = await launch();
+    const reopened = await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), created.file.fileId);
+    expect(reopened?.content).toEqual(clean.document.content);
+    expect(JSON.stringify(reopened)).not.toContain(token);
+    expect(await page.evaluate(() => window.desktopAPI!.problems!.library!.access())).toEqual({ available: true, label: "検査用問題集" });
+    expect(authorized).toBeGreaterThanOrEqual(7);
+  } finally {
+    await app?.close(); server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("extension measurements retain canonical canvas geometry after saving and restarting", async () => {
+  const root = path.resolve(__dirname, "../..");
+  const profile = await mkdtemp(path.join(tmpdir(), "sigma-measurement-"));
+  const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.SIGMA_STUDIO_DEV_SERVER_URL;
+  env.NODE_ENV = "development";
+  env.SIGMA_STUDIO_USER_DATA_DIR = profile;
+  let app: Awaited<ReturnType<typeof electron.launch>> | undefined;
+  const launch = async () => {
+    app = await electron.launch({ args: [root], cwd: root, env, chromiumSandbox: true });
+    const page = await app.firstWindow();
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+    return page;
+  };
+  try {
+    let page = await launch();
+    const created = await page.evaluate(() => window.desktopAPI!.storage.createDocument({ title: "計測の再起動検査" }));
+    const id = created.file.fileId;
+    const loaded = await page.evaluate(id => window.desktopAPI!.storage.loadDocumentWithRecovery!(id), id);
+    if (!loaded.ok) throw new Error("Document load failed");
+    const document = { ...loaded.document, content: [
+      { type: "paragraph" as const, id: "first", children: [{ type: "text" as const, text: "先の本文", fontSize: 18 }] },
+      { type: "paragraph" as const, id: "later", children: [{ type: "text" as const, text: "後の本文", fontSize: 12 }] },
+    ] };
+    const saved = await page.evaluate(({ id, document, revision }) => window.desktopAPI!.storage.saveDocument(id, document, { expectedRevision: revision }), { id, document, revision: loaded.revision });
+    expect(saved.ok).toBe(true);
+    const measure = async () => {
+      const stored = await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), id);
+      expect(stored?.content).toEqual(document.content);
+      return app!.evaluate(async ({ BrowserWindow }, { file, document }) => {
+        const requireMain = process.getBuiltinModule("module").createRequire(file);
+        const windowsBefore = BrowserWindow.getAllWindows().length;
+        const result = await requireMain(file).measurePluginDocument(document, ["later", "first", "absent", "later"]);
+        return { result, windowsBefore, windowsAfter: BrowserWindow.getAllWindows().length };
+      }, { file: path.join(root, "dist-electron/main.cjs"), document: stored });
+    };
+    const before = await measure();
+    expect(before.windowsAfter).toBe(before.windowsBefore);
+    expect(before.result.pageCount).toBeGreaterThan(0);
+    expect(before.result.rows.map((row: { id: string }) => row.id)).toEqual(["later", "first", "absent", "later"]);
+    expect(before.result.rows[2]).toEqual({ id: "absent", missing: true });
+    expect(before.result.rows[0]).toEqual(before.result.rows[3]);
+    expect(before.result.rows[0].y).toBeGreaterThan(before.result.rows[1].y);
+    expect(before.result.rows[0].height).toBeGreaterThan(0);
+    await app!.close(); app = undefined;
+    page = await launch();
+    const after = await measure();
+    expect(after.windowsAfter).toBe(after.windowsBefore);
+    expect(after.result).toEqual(before.result);
+  } finally {
+    await app?.close();
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
 
 test("real Electron IPC rejects other windows, subframes and navigation while storage and AI preview remain usable", async () => {
   test.setTimeout(180_000);

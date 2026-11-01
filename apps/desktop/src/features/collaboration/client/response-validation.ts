@@ -52,6 +52,8 @@ export function validateCatalogDelta(value: unknown): void {
       || typeof node.state !== "string" || !["initializing", "active", "stopped", "deleted"].includes(node.state)
       || !role(node.role) || !integer(node.revision) || !integer(node.titleVersion)
       || typeof node.isShareRoot !== "boolean" || typeof node.name !== "string" || Array.from(node.name).length > 240
+      || (node.createdAt !== undefined && typeof node.createdAt !== "string")
+      || (node.updatedAt !== undefined && typeof node.updatedAt !== "string")
       || !validCapabilities(node.capabilities))
       throw new Error("INVALID_CATALOG_RESPONSE");
     if (node.kind === "document" && node.sharedDocumentId === null) throw new Error("INVALID_CATALOG_RESPONSE");

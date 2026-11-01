@@ -13,6 +13,7 @@ import { CodeHighlightExtension } from "@/components/tiptap/code-highlight-exten
 import { BoxedTextRunHeightExtension } from "@/components/tiptap/boxed-text-run-height";
 import { InlineMathExtension } from "@/components/tiptap/inline-math-extension";
 import { ListMarkerTypographyExtension } from "@/components/tiptap/list-marker-typography-extension";
+import { MathLineHeightSplitExtension } from "@/components/tiptap/math-line-height-split";
 import { NativeHistoryGuardExtension } from "@/components/tiptap/native-history-guard";
 import { ListIndentExtension } from "@/components/tiptap/list-indent-extension";
 import { ParenOrderedListExtension } from "@/components/tiptap/paren-ordered-list-extension";
@@ -32,6 +33,7 @@ import {
 } from "@/lib/math-environment";
 
 import { DocumentReferenceMark } from "./document-reference-extension";
+import { EmptyTextStyle } from "./empty-text-style";
 import { RememberedTypingStyle } from "./remembered-typing-style";
 
 const DEFAULT_HEADING_LEVELS: [1, 2, 3] = [1, 2, 3];
@@ -182,6 +184,7 @@ export function createRichTextEngineExtensions({
 }: RichTextEngineOptions = {}): Extensions {
   return [
     DocumentReferenceMark,
+    EmptyTextStyle,
     ...(!localHistory ? [RememberedTypingStyle] : []),
     // Underline before StarterKit so its schema rank is outer to bold/italic.
     // (Also set priority: 1000 on the mark itself; see UnderlineExtension.)
@@ -228,6 +231,7 @@ export function createRichTextEngineExtensions({
     ...blockExtensions,
     ...(lineHeight ? [LineHeightExtension] : []),
     ...(textBlockStyle ? [TextBlockStyleExtension] : []),
+    MathLineHeightSplitExtension,
     BoxedTextExtension,
     BoxedTextRunHeightExtension.configure({ drawRunFrames: drawBoxedRunFrames }),
     StyledTextExtension,

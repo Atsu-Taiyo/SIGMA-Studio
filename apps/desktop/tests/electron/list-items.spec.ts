@@ -113,7 +113,10 @@ test("an empty item's number takes the font written right before it, while editi
     await expect.poll(async () => (await markerStyles(page))[1]).toEqual(styled);
     await page.keyboard.press("Backspace");
     await page.keyboard.press("Backspace");
-    await expect.poll(async () => (await savedList(page, fileId))?.items.map((item) => item.children.length)).toEqual([1, 0]);
+    // Empty text now retains its canonical font; it must contain no typed glyphs.
+    await expect.poll(async () => (await savedList(page, fileId))?.items[1]?.children).toEqual([
+      { type: "text", text: "", fontFamily: DEFAULT_SERIF_BODY_FONT_FAMILY, fontSize: 20 },
+    ]);
     expect((await markerStyles(page))[1]).toEqual(styled);
     await page.screenshot({ path: testInfo.outputPath("empty-item-marker.png") });
 

@@ -13,8 +13,19 @@ export function documentMeasurementScript(blockIds: string[]): string {
       const origin = canvas.getBoundingClientRect();
       const zoom = Number(getComputedStyle(canvas).getPropertyValue('--editor-zoom')) || 1;
       const context = document.createElement('canvas').getContext('2d');
-      const rows = ${JSON.stringify(blockIds)}.map(id => {
-        const paragraph = canvas.querySelector('p[data-sigma-doc-id="' + CSS.escape(id) + '"]');
+      const ids = ${JSON.stringify(blockIds)};
+      const requested = new Set(ids);
+      const paragraphs = new Map();
+      // Keep the first match, as querySelector did. Index once instead of scanning
+      // the full document for every requested paragraph in a long import.
+      if (requested.size) {
+        for (const paragraph of canvas.querySelectorAll('p[data-sigma-doc-id]')) {
+          const id = paragraph.getAttribute('data-sigma-doc-id');
+          if (requested.has(id) && !paragraphs.has(id)) paragraphs.set(id, paragraph);
+        }
+      }
+      const rows = ids.map(id => {
+        const paragraph = paragraphs.get(id);
         if (!paragraph) return { id, missing: true };
         const rect = paragraph.getBoundingClientRect(), style = getComputedStyle(paragraph);
         let baseline;

@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "24.22.1"
           cache: npm
       - run: npm run lockfile:check
       - run: npm ci
@@ -78,7 +78,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "24.22.1"
           cache: npm
       - run: npm ci
       - name: Build the actual desktop renderer, main and preload
@@ -102,7 +102,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "24.22.1"
           cache: npm
       - run: npm ci
       - name: Build the actual Windows desktop renderer, main and preload
@@ -124,7 +124,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "24.22.1"
           cache: npm
       - run: npm run lockfile:check
       - run: npm ci
@@ -148,7 +148,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "24.22.1"
           cache: npm
       - run: npm run lockfile:check
       - run: npm ci
@@ -209,6 +209,10 @@ jobs:
               tests/electron/profile-avatar-crop.spec.ts \
               tests/electron/problem-display.spec.ts tests/electron/problem-lead-line.spec.ts \
               tests/electron/problem-layout.spec.ts \
+              tests/electron/problem-style-inheritance.spec.ts \
+              tests/electron/empty-line-font-size.spec.ts \
+              tests/electron/math-line-height-split.spec.ts \
+              tests/electron/workspace-return-location.spec.ts \
               tests/electron/whiteboard-image-save.spec.ts \
               tests/electron/small-shape-handles.spec.ts \
               tests/electron/ai-chat-merge-recovery.spec.ts tests/electron/shared-ai-read-merge.spec.ts \
@@ -263,7 +267,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "24.22.1"
           cache: npm
       - run: npm run lockfile:check
       - run: npm ci
@@ -293,7 +297,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "24.22.1"
           cache: npm
       - run: npm run lockfile:check
       - run: npm ci

@@ -18,3 +18,4 @@ export * from "./running-region-page-content";
 export * from "./running-region-visibility";
 export * from "./page-running-region-layout";
 export * from "./three-way-merge";
+export { findPreviousProblem, inheritProblemStyle, inheritPreviousProblemStyle, type ProblemStyle } from "./problem-style";
