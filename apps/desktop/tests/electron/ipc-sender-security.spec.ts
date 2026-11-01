@@ -3,6 +3,62 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+test("extension measurements retain canonical canvas geometry after saving and restarting", async () => {
+  const root = path.resolve(__dirname, "../..");
+  const profile = await mkdtemp(path.join(tmpdir(), "sigma-measurement-"));
+  const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.SIGMA_STUDIO_DEV_SERVER_URL;
+  env.NODE_ENV = "development";
+  env.SIGMA_STUDIO_USER_DATA_DIR = profile;
+  let app: Awaited<ReturnType<typeof electron.launch>> | undefined;
+  const launch = async () => {
+    app = await electron.launch({ args: [root], cwd: root, env, chromiumSandbox: true });
+    const page = await app.firstWindow();
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+    return page;
+  };
+  try {
+    let page = await launch();
+    const created = await page.evaluate(() => window.desktopAPI!.storage.createDocument({ title: "計測の再起動検査" }));
+    const id = created.file.fileId;
+    const loaded = await page.evaluate(id => window.desktopAPI!.storage.loadDocumentWithRecovery!(id), id);
+    if (!loaded.ok) throw new Error("Document load failed");
+    const document = { ...loaded.document, content: [
+      { type: "paragraph" as const, id: "first", children: [{ type: "text" as const, text: "先の本文", fontSize: 18 }] },
+      { type: "paragraph" as const, id: "later", children: [{ type: "text" as const, text: "後の本文", fontSize: 12 }] },
+    ] };
+    const saved = await page.evaluate(({ id, document, revision }) => window.desktopAPI!.storage.saveDocument(id, document, { expectedRevision: revision }), { id, document, revision: loaded.revision });
+    expect(saved.ok).toBe(true);
+    const measure = async () => {
+      const stored = await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), id);
+      expect(stored?.content).toEqual(document.content);
+      return app!.evaluate(async ({ BrowserWindow }, { file, document }) => {
+        const requireMain = process.getBuiltinModule("module").createRequire(file);
+        const windowsBefore = BrowserWindow.getAllWindows().length;
+        const result = await requireMain(file).measurePluginDocument(document, ["later", "first", "absent", "later"]);
+        return { result, windowsBefore, windowsAfter: BrowserWindow.getAllWindows().length };
+      }, { file: path.join(root, "dist-electron/main.cjs"), document: stored });
+    };
+    const before = await measure();
+    expect(before.windowsAfter).toBe(before.windowsBefore);
+    expect(before.result.pageCount).toBeGreaterThan(0);
+    expect(before.result.rows.map((row: { id: string }) => row.id)).toEqual(["later", "first", "absent", "later"]);
+    expect(before.result.rows[2]).toEqual({ id: "absent", missing: true });
+    expect(before.result.rows[0]).toEqual(before.result.rows[3]);
+    expect(before.result.rows[0].y).toBeGreaterThan(before.result.rows[1].y);
+    expect(before.result.rows[0].height).toBeGreaterThan(0);
+    await app!.close(); app = undefined;
+    page = await launch();
+    const after = await measure();
+    expect(after.windowsAfter).toBe(after.windowsBefore);
+    expect(after.result).toEqual(before.result);
+  } finally {
+    await app?.close();
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
 test("real Electron IPC rejects other windows, subframes and navigation while storage and AI preview remain usable", async () => {
   test.setTimeout(180_000);
   const root = path.resolve(__dirname, "../..");
