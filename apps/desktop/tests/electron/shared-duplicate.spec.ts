@@ -1,7 +1,7 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -21,6 +21,95 @@ const capabilities = (overrides: Partial<SharedCapabilities> = {}): SharedCapabi
   read: true, editDocument: true, createChildren: true, rename: true, move: true, deleteDescendants: true,
   invite: false, manageEditorViewer: false, appointAdmin: false, stopRootShare: false, deleteRootShare: false,
   restoreDocument: false, startHierarchyShare: false, ...overrides,
+});
+
+// Only the sharing server is a loopback fixture. Auth encryption, catalog validation,
+// durable cache, main/preload IPC and restart use the real desktop implementation.
+test("rejects malformed catalog dates before caching and recovers dates from an older cache", async () => {
+  const root = path.resolve(__dirname, "../..");
+  const profile = await mkdtemp(path.join(tmpdir(), "sigma-catalog-dates-"));
+  const directory = path.join(profile, "collaboration-v1");
+  const actorId = randomUUID();
+  const remote: CatalogNode = {
+    id: randomUUID() as CatalogNodeId, kind: "document", parentId: null,
+    ownerId: randomUUID(), createdBy: actorId, name: "日時の検証教材",
+    sharedDocumentId: randomUUID() as SharedDocumentId, state: "active", isShareRoot: true,
+    role: "editor", titleVersion: 1, revision: 1, capabilities: capabilities(),
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-02-01T00:00:00Z",
+  };
+  let malformed = false;
+  let bodyRequests = 0;
+  const server = createServer(async (request, response) => {
+    for await (const chunk of request) { void chunk; }
+    const url = request.url ?? "";
+    response.setHeader("Content-Type", "application/json");
+    if (url === "/catalog/capabilities") {
+      response.end(JSON.stringify({ hierarchySharingEnabled: true, canStartDocumentShare: true, documentShareSource: "trial", canStartHierarchyShare: true, hierarchyShareSource: "trial" }));
+    } else if (url === "/catalog/delta") {
+      response.end(JSON.stringify({ revision: malformed ? 2 : 1, nodes: [{ ...remote, ...(malformed ? { revision: 2, updatedAt: { toString: null } } : {}) }], tombstones: [] }));
+    } else {
+      if (url.startsWith("/documents/")) bodyRequests++;
+      response.writeHead(503).end('{"error":"FIXTURE_OFFLINE"}');
+    }
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("FIXTURE_PORT_REQUIRED");
+  const endpoint = `http://127.0.0.1:${address.port}`;
+  const env: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    NODE_ENV: "development", SIGMA_STUDIO_USER_DATA_DIR: profile,
+    SIGMA_COLLABORATION_URL: endpoint, SIGMA_SUPABASE_URL: endpoint, SIGMA_SUPABASE_ANON_KEY: "sb_publishable_fixture",
+  };
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.SIGMA_STUDIO_DEV_SERVER_URL;
+  let app: ElectronApplication | undefined;
+  const launch = async () => {
+    const nativeKeyring = process.platform === "linux"
+      ? { executablePath: createRequire(path.join(root, "package.json"))("electron") as string } : {};
+    app = await electron.launch({ ...nativeKeyring, args: [root], cwd: root, env });
+    const page = await app.firstWindow();
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.sharedCatalog));
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    await page.evaluate(() => window.desktopAPI!.sharedCatalog!.setVisible(false));
+    return page;
+  };
+  try {
+    await launch();
+    const encrypted = await app!.evaluate(({ safeStorage }, tokens) => {
+      if (!safeStorage.isEncryptionAvailable()) throw new Error("SECURE_STORAGE_REQUIRED");
+      return safeStorage.encryptString(JSON.stringify(tokens)).toString("base64");
+    }, { access_token: "fixture", refresh_token: "fixture", expires_at: Math.floor(Date.now() / 1000) + 3600, expires_in: 3600, user: { id: actorId } });
+    await app!.close(); app = undefined;
+    await writeFile(path.join(directory, "auth.enc"), encrypted, { mode: 0o600 });
+    let page = await launch();
+    expect(await page.evaluate(() => window.desktopAPI!.sharedCatalog!.refresh())).toMatchObject({ state: "ready", revision: 1 });
+    const cache = await CatalogCache.open(directory, actorId);
+    const overview = () => page.evaluate(() => window.desktopAPI!.storage.getWorkspaceOverview("shared-items"));
+    let value = await overview();
+    if (value.state !== "ready") throw new Error("NO_LIBRARY");
+    expect(value.overview.files.find(file => file.title === remote.name)?.updatedAt).toBe(remote.updatedAt);
+    malformed = true;
+    expect(await page.evaluate(() => window.desktopAPI!.sharedCatalog!.refresh())).toMatchObject({ state: "offline", error: "INVALID_CATALOG_RESPONSE", revision: 1 });
+    const saved = JSON.parse(await readFile(cache.file, "utf8"));
+    expect(saved.revision).toBe(1);
+    expect(saved.nodes[remote.id].updatedAt).toBe(remote.updatedAt);
+    await app!.close(); app = undefined;
+    // Simulate a malformed value persisted by a previous build. No cache reset/data deletion.
+    const older = await CatalogCache.open(directory, actorId);
+    older.data.nodes[remote.id] = { ...remote, updatedAt: { toString: null } } as unknown as CatalogNode;
+    await older.save();
+    page = await launch();
+    value = await overview();
+    if (value.state !== "ready") throw new Error("NO_LIBRARY");
+    expect(value.overview.files.find(file => file.title === remote.name)?.updatedAt).toBe(remote.createdAt);
+    expect(bodyRequests).toBe(0);
+  } finally {
+    await app?.close();
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
 });
 
 function material(title: string, body: string, src: string): SigmaDocument {
