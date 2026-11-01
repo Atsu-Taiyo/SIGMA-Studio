@@ -480,6 +480,11 @@
   column-count: 3;
 }
 
+/* ライブラリだけを見るときは問題文を全文読むので、幅の広い 2 列にする。 */
+.results .grid[data-columns="2"] {
+  column-count: 2;
+}
+
 .grid > .card {
   display: inline-block;
   width: 100%;
@@ -500,6 +505,31 @@
   .results .grid[data-columns] {
     column-count: 1;
   }
+}
+
+/* ライブラリのカード。枠と余白を詰め、見出し・本文・控えめな 1 行だけにする。 */
+.libraryCard {
+  padding: var(--space-md);
+}
+
+.libraryHeading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 問題文は本来の大きさより一回り小さく、縦横比を変えずに全体を縮めて全文を見せる。 */
+.libraryPreview {
+  zoom: 0.72;
+}
+
+.libraryFooter {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.libraryFooter > span:not(.solution)::before {
+  content: "#";
 }
 
 .card {

@@ -244,6 +244,8 @@ export function ProblemLibraryDialog({ onImport, onClose }: Props) {
     : jukenRequest.mode;
   const busy = importing !== null;
   const heading = active === "library" ? libraryLabel! : t(`problemLibrary.${mode}`);
+  // The library alone reads problems in full, so it uses two wider columns of smaller text.
+  const columns = active === "library" ? 2 : 3;
   const count = active === "library" ? libraryReady && !libraryReady.error ? libraryReady.total : null
     : active === "jukenmath" && mode === "results" && jukenReady && !jukenReady.error ? jukenReady.problems.length : null;
 
@@ -305,7 +307,7 @@ export function ProblemLibraryDialog({ onImport, onClose }: Props) {
               </Inset>)}
               {pending && <span className="visually-hidden" role="status">{t("problemLibrary.loading")}</span>}
               {nothingYet ? (
-                <Grid className={styles.grid} columns={3} gap="md" responsive={false} aria-hidden="true">
+                <Grid className={styles.grid} columns={columns} gap="md" responsive={false} aria-hidden="true">
                   {Array.from({ length: RECOMMENDED_LIMIT }, (_, index) => <ProblemCardSkeleton key={index} />)}
                 </Grid>
               ) : !pending && allFailed ? (
@@ -324,11 +326,11 @@ export function ProblemLibraryDialog({ onImport, onClose }: Props) {
                 </Stack>
               ) : (
                 <MathEnvironmentProvider>
-                  <Grid className={styles.grid} columns={3} gap="md" responsive={false}>
+                  <Grid className={styles.grid} columns={columns} gap="md" responsive={false}>
                     {items.map(item => item.kind === "jukenmath"
                       ? <ProblemCard key={`jukenmath:${item.problem.id}`} problem={item.problem} badge={libraryLabel ? sourceName("jukenmath") : undefined}
                         includeSolution={includeSolution} busy={busy} importing={importing === `jukenmath:${item.problem.id}`} onImport={() => void importJuken(item.problem)} />
-                      : <LibraryProblemCard key={`library:${item.problem.id}`} problem={item.problem} sourceName={sourceName("library")}
+                      : <LibraryProblemCard key={`library:${item.problem.id}`} problem={item.problem} badge={active === "all" ? sourceName("library") : undefined}
                         includeSolution={includeSolution} busy={busy} importing={importing === `library:${item.problem.id}`} onImport={() => void importLibrary(item.problem)} />)}
                     {/* The provider still answering keeps a few placeholders at the end instead of holding back the other. */}
                     {pending && Array.from({ length: 3 }, (_, index) => <ProblemCardSkeleton key={`pending-${index}`} />)}
@@ -444,40 +446,39 @@ function ProblemCard({ problem, badge, includeSolution, busy, importing, onImpor
   </article>;
 }
 
-/** A library problem: the server's preview blocks, its origin, solution status and a few tags. */
-function LibraryProblemCard({ problem, sourceName, includeSolution, busy, importing, onImport }: {
-  problem: LibraryProblemSummary; sourceName: string; includeSolution: boolean; busy: boolean; importing: boolean; onImport(): void;
+/**
+ * A library problem, kept plain so more fit on screen: title and origin, the whole prompt in smaller
+ * type, then one muted line of solution status and tags. The badge appears only among mixed sources.
+ */
+function LibraryProblemCard({ problem, badge, includeSolution, busy, importing, onImport }: {
+  problem: LibraryProblemSummary; badge?: string; includeSolution: boolean; busy: boolean; importing: boolean; onImport(): void;
 }) {
   const t = useT("editor");
   const titleId = useId();
   const year = problem.exam_year && !problem.source_label?.includes(String(problem.exam_year)) ? t("problemLibrary.examYear", { year: problem.exam_year }) : null;
   const origin = [problem.source_label, year].filter(Boolean).join(" ");
   const importLabel = t(importing ? "problemLibrary.importing" : "problemLibrary.import");
-  return <article className={styles.card} data-source="library" data-importing={importing || undefined} aria-labelledby={titleId}>
-    <Inset space="lg">
-      <Stack gap="md">
-        <Stack gap="xs">
-          <Inline className={styles.meta} gap="sm" wrap>
-            <SourceBadge name={sourceName} kind="library" />
-            <SolutionStatus hasSolution={problem.has_solution} />
-          </Inline>
+  return <article className={`${styles.card} ${styles.libraryCard}`} data-source="library" data-importing={importing || undefined} aria-labelledby={titleId}>
+    <Stack gap="sm">
+      <Inline gap="sm" align="start" justify="between">
+        <Stack className={styles.libraryHeading} gap="xs">
+          {badge && <Inline className={styles.meta}><SourceBadge name={badge} kind="library" /></Inline>}
           <h4 id={titleId} className={styles.cardTitle}>{problem.title}</h4>
           {origin && <p className={styles.origin}>{origin}</p>}
         </Stack>
-        {problem.preview.length > 0 && <div className={styles.preview}>
-          {problem.preview.map(block => <PrintBlock key={block.id} unit={{ type: "block", id: block.id, block }} columnGapMm={8} />)}
-        </div>}
-        {problem.tags.length > 0 && <Inline gap="xs" wrap>
-          {problem.tags.slice(0, 3).map(tag => <span key={tag} className={styles.categoryTag}>{tag}</span>)}
-        </Inline>}
-        <Inline gap="sm" justify="end">
-          <Button size="sm" disabled={busy} onClick={onImport} aria-label={`${importLabel}：${problem.title}`}
-            title={t(importTitle(problem.has_solution, includeSolution))}>
-            <FilePlus size={14} aria-hidden="true" />{importLabel}
-          </Button>
-        </Inline>
-      </Stack>
-    </Inset>
+        <Button size="sm" tone="ghost" disabled={busy} onClick={onImport} aria-label={`${importLabel}：${problem.title}`}
+          title={t(importTitle(problem.has_solution, includeSolution))}>
+          <FilePlus size={14} aria-hidden="true" />{importLabel}
+        </Button>
+      </Inline>
+      {problem.preview.length > 0 && <div className={`${styles.preview} ${styles.libraryPreview}`}>
+        {problem.preview.map(block => <PrintBlock key={block.id} unit={{ type: "block", id: block.id, block }} columnGapMm={8} />)}
+      </div>}
+      <Inline className={styles.libraryFooter} gap="sm" wrap>
+        <SolutionStatus hasSolution={problem.has_solution} />
+        {problem.tags.slice(0, 3).map(tag => <span key={tag}>{tag}</span>)}
+      </Inline>
+    </Stack>
   </article>;
 }
 
