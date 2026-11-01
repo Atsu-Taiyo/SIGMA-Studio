@@ -4,6 +4,23 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 /**
+ * Seed the material the renderer owns after startup. Deleting its initial material during
+ * fixture cleanup invokes real deleted-file recovery and can overwrite the intended tab state.
+ */
+async function startWithMaterial(page: Page, title: string): Promise<string> {
+  await page.reload();
+  await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+  await page.evaluate(() => window.desktopAPI!.settings!.setUiLocale!("ja"));
+  await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible({ timeout: 60_000 });
+  const input = page.getByRole("textbox", { name: "教材タイトル" });
+  await input.fill(title);
+  await input.press("Tab");
+  const savedId = () => page.evaluate(async name => (await window.desktopAPI!.storage.listFiles()).find(file => file.title === name)?.fileId ?? null, title);
+  await expect.poll(savedId).not.toBeNull();
+  return (await savedId())!;
+}
+
+/**
  * 編集画面からワークスペース画面へ戻ると、編集中の教材のワークスペースではなく
  * 直前までワークスペース画面で選んでいたワークスペースが開く。開いている教材を
  * 削除したときも、別の教材へ切り替えずにそのワークスペースへ戻る。
@@ -22,22 +39,22 @@ test("returns from the editor to the workspace that was last selected, including
       localStorage.setItem("sigma-studio:ui-locale", "ja");
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
     });
-    const fixture = await page.evaluate(async () => {
+    const homeFileId = await startWithMaterial(page, "ホームの教材");
+    const fixture = await page.evaluate(async homeFileId => {
       await window.desktopAPI!.settings!.setUiLocale!("ja");
       const api = window.desktopAPI!.storage;
       const initial = await api.getWorkspaceOverview();
       if (initial.state !== "ready") throw new Error("No library");
       const homeId = initial.overview.activeWorkspaceId;
-      const home = await api.createDocument({ workspaceId: homeId, title: "ホームの教材" });
       const created = await api.createWorkspace("戻り先テスト");
       if (created.state !== "ready") throw new Error("No workspace");
       const targetId = created.overview.workspaces.find(w => w.name === "戻り先テスト")!.id;
       const first = await api.createDocument({ workspaceId: targetId, title: "消す教材" });
       const second = await api.createDocument({ workspaceId: targetId, title: "残る教材" });
       // 編集画面は「ホームの教材」を開いた状態から始める (戻り先が編集中の教材に引っ張られる条件)。
-      await api.saveWorkspace({ openFileIds: [home.file.fileId], activeFileId: home.file.fileId });
-      return { homeId, targetId, home: home.file.fileId, first: first.file.fileId, second: second.file.fileId };
-    });
+      await api.saveWorkspace({ openFileIds: [homeFileId], activeFileId: homeFileId });
+      return { homeId, targetId, home: homeFileId, first: first.file.fileId, second: second.file.fileId };
+    }, homeFileId);
     const workspaceUrl = new URL(page.url());
     workspaceUrl.pathname = process.env.SIGMA_STUDIO_DEV_SERVER_URL ? "/workspace" : workspaceUrl.pathname.replace(/index\.html$/, "workspace.html");
     workspaceUrl.search = "";
@@ -109,22 +126,22 @@ test("deleting the only open tab returns to the workspace without a back button,
       localStorage.setItem("sigma-studio:ui-locale", "ja");
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
     });
-    const fixture = await page.evaluate(async () => {
+    const xFileId = await startWithMaterial(page, "教材X");
+    const fixture = await page.evaluate(async xFileId => {
       await window.desktopAPI!.settings!.setUiLocale!("ja");
       const api = window.desktopAPI!.storage;
       const initial = await api.getWorkspaceOverview();
       if (initial.state !== "ready") throw new Error("No library");
       const workspaceId = initial.overview.activeWorkspaceId;
-      const x = await api.createDocument({ workspaceId, title: "教材X" });
       const y = await api.createDocument({ workspaceId, title: "教材Y" });
       const z = await api.createDocument({ workspaceId, title: "教材Z" });
-      const keep = new Set([x.file.fileId, y.file.fileId, z.file.fileId]);
+      const keep = new Set([xFileId, y.file.fileId, z.file.fileId]);
       for (const file of await api.listFiles() as { fileId: string }[]) {
         if (!keep.has(file.fileId)) await api.deleteFile(file.fileId);
       }
-      await api.saveWorkspace({ openFileIds: [x.file.fileId], activeFileId: x.file.fileId });
-      return { x: x.file.fileId, y: y.file.fileId, z: z.file.fileId };
-    });
+      await api.saveWorkspace({ openFileIds: [xFileId], activeFileId: xFileId });
+      return { x: xFileId, y: y.file.fileId, z: z.file.fileId };
+    }, xFileId);
     const title = page.getByRole("textbox", { name: "教材タイトル" });
     const tabs = page.locator(".document-tabs-row");
     const deleteOpenMaterial = async () => {
