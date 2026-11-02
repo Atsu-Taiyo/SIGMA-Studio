@@ -60,7 +60,7 @@ export function resolveMathTypesetStyle(_legacyFractionSizing?: MathFractionSizi
  * 先頭の `\displaystyle` だけでは `\sum` の上下端が横に付いたまま、分数だけが大きくなる。
  */
 export function applyMathTypesetStyle(tex: string, style: MathTypesetStyle): string {
-  const body = style === "displaystyle" ? displayStyleTabularCells(tex) : tex;
+  const body = style === "displaystyle" ? growEvaluationBrackets(displayStyleTabularCells(tex)) : tex;
   return `${MATH_TYPESET_STYLE_COMMAND[style]} ${body}`;
 }
 
@@ -276,6 +276,167 @@ function styleTabularCell(cell: string): string {
   return EXPLICIT_STYLE_PREFIX.test(content)
     ? leading + nested
     : `${leading}${MATH_TYPESET_STYLE_COMMAND.displaystyle} ${nested}`;
+}
+
+/** 角括弧の左右を作る区切り記号。`\lbrack` は MathLive が `[` の入力から作る綴り。 */
+const LEFT_SQUARE_BRACKET = /^\\left\s*(?:\[|\\lbrack(?![A-Za-z]))/;
+const RIGHT_SQUARE_BRACKET = /^\\right\s*(?:\]|\\rbrack(?![A-Za-z]))/;
+const LEFT_RIGHT_TOKEN = /\\(left|right)(?![A-Za-z])/g;
+const EVALUATION_BRACKET_STRUT = String.raw`\vphantom{\int}`;
+
+/**
+ * 定積分の値を表す `\left[ F(x) \right]_a^b` の角括弧を、displaystyle の積分記号と同じ高さまで伸ばした TeX を返す。
+ * 描画用の写しを作るだけで、保存データは書き換えない。
+ *
+ * `\left[ \right]` は中身の高さにしか伸びないので、`x^3+x` のような低い中身だと括弧が積分記号より
+ * ずっと小さく、上下端も中身の横に詰まる。教科書の `[F(x)]_a^b` は積分記号と同じ高さの括弧で組むので、
+ * 括弧の内側に見えない `\vphantom{\int}` を置いて高さの下限にする (中身が高ければ従来どおり中身に合わせて伸びる)。
+ * `\Bigl[` などの固定サイズにしないのは、分数を含む中身で括弧が足りなくなり、MathLive では `=` との間隔も詰まるため。
+ *
+ * 対象は `\right]` の直後に上付き・下付きが続く (= 区間の値を取る) 角括弧だけ。区間 `[a, b]` や、
+ * すでに `\vphantom{\int}` を置いた括弧はそのまま残す。対応の取れない入力途中の式も触らない。
+ * AI や手書きの TeX に多い `\left` の無い `[F(x)]_a^b` も、先に `\left[ … \right]` へ直してから同じ扱いにする。
+ */
+export function growEvaluationBrackets(tex: string): string {
+  tex = stretchPlainEvaluationBrackets(tex);
+  if (!tex.includes("\\left")) {
+    return tex;
+  }
+
+  const opens: { start: number; end: number; square: boolean }[] = [];
+  const inserts: number[] = [];
+  const pattern = new RegExp(LEFT_RIGHT_TOKEN.source, "g");
+  for (let match = pattern.exec(tex); match; match = pattern.exec(tex)) {
+    const rest = tex.slice(match.index);
+    if (match[1] === "left") {
+      const square = LEFT_SQUARE_BRACKET.exec(rest);
+      opens.push({ start: match.index, end: match.index + (square?.[0].length ?? match[0].length), square: Boolean(square) });
+      continue;
+    }
+    const open = opens.pop();
+    if (!open) {
+      return tex;
+    }
+    if (!open.square) {
+      continue;
+    }
+    const close = RIGHT_SQUARE_BRACKET.exec(rest);
+    if (!close) {
+      continue;
+    }
+    const after = tex.slice(match.index + close[0].length).trimStart();
+    const inside = tex.slice(open.end).trimStart();
+    if (/^[_^]/.test(after) && !inside.startsWith(EVALUATION_BRACKET_STRUT)) {
+      inserts.push(open.end);
+    }
+  }
+
+  if (opens.length > 0 || inserts.length === 0) {
+    return tex;
+  }
+  let result = tex;
+  for (const index of inserts.sort((a, b) => b - a)) {
+    result = `${result.slice(0, index)} ${EVALUATION_BRACKET_STRUT}${result.slice(index)}`;
+  }
+  return result;
+}
+
+/**
+ * `\left` の無い `[ … ]_a^b` を `\left[ … \right]_a^b` にする。素の `[` `]` は伸びないので、このままでは
+ * 括弧を積分記号の高さにできない。
+ *
+ * 同じ波括弧の深さで対になる `[` と `]` のうち、`]` の直後に `_` か `^` が続くものだけを直す。
+ * `\sqrt[3]`・`\\[2pt]` の省略可能引数と、`\bigl[`・`\right]` などの大きさ指定済みの区切りは数えない。中の `\left` と `\right` の数が合わないときは、包むと対応が崩れるので触らない。
+ */
+function stretchPlainEvaluationBrackets(tex: string): string {
+  if (!tex.includes("[") || !tex.includes("]")) {
+    return tex;
+  }
+
+  const opens: { index: number; depth: number }[] = [];
+  const pairs: { open: number; close: number }[] = [];
+  let depth = 0;
+  for (let index = 0; index < tex.length; index += 1) {
+    const char = tex[index];
+    if (char === "\\") {
+      const command = /^\\(?:[A-Za-z]+|[^])/u.exec(tex.slice(index))?.[0] ?? "\\";
+      index += command.length - 1;
+      const rest = /^\s*[[\]]/.exec(tex.slice(index + 1));
+      if (!rest) {
+        continue;
+      }
+      if (SIZED_DELIMITER_COMMAND.test(command)) {
+        // `\left[`・`\bigr]` などの括弧は、大きさがもう決まっている区切り。
+        index += rest[0].length;
+      } else if (rest[0].endsWith("[") && OPTIONAL_ARGUMENT_COMMAND.test(command)) {
+        // `\sqrt[3]`・`\\[2pt]` の省略可能引数は、対の `]` まで丸ごと読み飛ばす。
+        const close = findOptionalArgumentEnd(tex, index + rest[0].length);
+        if (close < 0) {
+          return tex;
+        }
+        index = close;
+      }
+      continue;
+    }
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth = Math.max(0, depth - 1);
+      while (opens.length > 0 && opens[opens.length - 1].depth > depth) opens.pop();
+    } else if (char === "[") {
+      opens.push({ index, depth });
+    } else if (char === "]") {
+      const open = opens[opens.length - 1];
+      if (open?.depth !== depth) {
+        continue;
+      }
+      opens.pop();
+      if (/^\s*[_^]/.test(tex.slice(index + 1))) {
+        const inside = tex.slice(open.index + 1, index);
+        const lefts = inside.match(/\\left(?![A-Za-z])/g)?.length ?? 0;
+        const rights = inside.match(/\\right(?![A-Za-z])/g)?.length ?? 0;
+        if (lefts === rights) {
+          pairs.push({ open: open.index, close: index });
+        }
+      }
+    }
+  }
+
+  let result = tex;
+  for (const { index, text } of pairs
+    .flatMap(({ open, close }) => [{ index: open, text: "\\left[" }, { index: close, text: "\\right]" }])
+    .sort((a, b) => b.index - a.index)) {
+    result = `${result.slice(0, index)}${text}${result.slice(index + 1)}`;
+  }
+  return result;
+}
+
+/** `[` で省略可能引数を取る命令。ほかの命令 (`\quad`・`\displaystyle` など) の後の `[` は本文の括弧として数える。 */
+const OPTIONAL_ARGUMENT_COMMAND = /^\\(?:sqrt|x[A-Za-z]*arrow|\\|newline|placeholder)$/;
+const SIZED_DELIMITER_COMMAND = /^\\(?:left|right|middle|[bB]igg?[lrm]?)$/;
+
+/** `open` にある `[` と対になる `]` の位置。入れ子の `[` `]` と波括弧を数える。閉じていなければ -1。 */
+function findOptionalArgumentEnd(tex: string, open: number): number {
+  let brackets = 0;
+  let braces = 0;
+  for (let index = open; index < tex.length; index += 1) {
+    const char = tex[index];
+    if (char === "\\") {
+      index += 1;
+    } else if (char === "{") {
+      braces += 1;
+    } else if (char === "}") {
+      braces -= 1;
+    } else if (char === "[" && braces === 0) {
+      brackets += 1;
+    } else if (char === "]" && braces === 0) {
+      brackets -= 1;
+      if (brackets === 0) {
+        return index;
+      }
+    }
+  }
+  return -1;
 }
 
 /** 編集中の `math-field` に与える `defaultMode`。静的側の前置と同じ 1 つの値から導く。 */

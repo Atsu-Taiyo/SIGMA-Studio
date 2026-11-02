@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyMathTypesetStyle,
   displayStyleTabularCells,
+  growEvaluationBrackets,
   resolveMathTypesetStyle,
 } from "./math-typeset-style";
 
@@ -103,5 +104,75 @@ describe("displayStyleTabularCells", () => {
     ]) {
       expect(displayStyleTabularCells(tex)).toBe(tex);
     }
+  });
+});
+
+describe("growEvaluationBrackets", () => {
+  const S = String.raw`\vphantom{\int}`;
+
+  it("grows the [F(x)]_a^b bracket of a definite integral to the integral sign's height", () => {
+    expect(growEvaluationBrackets(String.raw`\int_0^1 (3x^2+1)\,dx = \left[ x^3+x \right]_0^1`))
+      .toBe(String.raw`\int_0^1 (3x^2+1)\,dx = \left[ ${S} x^3+x \right]_0^1`);
+  });
+
+  it("handles the \\lbrack spelling MathLive writes and limits in either order", () => {
+    expect(growEvaluationBrackets(String.raw`=\left\lbrack x^3+x\right\rbrack_0^1`))
+      .toBe(String.raw`=\left\lbrack ${S} x^3+x\right\rbrack_0^1`);
+    expect(growEvaluationBrackets(String.raw`\left[ F(x) \right]^{b}_{a}`))
+      .toBe(String.raw`\left[ ${S} F(x) \right]^{b}_{a}`);
+  });
+
+  it("leaves brackets without limits, other delimiters and plain intervals alone", () => {
+    for (const tex of [
+      String.raw`x \in \left[ 0, 1 \right]`,
+      String.raw`\left( x \right)_0^1`,
+      String.raw`\left\lbrace x \right\rbrace^2`,
+      String.raw`\left[ x \right)^2`,
+    ]) {
+      expect(growEvaluationBrackets(tex)).toBe(tex);
+    }
+  });
+
+  it("turns a plain [F(x)]_a^b without \\left into a stretchy bracket of the same height", () => {
+    expect(growEvaluationBrackets(String.raw`\int_0^1 (3x^2+1)\,dx = [x^3+x]_0^1`))
+      .toBe(String.raw`\int_0^1 (3x^2+1)\,dx = \left[ ${S}x^3+x\right]_0^1`);
+    expect(growEvaluationBrackets(String.raw`[\frac{1}{3}x^3]_{1}^{2}`))
+      .toBe(String.raw`\left[ ${S}\frac{1}{3}x^3\right]_{1}^{2}`);
+    expect(growEvaluationBrackets(String.raw`= \quad [x]_0^1`)).toBe(String.raw`= \quad \left[ ${S}x\right]_0^1`);
+    expect(growEvaluationBrackets(String.raw`[\sqrt[3]{x} + \left( x \right)]_0^1`))
+      .toBe(String.raw`\left[ ${S}\sqrt[3]{x} + \left( x \right)\right]_0^1`);
+  });
+
+  it("leaves plain brackets that are intervals, optional arguments or sized delimiters alone", () => {
+    for (const tex of [
+      String.raw`x \in [0, 1]`,
+      String.raw`[0, 1)^2`,
+      String.raw`\sqrt[3]{x}^2`,
+      String.raw`\begin{aligned}a\\[2pt]_b\end{aligned}`,
+      String.raw`\bigl[ x \bigr]_0^1`,
+      String.raw`\Big[ x \Big]^1_0`,
+      String.raw`{[x}]_0^1`,
+      String.raw`[\left( x ]_0^1`,
+    ]) {
+      expect(growEvaluationBrackets(tex)).toBe(tex);
+    }
+  });
+
+  it("grows nested and repeated evaluation brackets independently", () => {
+    expect(growEvaluationBrackets(String.raw`\left[ \left( x \right) \right]_0^1 + \left[ y \right]_1^2`))
+      .toBe(String.raw`\left[ ${S} \left( x \right) \right]_0^1 + \left[ ${S} y \right]_1^2`);
+  });
+
+  it("is idempotent and leaves unfinished input untouched", () => {
+    const once = growEvaluationBrackets(String.raw`\left[ x \right]_0^1`);
+    expect(growEvaluationBrackets(once)).toBe(once);
+    expect(growEvaluationBrackets(String.raw`\left[ x \right]_0^1 + \left[ y`)).toBe(String.raw`\left[ x \right]_0^1 + \left[ y`);
+    expect(growEvaluationBrackets(String.raw`x \right]_0^1`)).toBe(String.raw`x \right]_0^1`);
+  });
+
+  it("is applied only for displaystyle documents", () => {
+    const tex = String.raw`\left[ x \right]_0^1`;
+    expect(applyMathTypesetStyle(tex, "displaystyle")).toBe(String.raw`${D} \left[ ${S} x \right]_0^1`);
+    expect(applyMathTypesetStyle(tex, "textstyle")).toBe(String.raw`\textstyle ${tex}`);
   });
 });
