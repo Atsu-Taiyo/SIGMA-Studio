@@ -110,6 +110,21 @@ describe("displayStyleTabularCells", () => {
 describe("growEvaluationBrackets", () => {
   const S = String.raw`\vphantom{\int}`;
 
+  it.each(["\n", "\r\n"])("preserves comment tokens instead of pairing their brackets (%j)", newline => {
+    const tex = String.raw`[x % ]_0^1` + newline + String.raw`]_0^1`;
+    expect(growEvaluationBrackets(tex)).toBe(tex);
+  });
+
+  it("preserves comments after escaped backslashes", () => {
+    const tex = String.raw`[x\\% ]_0^1` + "\n" + String.raw`]_0^1`;
+    expect(growEvaluationBrackets(tex)).toBe(tex);
+  });
+
+  it("still stretches brackets containing an escaped percent sign", () => {
+    expect(growEvaluationBrackets(String.raw`[x+20\%]_0^1`))
+      .toBe(String.raw`\left[ ${S}x+20\%\right]_0^1`);
+  });
+
   it("grows the [F(x)]_a^b bracket of a definite integral to the integral sign's height", () => {
     expect(growEvaluationBrackets(String.raw`\int_0^1 (3x^2+1)\,dx = \left[ x^3+x \right]_0^1`))
       .toBe(String.raw`\int_0^1 (3x^2+1)\,dx = \left[ ${S} x^3+x \right]_0^1`);

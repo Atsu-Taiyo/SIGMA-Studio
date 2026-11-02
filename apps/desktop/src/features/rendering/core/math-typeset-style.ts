@@ -298,6 +298,9 @@ const EVALUATION_BRACKET_STRUT = String.raw`\vphantom{\int}`;
  * AI や手書きの TeX に多い `\left` の無い `[F(x)]_a^b` も、先に `\left[ … \right]` へ直してから同じ扱いにする。
  */
 export function growEvaluationBrackets(tex: string): string {
+  // This delimiter scanner does not parse comments. Preserve their original TeX rather than
+  // inserting a closing delimiter inside a comment, where the renderer would discard it.
+  if (containsTexComment(tex)) return tex;
   tex = stretchPlainEvaluationBrackets(tex);
   if (!tex.includes("\\left")) {
     return tex;
@@ -339,6 +342,14 @@ export function growEvaluationBrackets(tex: string): string {
     result = `${result.slice(0, index)} ${EVALUATION_BRACKET_STRUT}${result.slice(index)}`;
   }
   return result;
+}
+
+function containsTexComment(tex: string): boolean {
+  for (let index = 0; index < tex.length; index += 1) {
+    if (tex[index] === "\\") index += 1;
+    else if (tex[index] === "%") return true;
+  }
+  return false;
 }
 
 /**
