@@ -35,6 +35,9 @@ test("commented evaluation formulas survive native save, restart, preview and PD
         { type: "paragraph", id: "control_line", children: [
           { type: "mathInline", id: "plain_evaluation", tex: "[x^3+x]_0^1", display: "inline" },
         ] },
+        { type: "paragraph", id: "interval_line", children: [
+          { type: "mathInline", id: "interval_power", tex: String.raw`x\in[0,1]^2`, display: "inline" },
+        ] },
       ],
     };
     const fileId = await page.evaluate(async document => {
@@ -53,6 +56,9 @@ test("commented evaluation formulas survive native save, restart, preview and PD
       const control = page.locator('.page-flow [data-id="plain_evaluation"]').first();
       await expect(control).toBeVisible();
       await expect(control.locator(".ML__error")).toHaveCount(0);
+      const interval = page.locator('.page-flow [data-id="interval_power"]').first();
+      await expect(interval).toBeVisible();
+      await expect(interval.locator(".ML__error")).toHaveCount(0);
     };
     const savedTex = () => page.evaluate(async id => {
       const document = await window.desktopAPI!.storage.loadDocument(id);

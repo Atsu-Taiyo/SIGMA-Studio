@@ -125,6 +125,20 @@ describe("growEvaluationBrackets", () => {
       .toBe(String.raw`\left[ ${S}x+20\%\right]_0^1`);
   });
 
+  it.each([
+    String.raw`x\in[0,1]^2`, String.raw`[x]_R`, String.raw`\left[A,B\right]^\dagger`,
+    String.raw`[x]_a^`, String.raw`[x]_a_b`,
+  ])("leaves single scripts and incomplete evaluation limits alone: %s", tex => {
+    expect(growEvaluationBrackets(tex)).toBe(tex);
+  });
+
+  it("recognizes both bounds as complete TeX arguments", () => {
+    expect(growEvaluationBrackets(String.raw`[x] _{a+1} ^\beta`))
+      .toBe(String.raw`\left[ ${S}x\right] _{a+1} ^\beta`);
+    expect(growEvaluationBrackets(String.raw`\left[x\right]^\beta_\alpha`))
+      .toBe(String.raw`\left[ ${S}x\right]^\beta_\alpha`);
+  });
+
   it("grows the [F(x)]_a^b bracket of a definite integral to the integral sign's height", () => {
     expect(growEvaluationBrackets(String.raw`\int_0^1 (3x^2+1)\,dx = \left[ x^3+x \right]_0^1`))
       .toBe(String.raw`\int_0^1 (3x^2+1)\,dx = \left[ ${S} x^3+x \right]_0^1`);

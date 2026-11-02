@@ -293,7 +293,7 @@ const EVALUATION_BRACKET_STRUT = String.raw`\vphantom{\int}`;
  * 括弧の内側に見えない `\vphantom{\int}` を置いて高さの下限にする (中身が高ければ従来どおり中身に合わせて伸びる)。
  * `\Bigl[` などの固定サイズにしないのは、分数を含む中身で括弧が足りなくなり、MathLive では `=` との間隔も詰まるため。
  *
- * 対象は `\right]` の直後に上付き・下付きが続く (= 区間の値を取る) 角括弧だけ。区間 `[a, b]` や、
+ * 対象は `\right]` の直後に上限・下限の両方が続く角括弧だけ。区間 `[a, b]^2` や、
  * すでに `\vphantom{\int}` を置いた括弧はそのまま残す。対応の取れない入力途中の式も触らない。
  * AI や手書きの TeX に多い `\left` の無い `[F(x)]_a^b` も、先に `\left[ … \right]` へ直してから同じ扱いにする。
  */
@@ -329,7 +329,7 @@ export function growEvaluationBrackets(tex: string): string {
     }
     const after = tex.slice(match.index + close[0].length).trimStart();
     const inside = tex.slice(open.end).trimStart();
-    if (/^[_^]/.test(after) && !inside.startsWith(EVALUATION_BRACKET_STRUT)) {
+    if (hasEvaluationLimits(after) && !inside.startsWith(EVALUATION_BRACKET_STRUT)) {
       inserts.push(open.end);
     }
   }
@@ -352,11 +352,38 @@ function containsTexComment(tex: string): boolean {
   return false;
 }
 
+/** Bounds must have both scripts; a single script can denote an interval power or matrix index. */
+function hasEvaluationLimits(tex: string): boolean {
+  const source = tex.trimStart();
+  const first = source[0];
+  if (first !== "_" && first !== "^") return false;
+  const firstEnd = scriptArgumentEnd(source, 1);
+  if (firstEnd < 0) return false;
+  const rest = source.slice(firstEnd).trimStart();
+  return rest[0] === (first === "_" ? "^" : "_") && scriptArgumentEnd(rest, 1) >= 0;
+}
+
+/** Consume a grouped bound or one TeX token, without expanding commands or changing source. */
+function scriptArgumentEnd(tex: string, from: number): number {
+  let index = from;
+  while (/\s/.test(tex[index] ?? "") && index < tex.length) index += 1;
+  if (index >= tex.length || /[}_^]/.test(tex[index])) return -1;
+  if (tex[index] === "{") {
+    const close = findBalancedBraceEnd(tex, index);
+    return close < 0 ? -1 : close + 1;
+  }
+  if (tex[index] === "\\") {
+    const command = /^\\(?:[A-Za-z]+|[^])/u.exec(tex.slice(index));
+    return command ? index + command[0].length : -1;
+  }
+  return index + (tex.codePointAt(index)! > 0xffff ? 2 : 1);
+}
+
 /**
  * `\left` の無い `[ … ]_a^b` を `\left[ … \right]_a^b` にする。素の `[` `]` は伸びないので、このままでは
  * 括弧を積分記号の高さにできない。
  *
- * 同じ波括弧の深さで対になる `[` と `]` のうち、`]` の直後に `_` か `^` が続くものだけを直す。
+ * 同じ波括弧の深さで対になる `[` と `]` のうち、`]` の直後に上限・下限の両方が続くものだけを直す。
  * `\sqrt[3]`・`\\[2pt]` の省略可能引数と、`\bigl[`・`\right]` などの大きさ指定済みの区切りは数えない。中の `\left` と `\right` の数が合わないときは、包むと対応が崩れるので触らない。
  */
 function stretchPlainEvaluationBrackets(tex: string): string {
@@ -402,7 +429,7 @@ function stretchPlainEvaluationBrackets(tex: string): string {
         continue;
       }
       opens.pop();
-      if (/^\s*[_^]/.test(tex.slice(index + 1))) {
+      if (hasEvaluationLimits(tex.slice(index + 1))) {
         const inside = tex.slice(open.index + 1, index);
         const lefts = inside.match(/\\left(?![A-Za-z])/g)?.length ?? 0;
         const rights = inside.match(/\\right(?![A-Za-z])/g)?.length ?? 0;
