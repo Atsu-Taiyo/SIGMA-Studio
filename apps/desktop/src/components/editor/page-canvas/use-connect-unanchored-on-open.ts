@@ -1,8 +1,9 @@
 "use client";
-import { normalizeOverlaySnapshot, type PageOverlay } from "@/features/document";
+import { normalizeOverlaySnapshot, type OverlayShape, type PageOverlay } from "@/features/document";
 import { useEffect, useRef, type RefObject } from "react";
 import type { MeasuredBlock } from "../overlay-canvas/anchor";
 import { connectUnanchoredShapesToBody, type BodyPageBand } from "../overlay-canvas/connect-unanchored-shapes";
+import { areOverlayAnchorsEqual } from "../overlay-canvas/reanchor-model";
 import { isTextFlowMeasurementReady } from "../text-flow/measurement-revision";
 
 /**
@@ -50,7 +51,8 @@ export function useConnectUnanchoredOnOpen({
   onReanchorOverlayRef,
   untouchableShapeIdsRef,
 }: ConnectUnanchoredOnOpenInputs): void {
-  const passRef = useRef<{ docId: string; done: boolean }>({ docId, done: false });
+  type OpeningShape = Pick<OverlayShape, "x" | "y" | "rotation" | "parentId" | "anchor">;
+  const passRef = useRef<{ docId: string; done: boolean; openingShapes?: ReadonlyMap<string, OpeningShape> }>({ docId, done: false });
   const { pageStridePx, contentTopPx, contentHeightPx } = band;
 
   useEffect(() => {
@@ -58,6 +60,14 @@ export function useConnectUnanchoredOnOpen({
       passRef.current = { docId, done: false };
     }
     const pass = passRef.current;
+    // 表示の絞り込みや計測待ちの間に追加された図形は、開いた教材の補修対象ではない。
+    // 待ち始める前の位置と錨も保持し、その後に人が動かした図形を補修で上書きしない。
+    const openingShapes = pass.openingShapes ??= new Map<string, OpeningShape>(
+      overlayRef.current?.overlaySnapshot?.shapes.map((shape) => [shape.id, {
+        x: shape.x, y: shape.y, rotation: shape.rotation, parentId: shape.parentId,
+        anchor: structuredClone(shape.anchor),
+      }]),
+    );
     if (pass.done) {
       return;
     }
@@ -94,11 +104,20 @@ export function useConnectUnanchoredOnOpen({
         return;
       }
       const normalized = normalizeOverlaySnapshot(snapshot);
+      const untouchable = new Set(untouchableShapeIdsRef.current);
+      for (const shape of normalized.shapes) {
+        const original = openingShapes.get(shape.id);
+        if (!original || original.x !== shape.x || original.y !== shape.y ||
+          original.rotation !== shape.rotation || original.parentId !== shape.parentId ||
+          original.anchor?.type !== shape.anchor?.type || !areOverlayAnchorsEqual(original.anchor, shape.anchor)) {
+          untouchable.add(shape.id);
+        }
+      }
       const shapes = connectUnanchoredShapesToBody(
         normalized.shapes,
         blocks,
         { pageStridePx, contentTopPx, contentHeightPx },
-        { untouchableShapeIds: untouchableShapeIdsRef.current ?? undefined },
+        { untouchableShapeIds: untouchable },
       );
       if (shapes === normalized.shapes) {
         return;
