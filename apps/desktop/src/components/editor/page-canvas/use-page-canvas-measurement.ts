@@ -63,6 +63,7 @@ import {
   type LineMeasureCache,
 } from "./layout-measure";
 import { type PageLayoutSnapshot } from "./layout-snapshot";
+import { useConnectUnanchoredOnOpen } from "./use-connect-unanchored-on-open";
 import { resolveOverlayBleed } from "./overlay-bleed";
 import { waitForSpaceAfterCommitPaint } from "./space-after-commit-paint";
 import { SpaceAfterDragSession } from "./space-after-drag-session";
@@ -86,6 +87,16 @@ interface MeasurementDocument {
   onReanchorOverlay: (overlay: PageOverlay) => void;
   /** 固定の補修が書き換えない図形 (`OverlayEditPolicy.preservedShapeIds`)。 */
   preservedShapeIds?: ReadonlySet<string>;
+  /**
+   * 変更口が人の編集を断る図形 (`OverlayEditPolicy.lockedShapeIds`。AI が編集中の図形など)。開いたときに本文へ
+   * 繋ぐ書き換えも、これに触れるとコミットごと断られるので外す。
+   */
+  lockedShapeIds?: ReadonlySet<string>;
+  /**
+   * 紙面の一部を描いていない (設定 > 表示 で問題の領域を絞っている)。本文の高さが本来と違うので、開いたときに
+   * 本文へ繋ぐのは絞りを外すまで待つ。
+   */
+  layoutFiltered?: boolean;
   /**
    * フロー内の拡張ノードの並びと中身の版 (`PageCanvasInlineContent.measureRevision`)。拡張ノードは
    * 文書ではないので、中身が同じ高さで変わっても文書の変化・ResizeObserver のどちらも鳴らない。
@@ -123,7 +134,7 @@ interface PageCanvasMeasurementInputs {
 
 /** Owns the one flow measurement/pagination session and all its asynchronous resources. */
 export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfter }: PageCanvasMeasurementInputs) {
-  const { pageDocument, units, historyRevision, overlay, overlaySource, pendingDeletion, onReanchorOverlay, extensionMeasureKey = "", preservedShapeIds = NO_PRESERVED_SHAPE_IDS } = content;
+  const { pageDocument, units, historyRevision, overlay, overlaySource, pendingDeletion, onReanchorOverlay, extensionMeasureKey = "", preservedShapeIds = NO_PRESERVED_SHAPE_IDS, lockedShapeIds = NO_PRESERVED_SHAPE_IDS, layoutFiltered = false } = content;
   const { metrics, zoom, fontSize, isWhiteboard, isPagedRender } = geometry;
   const singleArrangement = useMemo(() => createPageArrangement({
     mode: "single", pageWidth: metrics.page.widthPx, pageHeight: metrics.page.heightPx, pageGap: PAGE_GAP_PX,
@@ -197,6 +208,11 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
 
   const onReanchorOverlayRef = useRef(onReanchorOverlay);
   const preservedShapeIdsRef = useRef(preservedShapeIds);
+  const untouchableShapeIds = useMemo<ReadonlySet<string>>(
+    () => lockedShapeIds.size === 0 ? preservedShapeIds : new Set([...preservedShapeIds, ...lockedShapeIds]),
+    [lockedShapeIds, preservedShapeIds],
+  );
+  const untouchableShapeIdsRef = useRef(untouchableShapeIds);
 
   const lastHandledDeletionRef = useRef(0);
 
@@ -304,7 +320,8 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
 
   useLayoutEffect(() => {
     preservedShapeIdsRef.current = preservedShapeIds;
-  }, [preservedShapeIds]);
+    untouchableShapeIdsRef.current = untouchableShapeIds;
+  }, [preservedShapeIds, untouchableShapeIds]);
 
   // A shape inserted by AI or an importer may omit its body anchor. As soon as
   // the body is measurable (and therefore visible), attach it to nearby text.
@@ -335,6 +352,20 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
     overlayRef.current = nextOverlay;
     onReanchorOverlayRef.current(nextOverlay);
   }, [isWhiteboard, layoutViewState.blockRects, overlay.overlaySnapshot, pageHeightPx]);
+
+  // 開いたときに 1 回だけ、本文と繋がっていない図形 (ページに固定・上の補修が届かなかった錨なし) を、
+  // その図形がある高さの本文へ繋ぐ。紙面が落ち着くまで待つ。
+  useConnectUnanchoredOnOpen({
+    docId: pageDocument.docId,
+    enabled: !isWhiteboard && !isPagedRender && pageDocument.metadata?.source?.layoutMode !== "fixedOverlay",
+    paused: layoutFiltered,
+    flowRef,
+    blocks: layoutViewState.blockAnchorable,
+    band: { pageStridePx: pageHeightPx + PAGE_GAP_PX, contentTopPx: marginTopPx, contentHeightPx },
+    overlayRef,
+    onReanchorOverlayRef,
+    untouchableShapeIdsRef,
+  });
 
   // When a content block is deleted, re-anchor figures glued to it and move them
   // UP by the deleted content's height (mirror of how a newline pushes them
