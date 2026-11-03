@@ -191,8 +191,8 @@ function isGroupMember(shape: OverlayShape, groupIds: ReadonlySet<OverlayShapeId
  * re-pick the block it hangs from — otherwise it stays bound to whatever paragraph it was dropped
  * near originally, and hands that stale block to every member.
  */
-function withAncestorGroupIds(
-  shapes: readonly OverlayShape[],
+export function withAncestorGroupIds(
+  shapes: readonly Pick<OverlayShape, "id" | "type" | "parentId">[],
   ids: ReadonlySet<OverlayShapeId>,
 ): Set<OverlayShapeId> {
   const expanded = new Set(ids);

@@ -3,7 +3,7 @@ import { normalizeOverlaySnapshot, type OverlayShape, type PageOverlay } from "@
 import { useEffect, useRef, type RefObject } from "react";
 import type { MeasuredBlock } from "../overlay-canvas/anchor";
 import { connectUnanchoredShapesToBody, type BodyPageBand } from "../overlay-canvas/connect-unanchored-shapes";
-import { areOverlayAnchorsEqual } from "../overlay-canvas/reanchor-model";
+import { areOverlayAnchorsEqual, withAncestorGroupIds } from "../overlay-canvas/reanchor-model";
 import { isTextFlowMeasurementReady } from "../text-flow/measurement-revision";
 
 /**
@@ -51,7 +51,7 @@ export function useConnectUnanchoredOnOpen({
   onReanchorOverlayRef,
   untouchableShapeIdsRef,
 }: ConnectUnanchoredOnOpenInputs): void {
-  type OpeningShape = Pick<OverlayShape, "x" | "y" | "rotation" | "parentId" | "anchor">;
+  type OpeningShape = Pick<OverlayShape, "id" | "type" | "x" | "y" | "rotation" | "parentId" | "anchor">;
   const passRef = useRef<{ docId: string; done: boolean; openingShapes?: ReadonlyMap<string, OpeningShape> }>({ docId, done: false });
   const { pageStridePx, contentTopPx, contentHeightPx } = band;
 
@@ -60,14 +60,6 @@ export function useConnectUnanchoredOnOpen({
       passRef.current = { docId, done: false };
     }
     const pass = passRef.current;
-    // 表示の絞り込みや計測待ちの間に追加された図形は、開いた教材の補修対象ではない。
-    // 待ち始める前の位置と錨も保持し、その後に人が動かした図形を補修で上書きしない。
-    const openingShapes = pass.openingShapes ??= new Map<string, OpeningShape>(
-      overlayRef.current?.overlaySnapshot?.shapes.map((shape) => [shape.id, {
-        x: shape.x, y: shape.y, rotation: shape.rotation, parentId: shape.parentId,
-        anchor: structuredClone(shape.anchor),
-      }]),
-    );
     if (pass.done) {
       return;
     }
@@ -75,6 +67,14 @@ export function useConnectUnanchoredOnOpen({
       pass.done = true;
       return;
     }
+    // 表示の絞り込みや計測待ちの間に追加された図形は、開いた教材の補修対象ではない。
+    // 待ち始める前の位置と錨も保持し、その後に人が動かした図形を補修で上書きしない。
+    const openingShapes = pass.openingShapes ??= new Map<string, OpeningShape>(
+      normalizeOverlaySnapshot(overlayRef.current?.overlaySnapshot).shapes.map((shape) => [shape.id, {
+        id: shape.id, type: shape.type, x: shape.x, y: shape.y, rotation: shape.rotation, parentId: shape.parentId,
+        anchor: structuredClone(shape.anchor),
+      }]),
+    );
     if (paused || blocks.length === 0) {
       return;
     }
@@ -105,6 +105,10 @@ export function useConnectUnanchoredOnOpen({
       }
       const normalized = normalizeOverlaySnapshot(snapshot);
       const untouchable = new Set(untouchableShapeIdsRef.current);
+      const currentIds = new Set(normalized.shapes.map((shape) => shape.id));
+      for (const id of openingShapes.keys()) {
+        if (!currentIds.has(id)) untouchable.add(id);
+      }
       for (const shape of normalized.shapes) {
         const original = openingShapes.get(shape.id);
         if (!original || original.x !== shape.x || original.y !== shape.y ||
@@ -113,11 +117,14 @@ export function useConnectUnanchoredOnOpen({
           untouchable.add(shape.id);
         }
       }
+      // 部品だけを守ると親と兄弟だけが別の錨へ移り、図が裂ける。移動元と移動先の祖先を両方守る。
+      const protectedGroups = withAncestorGroupIds(normalized.shapes,
+        withAncestorGroupIds([...openingShapes.values()], untouchable));
       const shapes = connectUnanchoredShapesToBody(
         normalized.shapes,
         blocks,
         { pageStridePx, contentTopPx, contentHeightPx },
-        { untouchableShapeIds: untouchable },
+        { untouchableShapeIds: protectedGroups },
       );
       if (shapes === normalized.shapes) {
         return;

@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { OverlayShape, PageOverlay } from "@/features/document";
+import { normalizeOverlaySnapshot, type OverlayShape, type PageOverlay } from "@/features/document";
 import { useConnectUnanchoredOnOpen } from "./use-connect-unanchored-on-open";
 
 type Inputs = Parameters<typeof useConnectUnanchoredOnOpen>[0];
@@ -14,7 +14,7 @@ const shape = (id: string): OverlayShape => ({
   id, type: "geo", x: 400, y: 125, anchor: { type: "page" },
   props: { w: 80, h: 30, geo: "rectangle", fill: "none", color: "black", labelColor: "black", dash: "solid", size: "m" },
 });
-const overlay = (shapes: OverlayShape[]): PageOverlay => ({ overlaySnapshot: { version: 1, assets: {}, shapes } });
+const overlay = (shapes: OverlayShape[]): PageOverlay => ({ overlaySnapshot: normalizeOverlaySnapshot({ version: 1, assets: {}, shapes }) });
 function Probe() { useConnectUnanchoredOnOpen(inputs); return null; }
 const render = () => act(async () => root.render(<Probe />));
 const settle = () => act(async () => { vi.advanceTimersByTime(300); });
@@ -81,6 +81,44 @@ it("does not overwrite an anchor changed by the user while the pass is paused", 
   inputs.paused = false; await render(); await settle();
   expect(inputs.overlayRef.current!.overlaySnapshot!.shapes).toEqual([fixed]);
   expect(commit).not.toHaveBeenCalled();
+});
+
+for (const edit of ["move", "insert", "delete", "reparent"] as const) {
+  it(`preserves the whole group after a member ${edit} during the delay`, async () => {
+    const group = (id: string, parentId?: string): OverlayShape => ({
+      id, type: "group", x: 400, y: 125, parentId, anchor: { type: "page" }, props: { w: 80, h: 50 },
+    });
+    const outer = group("outer"); const inner = group("inner", "outer");
+    const member = { ...shape("member"), parentId: "inner" };
+    const sibling = { ...shape("sibling"), parentId: "inner" };
+    inputs.overlayRef.current = overlay([outer, inner, member, sibling]);
+    await render();
+    const edited = edit === "move"
+      ? [outer, inner, { ...member, y: 135 }, sibling]
+      : edit === "insert"
+        ? [outer, inner, member, sibling, { ...shape("inserted"), parentId: "inner" }]
+        : edit === "delete"
+          ? [outer, inner, sibling]
+          : [outer, inner, { ...member, parentId: "outer" }, sibling];
+    const editedOverlay = overlay(edited);
+    inputs.overlayRef.current = editedOverlay;
+    await settle();
+    expect(inputs.overlayRef.current!.overlaySnapshot!.shapes).toEqual(editedOverlay.overlaySnapshot!.shapes);
+    expect(commit).not.toHaveBeenCalled();
+  });
+}
+
+it("still connects an unchanged group and its members as one figure", async () => {
+  inputs.overlayRef.current = overlay([
+    { id: "group", type: "group", x: 400, y: 125, anchor: { type: "page" }, props: { w: 80, h: 50 } },
+    { ...shape("member"), parentId: "group" },
+    { ...shape("sibling"), y: 145, parentId: "group" },
+  ]);
+  await render(); await settle();
+  expect(commit).toHaveBeenCalledOnce();
+  for (const item of inputs.overlayRef.current!.overlaySnapshot!.shapes) {
+    expect(item.anchor).toMatchObject({ type: "block", blockId: "body" });
+  }
 });
 
 it("cancels a pending document pass on unmount", async () => {
