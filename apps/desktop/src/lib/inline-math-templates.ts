@@ -132,7 +132,7 @@ export const INLINE_MATH_TEMPLATE_GROUPS: MathTemplateGroup[] = [
   {
     id: "accents",
     templates: [
-      { id: "vector-accent", label: "vector", tex: "\\vec{#?}" },
+      { id: "vector-accent", label: "vector", tex: "\\vv{#?}" },
       { id: "overline", label: "overline", tex: "\\overline{#?}" },
       { id: "hat", label: "hat", tex: "\\hat{#?}" },
       { id: "dot", label: "dot", tex: "\\dot{#?}" },

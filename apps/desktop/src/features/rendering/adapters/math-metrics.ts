@@ -251,7 +251,9 @@ function computeTreeWidthEm(node: KatexTreeNode, scale: number): number {
     total = Math.max(total, explicitWidth * scale);
   }
   if (typeof node.width === "number") {
-    total = Math.max(total, node.width * scale);
+    // A KaTeX rule is sized in its own reset size (`katex-rule reset-sizeN sizeM`),
+    // e.g. a display-size rule inside a script. Other leaves inherit their parent's.
+    total = Math.max(total, node.width * (classes.includes("katex-rule") ? nextScale : scale));
   }
 
   return total;

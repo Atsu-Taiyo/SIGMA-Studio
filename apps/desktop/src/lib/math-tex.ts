@@ -1,5 +1,6 @@
 import katex from "katex";
 import { convertLatexToMarkup, validateLatex } from "mathlive";
+import { normalizeEsvectMarkup } from "@/lib/esvect";
 import { normalizeMathLiveBoxMarkup } from "@/lib/mathlive-box-layout";
 import { withMathLiveDefaultMacros } from "@/lib/mathlive-default-macros";
 import { readMathTextFormat } from "@/lib/math-text-format";
@@ -95,7 +96,8 @@ function renderMathMarkup(tex: string, environment: MathRenderEnvironment): stri
   );
 
   if (!MATHLIVE_ERROR_CLASS_PATTERN.test(mathLiveMarkup)) {
-    return normalizeMathLiveBoxMarkup(mathLiveMarkup);
+    // esvect `\vv`: draw the arrow into the box its macro reserved (lib/esvect.ts).
+    return normalizeEsvectMarkup(normalizeMathLiveBoxMarkup(mathLiveMarkup));
   }
 
   // MathLive が描けなかった式だけ KaTeX へ。どちらも駄目なら MathLive のエラー markup を見せる。
@@ -117,6 +119,24 @@ export function validateMathTex(
   const mathLiveIssues = validateLatex(normalizePhysicsTex(tex, macroSet.physicsOverrides));
   if (mathLiveIssues.length === 0) {
     return [];
+  }
+
+  // The syntax validator cannot receive macros. Confirm unknown commands by
+  // rendering with the same macro environment as display/editing, so a valid
+  // custom macro combined with MathLive-only syntax is not rejected merely
+  // because the KaTeX fallback cannot parse that other syntax. Structural
+  // syntax errors still retain their original diagnostics.
+  if (mathLiveIssues.every((issue) => issue.code === "unknown-command")) {
+    try {
+      const markup = convertLatexToMarkup(toMathLivePreviewTex(tex, macroSet) || "\\square", {
+        defaultMode: "math",
+        macros: withMathLiveDefaultMacros(macroSet.mathLiveMacros),
+      });
+      if (!MATHLIVE_ERROR_CLASS_PATTERN.test(markup)) return [];
+    } catch {
+      // A generator rejection is not evidence of valid mathematical input.
+      return mathLiveIssues;
+    }
   }
 
   return renderKatexIfValid(toKatexPreviewTex(tex, macroSet) || "\\square", macroSet) === null
@@ -379,7 +399,7 @@ function clampMathTexCursor(cursor: number, tex: string): number {
 
 function renderKatexIfValid(tex: string, macroSet: MathMacroSet = DEFAULT_MATH_MACRO_SET): string | null {
   try {
-    return katex.renderToString(tex, { ...KATEX_RENDER_OPTIONS, macros: macroSet.katexMacros });
+    return normalizeEsvectMarkup(katex.renderToString(tex, { ...KATEX_RENDER_OPTIONS, macros: macroSet.katexMacros }));
   } catch {
     return null;
   }

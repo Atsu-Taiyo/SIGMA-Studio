@@ -29,6 +29,14 @@ const REAL_BOX_HEIGHT_EM: readonly (readonly [tex: string, realEm: number])[] = 
 const MAX_OVERESTIMATE_FACTOR = 1.4;
 
 describe("measureTexBoxEm", () => {
+  it("widths a display-size rule inside a script in its own size, as KaTeX draws it", () => {
+    const width = (tex: string) => measureTexBoxEm(tex, DEFAULT_MATH_RENDER_ENVIRONMENT).widthEm;
+    // KaTeX rules carry their own reset-size classes; the rule is 1em, not 0.7em.
+    expect(width(String.raw`x^{\displaystyle\rule{1em}{0em}}`) - width("x")).toBeGreaterThanOrEqual(1);
+    // Rules that inherit the script size keep the existing behaviour.
+    expect(width(String.raw`x_{\rule{1em}{0em}}`)).toBeCloseTo(width(String.raw`x^{\displaystyle\rule{1em}{0em}}`), 6);
+  });
+
   it("reserves space for visible fallback symbols absent from KaTeX fonts", () => {
     const one = measureTexBoxEm(String.raw`\text{❲}`, DEFAULT_MATH_RENDER_ENVIRONMENT);
     const two = measureTexBoxEm(String.raw`\text{❲❳}`, DEFAULT_MATH_RENDER_ENVIRONMENT);
