@@ -1,3 +1,4 @@
+import { handleSessionPrompts } from "./session-prompts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -42,11 +43,11 @@ test("opening a material connects figures fixed to the page to the body text at 
   const app = await electron.launch({ args: [root, `--user-data-dir=${profile}`], cwd: root, env });
   try {
     const page = await app.firstWindow();
+    await handleSessionPrompts(page);
     await (await app.browserWindow(page)).evaluate(win => win.setContentSize(1400, 900));
     await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
     await page.evaluate(() => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
-      localStorage.setItem("sigma-studio:github-star-dismissed:v1", "1");
     });
 
     const body = structuredClone(sampleDocument);
