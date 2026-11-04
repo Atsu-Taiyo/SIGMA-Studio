@@ -43,6 +43,8 @@ async function launch() {
   };
   const fileId = await page.evaluate(async document => {
     localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+    // Main settings and renderer locale storage have separate owners. Seed both before reload.
+    localStorage.setItem("sigma-studio:ui-locale", "ja");
     localStorage.setItem("sigma-studio:inline-math-input-mode", "mathlive");
     await window.desktopAPI!.settings!.setUiLocale!("ja");
     const { file } = await window.desktopAPI!.storage.createFileFromDocument({ document });
@@ -51,6 +53,7 @@ async function launch() {
   }, source);
   await page.reload();
   await expect(page.locator(".startup-splash")).toBeHidden();
+  await expect(page.locator("html")).toHaveAttribute("lang", "ja");
   await page.evaluate(() => document.fonts.ready);
   return { app, page, fileId, profile };
 }
