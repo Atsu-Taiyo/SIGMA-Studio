@@ -1,4 +1,5 @@
 "use client";
+import { flushSync } from "react-dom";
 import { useOwnsEditorInput } from "@/components/editor/editor-input-context";
 
 import { isTextPointerSelectionClick } from "@/components/editor/text-pointer-selection";
@@ -1655,9 +1656,14 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
   }, [dragIndex, onSelect]);
 
   const insertBodyBlockAtPoint = useCallback((insertPoint: BlockInsertPoint) => {
-    onInsertBodyBlock?.(insertPoint.anchorBlockId, insertPoint.position, insertPoint.container);
-    setBlockSelection(EMPTY_BLOCK_SELECTION);
-    setBlockAffordance(EMPTY_BLOCK_AFFORDANCE_HOVER);
+    // The next native input can arrive before an animation-frame focus callback.
+    // Mount the new paragraph and deliver its caret before the click returns.
+    flushSync(() => {
+      onInsertBodyBlock?.(insertPoint.anchorBlockId, insertPoint.position, insertPoint.container);
+      setBlockSelection(EMPTY_BLOCK_SELECTION);
+      setBlockAffordance(EMPTY_BLOCK_AFFORDANCE_HOVER);
+    });
+    flushPendingCaret();
   }, [onInsertBodyBlock]);
 
   // A selection whose blocks no longer exist (an AI edit landed, undo ran) is dropped on the
