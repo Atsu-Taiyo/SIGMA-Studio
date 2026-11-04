@@ -601,7 +601,11 @@ export class DesktopSharedCatalog {
     return {
       initializeWorkspace: async payload => {
         await this.account();
-        const raw = await this.local.withLocalLibrary(() => this.local.initializeWorkspace(payload));
+        // Closing the last empty private draft can leave only shared tabs. Their
+        // saved state is authoritative; a private-only bootstrap would throw before
+        // those visible shared files can be restored.
+        const raw = this.cache?.data.workspaceState
+          ?? await this.local.withLocalLibrary(() => this.local.initializeWorkspace(payload));
         const visible = new Set((await this.listFiles()).map(file => file.fileId));
         if (!visible.size) {
           return this.local.withLocalLibrary(async () => {

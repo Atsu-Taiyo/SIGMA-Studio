@@ -730,3 +730,24 @@ it.each(["createdAt", "updatedAt"] as const)("ignores a non-string %s left in an
   expect(reopened.data.revision).toBe(1);
   expect(f.open).not.toHaveBeenCalled();
 });
+
+it("restores cached shared tabs after the last private draft was discarded", async () => {
+  const f = await fixture();
+  const privateFiles = await f.local.listFiles();
+  const remote = node("document");
+  f.setNodes([remote]);
+  await f.catalog.refresh();
+  const sharedFile = (await f.local.listFiles()).find(file => file.sharing)!;
+  const saved = { openFileIds: [sharedFile.fileId], activeFileId: sharedFile.fileId };
+  await f.local.saveWorkspace(saved);
+  for (const file of privateFiles) await f.local.deleteFile(file.fileId);
+  expect((await f.local.getLocalLibrarySnapshot()).files).toEqual([]);
+  f.request.mockClear();
+
+  const restarted = new LocalSigmaDocStore(f.directory);
+  const catalog = new DesktopSharedCatalog(f.directory, restarted, f.sessions, () => {});
+  restarted.setLibraryAuthority(catalog.authority());
+  expect(await restarted.initializeWorkspace({ initialDocument: createBlankDocument() })).toEqual(saved);
+  expect((await restarted.getLocalLibrarySnapshot()).files).toEqual([]);
+  expect(f.request.mock.calls.some(([route]) => route.startsWith("/documents/"))).toBe(false);
+});
