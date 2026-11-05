@@ -278,6 +278,11 @@ export function useDocumentBodyCommands({ getDocument, selectedId, getSelectedId
     }
   };
 
+  const requestBodyParagraphCaret = (blockId: string) => {
+    const address = { blockId, offset: 0, affinity: "after" as const, kind: "text" as const };
+    requestCaret({ anchor: address, head: address, preferredX: null });
+  };
+
   /** Adds an empty paragraph next to `anchorBlockId`, or at the end when it is null. */
   const insertBodyBlockAt = (anchorBlockId: string | null, position: "before" | "after", container?: BlockInsertContainer) => {
     if (container?.kind === "problemAreaEnd") {
@@ -291,7 +296,7 @@ export function useDocumentBodyCommands({ getDocument, selectedId, getSelectedId
       }));
       setSelectedInlineMath(null);
       setSelectedId(block.id);
-      scheduleEditorBlockFocus(block.id);
+      requestBodyParagraphCaret(block.id);
       return;
     }
     // Clicking the blank strip under the text repeatedly must not stack empty paragraphs:
@@ -300,7 +305,7 @@ export function useDocumentBodyCommands({ getDocument, selectedId, getSelectedId
       const lastBlock = getDocument().content.at(-1);
       if (lastBlock && isEmptyTopLevelTextFlowBlock(lastBlock)) {
         setSelectedId(lastBlock.id);
-        scheduleEditorBlockFocus(lastBlock.id);
+        requestBodyParagraphCaret(lastBlock.id);
         return;
       }
     }
@@ -313,7 +318,7 @@ export function useDocumentBodyCommands({ getDocument, selectedId, getSelectedId
     ));
     setSelectedInlineMath(null);
     setSelectedId(block.id);
-    scheduleEditorBlockFocus(block.id);
+    requestBodyParagraphCaret(block.id);
   };
 
   /**
@@ -330,7 +335,7 @@ export function useDocumentBodyCommands({ getDocument, selectedId, getSelectedId
     if (last?.type === "paragraph" && isEmptyTopLevelTextFlowBlock(last)) {
       setSelectedInlineMath(null);
       setSelectedId(last.id);
-      scheduleEditorBlockFocus(last.id);
+      requestBodyParagraphCaret(last.id);
       return;
     }
 
@@ -338,7 +343,7 @@ export function useDocumentBodyCommands({ getDocument, selectedId, getSelectedId
     commitDocumentChange((current) => addRichBlockToProblem(current, problemId, area, block));
     setSelectedInlineMath(null);
     setSelectedId(block.id);
-    scheduleEditorBlockFocus(block.id);
+    requestBodyParagraphCaret(block.id);
   };
 
   const copyBlockToClipboard = (blockId: string) => {

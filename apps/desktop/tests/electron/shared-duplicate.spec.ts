@@ -1,3 +1,4 @@
+import { handleSessionPrompts } from "./session-prompts";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
@@ -69,6 +70,7 @@ test("rejects malformed catalog dates before caching and recovers dates from an 
       ? { executablePath: createRequire(path.join(root, "package.json"))("electron") as string } : {};
     app = await electron.launch({ ...nativeKeyring, args: [root], cwd: root, env });
     const page = await app.firstWindow();
+    await handleSessionPrompts(page);
     await page.waitForFunction(() => Boolean(window.desktopAPI?.sharedCatalog));
     await expect(page.locator(".startup-splash")).toBeHidden();
     await page.evaluate(() => window.desktopAPI!.sharedCatalog!.setVisible(false));
@@ -277,6 +279,7 @@ test("duplicates shared materials with their images, explains failures, and retr
       : {};
     app = await electron.launch({ ...nativeKeyring, args: [root], cwd: root, env });
     const page = await app.firstWindow();
+    await handleSessionPrompts(page);
     await page.waitForFunction(() => Boolean(window.desktopAPI?.collaboration));
     return page;
   };
@@ -292,9 +295,12 @@ test("duplicates shared materials with their images, explains failures, and retr
   try {
     // First run, signed out: the app's own settings, and encrypted credentials for the fixture account.
     let page = await launch();
+    // The bridge exists before the first library initialization has completed.
+    // Seed account state only after the signed-out workspace is ready.
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible();
     const home = await page.evaluate(async () => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
-      localStorage.setItem("sigma-studio:github-star-dismissed:v1", "1");
       await window.desktopAPI!.settings!.setUiLocale!("ja");
       const overview = await window.desktopAPI!.storage.getWorkspaceOverview();
       if (overview.state !== "ready") throw new Error("NO_LIBRARY");
