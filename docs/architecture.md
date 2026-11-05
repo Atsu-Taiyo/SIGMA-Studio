@@ -473,7 +473,7 @@ MathLiveを使います。
 AI生成SVGもSigmaDocの`OverlayAsset`と`image` shapeとして保存します。`insert_svg_image` / `update_svg_image`はローカルMCPとWebMCPから同じdraft実装を呼び、静的SVGの要素・属性・外部参照・サイズを検証して承認待ち提案を作ります。SVG原文はアセットのdata URLに保持し、本文構造やキャンバス全体の正本にはしません。本文とは独立した画像なので、配置はページプレビューで確認します。ローカルMCPは既存のPNG検証結果、WebMCPは画面上の提案プレビューを返します。承認前の挿入→画像差し替えも操作順に描画し、更新後のアセットを使います。
 
 
-ドキュメント全体で**1つの連続したオーバーレイ**（`pageLayout.overlay`）を持ち、シェイプは全ページにまたがる連続キャンバス座標で配置します。各シェイプは本文ブロックへ `anchor` でき、`dy` とブロック左端基準の `dx` によってテキストのリフローや段移動に追従します。AIやimportからanchorなしのシェイプが入った場合も、本文が画面上で測定可能になった時点で近傍の本文ブロックへ自動でanchorし、SigmaDocへ確定します。必要に応じてブロック内の表示行にも `line` 補助アンカーを持たせ、アンカー行そのものの移動にも追従します。アンカーUIとoverlay座標は本文flowの外にあり、図形の位置やアンカー操作によって本文の高さ・改ページは変えません。用紙サイズが変わっても、オーバーレイはその時点のページmetricsを使って表示・SVG切り出しを行います。
+ドキュメント全体で**1つの連続したオーバーレイ**（`pageLayout.overlay`）を持ち、シェイプは全ページにまたがる連続キャンバス座標で配置します。各シェイプは本文ブロックへ `anchor` でき、`dy` とブロック左端基準の `dx` によってテキストのリフローや段移動に追従します。AIやimportからanchorなしのシェイプが入った場合も、本文が画面上で測定可能になった時点で近傍の本文ブロックへ自動でanchorし、SigmaDocへ確定します。教材を開いたときには、本文と繋がっていない図形 (anchorなし・`page` anchor) を、紙面が落ち着いてから1回だけ、その図形がある高さの本文 (同じページ・同じ段。段は図形の高さにある本文の左右の範囲で決め、ページ内の段組の上下にある全幅の段落も候補に残します) へ繋ぎます (`page-canvas/use-connect-unanchored-on-open.ts`、決め方は `overlay-canvas/connect-unanchored-shapes.ts`)。図形は動かさず、重なり合う図形は1つの図として同じブロック・同じ行へ繋ぎ、すでに本文や別の図形へ繋がっている図形は変えません。ロックした図形、本文域のほぼ全高を占める図形、上下の余白だけにある図形、本文の無いページの図形はページの飾りとして `page` のままにし、ホワイトボードと固定オーバーレイの取り込み (`metadata.source.layoutMode: "fixedOverlay"`) は対象外です。必要に応じてブロック内の表示行にも `line` 補助アンカーを持たせ、アンカー行そのものの移動にも追従します。アンカーUIとoverlay座標は本文flowの外にあり、図形の位置やアンカー操作によって本文の高さ・改ページは変えません。用紙サイズが変わっても、オーバーレイはその時点のページmetricsを使って表示・SVG切り出しを行います。
 
 本文の範囲選択と図形選択が同時に立っているコピーは、本文のProseMirror sliceと図形を `textAndShapes` payloadにまとめます。
 貼り付けで生成した本文ブロックはidを再採番し、コピー範囲内のブロックへ向いていた図形のanchorを対応する貼り付け先ブロックへ付け替えます。
@@ -483,7 +483,7 @@ overlayは見た目のレイヤーとして `stackLayer: "background" | "foregro
 
 紙面の重なりは下から 本文 (`.page-flow`) → 図形 (`.page-overlay-layer`) → 紙面の操作 (`.page-controls-layer`) の順です。拡張が紙面に置く操作 (AI提案の承認バーなど) は図形より上の操作の層に描きます。本文フローの中に組まれる部品は `.page-flow` の重なりの文脈から出られないので、本文には同じ寸法の見えない場所取りだけを残し、操作そのものを `page-canvas/page-controls-layer.tsx` の `LiftedPageControl` で層へ持ち上げて重ねます。`data-page-control` を持つ要素の上の押下は、紙面の図形の当たり判定 (`handlePagePointerDownCapture`) に回しません。
 
-図形の問題エリア所属は、shapeに専用fieldを増やさず `anchor.blockId` から導出します。`anchor.type === "block"` の `blockId` が `problem.lead`、`problem.prompt`、`problem.hints`、`problem.solution` 内のrich blockを指す場合、そのshapeは該当エリア所属です。`anchor.type === "shape"` のshapeは親shapeの所属と出力可否を継承します。明示的な `anchor.type === "page"`、または本文をまだ測定できず自動anchorが確定していない互換データは文書共通として扱い、生徒版/解答冊子などの問題エリア表示制御では隠しません。
+図形の問題エリア所属は、shapeに専用fieldを増やさず `anchor.blockId` から導出します。`anchor.type === "block"` の `blockId` が `problem.lead`、`problem.prompt`、`problem.hints`、`problem.solution` 内のrich blockを指す場合、そのshapeは該当エリア所属です。`anchor.type === "shape"` のshapeは親shapeの所属と出力可否を継承します。`anchor.type === "page"` (開いたときの接続でもページの飾りとして残ったもの・固定オーバーレイの取り込み)、または本文をまだ測定できず自動anchorが確定していない互換データは文書共通として扱い、生徒版/解答冊子などの問題エリア表示制御では隠しません。開いたときに問題エリアの本文へ繋がった図形は、そのエリアの表示可否に従います。
 
 担当範囲（シェイプ種別）:
 

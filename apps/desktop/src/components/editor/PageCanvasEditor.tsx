@@ -63,6 +63,7 @@ import {
   displayToModel,
   getVisibleOverlayShapes,
   isProblemAreaDisplayed,
+  isProblemDisplayFiltered,
   pageIndexAtDisplayPoint,
   pageOrigin,
   type PageArrangementMode,
@@ -910,7 +911,7 @@ const {
     markFullMeasureDirty,
     bleed
   } = usePageCanvasMeasurement({
-    content: { pageDocument, units, historyRevision, overlay, overlaySource: document.pageLayout?.overlay, pendingDeletion, onReanchorOverlay, extensionMeasureKey, preservedShapeIds: editorExtensions?.overlayEditPolicy?.preservedShapeIds },
+    content: { pageDocument, units, historyRevision, overlay, overlaySource: document.pageLayout?.overlay, pendingDeletion, onReanchorOverlay, extensionMeasureKey, preservedShapeIds: editorExtensions?.overlayEditPolicy?.preservedShapeIds, lockedShapeIds: editorExtensions?.overlayEditPolicy?.lockedShapeIds, layoutFiltered: problemDisplay !== undefined && isProblemDisplayFiltered(problemDisplay) },
     geometry: { metrics, zoom, fontSize, isWhiteboard, isPagedRender, arrangement },
     surface: { flowRef, canvasRef, flowElement },
     spaceAfter: { spaceAfterSessionRef, setSpaceAfterDrag, setBlockAffordance },

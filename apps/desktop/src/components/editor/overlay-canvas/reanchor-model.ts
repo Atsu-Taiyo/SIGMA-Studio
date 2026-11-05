@@ -59,7 +59,11 @@ export function inheritGroupAnchorsForMembers(
   shapes: OverlayShape[],
   blocks: readonly MeasuredBlock[] | ReadonlyMap<string, MeasuredBlock>,
   reserveSpaceGaps: OverlayBlockGapMap = {},
-  options: { onlyUnanchored?: boolean } = {},
+  options: {
+    onlyUnanchored?: boolean;
+    /** `onlyUnanchored` でも、ページに固定された (本文と繋がっていない) メンバーはグループの錨を継ぐ。 */
+    rebindPageAnchoredMembers?: boolean;
+  } = {},
 ): OverlayShape[] {
   const groupIds = getGroupIds(shapes);
   if (groupIds.size === 0) {
@@ -86,7 +90,10 @@ export function inheritGroupAnchorsForMembers(
     visited.add(group.id);
 
     for (const member of membersByGroupId.get(group.id) ?? []) {
-      const anchor = options.onlyUnanchored && member.anchor !== undefined
+      const keepsOwnAnchor = options.onlyUnanchored === true &&
+        member.anchor !== undefined &&
+        !(options.rebindPageAnchoredMembers === true && member.anchor.type === "page");
+      const anchor = keepsOwnAnchor
         ? null
         : getInheritedMemberAnchor(member, group.anchor, blockById, reserveSpaceGaps);
       const next = anchor && !areOverlayAnchorsEqual(member.anchor, anchor)
@@ -184,8 +191,8 @@ function isGroupMember(shape: OverlayShape, groupIds: ReadonlySet<OverlayShapeId
  * re-pick the block it hangs from — otherwise it stays bound to whatever paragraph it was dropped
  * near originally, and hands that stale block to every member.
  */
-function withAncestorGroupIds(
-  shapes: readonly OverlayShape[],
+export function withAncestorGroupIds(
+  shapes: readonly Pick<OverlayShape, "id" | "type" | "parentId">[],
   ids: ReadonlySet<OverlayShapeId>,
 ): Set<OverlayShapeId> {
   const expanded = new Set(ids);
