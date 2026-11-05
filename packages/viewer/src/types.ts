@@ -226,7 +226,9 @@ export interface ProblemAreaLayout {
     };
     marginTopPx?: number;
     marginBottomPx?: number;
-    /** Optional area width, capped at the available column width. */
+    /** Explicit allowance past the column edge, in logical CSS pixels. */
+    rightOverhangPx?: number;
+    /** Optional area width, capped at the available column width plus explicit overhang. */
     widthMm?: number;
     offsetXPx?: number;
     columnSpan?: ProblemAreaColumnSpan;
