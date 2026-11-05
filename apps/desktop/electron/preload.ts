@@ -23,6 +23,8 @@ const desktopAPI = {
     library: {
       access: () => ipcRenderer.invoke("problems:library-access"),
       search: (request: unknown) => ipcRenderer.invoke("problems:library-search", request),
+      searchPage: (request: unknown) => ipcRenderer.invoke("problems:library-page", request),
+      counts: (request: unknown) => ipcRenderer.invoke("problems:library-counts", request),
       facets: (request: unknown) => ipcRenderer.invoke("problems:library-facets", request),
       get: (request: unknown) => ipcRenderer.invoke("problems:library-get", request),
     },

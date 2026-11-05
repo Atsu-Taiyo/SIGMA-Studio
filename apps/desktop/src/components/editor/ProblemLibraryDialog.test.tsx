@@ -434,3 +434,66 @@ describe("members-only library", () => {
     expect(en("problemLibrary.libraryErrors.fontFailed")).toBe("Could not load the fonts this material uses. Please try again.");
   });
 });
+
+
+describe("progressive library search", () => {
+  it("shows and pages selectable results before counts, without zeroing classifications", async () => {
+    let resolveCounts!: (value: unknown) => void;
+    const counts = vi.fn(() => new Promise(resolve => { resolveCounts = resolve; }));
+    const searchPage = vi.fn(async ({ offset = 0 }: { offset?: number }) => ({ ok: true,
+      page: { results: [summary(offset ? "lib_next" : "lib_first")], hasMore: offset === 0 } }));
+    const bridge = libraryBridge({ searchPage, counts });
+    const f = setupMember(bridge); await flush();
+    await act(async () => radio(LABEL).click()); await flush();
+    expect(bridge.search).not.toHaveBeenCalled();
+    expect(document.querySelector("article")?.textContent).toContain("lib_first");
+    expect(document.body.textContent).toContain("件数を集計中");
+    expect(facetButton(UNIT).querySelector('[class*="facetCount"]')).toBeNull();
+    expect(facetButton(LEVEL).dataset.empty).toBeUndefined();
+    const countCalls = counts.mock.calls.length;
+    await act(async () => button("もっと見る").click()); await flush();
+    expect(searchPage).toHaveBeenLastCalledWith({ facets: [], limit: 24, offset: 1 });
+    expect(counts).toHaveBeenCalledTimes(countCalls);
+    expect(document.querySelectorAll("article")).toHaveLength(2);
+    await act(async () => resolveCounts({ ok: true, counts: { total: 2, facetCounts: { [UNIT]: 2 } } })); await flush();
+    expect(document.body.textContent).toContain("2件中 2件を表示");
+    expect(document.querySelectorAll("article")).toHaveLength(2);
+    expect(facetButton(LEVEL).dataset.empty).toBe("true");
+    await act(async () => document.querySelector<HTMLButtonElement>("article button")!.click());
+    expect(f.onImport).toHaveBeenCalledOnce();
+  });
+  it("keeps results usable when aggregation fails and retries", async () => {
+    const bridge = libraryBridge({
+      searchPage: vi.fn().mockResolvedValue({ ok: true, page: { results: [summary("lib_a")], hasMore: false } }),
+      counts: vi.fn().mockRejectedValue(new Error("offline")),
+    });
+    const f = setupMember(bridge); await flush();
+    await act(async () => radio(LABEL).click()); await flush();
+    expect(document.querySelector("article")?.textContent).toContain("lib_a");
+    expect(document.body.textContent).toContain("件数を取得できませんでした");
+    expect(document.body.textContent).not.toContain("件数を集計中");
+    await act(async () => button("再読み込み").click()); await flush();
+    expect(bridge.searchPage).toHaveBeenCalledTimes(3);
+    await act(async () => document.querySelector<HTMLButtonElement>("article button")!.click());
+    expect(f.onImport).toHaveBeenCalledOnce();
+  });
+  it("ignores old counts and does not run counts when the page fails", async () => {
+    let resolveOld!: (value: unknown) => void;
+    const counts = vi.fn(({ facets }: { facets: string[] }) => facets.length === 0
+      ? new Promise(resolve => { resolveOld = resolve; })
+      : Promise.resolve({ ok: true, counts: { total: 1, facetCounts: { [UNIT]: 1 } } }));
+    const bridge = libraryBridge({ searchPage: vi.fn().mockResolvedValue({ ok: true,
+      page: { results: [summary("lib_current")], hasMore: false } }), counts });
+    setupMember(bridge); await flush();
+    await act(async () => radio(LABEL).click()); await flush();
+    await act(async () => facetButton(UNIT).click()); await flush();
+    await act(async () => resolveOld({ ok: true, counts: { total: 999, facetCounts: {} } })); await flush();
+    expect(document.body.textContent).toContain("1件中 1件を表示");
+    expect(document.body.textContent).not.toContain("999");
+    const calls = counts.mock.calls.length;
+    bridge.searchPage!.mockResolvedValue({ ok: false, error: "通信エラー" });
+    await act(async () => facetButton(UNIT).click()); await flush();
+    expect(counts).toHaveBeenCalledTimes(calls);
+    expect(document.body.textContent).toContain("通信エラー");
+  });
+});
