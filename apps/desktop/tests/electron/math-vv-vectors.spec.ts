@@ -7,7 +7,7 @@ import type { SigmaDocument } from "@/features/document";
 import { ORDERED_INLINE_MATH_TEMPLATE_GROUPS } from "@/lib/inline-math-templates";
 
 const APP_ROOT = path.resolve(__dirname, "../..");
-const ARROW = ".sigma-esvect-d-arrow";
+const ARROW = ".sigma-vv-arrow";
 
 function launchEnv(profile: string) {
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
@@ -28,13 +28,14 @@ async function open(app: ElectronApplication): Promise<Page> {
 const math = (id: string, tex: string) => ({ type: "paragraph" as const, id, children: [{ type: "mathInline" as const, id: `${id}_math`, tex, display: "inline" as const }] });
 
 async function launch() {
-  const profile = mkdtempSync(path.join(tmpdir(), "sigma-esvect-"));
+  const profile = mkdtempSync(path.join(tmpdir(), "sigma-vv-"));
   const app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env: launchEnv(profile) });
   const page = await open(app);
   const source: SigmaDocument = {
-    version: "2.0", docId: "esvect_vectors", metadata: { title: "ベクトル" },
+    version: "2.0", docId: "vv_vectors", metadata: { title: "ベクトル" },
     content: [
       math("vector", String.raw`\vv{AB}`),
+      math("roman", String.raw`\vv{\mathrm{OA}}+\vv{\mathrm{OB}}`),
       math("legacy", String.raw`\vec{a}+\overrightarrow{AB}`),
       math("script", String.raw`x_{\vv{u}}+\left\lvert\vv{AB}\right\rvert^{2}`),
       ...["p0", "p1"].map(id => ({ type: "paragraph" as const, id, children: [{ type: "text" as const, text: id }] })),
@@ -62,7 +63,7 @@ async function launch() {
 async function arrowGeometry(root: Locator) {
   return root.evaluate(element => {
     const scope = element.querySelector("math-field")?.shadowRoot ?? element;
-    const arrow = scope.querySelector<HTMLElement>(".sigma-esvect-d-arrow");
+    const arrow = scope.querySelector<HTMLElement>(".sigma-vv-arrow");
     if (!arrow) return null;
     const operandRow = Array.from(arrow.parentElement!.children).find(row => row !== arrow && !row.querySelector(".ML__rule"));
     const walker = operandRow && document.createTreeWalker(operandRow, NodeFilter.SHOW_TEXT);
@@ -72,7 +73,10 @@ async function arrowGeometry(root: Locator) {
     range.selectNodeContents(text);
     const em = parseFloat(getComputedStyle(arrow).fontSize);
     const a = arrow.getBoundingClientRect();
-    return { rise: (range.getBoundingClientRect().top - a.top) / em, width: a.width / em };
+    const glyphs = document.createRange();
+    glyphs.selectNodeContents(operandRow!);
+    const operand = glyphs.getBoundingClientRect();
+    return { rise: (range.getBoundingClientRect().top - a.top) / em, width: a.width / em, operandWidth: operand.width / em };
   });
 }
 
@@ -96,7 +100,7 @@ async function savedMath(page: Page, fileId: string) {
   ]));
 }
 
-test("esvect \\vv renders, edits in the same box, inserts from the palette and shortcut, and saves", async () => {
+test("\\vv renders, edits in the same box, inserts from the palette and shortcut, and saves", async () => {
   test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Build Electron first");
   test.skip(!process.env.SIGMA_STUDIO_E2E_BASE_URL && !existsSync(path.join(APP_ROOT, "out/index.html")), "Build the renderer first");
   const { app, page, fileId, profile } = await launch();
@@ -106,14 +110,20 @@ test("esvect \\vv renders, edits in the same box, inserts from the palette and s
   try {
     const vector = page.locator('.page-flow [data-id="vector_math"]').first();
     await expect(vector.locator(ARROW)).toHaveCount(1);
+    // Upright operands: \vv{\mathrm{OA}} draws one arrow per vector, as wide as its letters.
+    const roman = page.locator('.page-flow [data-id="roman_math"]').first();
+    await expect(roman.locator(ARROW)).toHaveCount(2);
+    await expect(roman.locator(".ML__error")).toHaveCount(0);
+    const romanGeometry = (await arrowGeometry(roman))!;
+    expect(Math.abs(romanGeometry.width - romanGeometry.operandWidth)).toBeLessThan(0.02);
     // Existing \vec and \overrightarrow documents keep rendering as before.
     const legacy = page.locator('.page-flow [data-id="legacy_math"]').first();
     await expect(legacy.locator(ARROW)).toHaveCount(0);
     await expect(legacy.locator(".ML__error")).toHaveCount(0);
-    // Inside a script the arrow keeps esvect's place above the operand and its width.
+    // Inside a script the arrow keeps its place above the operand and its width.
     const script = page.locator('.page-flow [data-id="script_math"]').first();
     await expect(script.locator(ARROW)).toHaveCount(2);
-    // (The scripted vector's arrow stays at esvect's 0.8334em minimum, not the parent's size.)
+    // (The scripted vector's arrow stays at the 0.8em minimum, not the parent's size.)
     expect((await arrowGeometry(script))!.width).toBeLessThan(0.9);
 
     // Editing: the same box and arrow as the page, and an edit inside the vector is kept.
@@ -121,7 +131,7 @@ test("esvect \\vv renders, edits in the same box, inserts from the palette and s
     await vector.click();
     const field = vector.locator("math-field");
     await expect(field).toBeFocused();
-    await expect.poll(() => field.evaluate(el => el.shadowRoot?.querySelectorAll(".sigma-esvect-d-arrow").length)).toBe(1);
+    await expect.poll(() => field.evaluate(el => el.shadowRoot?.querySelectorAll(".sigma-vv-arrow").length)).toBe(1);
     const editingGeometry = (await arrowGeometry(vector))!;
     expect(Math.abs(editingGeometry.rise - staticGeometry.rise)).toBeLessThan(0.02);
     expect(Math.abs(editingGeometry.width - staticGeometry.width)).toBeLessThan(0.02);
@@ -135,6 +145,16 @@ test("esvect \\vv renders, edits in the same box, inserts from the palette and s
     await expect.poll(() => field.evaluate(el => (el as MathfieldElement).getValue("latex"))).toBe(String.raw`\vv{ACB}`);
     await page.keyboard.press("Escape");
     await expect(vector.locator("math-field")).toHaveCount(0);
+    await roman.click();
+    const romanField = roman.locator("math-field");
+    await expect(romanField).toBeFocused();
+    await expect.poll(() => romanField.evaluate(el => el.shadowRoot?.querySelectorAll(".sigma-vv-arrow").length)).toBe(2);
+    const romanEditing = (await arrowGeometry(roman))!;
+    expect(Math.abs(romanEditing.rise - romanGeometry.rise)).toBeLessThan(0.02);
+    expect(Math.abs(romanEditing.width - romanGeometry.width)).toBeLessThan(0.02);
+    await expect.poll(() => romanField.evaluate(el => (el as MathfieldElement).getValue("latex"))).toBe(String.raw`\vv{\mathrm{OA}}+\vv{\mathrm{OB}}`);
+    await page.keyboard.press("Escape");
+    await expect(roman.locator("math-field")).toHaveCount(0);
 
     // The Σ palette's vector template and Ctrl+W insert \vv.
     const templates = ORDERED_INLINE_MATH_TEMPLATE_GROUPS.flatMap(group => group.templates);
@@ -155,7 +175,12 @@ test("esvect \\vv renders, edits in the same box, inserts from the palette and s
     await expect(p1.locator("math-field")).toHaveCount(0);
 
     await page.keyboard.press("ControlOrMeta+s");
-    const expected = { vector: String.raw`$\vv{ACB}$`, p0: String.raw`p0$\vv{PQ}$`, p1: String.raw`p1$\vv{a}$` };
+    const expected = {
+      vector: String.raw`$\vv{ACB}$`,
+      roman: String.raw`$\vv{\mathrm{OA}}+\vv{\mathrm{OB}}$`,
+      p0: String.raw`p0$\vv{PQ}$`,
+      p1: String.raw`p1$\vv{a}$`,
+    };
     await expect.poll(() => savedMath(page, fileId)).toMatchObject(expected);
     expect(errors).toEqual([]);
 

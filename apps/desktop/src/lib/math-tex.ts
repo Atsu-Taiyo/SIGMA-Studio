@@ -1,6 +1,6 @@
 import katex from "katex";
 import { convertLatexToMarkup, validateLatex } from "mathlive";
-import { normalizeEsvectMarkup } from "@/lib/esvect";
+import { normalizeVvMarkup } from "@/lib/vv-vector";
 import { normalizeMathLiveBoxMarkup } from "@/lib/mathlive-box-layout";
 import { withMathLiveDefaultMacros } from "@/lib/mathlive-default-macros";
 import { readMathTextFormat } from "@/lib/math-text-format";
@@ -96,8 +96,8 @@ function renderMathMarkup(tex: string, environment: MathRenderEnvironment): stri
   );
 
   if (!MATHLIVE_ERROR_CLASS_PATTERN.test(mathLiveMarkup)) {
-    // esvect `\vv`: draw the arrow into the box its macro reserved (lib/esvect.ts).
-    return normalizeEsvectMarkup(normalizeMathLiveBoxMarkup(mathLiveMarkup));
+    // `\vv`: draw the arrow into the box its macro reserved (lib/vv-vector.ts).
+    return normalizeVvMarkup(normalizeMathLiveBoxMarkup(mathLiveMarkup));
   }
 
   // MathLive が描けなかった式だけ KaTeX へ。どちらも駄目なら MathLive のエラー markup を見せる。
@@ -399,7 +399,7 @@ function clampMathTexCursor(cursor: number, tex: string): number {
 
 function renderKatexIfValid(tex: string, macroSet: MathMacroSet = DEFAULT_MATH_MACRO_SET): string | null {
   try {
-    return normalizeEsvectMarkup(katex.renderToString(tex, { ...KATEX_RENDER_OPTIONS, macros: macroSet.katexMacros }));
+    return normalizeVvMarkup(katex.renderToString(tex, { ...KATEX_RENDER_OPTIONS, macros: macroSet.katexMacros }));
   } catch {
     return null;
   }

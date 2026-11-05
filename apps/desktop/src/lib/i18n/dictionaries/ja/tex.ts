@@ -33,7 +33,7 @@ export const tex = {
     notDefined: "\\{{name}}はまだ定義されていません。",
     tooMany: "独自コマンドは{{max}}件まで定義できます。",
     packageUnsupported: "パッケージ{{name}}にはまだ対応していません。\\usepackage[d]{esvect}だけを読み込めます。",
-    packageOptionUnsupported: "esvectのオプション{{name}}にはまだ対応していません。オプションdの矢印で表示します。",
+    packageOptionUnsupported: "esvectのオプション{{name}}の矢印にはまだ対応していません。標準の矢印で表示します。",
   },
   examples: {
     preambleComment: "このファイルで使うTeXコマンド",

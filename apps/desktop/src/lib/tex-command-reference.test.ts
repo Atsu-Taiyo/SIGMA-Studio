@@ -21,7 +21,7 @@ describe("TeX command reference", () => {
     expect(invalidPreviews).toEqual([]);
   });
 
-  it("uses esvect vectors while retaining legacy command searches", () => {
+  it("uses \\vv vectors while retaining legacy command searches", () => {
     expect(TEX_COMMAND_REFERENCES.find((reference) => reference.id === "vector")?.command).toBe("\\vv{a}");
     expect(TEX_COMMAND_REFERENCES.find((reference) => reference.id === "directed-segment")?.command).toBe("\\vv{AB}");
     expect(filterTexCommandReferences("\\vec{a}").map((reference) => reference.id)).toContain("vector");

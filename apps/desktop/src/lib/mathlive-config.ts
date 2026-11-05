@@ -1,8 +1,8 @@
 import { mathFieldDefaultMode } from "@/features/rendering/core";
 import type { MathRenderEnvironment } from "@/lib/math-environment";
-import { installEsvectEditorSupport } from "@/lib/esvect";
+import { installVvEditorSupport } from "@/lib/vv-vector";
 import {
-  isBuiltInEsvectMacro,
+  isBuiltInVvMacro,
   SIGMA_MATHLIVE_EDITOR_MACROS,
   SIGMA_MATHLIVE_EDITOR_VECTOR_MACRO,
   SIGMA_MATHLIVE_MACRO_STYLES,
@@ -101,10 +101,10 @@ export function configureInlineMathLiveField(
     ...SIGMA_MATHLIVE_EDITOR_MACROS,
     ...environment.macroSet.mathLiveMacros,
   };
-  // The built-in esvect \vv keeps its operand editable; a document's own \vv wins.
-  if (isBuiltInEsvectMacro(macros.vv)) {
+  // The built-in \vv keeps its operand editable; a document's own \vv wins.
+  if (isBuiltInVvMacro(macros.vv)) {
     macros.vv = SIGMA_MATHLIVE_EDITOR_VECTOR_MACRO;
-    installEsvectEditorSupport(mathField);
+    installVvEditorSupport(mathField);
   }
   mathField.macros = macros;
   mathField.popoverPolicy = "auto";

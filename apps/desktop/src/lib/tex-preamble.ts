@@ -53,8 +53,9 @@ export function parseTexPreamble(
     }
     cursor = declaration.end;
     if (declaration.name === "usepackage") {
-      // Built-in packages only. esvect's \vv is always available (lib/esvect.ts);
-      // loading it documents the source preamble. Only option d is drawn.
+      // Built-in packages only. esvect's \vv is always available (lib/vv-vector.ts)
+      // with Sigma's own arrow; loading it documents the source preamble. Option d,
+      // esvect's default, is accepted silently; other options pick arrows we do not draw.
       cursor = skipTrivia(source, cursor);
       const options = source[cursor] === "[" ? readBracket(source, cursor) : { end: cursor, value: "" };
       const nameStart = options ? skipTrivia(source, options.end) : cursor;
