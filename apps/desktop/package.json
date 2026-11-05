@@ -89,7 +89,7 @@
     "eslint-config-next": "^16.4.3",
     "happy-dom": "^21.0.4",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   },
   "overrides": {
     "postcss": "^8.5.28"
