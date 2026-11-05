@@ -1,6 +1,6 @@
 import { mathFieldDefaultMode } from "@/features/rendering/core";
 import type { MathRenderEnvironment } from "@/lib/math-environment";
-import { installVvEditorSupport } from "@/lib/vv-vector";
+import { installVvEditorSupport } from "@/lib/mathlive-vv";
 import {
   isBuiltInVvMacro,
   SIGMA_MATHLIVE_EDITOR_MACROS,
@@ -102,11 +102,12 @@ export function configureInlineMathLiveField(
     ...environment.macroSet.mathLiveMacros,
   };
   // The built-in \vv keeps its operand editable; a document's own \vv wins.
-  if (isBuiltInVvMacro(macros.vv)) {
+  const builtInVv = isBuiltInVvMacro(macros.vv);
+  if (builtInVv) {
     macros.vv = SIGMA_MATHLIVE_EDITOR_VECTOR_MACRO;
-    installVvEditorSupport(mathField);
   }
   mathField.macros = macros;
+  installVvEditorSupport(mathField, builtInVv);
   mathField.popoverPolicy = "auto";
   // 開き括弧を打った時点で閉じ括弧も入る MathLive 標準の挙動 (`\left(\right)` を作る)。
   // 既定値に頼らず明示しておく。閉じ括弧が薄く出ないようにする CSS は
