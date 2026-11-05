@@ -37,6 +37,11 @@ Node.js 24を既に使っている環境では `npm run electron:dev` だけで�
 別の保存先は `SIGMA_STUDIO_USER_DATA_DIR` で指定できます。
 Next.jsの生成物は `.next-electron` に分け、通常のブラウザ開発サーバーと分離します。
 Ctrl+Cまたはアプリの終了で、管理している開発サーバーと監視処理も終了します。
+配布版以外の起動 (`electron:dev`・`electron:preview`・Electronのe2e) では、ウィンドウを表示しても
+フォーカスは奪いません。操作するときはウィンドウをクリックしてください。
+macOSで `SIGMA_STUDIO_LAUNCH_HIDDEN=1` を渡すと、アプリを隠した状態 (⌘Hと同じ) で起動します。
+描画は続くのでPlaywrightの操作とスクリーンショットはそのまま使え、Dockのアイコンで表示できます。
+Electronのe2e (`playwright.electron.config.ts`) は既定でこの状態で起動します。
 
 配布版と同じ静的ファイル読み込みを確認する場合は `npm run electron:preview` を使います。
 このコマンドは通常のアプリ保存先を使うため、調査時は `SIGMA_STUDIO_USER_DATA_DIR` で

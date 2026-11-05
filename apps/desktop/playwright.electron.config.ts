@@ -14,7 +14,13 @@ import { defineConfig } from "@playwright/test";
  * 実行前に `npm run electron:prepare` が要る (spec 側で存在確認して skip する)。
  * 既定の `npm test` / `npm run test:e2e` には**入れない** — 実ビルドを前提にするため。
  * CI に載せるなら Linux では `xvfb-run` が要る。
+ *
+ * 起動したアプリは隠した状態 (⌘H と同じ) で始める (macOS)。作業中のアプリの上に窓が出ず、
+ * クリックが当たってフォーカスが移ることもない。描画は続くので操作とスクリーンショットは
+ * そのまま通る。様子を見たいときは Dock のアイコンを押すか、`SIGMA_STUDIO_LAUNCH_HIDDEN=0` で実行する。
  */
+process.env.SIGMA_STUDIO_LAUNCH_HIDDEN ??= "1";
+
 export default defineConfig({
   testDir: "./tests/electron",
   timeout: 120_000,

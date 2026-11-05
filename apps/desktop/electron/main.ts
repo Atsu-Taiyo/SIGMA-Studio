@@ -115,6 +115,14 @@ const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 app.setName(APP_NAME);
 loadElectronEnvFiles();
 const DEV_SERVER_URL = resolveDevServerUrl(app.isPackaged, process.env.SIGMA_STUDIO_DEV_SERVER_URL);
+// Unpackaged launches (electron:dev restarts, electron:preview, Playwright specs and manual
+// verification) must not take focus from the editor or terminal the developer is typing in.
+// Windows appear without activating the app; Playwright's focus emulation keeps the page focused.
+const OPEN_WINDOWS_INACTIVE = !app.isPackaged;
+// Automated runs can also keep the window out of the way: the app starts hidden like ⌘H, keeps
+// rendering for Playwright, and its Dock icon brings it back for watching.
+let hideOnFirstWindow = OPEN_WINDOWS_INACTIVE && process.platform === "darwin"
+  && process.env.SIGMA_STUDIO_LAUNCH_HIDDEN === "1";
 if (DEV_SERVER_URL) {
   createInterface({ input: process.stdin }).on("line", (line) => {
     if (line === "sigma:quit") app.quit();
@@ -170,6 +178,8 @@ function focusDocumentWindow(): void {
   if (!app.isReady()) return;
   if (!mainWindow || mainWindow.isDestroyed()) createWindow();
   if (mainWindow?.isMinimized()) mainWindow.restore();
+  // A new window reveals itself on ready-to-show; an existing one is left where it is.
+  if (OPEN_WINDOWS_INACTIVE) return;
   mainWindow?.show();
   mainWindow?.focus();
 }
@@ -463,8 +473,7 @@ function createWindow() {
     minHeight: 600,
     title: APP_NAME,
     icon: iconPath,
-    // Development restarts must not interrupt typing in the editor/terminal.
-    show: !DEV_SERVER_URL,
+    show: !OPEN_WINDOWS_INACTIVE,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false,
@@ -477,8 +486,13 @@ function createWindow() {
     if (event.isMainFrame && !event.isSameDocument) linkConfirmation.cancel();
   });
   win.once("closed", () => linkConfirmation.cancel());
-  if (DEV_SERVER_URL) {
-    win.once("ready-to-show", () => win.showInactive());
+  if (OPEN_WINDOWS_INACTIVE) {
+    win.once("ready-to-show", () => {
+      win.showInactive();
+      if (!hideOnFirstWindow) return;
+      hideOnFirstWindow = false;
+      app.hide();
+    });
   }
   activeWindowCloseHandshake = createWindowCloseHandshake({
     sendCloseRequested: () => {
