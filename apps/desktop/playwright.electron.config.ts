@@ -21,6 +21,7 @@ export default defineConfig({
   expect: {
     timeout: 15_000,
   },
+  use: { trace: "retain-on-failure", screenshot: "only-on-failure" },
   fullyParallel: false,
   workers: 1,
   reporter: "list",

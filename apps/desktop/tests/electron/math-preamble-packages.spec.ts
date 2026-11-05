@@ -1,3 +1,4 @@
+import { handleSessionPrompts } from "./session-prompts";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -40,6 +41,7 @@ test("preamble circled numbers and built-in quantities agree in desktop settings
   const app = await electron.launch({ ...(executablePath ? { executablePath } : {}), args: executablePath ? [] : [ROOT], cwd: ROOT, env });
   try {
     const page = await app.firstWindow();
+    await handleSessionPrompts(page);
     await (await app.browserWindow(page)).evaluate(win => win.setContentSize(1400, 1000));
     await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
     const source: SigmaDocument = {
@@ -152,6 +154,42 @@ test("preamble circled numbers and built-in quantities agree in desktop settings
     } finally { await loading.destroy(); }
     expect((await saved())!.content).toEqual(savedContent);
     expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
+  } finally {
+    await app.close();
+    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});
+
+test("preamble circled settings remain reachable when the session invitation appears", async () => {
+  const profile = mkdtempSync(path.join(tmpdir(), "sigma-settings-invitation-"));
+  const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.SIGMA_STUDIO_DEV_SERVER_URL;
+  env.SIGMA_STUDIO_USER_DATA_DIR = profile;
+  if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
+  const app = await electron.launch({ args: [ROOT], cwd: ROOT, env });
+  try {
+    const page = await app.firstWindow();
+    const native = await app.browserWindow(page);
+    await native.evaluate(win => { win.setContentSize(1400, 1000); win.focus(); });
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+    await page.evaluate(async () => {
+      localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      await window.desktopAPI!.settings!.setUiLocale!("ja");
+    });
+    await page.reload();
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    await expect(page.getByRole("button", { name: "設定", exact: true })).toBeVisible();
+    await page.clock.install();
+    await page.evaluate(() => { (document.activeElement as HTMLElement)?.blur(); });
+    await page.clock.fastForward(61_000);
+    const invitation = page.getByRole("dialog", { name: "GitHubのStarで応援しませんか？", exact: true });
+    await expect(invitation).toBeVisible();
+    await handleSessionPrompts(page);
+    await page.getByRole("button", { name: "設定", exact: true }).click();
+    await expect(invitation).toBeHidden();
+    await page.getByRole("menuitem", { name: "TeX・TikZ環境設定" }).click();
+    await expect(page.getByRole("dialog", { name: "TeX環境設定", exact: true })).toBeVisible();
   } finally {
     await app.close();
     rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
