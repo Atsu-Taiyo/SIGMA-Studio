@@ -87,8 +87,10 @@ test("shared selections copy rich links, paste, and reopen the exact range witho
     // Paste into an independent native window with an ordinary rich-text field.
     const newWindow = app.waitForEvent("window");
     const pastedWindow = await app.evaluateHandle(async ({ BrowserWindow }) => {
-      const window = new BrowserWindow({ width: 500, height: 250, webPreferences: { contextIsolation: true, nodeIntegration: false } });
+      // Like the app's own window, appear without taking focus from the developer's work.
+      const window = new BrowserWindow({ show: false, width: 500, height: 250, webPreferences: { contextIsolation: true, nodeIntegration: false } });
       await window.loadURL('data:text/html,<div contenteditable="true" id="paste" style="height:200px"></div>');
+      window.showInactive();
       return window;
     });
     const external = await newWindow;
