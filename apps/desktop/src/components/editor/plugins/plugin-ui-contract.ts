@@ -2,6 +2,7 @@
 export type {
   OfficialOrganization,
   OfficialPluginBridge,
+  OfficialPluginProgress,
   OfficialPluginRow,
   OfficialPluginStatus,
 } from "@/lib/plugin-status-contracts";

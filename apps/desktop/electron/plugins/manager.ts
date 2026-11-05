@@ -1,10 +1,17 @@
 import { EventEmitter } from "node:events";
-import { randomUUID } from "node:crypto";
-import fs from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
+import fs, { type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 import type { ExtensionMenuGroup, ExtensionMenuEntry } from "@/lib/extension-contracts";
-import type { OfficialOrganization, OfficialPluginErrorCode, OfficialPluginRow, OfficialPluginStatus } from "@/lib/plugin-status-contracts";
+import type {
+  OfficialOrganization,
+  OfficialPluginErrorCode,
+  OfficialPluginProgress,
+  OfficialPluginRow,
+  OfficialPluginStatus,
+} from "@/lib/plugin-status-contracts";
 
 import {
   compareVersions,
@@ -16,6 +23,7 @@ import {
   verifyCatalog,
   type Catalog,
   type CatalogEnvelope,
+  type CatalogFile,
   type CatalogMenuSection,
   type CatalogPlugin,
   type ImportFileAction,
@@ -24,6 +32,12 @@ import { loadOrganizationLogo } from "./organization-logo";
 import { createWorkerRunner, type LocalFontBytes, type RunWorker, type WorkerContext } from "./worker-runner";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** ファイルの受信が止まったとみなすまでの時間。大きなファイルでも、データが届き続けていれば待つ。 */
+const STALL_TIMEOUT_MS = 30_000;
+/** 進み具合を描画側へ送る最短の間隔。段階が変わったときはすぐ送る。 */
+const PROGRESS_INTERVAL_MS = 150;
+/** 取得中のファイルを置く場所。検証済みのファイルだけを残し、中断しても次の試行で続きから取る。 */
+const STAGING = ".staging";
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
 async function atomicJson(filename: string, value: unknown): Promise<void> {
@@ -72,6 +86,8 @@ export interface PluginManagerOptions {
   runWorker?: RunWorker;
   loadLocalFonts?: (families: string[], context: WorkerContext) => Promise<LocalFontBytes[]>;
   now?: () => number;
+  /** ファイルの受信が止まったとみなすまでの時間。テスト用の差し替え。 */
+  stallTimeoutMs?: number;
 }
 
 /**
@@ -97,9 +113,12 @@ export class PluginManager extends EventEmitter {
   private readonly registerFonts: NonNullable<PluginManagerOptions["registerFonts"]>;
   private readonly runWorker: RunWorker;
   private readonly now: () => number;
+  private readonly stallTimeoutMs: number;
   private catalog: Catalog | null = null;
   private envelope: CatalogEnvelope | null = null;
   private phase: "idle" | "checking" | "installing" = "idle";
+  private progress: OfficialPluginProgress | null = null;
+  private progressSentAt = 0;
   private error: OfficialPluginErrorCode | undefined;
   private jobs = 0;
   private activating = false;
@@ -114,7 +133,8 @@ export class PluginManager extends EventEmitter {
   private readonly fontOwners = new Map<string, string>();
 
   constructor({ directory, appVersion, catalogUrl, publicKey, authorization, signedIn, fetchImpl = fetch,
-    allowLoopbackHttp = false, registerFonts = async () => {}, runWorker, loadLocalFonts, userId = () => null, now = Date.now }: PluginManagerOptions) {
+    allowLoopbackHttp = false, registerFonts = async () => {}, runWorker, loadLocalFonts, userId = () => null, now = Date.now,
+    stallTimeoutMs = STALL_TIMEOUT_MS }: PluginManagerOptions) {
     super();
     if (!isVersion(appVersion)) throw new Error("INVALID_APP_VERSION");
     this.directory = directory;
@@ -127,6 +147,7 @@ export class PluginManager extends EventEmitter {
     this.runWorker = runWorker ?? createWorkerRunner({ loadLocalFonts });
     this.currentUserId = userId;
     this.now = now;
+    this.stallTimeoutMs = stallTimeoutMs;
     try {
       const url = new URL(catalogUrl ?? "");
       if (url.username || url.password || url.search || url.hash || !url.pathname.endsWith("/catalog")
@@ -225,6 +246,7 @@ export class PluginManager extends EventEmitter {
       phase: this.phase,
       plugins: [...rows.values()],
       ...(this.error ? { error: this.error } : {}),
+      ...(this.progress && this.phase === "installing" && this.hasAccess(this.progress.pluginId) ? { progress: { ...this.progress } } : {}),
     };
   }
 
@@ -284,8 +306,8 @@ export class PluginManager extends EventEmitter {
     return status;
   }
 
-  private async bytes(url: string, maxBytes: number, token: string): Promise<Buffer> {
-    const response = await this.fetchImpl(url, { headers: { Authorization: token }, redirect: "error", signal: AbortSignal.timeout(30_000) });
+  /** 応答の本文を受け取ってよいか。権限の失敗はその種類で、それ以外は取得できなかったものとして返す。 */
+  private async accept(response: Response, maxBytes: number): Promise<ReadableStream<Uint8Array>> {
     if (response.status === 401 || response.status === 403) {
       await response.body?.cancel();
       throw new PluginError(response.status === 401 ? "unauthorized" : "forbidden");
@@ -295,7 +317,12 @@ export class PluginManager extends EventEmitter {
       await response.body?.cancel();
       throw new PluginError("unavailable");
     }
-    const reader = response.body.getReader();
+    return response.body;
+  }
+
+  private async bytes(url: string, maxBytes: number, token: string): Promise<Buffer> {
+    const response = await this.fetchImpl(url, { headers: { Authorization: token }, redirect: "error", signal: AbortSignal.timeout(30_000) });
+    const reader = (await this.accept(response, maxBytes)).getReader();
     const chunks: Uint8Array[] = [];
     let size = 0;
     try {
@@ -473,7 +500,6 @@ export class PluginManager extends EventEmitter {
     this.phase = "installing";
     this.error = undefined;
     this.publish();
-    let stage: string | null = null;
     try {
       const plugin = this.catalog?.plugins.find((candidate) => candidate.id === id);
       if (!plugin) throw new PluginError("unavailable");
@@ -481,31 +507,62 @@ export class PluginManager extends EventEmitter {
       if (compareVersions(this.appVersion, plugin.minAppVersion) < 0) throw new PluginError("incompatible");
       const installed = this.state.installed[id];
       if (installed && compareVersions(plugin.version, installed.version) < 0) throw new PluginError("verification-failed");
-      stage = path.join(this.directory, `.staging-${randomUUID()}`);
+      await this.removeAbandonedStaging();
+      const staging = path.join(this.directory, STAGING, plugin.id);
+      const stage = path.join(staging, plugin.version);
       await fs.mkdir(stage, { recursive: true, mode: 0o700 });
+      const progress: OfficialPluginProgress = {
+        pluginId: id, stage: "verifying", files: plugin.files.length, completedFiles: 0, reusedFiles: 0, downloadBytes: 0, receivedBytes: 0,
+      };
+      this.progress = progress;
+      this.reportProgress(true);
+      // 前の版や中断した取得で、同じ内容のファイルがこのPCにあれば、ダウンロードせずにそれを使う。
+      const sources = await this.localSources(plugin, stage);
+      const missing: CatalogFile[] = [];
       for (const file of plugin.files) {
-        const key = `${plugin.id}/${plugin.version}/${file.path}`;
-        const bytes = await this.bytes(`${this.baseUrl}assets/${key}`, file.bytes, await this.token());
-        if (bytes.length !== file.bytes || digest(bytes) !== file.sha256) throw new PluginError("verification-failed");
-        const target = path.join(stage, file.path);
-        await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-        await fs.writeFile(target, bytes, { mode: 0o600, flag: "wx" });
+        if (await this.reuse(file, path.join(stage, file.path), sources)) {
+          progress.completedFiles += 1;
+          progress.reusedFiles += 1;
+          this.reportProgress();
+        } else {
+          missing.push(file);
+        }
+      }
+      progress.stage = "downloading";
+      progress.downloadBytes = missing.reduce((total, file) => total + file.bytes, 0);
+      if (missing.length) this.reportProgress(true);
+      for (const file of missing) {
+        const url = `${this.baseUrl}assets/${plugin.id}/${plugin.version}/${file.path}`;
+        await this.download(file, url, path.join(stage, file.path), path.join(staging, `.${randomUUID()}.part`), (count) => {
+          progress.receivedBytes += count;
+          this.reportProgress();
+        });
+        progress.completedFiles += 1;
+        this.reportProgress();
       }
       await atomicJson(path.join(stage, "manifest.json"), this.envelope);
       const destination = this.versionDir(plugin);
       await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
       try {
         await fs.rename(stage, destination);
-        stage = null;
       } catch (error) {
         if (!["EEXIST", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
         await this.verifyFiles(plugin, destination);
       }
+      // 版が置けたら、途中の取得 (古い版の分も) は要らない。
+      await fs.rm(staging, { recursive: true, force: true });
+      await fs.rmdir(path.dirname(staging)).catch(() => {});
       // 動いている処理は開始時の版に固定されている。有効にするのは、既存の処理が終わってから。
       this.activating = true;
-      if (this.jobs) await new Promise<void>((resolve) => this.idleWaiters.push(resolve));
+      if (this.jobs) {
+        progress.stage = "waiting";
+        this.reportProgress(true);
+        await new Promise<void>((resolve) => this.idleWaiters.push(resolve));
+      }
       // ダウンロード中や待機中に権限が外れていないかを、有効にする直前にもう一度見る。
       await this.requireAccess(id);
+      progress.stage = "registering";
+      this.reportProgress(true);
       await this.registerFonts(plugin, destination);
       await this.requireAccess(id);
       const previous = this.state.installed[id];
@@ -520,13 +577,134 @@ export class PluginManager extends EventEmitter {
       this.remember(plugin);
       this.error = undefined;
     } catch (error) {
+      // 検証済みのファイルは次の試行のために残る。検証前のバイトは download が消している。
       this.error = errorCode(error);
     } finally {
-      if (stage) await fs.rm(stage, { recursive: true, force: true });
+      this.progress = null;
       this.activating = false;
       this.phase = "idle";
     }
     return this.publish();
+  }
+
+  /** 進み具合を描画側へ送る。ファイルや受信ごとの更新は間引き、段階の切り替えはすぐ送る。 */
+  private reportProgress(force = false): void {
+    const now = performance.now();
+    if (!force && now - this.progressSentAt < PROGRESS_INTERVAL_MS) return;
+    this.progressSentAt = now;
+    this.publish();
+  }
+
+  /** 以前の形式 (`.staging-<uuid>`) で、アプリが途中で終わって残った取得を消す。 */
+  private async removeAbandonedStaging(): Promise<void> {
+    for (const name of await fs.readdir(this.directory).catch(() => [] as string[])) {
+      if (name.startsWith(".staging-")) await fs.rm(path.join(this.directory, name), { recursive: true, force: true });
+    }
+  }
+
+  /** 同じ拡張機能について、このPCにある別の版のディレクトリ。いま入っている版から順に見る。 */
+  private async localSources(plugin: CatalogPlugin, stage: string): Promise<string[]> {
+    const sources: string[] = [];
+    const installed = this.state.installed[plugin.id]?.version;
+    if (installed) sources.push(path.join(this.directory, plugin.id, installed));
+    for (const root of [path.join(this.directory, plugin.id), path.join(this.directory, STAGING, plugin.id)]) {
+      const names = (await fs.readdir(root).catch(() => [] as string[])).filter(isVersion).sort((a, b) => compareVersions(b, a));
+      for (const name of names) {
+        const directory = path.join(root, name);
+        if (directory !== stage && !sources.includes(directory)) sources.push(directory);
+      }
+    }
+    return sources;
+  }
+
+  /** filename が、カタログどおりのバイト数と SHA-256 を持つ通常のファイルか。 */
+  private async matches(filename: string, file: CatalogFile): Promise<boolean> {
+    try {
+      const stat = await fs.lstat(filename);
+      return stat.isFile() && stat.size === file.bytes && digest(await fs.readFile(filename)) === file.sha256;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * このPCにある同じ内容のファイルを target に置く。前の試行で置いたものはそのまま使う。
+   * 版のディレクトリは書き換えないので、ハードリンクで共有する。リンクできない場所ではコピーする。
+   * どの場合も、置いた target 自体をカタログのハッシュで確かめてから使う。
+   */
+  private async reuse(file: CatalogFile, target: string, sources: string[]): Promise<boolean> {
+    if (await this.matches(target, file)) return true;
+    await fs.rm(target, { force: true });
+    for (const source of sources) {
+      const candidate = path.join(source, file.path);
+      try {
+        const stat = await fs.lstat(candidate);
+        if (!stat.isFile() || stat.size !== file.bytes) continue;
+        await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+        await fs.link(candidate, target).catch(() => fs.copyFile(candidate, target, fsConstants.COPYFILE_EXCL | fsConstants.COPYFILE_FICLONE));
+        if (await this.matches(target, file)) return true;
+      } catch { /* この候補は使わない。 */ }
+      await fs.rm(target, { force: true });
+    }
+    return false;
+  }
+
+  /**
+   * 1つのファイルを取得し、バイト数と SHA-256 が合ったときだけ target に置く。
+   * 受け取りながら書き出してハッシュを計算するので、大きなファイルもメモリに溜めない。
+   * 時間の上限はファイル全体ではなく、データが届かない時間にかける。
+   */
+  private async download(file: CatalogFile, url: string, target: string, partial: string, onBytes: (count: number) => void): Promise<void> {
+    const token = await this.token();
+    const controller = new AbortController();
+    // 止まった受信は、fetch の中断に頼らず、待っている読み取りごと打ち切る。
+    let stall!: (error: PluginError) => void;
+    const stalled = new Promise<never>((_resolve, reject) => { stall = reject; });
+    stalled.catch(() => {});
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        controller.abort();
+        stall(new PluginError("unavailable"));
+      }, this.stallTimeoutMs);
+    };
+    let handle: FileHandle | undefined;
+    arm();
+    try {
+      const response = await Promise.race([
+        this.fetchImpl(url, { headers: { Authorization: token }, redirect: "error", signal: controller.signal }),
+        stalled,
+      ]);
+      const reader = (await this.accept(response, file.bytes)).getReader();
+      const hash = createHash("sha256");
+      let size = 0;
+      try {
+        handle = await fs.open(partial, "wx", 0o600);
+        for (;;) {
+          const { done, value } = await Promise.race([reader.read(), stalled]);
+          if (done) break;
+          arm();
+          size += value.length;
+          if (size > file.bytes) throw new PluginError("verification-failed");
+          hash.update(value);
+          for (let offset = 0; offset < value.length;) offset += (await handle.write(value, offset)).bytesWritten;
+          onBytes(value.length);
+        }
+      } finally {
+        await reader.cancel().catch(() => {});
+        reader.releaseLock();
+      }
+      await handle.close();
+      handle = undefined;
+      if (size !== file.bytes || hash.digest("hex") !== file.sha256) throw new PluginError("verification-failed");
+      await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+      await fs.rename(partial, target);
+    } finally {
+      clearTimeout(timer);
+      await handle?.close().catch(() => {});
+      await fs.rm(partial, { force: true });
+    }
   }
 
   async setAutoUpdate(enabled: boolean): Promise<OfficialPluginStatus> {
