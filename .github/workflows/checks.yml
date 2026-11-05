@@ -212,6 +212,7 @@ jobs:
               tests/electron/problem-style-inheritance.spec.ts \
               tests/electron/empty-line-font-size.spec.ts \
               tests/electron/math-line-height-split.spec.ts \
+              tests/electron/evaluation-brackets.spec.ts \
               tests/electron/workspace-return-location.spec.ts \
               tests/electron/whiteboard-image-save.spec.ts \
               tests/electron/small-shape-handles.spec.ts \
