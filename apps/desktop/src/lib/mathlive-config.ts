@@ -1,6 +1,12 @@
 import { mathFieldDefaultMode } from "@/features/rendering/core";
 import type { MathRenderEnvironment } from "@/lib/math-environment";
-import { SIGMA_MATHLIVE_EDITOR_MACROS, SIGMA_MATHLIVE_MACRO_STYLES } from "@/lib/math-macros";
+import { installEsvectEditorSupport } from "@/lib/esvect";
+import {
+  isBuiltInEsvectMacro,
+  SIGMA_MATHLIVE_EDITOR_MACROS,
+  SIGMA_MATHLIVE_EDITOR_VECTOR_MACRO,
+  SIGMA_MATHLIVE_MACRO_STYLES,
+} from "@/lib/math-macros";
 import { MATHLIVE_BOX_LAYOUT_CLASS, normalizeMathLiveBoxStyle } from "@/lib/mathlive-box-layout";
 import { installMathLiveCompositionAnchor } from "@/lib/mathlive-composition-anchor";
 import { installMathLiveCompositionSelection } from "@/lib/mathlive-composition-selection";
@@ -90,11 +96,17 @@ export function configureInlineMathLiveField(
   mathField.environmentPopoverPolicy = "off";
   configureMathLiveSpace(mathField);
   mathField.mathVirtualKeyboardPolicy = "manual";
-  mathField.macros = {
+  const macros: Record<string, unknown> = {
     ...(mathField.macros ?? {}),
     ...SIGMA_MATHLIVE_EDITOR_MACROS,
     ...environment.macroSet.mathLiveMacros,
   };
+  // The built-in esvect \vv keeps its operand editable; a document's own \vv wins.
+  if (isBuiltInEsvectMacro(macros.vv)) {
+    macros.vv = SIGMA_MATHLIVE_EDITOR_VECTOR_MACRO;
+    installEsvectEditorSupport(mathField);
+  }
+  mathField.macros = macros;
   mathField.popoverPolicy = "auto";
   // 開き括弧を打った時点で閉じ括弧も入る MathLive 標準の挙動 (`\left(\right)` を作る)。
   // 既定値に頼らず明示しておく。閉じ括弧が薄く出ないようにする CSS は

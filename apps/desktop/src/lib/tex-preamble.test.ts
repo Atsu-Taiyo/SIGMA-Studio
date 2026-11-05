@@ -27,8 +27,23 @@ describe("parseTexPreamble", () => {
     const result = parseTexPreamble("% first\n\\usepackage{amsmath}");
     expect(result.issues).toEqual([{
       line: 2,
-      message: "\\usepackageにはまだ対応していません。\\newcommand、\\renewcommand、\\providecommandを使用してください。",
+      message: "パッケージamsmathにはまだ対応していません。\\usepackage[d]{esvect}だけを読み込めます。",
     }]);
+  });
+
+  it("loads esvect option d (the default) and reports other packages and options", () => {
+    expect(parseTexPreamble(String.raw`\usepackage[d]{esvect}`).issues).toEqual([]);
+    expect(parseTexPreamble("\\usepackage{esvect}\n\\newcommand{\\AB}{\\vv{AB}}")).toEqual({
+      issues: [],
+      macros: { AB: { args: 0, def: String.raw`\vv{AB}` } },
+    });
+    expect(parseTexPreamble(String.raw`\usepackage[a]{esvect}`).issues).toEqual([{
+      line: 1,
+      message: "esvectのオプションaにはまだ対応していません。オプションdの矢印で表示します。",
+    }]);
+    expect(parseTexPreamble(String.raw`\usepackage[d]{esvect,physics}`).issues.map((issue) => issue.message))
+      .toEqual(["パッケージphysicsにはまだ対応していません。\\usepackage[d]{esvect}だけを読み込めます。"]);
+    expect(parseTexPreamble(String.raw`\usepackage[d]`).issues[0]?.message).toBe("この行はTeXコマンドの定義として読み取れません。");
   });
 
   it("requires renewcommand to follow an existing file definition", () => {
@@ -43,7 +58,7 @@ describe("parseTexPreamble", () => {
     );
     expect(result.issues).toEqual([{
       line: 2,
-      message: "\\usepackage isn't supported yet. Use \\newcommand, \\renewcommand, or \\providecommand.",
+      message: "The amsmath package isn't supported yet. Only \\usepackage[d]{esvect} can be loaded.",
     }]);
   });
 });

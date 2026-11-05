@@ -152,6 +152,15 @@ describe("math template TeX helpers", () => {
     expect(html).not.toContain("math-unrendered");
   });
 
+  it("validates macros together with MathLive-only constructs through the actual renderer", () => {
+    const tex = String.raw`\vv{\mathrm{A}\mathrm{B}}=\bbox[0.45em,border:0.04em solid black]{\hspace{1em}}`;
+    expect(validateMathTex(tex)).toEqual([]);
+    const macros = createMathMacroSet(String.raw`\newcommand{\segment}[1]{\mathrm{#1}}`);
+    expect(validateMathTex(String.raw`\segment{AB}+\bbox[border:1px solid black]{x}`, macros)).toEqual([]);
+    expect(validateMathTex(String.raw`\unknown{x}+\bbox[border:1px solid black]{x}`, macros)).not.toEqual([]);
+    expect(validateMathTex(String.raw`\segment{AB}+{`, macros)).not.toEqual([]);
+  });
+
   it("caps KaTeX dimensions from user-authored TeX", () => {
     const html = convertLatexToMarkupCached(String.raw`\dots+\rule{1em}{1000000000em}`, DEFAULT_MATH_RENDER_ENVIRONMENT);
 

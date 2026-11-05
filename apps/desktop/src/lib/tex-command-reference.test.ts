@@ -1,4 +1,3 @@
-import { validateLatex } from "mathlive/ssr";
 import { describe, expect, it } from "vitest";
 
 import { validateMathTex } from "@/lib/math-tex";
@@ -10,18 +9,23 @@ import {
 } from "@/lib/tex-command-reference";
 
 describe("TeX command reference", () => {
-  it("keeps ids unique and every preview valid for MathLive", () => {
+  it("keeps ids unique and every preview valid for Sigma", () => {
     expect(TEX_COMMAND_REFERENCES.length).toBeGreaterThanOrEqual(320);
     expect(new Set(TEX_COMMAND_REFERENCES.map((reference) => reference.id)).size)
       .toBe(TEX_COMMAND_REFERENCES.length);
 
     const invalidPreviews = TEX_COMMAND_REFERENCES.flatMap((reference) => {
-      const issues = ["doubleboxed", "kyoutsuuchoice", "outerthickdoubleboxed", "thickboxed"].includes(reference.id)
-        ? validateMathTex(reference.previewTex)
-        : validateLatex(reference.previewTex);
+      const issues = validateMathTex(reference.previewTex);
       return issues.map((issue) => ({ id: reference.id, issue }));
     });
     expect(invalidPreviews).toEqual([]);
+  });
+
+  it("uses esvect vectors while retaining legacy command searches", () => {
+    expect(TEX_COMMAND_REFERENCES.find((reference) => reference.id === "vector")?.command).toBe("\\vv{a}");
+    expect(TEX_COMMAND_REFERENCES.find((reference) => reference.id === "directed-segment")?.command).toBe("\\vv{AB}");
+    expect(filterTexCommandReferences("\\vec{a}").map((reference) => reference.id)).toContain("vector");
+    expect(filterTexCommandReferences("\\overrightarrow{AB}").map((reference) => reference.id)).toContain("directed-segment");
   });
 
   it("searches commands, Japanese labels, categories, and short aliases", () => {

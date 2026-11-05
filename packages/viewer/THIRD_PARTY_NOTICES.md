@@ -394,6 +394,16 @@ FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 ```
 
+## esvect 1.3 (vector arrow outlines)
+
+Source: https://ctan.org/pkg/esvect (CTAN: macros/latex/contrib/esvect)
+
+Used for: the arrow of `\vv` (`apps/desktop/src/lib/esvect-d-outlines.ts`). The file holds outline data of the arrowhead of option d and of the two line pieces (slots `'024`, `'043` and `'040` of `vect10.pfb`). `apps/desktop/scripts/generate-esvect-outlines.mjs` generates it from that font. The construction of `\vv` in `apps/desktop/src/lib/esvect.ts` follows `esvect.sty`.
+
+Copyright: the esvect package and its METAFONT fonts are by Eddie Saudrais; the Type 1 fonts are a conversion by Olivier Crouzet. The Copyright field of the Type 1 fonts reads "see copyright of original TeX font".
+
+License: GNU General Public License. The CTAN catalogue (license `gpl`) and the TeX Live package database (`catalogue-license gpl`) list esvect under the GPL without a version number. The package files themselves contain no license text. The GPL texts are published at https://www.gnu.org/licenses/.
+
 ## katex
 
 ```text

@@ -59,7 +59,7 @@ export const MATH_KEYBOARD_SHORTCUTS: MathKeyboardMathShortcut[] = [
   { id: "vector-2", altKey: true, keys: ["d"], codes: ["KeyD"], tex: "\\begin{pmatrix}#?\\\\#?\\end{pmatrix}" },
   { id: "cases-2", altKey: false, keys: ["y"], codes: ["KeyY"], tex: "\\begin{cases}#?\\\\#?\\end{cases}" },
   { id: "cases-3", altKey: true, keys: ["y"], codes: ["KeyY"], tex: "\\begin{cases}#?\\\\#?\\\\#?\\end{cases}" },
-  { id: "vector-accent", altKey: false, keys: ["w"], codes: ["KeyW"], tex: "\\vec{#?}" },
+  { id: "vector-accent", altKey: false, keys: ["w"], codes: ["KeyW"], tex: "\\vv{#?}" },
   { id: "overline", altKey: true, keys: ["w"], codes: ["KeyW"], tex: "\\overline{#?}" },
   { id: "absolute-value", altKey: false, keys: ["¥", "\\"], codes: ["Backslash", "IntlYen"], tex: "\\left|#?\\right|" },
   { id: "brackets", altKey: true, keys: ["["], tex: "\\left[#?\\right]" },
