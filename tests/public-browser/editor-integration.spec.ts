@@ -30,6 +30,41 @@ test("MathLive Tab exit commits the draft without a lifecycle error in the publi
   expect(errors).toEqual([]);
 });
 
+test("math confirmation immediately restores body input and keeps trailing text in host storage", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "この教材を編集", exact: true }).click();
+  const paragraphId = "p_1e465f2e-5571-4cf8-88ad-818451b870b8";
+  const paragraph = page.locator(`[data-sigma-doc-id="${paragraphId}"]`).first();
+  await paragraph.click();
+  await paragraph.evaluate(element => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  await page.keyboard.press("Control+m");
+  await page.keyboard.type("x");
+  const field = paragraph.locator("math-field");
+  await expect.poll(() => field.evaluate(element => (element as HTMLElement & { value: string }).value)).toBe("x");
+  const focused = await field.evaluate(element => {
+    element.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Enter", code: "Enter", keyCode: 13, bubbles: true, cancelable: true, composed: true,
+    }));
+    return (document.activeElement as HTMLElement | null)?.isContentEditable === true;
+  });
+  expect(focused).toBe(true);
+  await page.keyboard.type("c");
+  const savedText = async () => {
+    const block = (await readSavedDocument(page))?.content.find(block => block.id === paragraphId);
+    return block?.type === "paragraph" ? block.children.map(run => run.type === "text" ? run.text : run.type === "mathInline" ? `$${run.tex}$` : "").join("") : null;
+  };
+  await expect.poll(savedText).toBe("解答$x$c");
+  await page.reload();
+  expect(await savedText()).toBe("解答$x$c");
+});
+
 test("Viewer display settings preserve SigmaDoc; edits survive host save and reload", async ({ page }, testInfo) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));

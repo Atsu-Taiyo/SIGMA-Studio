@@ -23,6 +23,9 @@ function findTemplate(groupId: string, templateId: string): string {
 }
 
 describe("inline math template palette", () => {
+  it("inserts \\vv as the standard vector accent", () => {
+    expect(findTemplate("accents", "vector-accent")).toBe("\\vv{#?}");
+  });
   it("keeps group and template ids unique", () => {
     const groupIds = INLINE_MATH_TEMPLATE_GROUPS.map((group) => group.id);
     expect(new Set(groupIds).size).toBe(groupIds.length);

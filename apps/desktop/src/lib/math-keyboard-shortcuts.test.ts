@@ -1,4 +1,4 @@
-import { validateLatex } from "mathlive";
+import { validateMathTex } from "@/lib/math-tex";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -15,6 +15,7 @@ import {
 
 describe("math keyboard shortcuts", () => {
   it("maps keyboard combinations to MathLive templates", () => {
+    expect(getMathKeyboardMathShortcut(eventFor("w"))?.tex).toBe("\\vv{#?}");
     expect(getMathKeyboardMathShortcut(eventFor("/"))?.tex).toBe("\\frac{#?}{#?}");
     expect(getMathKeyboardMathShortcut(eventFor("r", { altKey: true }))?.tex).toBe("\\sqrt[#?]{#?}");
     expect(getMathKeyboardMathShortcut(eventFor("h", { altKey: true }))?.tex).toBe("\\sin^{#?} #?");
@@ -124,9 +125,9 @@ describe("math keyboard shortcuts", () => {
     expect(focusMathFractionDenominator({ insert: vi.fn() }, "\\frac{#?}{#?}")).toBe(false);
   });
 
-  it("keeps every configured template valid for MathLive validation", () => {
+  it("keeps every configured template valid for Sigma math validation", () => {
     for (const shortcut of MATH_KEYBOARD_SHORTCUTS) {
-      expect(validateLatex(shortcut.tex), shortcut.id).toEqual([]);
+      expect(validateMathTex(shortcut.tex), shortcut.id).toEqual([]);
     }
   });
 });

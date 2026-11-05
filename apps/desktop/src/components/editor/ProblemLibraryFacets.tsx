@@ -46,7 +46,7 @@ interface PanelProps {
   tree: ReturnType<typeof useFacetTree>;
   selected: readonly string[];
   /** Counts within the current results: every top-level key, and the children of each selected key. */
-  counts: Readonly<Record<string, number>>;
+  counts: Readonly<Record<string, number>> | null;
   disabled: boolean;
   onToggle(key: string): void;
 }
@@ -104,7 +104,7 @@ function FacetNode({ facet, parent, depth, showGroup, tree, selected, counts, di
   const isSelected = selected.includes(facet.key);
   const level = tree.levels[facet.key];
   // A count is only meaningful where the server reported one for the current results; elsewhere nothing is shown.
-  const count = facet.key in counts ? counts[facet.key] : parent === null || selected.includes(parent) ? 0 : undefined;
+  const count = counts === null ? undefined : facet.key in counts ? counts[facet.key] : parent === null || selected.includes(parent) ? 0 : undefined;
   const atLimit = !isSelected && selected.length >= MAX_SELECTED_FACETS;
   const toggleExpanded = () => {
     if (!expanded) tree.load(facet.key);

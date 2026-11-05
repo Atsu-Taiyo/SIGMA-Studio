@@ -5,9 +5,11 @@ import { Check, Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Inline, Stack } from "@/components/ui/layout";
 import { SettingsRow, SettingsSection, SettingsStatus, Switch } from "@/components/ui/settings";
+import { formatBytes } from "@/features/right-dock/model/browser-format";
 import { useT } from "@/lib/i18n/react";
 import { OrganizationMembershipDisplay } from "./OrganizationMembershipBadge";
-import { getOfficialPluginBridge, type OfficialPluginRow, type OfficialPluginStatus } from "./plugin-ui-contract";
+import styles from "./OfficialPluginsSection.module.css";
+import { getOfficialPluginBridge, type OfficialPluginProgress, type OfficialPluginRow, type OfficialPluginStatus } from "./plugin-ui-contract";
 
 type PluginError = NonNullable<OfficialPluginStatus["error"]>;
 /** What a user action should have committed; judged only against a committed idle host status. */
@@ -39,6 +41,35 @@ function completion(intent: Intent, status: OfficialPluginStatus): Notice | null
   if (plugin.installedVersion !== intent.version) return null;
   return { key: intent.update ? "plugins.updateComplete" : "plugins.addComplete", params: { name: plugin.name }, plugin: plugin.id };
 }
+const STAGES = ["verifying", "downloading", "waiting", "registering"] as const;
+const count = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+/** 進み具合はホストが送る値だけを描く。形が崩れていれば出さない。 */
+function progressOf(status: OfficialPluginStatus | null): OfficialPluginProgress | null {
+  const progress = status?.phase === "installing" ? status.progress : undefined;
+  if (!progress || typeof progress.pluginId !== "string" || !STAGES.includes(progress.stage)) return null;
+  const { files, completedFiles, reusedFiles, downloadBytes, receivedBytes } = progress;
+  return [files, completedFiles, reusedFiles, downloadBytes, receivedBytes].every(count) ? progress : null;
+}
+
+/** 追加・更新の進み具合。ダウンロード中は受け取ったバイト数、確認中はファイル数で棒を伸ばす。 */
+function PluginProgress({ progress, name }: { progress: OfficialPluginProgress; name: string }) {
+  const t = useT("settings");
+  const fraction = progress.stage === "downloading" && progress.downloadBytes > 0 ? progress.receivedBytes / progress.downloadBytes
+    : progress.stage === "verifying" && progress.files > 0 ? progress.completedFiles / progress.files : null;
+  const percent = fraction === null ? null : Math.max(0, Math.min(100, Math.floor(fraction * 100)));
+  const text = progress.stage === "downloading"
+    ? t("plugins.progress.downloading", { received: formatBytes(progress.receivedBytes), total: formatBytes(progress.downloadBytes), percent: percent ?? 100 })
+    : progress.stage === "verifying"
+      ? t("plugins.progress.verifying", { completed: progress.completedFiles, total: progress.files })
+      : t(`plugins.progress.${progress.stage}`);
+  return <div className={styles.progress}>
+    {percent !== null && <div className={styles.bar} role="progressbar" aria-label={t("plugins.progress.aria", { name })}
+      aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><span style={{ width: `${percent}%` }} /></div>}
+    <p className={styles.progressText}>{text}</p>
+    {progress.stage !== "verifying" && progress.reusedFiles > 0 && <p className={styles.progressText}>{t("plugins.progress.reused", { count: progress.reusedFiles })}</p>}
+  </div>;
+}
+
 const keeps = (notice: Notice, status: OfficialPluginStatus) => hasAccess(status) && status.phase === "idle" && !status.error
   && (!notice.plugin || status.plugins.some(row => row.id === notice.plugin && row.authorized === true));
 
@@ -125,6 +156,8 @@ export function OfficialPluginsSection({ id, onFontsChanged }: { id?: string; on
   const visiblePlugins = status && !status.requiresLogin && !status.requiresRole ? status.plugins.filter(plugin => plugin.authorized === true) : [];
   const unavailable = !bridge || status?.available === false;
   const error = status?.error ?? actionError ?? (loadFailed ? "unavailable" : null);
+  const progress = progressOf(status);
+  const progressShown = progress !== null && visiblePlugins.some(plugin => plugin.id === progress.pluginId);
   return (
     <SettingsSection id={id} title={t("plugins.title")} description={t("plugins.description")}
       actions={bridge && <Button tone="secondary" disabled={busy || unavailable} onClick={() => void run({ kind: "check" }, () => bridge.check())}>
@@ -153,10 +186,11 @@ export function OfficialPluginsSection({ id, onFontsChanged }: { id?: string; on
               <Download size={14} />{t(plugin.installedVersion ? "plugins.update" : "plugins.add")}
             </Button>}
           </Inline>} />
+          {progress?.pluginId === plugin.id && <PluginProgress progress={progress} name={plugin.name} />}
           {plugin.fonts && plugin.fonts.length > 0 && <details><summary>{t("plugins.fonts", { count: plugin.fonts.length })}</summary>
             <p>{plugin.fonts.join("、")}</p></details>}
         </Stack>)}
-        {busy && <SettingsStatus>{t(status?.phase === "checking" ? "plugins.checking" : "plugins.working")}</SettingsStatus>}
+        {busy && !progressShown && <SettingsStatus>{t(status?.phase === "checking" ? "plugins.checking" : "plugins.working")}</SettingsStatus>}
         {notice && <SettingsStatus tone="success"><Check size={14} aria-hidden="true" />{t(notice.key, notice.params)}</SettingsStatus>}
       </Stack>}
       {error && <SettingsStatus tone="error">{t(`plugins.errors.${error}`)}</SettingsStatus>}

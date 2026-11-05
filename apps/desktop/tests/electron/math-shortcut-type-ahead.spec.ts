@@ -179,6 +179,47 @@ test("keys typed right after Ctrl+M land inside the new formula and keep their o
   }
 });
 
+test("committing a formula returns body focus before the next input and preserves trailing text after restart", async () => {
+  const { app, page, fileId, profile } = await launch();
+  let activeApp = app;
+  try {
+    const paragraph = await caretAtParagraphEnd(page, "p0");
+    await page.keyboard.press("Control+m");
+    await page.keyboard.type("ab");
+    const field = paragraph.locator("math-field");
+    await expect.poll(() => editingState(paragraph).then(state => state.value)).toBe("ab");
+    // Observe the actual Enter handler in the same event turn. Waiting for a
+    // later frame would hide the interval where the next native key is lost.
+    const focus = await field.evaluate(element => {
+      element.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "Enter", code: "Enter", keyCode: 13, bubbles: true, cancelable: true, composed: true,
+      }));
+      const active = document.activeElement as HTMLElement | null;
+      const anchor = window.getSelection()?.anchorNode;
+      return { editable: active?.isContentEditable === true, ownsCaret: Boolean(anchor && active?.contains(anchor)) };
+    });
+    expect(focus).toEqual({ editable: true, ownsCaret: true });
+    await page.keyboard.type("c");
+    await caretAtParagraphEnd(page, "p1");
+    await page.keyboard.type("next");
+    await page.keyboard.press("ControlOrMeta+s");
+    await expect.poll(() => savedParagraphs(page, fileId)).toMatchObject({ p0: "段落0$ab$c", p1: "段落1next" });
+    await activeApp.close();
+    const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+    env.SIGMA_STUDIO_USER_DATA_DIR = profile;
+    delete env.ELECTRON_RUN_AS_NODE;
+    delete env.SIGMA_STUDIO_DEV_SERVER_URL;
+    if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
+    activeApp = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
+    const restored = await activeApp.firstWindow();
+    await restored.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+    expect(await savedParagraphs(restored, fileId)).toMatchObject({ p0: "段落0$ab$c", p1: "段落1next" });
+  } finally {
+    await activeApp.close();
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
 for (const { name, key, keys, tex } of [
   { name: "log", key: "Control+l", keys: ["x"], tex: String.raw`\log x` },
   // 分数は分母から入る。↑で分子へ移る。

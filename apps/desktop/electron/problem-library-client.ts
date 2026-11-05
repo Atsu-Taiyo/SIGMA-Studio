@@ -3,6 +3,8 @@ import { documentFontReferences } from "@/features/document";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import {
   LibraryAccessSchema,
+  LibraryCountsRequestSchema, LibraryCountsResponseSchema, LibraryPageResponseSchema,
+  type LibraryCountsResult, type LibraryPageResult,
   LibraryFacetsRequestSchema,
   LibraryFacetsResponseSchema,
   LibraryGetRequestSchema,
@@ -188,6 +190,32 @@ export async function fetchLibrarySearch(
   const seen = new Set<string>();
   const results = parsed.data.results.filter(problem => !seen.has(problem.id) && Boolean(seen.add(problem.id)));
   return { ok: true, search: { ...parsed.data, results } };
+}
+
+/** Page requests never wait for total/facet aggregation. Pagination uses one lookahead row. */
+export async function fetchLibraryPage(
+  input: unknown, connection: ProblemLibraryConnection | null | undefined, fetchImpl: typeof fetch = fetch,
+): Promise<LibraryPageResult> {
+  const request = LibrarySearchRequestSchema.safeParse(input);
+  if (!request.success) return fail("invalidRequest");
+  const result = await call(connection, "search-page", { method: "POST", body: request.data }, "json", fetchImpl);
+  if (!result.ok) return fail(result.failure);
+  const parsed = LibraryPageResponseSchema.safeParse(result.data);
+  if (!parsed.success) return fail("invalidResponse");
+  const seen = new Set<string>();
+  const results = parsed.data.results.filter(problem => !seen.has(problem.id) && Boolean(seen.add(problem.id)));
+  return { ok: true, page: { ...parsed.data, results } };
+}
+
+export async function fetchLibraryCounts(
+  input: unknown, connection: ProblemLibraryConnection | null | undefined, fetchImpl: typeof fetch = fetch,
+): Promise<LibraryCountsResult> {
+  const request = LibraryCountsRequestSchema.safeParse(input);
+  if (!request.success) return fail("invalidRequest");
+  const result = await call(connection, "search-counts", { method: "POST", body: request.data }, "json", fetchImpl);
+  if (!result.ok) return fail(result.failure);
+  const parsed = LibraryCountsResponseSchema.safeParse(result.data);
+  return parsed.success ? { ok: true, counts: parsed.data } : fail("invalidResponse");
 }
 
 export async function fetchLibraryFacets(

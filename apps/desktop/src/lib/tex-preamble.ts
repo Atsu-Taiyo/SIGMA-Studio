@@ -3,6 +3,7 @@ import { createCurrentLocaleTranslator, type Translate } from "@/lib/i18n";
 const MAX_TEX_PREAMBLE_LENGTH = 20_000;
 const MAX_TEX_MACRO_COUNT = 100;
 const SUPPORTED_DECLARATIONS = new Set(["newcommand", "renewcommand", "providecommand"]);
+const SUPPORTED_PACKAGES = new Set(["esvect"]);
 const DEFAULT_TEX_TRANSLATE = createCurrentLocaleTranslator("tex");
 
 export interface TexPreambleIssue {
@@ -51,6 +52,33 @@ export function parseTexPreamble(
       continue;
     }
     cursor = declaration.end;
+    if (declaration.name === "usepackage") {
+      // Built-in packages only. esvect's \vv is always available (lib/vv-vector.ts)
+      // with Sigma's own arrow; loading it documents the source preamble. Option d,
+      // esvect's default, is accepted silently; other options pick arrows we do not draw.
+      cursor = skipTrivia(source, cursor);
+      const options = source[cursor] === "[" ? readBracket(source, cursor) : { end: cursor, value: "" };
+      const nameStart = options ? skipTrivia(source, options.end) : cursor;
+      const packageName = options ? readBalancedGroup(source, nameStart) : null;
+      if (!options || !packageName) {
+        issues.push({ line: lineAt(source, declarationStart), message: t("preamble.unreadable") });
+        cursor = nextLine(source, cursor);
+        continue;
+      }
+      cursor = packageName.end;
+      for (const name of packageName.value.split(",").map((value) => value.trim()).filter(Boolean)) {
+        if (!SUPPORTED_PACKAGES.has(name)) {
+          issues.push({ line: lineAt(source, declarationStart), message: t("preamble.packageUnsupported", { name }) });
+          continue;
+        }
+        for (const option of options.value.split(",").map((value) => value.trim()).filter(Boolean)) {
+          if (option !== "d") {
+            issues.push({ line: lineAt(source, declarationStart), message: t("preamble.packageOptionUnsupported", { name: option }) });
+          }
+        }
+      }
+      continue;
+    }
     if (!SUPPORTED_DECLARATIONS.has(declaration.name)) {
       issues.push({
         line: lineAt(source, declarationStart),

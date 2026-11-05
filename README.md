@@ -33,6 +33,7 @@
   <a href="#problem-library">問題ライブラリ</a> ·
   <a href="#video">動画生成（開発中）</a> ·
   <a href="#getting-started">はじめる</a> ·
+  <a href="https://chocoschools.com/sigma-studio/manual/">操作マニュアル</a> ·
   <a href="https://discord.gg/BsbcBQXbT">Discord</a> ·
   <a href="https://chocoschools.com/sigma-studio/">公式サイト</a>
 </p>
@@ -128,6 +129,8 @@ AI機能は、利用するプロバイダの接続設定が必要です。
 | **Windows** | [Microsoft Store](https://apps.microsoft.com/detail/9PLZ8T3XVQM1)から入手できます。アップデートもストアから届きます。 |
 | **macOS** | [最新リリース](https://github.com/Atsu-Taiyo/SIGMA-Studio/releases/latest)から、Apple Silicon / Intel に対応する `.dmg` をダウンロードしてください。 |
 | **ブラウザ** | [公式サイトのデモ](https://chocoschools.com/sigma-studio/#try)で、デスクトップ版と同じ編集画面を試せます（編集内容は保存されません）。 |
+
+**使い方を知る** — [操作マニュアル](https://chocoschools.com/sigma-studio/manual/)で、教材の管理と編集の操作を、実際の画面と押す場所の印つきで説明しています。
 
 **手元の素材を使う** — JSON・TeX・PowerPointのインポートに対応しています。文書はSigmaDoc JSONで保存します。
 

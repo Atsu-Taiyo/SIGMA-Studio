@@ -62,6 +62,33 @@ describe("official plugin settings", () => {
     expect([...container.querySelectorAll("button")].every(button => button.disabled)).toBe(true);
     await act(async () => root.render(null)); expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
+  it("shows how far the download has come and what it reused from this computer", async () => {
+    const { push } = await mount(installed);
+    const progress = { pluginId: "example", files: 316, completedFiles: 315, reusedFiles: 315, downloadBytes: 4 * 1024 * 1024, receivedBytes: 1024 * 1024 };
+    await act(async () => push({ ...installed, phase: "installing", progress: { ...progress, stage: "verifying", completedFiles: 158, reusedFiles: 158 } }));
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("50");
+    expect(container.textContent).toContain("このPCにあるファイルを確認しています（158 / 316）");
+    await act(async () => push({ ...installed, phase: "installing", progress: { ...progress, stage: "downloading" } }));
+    const bar = container.querySelector('[role="progressbar"]');
+    expect(bar?.getAttribute("aria-valuenow")).toBe("25");
+    expect(bar?.getAttribute("aria-label")).toBe("教材変換の準備の進み具合");
+    expect(container.textContent).toContain("ダウンロード中：1 MB / 4 MB（25%）");
+    expect(container.textContent).toContain("前に取得した315個のファイルは、ダウンロードせずに使います。");
+    expect(container.textContent).not.toContain(ja("plugins.working"));
+    expect(allDisabled()).toBe(true);
+    await act(async () => push({ ...installed, phase: "installing", progress: { ...progress, stage: "registering", completedFiles: 316, receivedBytes: progress.downloadBytes } }));
+    expect(container.querySelector('[role="progressbar"]')).toBeNull();
+    expect(container.textContent).toContain("フォントを登録しています。");
+    await act(async () => push(installed));
+    expect(container.textContent).not.toContain("フォントを登録しています。");
+    expect(container.textContent).not.toContain("ダウンロード中");
+  });
+  it("ignores malformed progress and falls back to the generic message", async () => {
+    const { push } = await mount(installed);
+    await act(async () => push({ ...installed, phase: "installing", progress: { pluginId: "example", stage: "downloading", files: 2, completedFiles: 1, reusedFiles: 0, downloadBytes: Number.NaN, receivedBytes: 1 } }));
+    expect(container.querySelector('[role="progressbar"]')).toBeNull();
+    expect(container.textContent).toContain(ja("plugins.working"));
+  });
   it("hides installed plugin metadata while signed out", async () => {
     provide({ ...available, requiresLogin: true, plugins: [{ ...available.plugins[0], installedVersion: "0.9.0", enabled: true }] });
     await act(async () => root.render(<OfficialPluginsSection />));

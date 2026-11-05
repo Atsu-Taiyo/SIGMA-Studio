@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { SIGMA_MATHLIVE_EDITOR_VECTOR_MACRO } from "@/lib/math-macros";
 import {
   configureInlineMathLiveField,
   configureMathLiveSpace,
@@ -94,6 +95,29 @@ describe("MathLive config", () => {
     );
 
     expect(mathField.macros).toMatchObject({ RR: { args: 0, def: String.raw`\mathbb{R}` } });
+  });
+
+  it("edits the built-in \\vv in its static box and keeps a document's own \\vv", () => {
+    const builtIn = { executeCommand: vi.fn() } as unknown as InlineMathLiveFieldElement;
+    configureInlineMathLiveField(builtIn, createMathRenderEnvironment());
+    expect(builtIn.macros?.vv).toEqual(SIGMA_MATHLIVE_EDITOR_VECTOR_MACRO);
+
+    const own = { executeCommand: vi.fn() } as unknown as InlineMathLiveFieldElement;
+    configureInlineMathLiveField(own, createMathRenderEnvironment(String.raw`\newcommand{\vv}[1]{\overrightarrow{#1}}`));
+    expect(own.macros?.vv).toEqual({ args: 1, def: String.raw`\overrightarrow{#1}` });
+  });
+
+  it("recognizes the built-in \\vv by definition when the macro tables arrive rebuilt or copied", () => {
+    // A document preamble (here an unrelated font command) and a structured copy of the
+    // environment hand the field equal but not identical macro objects.
+    const environment = structuredClone(createMathRenderEnvironment(String.raw`\newcommand{\gothic}[1]{\mathrm{#1}}`));
+    const field = { executeCommand: vi.fn() } as unknown as InlineMathLiveFieldElement;
+    configureInlineMathLiveField(field, environment);
+    expect(field.macros?.vv).toEqual(SIGMA_MATHLIVE_EDITOR_VECTOR_MACRO);
+    expect(field.macros).toMatchObject({ gothic: { args: 1, def: String.raw`\mathrm{#1}` } });
+    // Configuring the same field again keeps the editable box.
+    configureInlineMathLiveField(field, environment);
+    expect(field.macros?.vv).toEqual(SIGMA_MATHLIVE_EDITOR_VECTOR_MACRO);
   });
 
   it("restores the editor's thin circle after a document-defined textcircled is removed", () => {

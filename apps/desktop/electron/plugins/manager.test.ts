@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { OfficialPluginProgress } from "@/lib/plugin-status-contracts";
+
 import { PluginManager, type PluginManagerOptions } from "./manager";
 import { digest, verifyCatalog, type CatalogMenuSection, type CatalogPlugin } from "./manifest";
 
@@ -54,6 +56,8 @@ interface Server {
   organizations?: unknown[];
   fonts: Array<{ version: string; folder: string }>;
   requests: string[];
+  /** 資産の応答を差し替える。undefined を返せば通常どおり。 */
+  respond?: (key: string, bytes: Buffer) => Response | undefined;
 }
 
 const directories: string[] = [];
@@ -72,8 +76,11 @@ async function setup(options: Partial<PluginManagerOptions> = {}) {
     if (state.code !== 200) return new Response(null, { status: state.code });
     if (url.endsWith("/access")) return Response.json({ userId: state.userId, plugins: state.granted ? [ID] : [], organizations: state.organizations ?? [] });
     if (url.endsWith("/catalog")) return Response.json(state.fixture.envelope);
-    const bytes = state.fixture.assets.get(url.split("/assets/")[1]);
+    const key = url.split("/assets/")[1];
+    const bytes = state.fixture.assets.get(key);
     expect(bytes).toBeDefined();
+    const custom = state.respond?.(key, bytes as Buffer);
+    if (custom) return custom;
     return new Response(new Uint8Array(state.corrupt ? Buffer.alloc((bytes as Buffer).length) : (bytes as Buffer)));
   }) as unknown as typeof fetch;
   const base: PluginManagerOptions = {
@@ -87,6 +94,143 @@ async function setup(options: Partial<PluginManagerOptions> = {}) {
   await manager.initialize();
   return { manager, state, directory, base: { ...base, ...options } };
 }
+
+async function stagedFiles(directory: string): Promise<Array<{ name: string; bytes: Buffer }>> {
+  const root = path.join(directory, ".staging");
+  const entries = await fs.readdir(root, { recursive: true, withFileTypes: true }).catch(() => []);
+  const files = entries.filter((entry) => entry.isFile()).map((entry) => path.join(entry.parentPath, entry.name));
+  return Promise.all(files.map(async (filename) => ({
+    name: path.relative(root, filename).split(path.sep).slice(2).join("/"),
+    bytes: await fs.readFile(filename),
+  })));
+}
+
+function trackProgress(manager: PluginManager): OfficialPluginProgress[] {
+  const seen: OfficialPluginProgress[] = [];
+  manager.on("change", (status: { progress?: OfficialPluginProgress }) => { if (status.progress) seen.push(status.progress); });
+  return seen;
+}
+
+const assetRequests = (state: Server) => state.requests.filter((url) => url.includes("/assets/")).map((url) => url.split("/assets/")[1]);
+
+/** chunks を delayMs ずつ間を空けて流す本文。 */
+function slowBody(bytes: Buffer, chunks: number, delayMs: number): Response {
+  const size = Math.ceil(bytes.length / chunks);
+  let index = 0;
+  return new Response(new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      if (index >= bytes.length) { controller.close(); return; }
+      controller.enqueue(new Uint8Array(bytes.subarray(index, index + size)));
+      index += size;
+    },
+  }));
+}
+
+describe("PluginManager downloads", () => {
+  it("reuses unchanged files from the installed version and downloads only what changed", async () => {
+    const { manager, state, directory } = await setup();
+    await manager.check();
+    await manager.install(ID);
+    expect(assetRequests(state)).toHaveLength(2);
+    state.fixture = fixture("1.1.0", 2);
+    await manager.check();
+    const before = assetRequests(state).length;
+    const progress = trackProgress(manager);
+    const result = await manager.install(ID);
+    expect(result.error).toBeUndefined();
+    expect(result.plugins[0].installedVersion).toBe("1.1.0");
+    expect(result.progress).toBeUndefined();
+    expect(assetRequests(state).slice(before)).toEqual([`${ID}/1.1.0/worker.cjs`]);
+    const [worker, font] = state.fixture.plugin.files;
+    const last = progress.at(-1) as OfficialPluginProgress;
+    expect(last).toMatchObject({ pluginId: ID, stage: "registering", files: 2, completedFiles: 2, reusedFiles: 1, downloadBytes: worker.bytes, receivedBytes: worker.bytes });
+    expect(progress.map((item) => item.stage)).toEqual(expect.arrayContaining(["verifying", "downloading", "registering"]));
+    // 同じ内容のフォントは、前の版とディスク上の実体を共有する。
+    const [previous, next] = await Promise.all(["1.0.0", "1.1.0"].map((version) => fs.stat(path.join(directory, ID, version, font.path))));
+    expect(next.ino).toBe(previous.ino);
+    expect((await manager.installedPlugin(ID)).version).toBe("1.1.0");
+    await manager.setEnabled(ID, true);
+    expect(manager.status().plugins[0].installedVersion).toBe("1.1.0");
+  });
+
+  it("does not reuse a local file whose bytes no longer match the catalog", async () => {
+    const { manager, state, directory } = await setup();
+    await manager.check();
+    await manager.install(ID);
+    const font = state.fixture.plugin.files[1];
+    await fs.chmod(path.join(directory, ID, "1.0.0", font.path), 0o600);
+    await fs.writeFile(path.join(directory, ID, "1.0.0", font.path), Buffer.alloc(font.bytes, 0x20));
+    state.fixture = fixture("1.1.0", 2);
+    await manager.check();
+    const before = assetRequests(state).length;
+    expect((await manager.install(ID)).error).toBeUndefined();
+    expect(assetRequests(state).slice(before).sort()).toEqual([`${ID}/1.1.0/${font.path}`, `${ID}/1.1.0/worker.cjs`]);
+    expect(digest(await fs.readFile(path.join(directory, ID, "1.1.0", font.path)))).toBe(font.sha256);
+  });
+
+  it("resumes an interrupted download without fetching the verified files again", async () => {
+    const { manager, state, directory } = await setup();
+    await manager.check();
+    const [worker, font] = state.fixture.plugin.files;
+    state.respond = (key) => (key.endsWith(font.path) ? new Response(null, { status: 503 }) : undefined);
+    expect((await manager.install(ID)).error).toBe("unavailable");
+    expect(assetRequests(state)).toEqual([`${ID}/1.0.0/${worker.path}`, `${ID}/1.0.0/${font.path}`]);
+    expect((await stagedFiles(directory)).map((file) => file.name)).toEqual([worker.path]);
+    state.respond = undefined;
+    const progress = trackProgress(manager);
+    expect((await manager.install(ID)).plugins[0].installedVersion).toBe("1.0.0");
+    expect(assetRequests(state).slice(2)).toEqual([`${ID}/1.0.0/${font.path}`]);
+    expect(progress.at(-1)).toMatchObject({ reusedFiles: 1, downloadBytes: font.bytes, receivedBytes: font.bytes });
+  });
+
+  it("removes a staging folder left by an earlier app that quit mid-download", async () => {
+    const { manager, directory } = await setup();
+    await fs.mkdir(path.join(directory, ".staging-0b7b5c3e-6d1f-4a59-9c1d-3f1c7d1a2b3c"), { recursive: true });
+    await manager.check();
+    expect((await manager.install(ID)).error).toBeUndefined();
+    expect((await fs.readdir(directory)).filter((name) => name.startsWith(".staging"))).toEqual([]);
+  });
+
+  it("keeps downloading a large file while bytes arrive and stops only when they stall", async () => {
+    const { manager, state } = await setup({ stallTimeoutMs: 200 });
+    await manager.check();
+    const font = state.fixture.plugin.files[1];
+    // 全体では上限の2倍以上かかるが、途切れは上限より短い。
+    state.respond = (key, bytes) => (key.endsWith(font.path) ? slowBody(bytes, 8, 60) : undefined);
+    const progress = trackProgress(manager);
+    expect((await manager.install(ID)).error).toBeUndefined();
+    const received = progress.filter((item) => item.stage === "downloading").map((item) => item.receivedBytes);
+    expect(received.length).toBeGreaterThan(1);
+    expect(received).toEqual([...received].sort((a, b) => a - b));
+    state.fixture = fixture("1.1.0", 2, "font-content-v2-stalls");
+    await manager.check();
+    const next = state.fixture.plugin.files[1];
+    state.respond = (key, bytes) => (key.endsWith(next.path) ? slowBody(bytes, 2, 1_000) : undefined);
+    expect((await manager.install(ID)).error).toBe("unavailable");
+    expect(manager.status().plugins[0].installedVersion).toBe("1.0.0");
+  });
+
+  it("does not show progress to an account that loses access mid-download", async () => {
+    const { manager, state } = await setup();
+    await manager.check();
+    let seen: unknown;
+    state.respond = (key, bytes) => {
+      if (!key.endsWith("worker.cjs")) return undefined;
+      state.granted = false;
+      return new Response(new ReadableStream<Uint8Array>({
+        async start(controller) {
+          await manager.refreshAccess().catch(() => {});
+          seen = manager.status().progress;
+          controller.enqueue(new Uint8Array(bytes));
+          controller.close();
+        },
+      }));
+    };
+    expect((await manager.install(ID)).error).toBe("forbidden");
+    expect(seen).toBeUndefined();
+  });
+});
 
 describe("PluginManager", () => {
   it("requires a current grant even for installed plugins and after restart", async () => {
@@ -149,7 +293,7 @@ describe("PluginManager", () => {
     expect(runs).toBe(0);
   });
 
-  it("never replaces an installed version with invalid bytes and cleans staging files", async () => {
+  it("never replaces an installed version with invalid bytes and keeps only verified files for the retry", async () => {
     const { manager, state, directory } = await setup();
     await manager.check();
     await manager.install(ID);
@@ -158,6 +302,12 @@ describe("PluginManager", () => {
     state.corrupt = true;
     expect((await manager.install(ID)).error).toBe("verification-failed");
     expect(manager.status().plugins[0].installedVersion).toBe("1.0.0");
+    // 検証できなかったバイトは残らない。残るのはカタログのハッシュと一致したファイルだけ。
+    const left = await stagedFiles(directory);
+    expect(left.map((file) => file.name)).toEqual([state.fixture.plugin.files[1].path]);
+    expect(left.every((file) => digest(file.bytes) === state.fixture.plugin.files[1].sha256)).toBe(true);
+    state.corrupt = false;
+    expect((await manager.install(ID)).plugins[0].installedVersion).toBe("1.1.0");
     expect((await fs.readdir(directory)).some((name) => name.startsWith(".staging"))).toBe(false);
     const plugin = await manager.installedPlugin(ID);
     await fs.writeFile(path.join(manager.versionDir(plugin), "worker.cjs"), "corrupt");

@@ -39,6 +39,13 @@ const FORMULAS = [
 ];
 
 describe("static math rendering carries one typeset style", () => {
+  it("keeps a valid commented evaluation formula on the KaTeX rendering path", () => {
+    const tex = String.raw`[2468+\dots % ]_0^1` + "\n" + String.raw`]_0^1`;
+    const html = renderMathHtml(tex, DISPLAYSTYLE_ENVIRONMENT);
+    expect(html).toContain("katex");
+    expect(html).not.toContain("ML__error");
+  });
+
   it.each([
     ["Latin variables", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"],
     ["Greek letters", String.raw`\alpha\beta\gamma\delta\epsilon\theta\lambda\mu\pi\rho\sigma\phi\omega\Gamma\Delta\Theta\Lambda\Pi\Sigma\Phi\Omega`],

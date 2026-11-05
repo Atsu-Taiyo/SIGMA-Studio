@@ -2820,20 +2820,15 @@ function findAdjacentInlineMath(
 }
 
 function focusTextSelection(editor: NodeViewProps["editor"], position: number) {
-  const applyTextSelection = () => {
-    if (editor.isDestroyed) {
-      return;
-    }
-
-    editor
-      .chain()
-      .focus()
-      .setTextSelection(clampTextSelectionPosition(editor, position))
-      .run();
-  };
-
-  applyTextSelection();
-  window.requestAnimationFrame(applyTextSelection);
+  if (editor.isDestroyed) {
+    return;
+  }
+  // Tiptap's focus command defers DOM focus to rAF. The MathLive field is
+  // already detached here, so the very next native key would go to the body.
+  // Restore once now; replaying this offset later also overwrites newer input
+  // or a deliberate move to another paragraph/control.
+  editor.commands.setTextSelection(clampTextSelectionPosition(editor, position));
+  editor.view.focus();
 }
 
 function getTextSelectionPositionAtClientPoint(editor: NodeViewProps["editor"], clientX: number, clientY: number): number | null {

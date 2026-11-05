@@ -1,3 +1,4 @@
+import { comparableDocumentValue } from "@/lib/document-equivalence";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -836,8 +837,23 @@ for (const [rows, columns] of [[3, 3], [12, 8]]) {
       app = await launch();
       page = await prepare(app);
       expect(await tables()).toEqual(persisted);
-      expect(await carrier()).toEqual(persistedCarrier);
+      // Opening now connects a page-fixed table to the body. Everything except that
+      // anchor and save timestamps must still survive the restart unchanged.
       const targetShapeId = persistedCarrier!.pageLayout!.overlay!.overlaySnapshot!.shapes[0].id;
+      await expect.poll(async () => (await carrier())?.pageLayout?.overlay?.overlaySnapshot?.shapes[0].anchor?.type).toBe("block");
+      const reopened = (await carrier())!;
+      const shape = reopened.pageLayout!.overlay!.overlaySnapshot!.shapes[0];
+      expect(shape.anchor).toMatchObject({ type: "block", blockId: persistedCarrier!.content[0].id });
+      const expected = structuredClone(persistedCarrier!);
+      expected.pageLayout!.overlay!.overlaySnapshot!.shapes[0].anchor = shape.anchor;
+      expected.pageLayout!.overlay!.updatedAt = reopened.pageLayout!.overlay!.updatedAt;
+      expect(comparableDocumentValue(reopened)).toEqual(comparableDocumentValue(expected));
+      // A second open must keep the established anchor, table geometry and content.
+      await closeApp(app);
+      app = await launch();
+      page = await prepare(app);
+      expect(comparableDocumentValue((await carrier())!)).toEqual(comparableDocumentValue(reopened));
+      expect(await tables()).toEqual(persisted);
       await expect(page.locator(`[data-overlay-shape-id="${targetShapeId}"]`).first()).toBeVisible();
     } finally {
       await testInfo.attach("pocket-table-save-diagnostics", { body: diagnostics.join("\n"), contentType: "text/plain" });

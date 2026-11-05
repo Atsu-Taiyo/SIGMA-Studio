@@ -29,6 +29,26 @@ export type OfficialPluginErrorCode =
   | "verification-failed"
   | "busy";
 
+/**
+ * 追加・更新の進み具合。ダウンロードが要るのは、このPCにまだ無いファイルだけ。
+ * - verifying: このPCにある同じ内容のファイル (前の版・中断した取得) を確かめて使う
+ * - downloading: 残りのファイルを取得する
+ * - waiting: 動いている変換が終わるのを待つ
+ * - registering: 付属フォントを登録する
+ */
+export interface OfficialPluginProgress {
+  pluginId: string;
+  stage: "verifying" | "downloading" | "waiting" | "registering";
+  /** この版のファイル数と、そのうち用意できた数。 */
+  files: number;
+  completedFiles: number;
+  /** ダウンロードせずに、このPCにあるものを使ったファイル数。 */
+  reusedFiles: number;
+  /** ダウンロードが必要なバイト数と、受け取ったバイト数。 */
+  downloadBytes: number;
+  receivedBytes: number;
+}
+
 export interface OfficialPluginStatus {
   available: boolean;
   requiresLogin: boolean;
@@ -38,6 +58,8 @@ export interface OfficialPluginStatus {
   plugins: OfficialPluginRow[];
   organizations?: OfficialOrganization[];
   error?: OfficialPluginErrorCode;
+  /** phase が installing の間だけ。 */
+  progress?: OfficialPluginProgress;
 }
 
 export interface OfficialPluginBridge {

@@ -228,7 +228,16 @@ test("the blue plus adds a paragraph after a box inside the same column", async 
 
   const plus = page.getByRole("button", { name: "ここに本文を追加", exact: true });
   await expect(plus).toBeVisible();
-  await plus.click();
+  // Inspect focus before the click returns; a later rAF must not hide lost input.
+  const focusedBlock = await plus.evaluate(button => {
+    (button as HTMLButtonElement).click();
+    const anchor = window.getSelection()?.anchorNode;
+    const element = anchor instanceof Element ? anchor : anchor?.parentElement;
+    return document.activeElement?.contains(anchor ?? null)
+      ? element?.closest("[data-sigma-doc-id]")?.getAttribute("data-sigma-doc-id") : null;
+  });
+  expect(focusedBlock).toBeTruthy();
+  expect(focusedBlock).not.toBe("right_body");
   await page.keyboard.type("箱の後ろの本文");
   await expect.poll(async () => {
     const doc = await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), fileId);
