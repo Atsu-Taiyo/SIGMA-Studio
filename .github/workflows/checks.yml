@@ -209,6 +209,7 @@ jobs:
               tests/electron/large-library-editing.spec.ts \
               tests/electron/shared-lazy-open.spec.ts \
               tests/electron/profile-avatar-crop.spec.ts \
+              tests/electron/problem-library-progressive.spec.ts \
               tests/electron/problem-display.spec.ts tests/electron/problem-lead-line.spec.ts \
               tests/electron/problem-layout.spec.ts \
               tests/electron/problem-style-inheritance.spec.ts \

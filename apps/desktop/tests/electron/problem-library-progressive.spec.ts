@@ -2,6 +2,7 @@ import { _electron as electron, expect, test } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { handleSessionPrompts } from "./session-prompts";
 
 /** Control remote responses at IPC; exercise the real preload, renderer and dialog. */
 test("library pages remain usable while counts are pending or fail", async ({}, testInfo) => {
@@ -17,6 +18,7 @@ test("library pages remain usable while counts are pending or fail", async ({}, 
   const app = await electron.launch({ args: [appRoot], cwd: appRoot, env });
   try {
     const page = await app.firstWindow();
+    await handleSessionPrompts(page);
     await page.waitForFunction(() => Boolean(window.desktopAPI?.problems?.library?.searchPage));
     await app.evaluate(({ ipcMain }) => {
       const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, unknown> })._invokeHandlers;
