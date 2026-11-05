@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { WebContents } from "electron";
@@ -68,6 +70,22 @@ export function selectEditingFonts(files: CatalogFile[]): CatalogFile[] {
   return [...selected.values()];
 }
 
+/**
+ * 書体一覧用の複製を置く。名前は内容ハッシュなので、同じ大きさのものが既にあれば置き直さない。
+ * 一時ファイルに書いてから名前を付けるので、途中で終わった複製がこの名前で残ることはない。
+ */
+async function copyFontOnce(source: string, target: string, bytes: number): Promise<void> {
+  const existing = await fs.lstat(target).catch(() => null);
+  if (existing?.isFile() && existing.size === bytes) return;
+  const temporary = `${target}.${randomUUID()}.tmp`;
+  try {
+    await fs.copyFile(source, temporary, fsConstants.COPYFILE_EXCL | fsConstants.COPYFILE_FICLONE);
+    await fs.rename(temporary, target);
+  } finally {
+    await fs.rm(temporary, { force: true });
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -112,9 +130,9 @@ export class PluginHost {
   /** 同梱フォントを、内容ハッシュの資源として登録し、エディタの書体一覧に載せる。古い版の書体は既存の教材のために残す。 */
   private async registerFonts(plugin: CatalogPlugin, directory: string): Promise<void> {
     const { dataDir, fontStore } = this.options;
+    // 起動のたびに呼ばれる。登録済みの書体は読み直さない。
     for (const file of plugin.files.filter((candidate) => candidate.kind === "font")) {
-      const bytes = await fs.readFile(path.join(directory, file.path));
-      await fontStore?.ensure(file.sha256, async () => bytes);
+      await fontStore?.ensure(file.sha256, () => fs.readFile(path.join(directory, file.path)));
     }
     const fontsDir = path.join(dataDir, "fonts");
     await fs.mkdir(fontsDir, { recursive: true });
@@ -128,7 +146,7 @@ export class PluginHost {
     for (const file of selectEditingFonts(plugin.files)) {
       const id = `plugin-${file.sha256}`;
       const fileName = `${id}.ttf`;
-      await fs.copyFile(path.join(directory, file.path), path.join(fontsDir, fileName));
+      await copyFontOnce(path.join(directory, file.path), path.join(fontsDir, fileName), file.bytes);
       if (!fonts.some((font) => font.id === id)) {
         fonts.push({ id, fileName, displayName: displayName(file), cssFamily: `"Sigma Plugin Font ${file.sha256}"`, importedAt: new Date().toISOString() });
       }

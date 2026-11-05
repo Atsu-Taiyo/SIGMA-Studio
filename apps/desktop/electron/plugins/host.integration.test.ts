@@ -66,9 +66,9 @@ function catalog() {
   };
 }
 
-async function setup() {
-  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-host-it-"));
-  directories.push(dataDir);
+async function setup(existingDataDir?: string) {
+  const dataDir = existingDataDir ?? await fs.mkdtemp(path.join(os.tmpdir(), "sigma-host-it-"));
+  if (!existingDataDir) directories.push(dataDir);
   const served = catalog();
   let signedIn = true;
   const registered: string[] = [];
@@ -109,6 +109,20 @@ describe("PluginHost with a real worker", () => {
     const document = (result as { document: { content: Array<{ children: Array<{ text: string }> }>; metadata: { title: string } } }).document;
     expect(document.metadata.title).toBe("from 教材.smp");
     expect(document.content[0].children[0].text).toBe("取り込む本文");
+  });
+
+  it("does not copy the bundled fonts again on every start, but repairs a broken copy", async () => {
+    const { host, dataDir, served } = await setup();
+    await host.manager.check();
+    await host.manager.install(ID);
+    const copy = path.join(dataDir, "fonts", `plugin-${served.fontId}.ttf`);
+    const first = await fs.stat(copy);
+    await setup(dataDir);
+    expect((await fs.stat(copy)).ino).toBe(first.ino);
+    await fs.writeFile(copy, "broken");
+    await setup(dataDir);
+    expect(digest(await fs.readFile(copy))).toBe(served.fontId);
+    expect((await fs.readdir(path.join(dataDir, "fonts"))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 
   it("stops serving the extension as soon as the account loses access", async () => {

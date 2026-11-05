@@ -1,0 +1,27 @@
+.progress {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-round);
+  background: var(--surface-strong);
+}
+
+.bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 160ms linear;
+}
+
+.progressText {
+  margin: var(--space-none);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
