@@ -171,16 +171,21 @@ test("preamble circled settings remain reachable when the session invitation app
   try {
     const page = await app.firstWindow();
     const native = await app.browserWindow(page);
-    await native.evaluate(win => { win.setContentSize(1400, 1000); win.focus(); });
+    await native.evaluate(win => { win.setContentSize(1400, 1000); });
     await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
     await page.evaluate(async () => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
       await window.desktopAPI!.settings!.setUiLocale!("ja");
     });
+    // Install before reload so the invitation registers its interval on this clock.
+    await page.clock.install();
     await page.reload();
     await expect(page.locator(".startup-splash")).toBeHidden();
     await expect(page.getByRole("button", { name: "設定", exact: true })).toBeVisible();
-    await page.clock.install();
+    // Unpackaged windows now show inactive; focus only after ready-to-show has displayed it.
+    await native.evaluate(win => win.focus());
+    await page.bringToFront();
+    await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
     await page.evaluate(() => { (document.activeElement as HTMLElement)?.blur(); });
     await page.clock.fastForward(61_000);
     const invitation = page.getByRole("dialog", { name: "GitHubのStarで応援しませんか？", exact: true });
