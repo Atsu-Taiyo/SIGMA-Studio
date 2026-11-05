@@ -1,4 +1,5 @@
 import { handleSessionPrompts } from "./session-prompts";
+import { APP_READY_EVENT } from "../../src/components/StartupSplash";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -186,8 +187,11 @@ test("preamble circled settings remain reachable when the session invitation app
     await native.evaluate(win => win.focus());
     await page.bringToFront();
     await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
-    await page.evaluate(() => { (document.activeElement as HTMLElement)?.blur(); });
-    await page.clock.fastForward(61_000);
+    // This case forces the blocking invitation, independent of startup hydration and caret delivery.
+    await page.getByRole("button", { name: "設定", exact: true }).focus();
+    await page.evaluate(event => window.dispatchEvent(new Event(event)), APP_READY_EVENT);
+    // Run every idle check; a single fast-forward can race a late focus/activity callback.
+    await page.clock.runFor(65_000);
     const invitation = page.getByRole("dialog", { name: "GitHubのStarで応援しませんか？", exact: true });
     await expect(invitation).toBeVisible();
     await handleSessionPrompts(page);

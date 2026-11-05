@@ -109,6 +109,8 @@ jobs:
         run: npm --workspace @sigma-studio/desktop run electron:prepare
       - name: Save and reopen pocket tables with custom borders and check TeX input, preview and saved PDF
         run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/pocket.spec.ts tests/electron/pocket-shared-table.spec.ts tests/electron/math-preamble-packages.spec.ts --grep "table pocket copies|customised inner borders|online shared material|preamble circled"
+      - name: Repeat the forced session invitation against Windows focus and hydration
+        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/math-preamble-packages.spec.ts --grep "session invitation appears" --repeat-each=3
       - uses: actions/upload-artifact@v7
         if: always()
         with:
