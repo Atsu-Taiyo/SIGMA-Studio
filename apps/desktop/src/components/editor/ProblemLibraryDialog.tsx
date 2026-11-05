@@ -44,7 +44,7 @@ const PROBLEM_SOURCE = { id: "jukenmath", originalUrl: problemSourceUrl } as con
 interface JukenRequest { query: ProblemLibraryQuery; mode: RequestMode }
 interface JukenState { for: JukenRequest; problems: LibraryProblem[]; error: string | null }
 type LibraryRequest = LibrarySearchRequest & { facets: string[]; limit: number };
-interface LibraryState { for: LibraryRequest; results: LibraryProblemSummary[]; total: number; facetCounts: Record<string, number>; error: string | null }
+interface LibraryState { for: LibraryRequest; results: LibraryProblemSummary[]; total: number | null; facetCounts: Record<string, number> | null; hasMore: boolean; progressive: boolean; countsError: string | null; error: string | null }
 type Item = { kind: "jukenmath"; problem: LibraryProblem } | { kind: "library"; problem: LibraryProblemSummary };
 
 export function ProblemLibraryDialog({ onImport, onClose }: Props) {
@@ -107,15 +107,41 @@ export function ProblemLibraryDialog({ onImport, onClose }: Props) {
     let live = true;
     const request = libraryRequest;
     const bridge = getDesktopBridge()?.problems?.library;
-    void (bridge ? bridge.search({ ...request, offset: 0 }) : Promise.resolve({ ok: false as const, error: t("problemLibrary.unavailable") }))
-      .catch(() => ({ ok: false as const, error: t("problemLibrary.loadFailed") }))
-      .then(result => {
+    const search = async () => {
+      if (bridge?.searchPage && bridge.counts) {
+        const result = await bridge.searchPage({ ...request, offset: 0 });
         if (!live) return;
         setMore("idle");
-        setLibrary(result.ok
-          ? { for: request, results: result.search.results, total: result.search.total, facetCounts: result.search.facetCounts, error: null }
-          : { for: request, results: [], total: 0, facetCounts: {}, error: result.error });
-      });
+        if (!result.ok) {
+          setLibrary({ for: request, results: [], total: null, facetCounts: null, hasMore: false, progressive: true, countsError: null, error: result.error });
+          return;
+        }
+        setLibrary({ for: request, results: result.page.results, hasMore: result.page.hasMore,
+          total: null, facetCounts: null, progressive: true, countsError: null, error: null });
+        // Start aggregation after the page arrives, so it cannot compete with the first results.
+        void bridge.counts({ q: request.q, facets: request.facets })
+          .catch(() => ({ ok: false as const, error: t("problemLibrary.countsFailed") }))
+          .then(result => {
+            if (!live) return;
+            setLibrary(state => state?.for !== request ? state : result.ok
+              ? { ...state, total: result.counts.total, facetCounts: result.counts.facetCounts, countsError: null }
+              : { ...state, countsError: t("problemLibrary.countsFailed") });
+          });
+        return;
+      }
+      const result = bridge ? await bridge.search({ ...request, offset: 0 })
+        : { ok: false as const, error: t("problemLibrary.unavailable") };
+      if (!live) return;
+      setMore("idle");
+      setLibrary(result.ok
+        ? { for: request, results: result.search.results, total: result.search.total, facetCounts: result.search.facetCounts,
+          hasMore: result.search.total > result.search.results.length, progressive: false, countsError: null, error: null }
+        : { for: request, results: [], total: null, facetCounts: null, hasMore: false, progressive: false, countsError: null, error: result.error });
+    };
+    void search().catch(() => {
+      if (live) setLibrary({ for: request, results: [], total: null, facetCounts: null, hasMore: false,
+        progressive: false, countsError: null, error: t("problemLibrary.loadFailed") });
+    });
     return () => { live = false; };
   }, [libraryRequest, showLibrary, t]);
 
@@ -169,14 +195,18 @@ export function ProblemLibraryDialog({ onImport, onClose }: Props) {
     if (!current || !bridge || more === "loading") return;
     setMore("loading");
     try {
-      const result = await bridge.search({ ...current.for, offset: current.results.length });
+      const result = current.progressive && bridge.searchPage
+        ? await bridge.searchPage({ ...current.for, offset: current.results.length })
+        : await bridge.search({ ...current.for, offset: current.results.length });
       // A newer search replaced the list while this page was loading; its rows belong to nothing on screen.
       if (libraryRequestRef.current !== current.for) return;
       if (!result.ok) { setMore("failed"); return; }
       setLibrary(state => {
         if (!state || state.for !== current.for) return state;
         const known = new Set(state.results.map(problem => problem.id));
-        return { ...state, total: result.search.total, results: [...state.results, ...result.search.results.filter(problem => !known.has(problem.id))] };
+        const page = "page" in result ? result.page : result.search;
+        const hasMore = "hasMore" in page ? page.hasMore : "total" in page && page.total > current.results.length + page.results.length;
+        return { ...state, hasMore, results: [...state.results, ...page.results.filter(problem => !known.has(problem.id))] };
       });
       setMore("idle");
     } catch {
@@ -283,12 +313,14 @@ export function ProblemLibraryDialog({ onImport, onClose }: Props) {
           </Inline>
         </form>
         <div className={styles.main}>
-          {active === "library" && <FacetPanel tree={facetTree} selected={facets} counts={library?.facetCounts ?? {}} disabled={busy} onToggle={toggleFacet} />}
+          {active === "library" && <FacetPanel tree={facetTree} selected={facets} counts={libraryReady?.facetCounts ?? null} disabled={busy} onToggle={toggleFacet} />}
           <Inset className={styles.results} space="xl">
             <Stack gap="lg">
               <Inline className={styles.heading} gap="md" justify="between">
                 <Inline gap="sm" align="baseline">
                   <h3>{heading}</h3>
+                  {active === "library" && libraryReady && !libraryReady.error && libraryReady.total === null && !libraryReady.countsError &&
+                    <span className={styles.count} role="status">{t("problemLibrary.counting")}</span>}
                   {count !== null && !pending && <span className={styles.count}>{t("problemLibrary.resultCount", { total: count })}</span>}
                 </Inline>
                 {active !== "library" && mode === "results" && <Button tone="ghost" size="sm" disabled={pending || busy} onClick={showRecommended}>{t("problemLibrary.recommend")}</Button>}
@@ -305,6 +337,10 @@ export function ProblemLibraryDialog({ onImport, onClose }: Props) {
                   <Button size="sm" tone="ghost" disabled={pending} onClick={failure.retry}><RotateCw size={14} aria-hidden="true" />{t("problemLibrary.retry")}</Button>
                 </Inline>
               </Inset>)}
+              {libraryReady?.countsError && <Inline gap="sm" justify="between" role="status">
+                <span className={styles.count}>{libraryReady.countsError}</span>
+                <Button size="sm" tone="ghost" disabled={busy} onClick={retryLibrary}>{t("problemLibrary.retry")}</Button>
+              </Inline>}
               {pending && <span className="visually-hidden" role="status">{t("problemLibrary.loading")}</span>}
               {nothingYet ? (
                 <Grid className={styles.grid} columns={columns} gap="md" responsive={false} aria-hidden="true">
@@ -339,16 +375,16 @@ export function ProblemLibraryDialog({ onImport, onClose }: Props) {
               )}
               {active === "library" && libraryReady && !libraryReady.error && libraryReady.results.length > 0 && (
                 <Stack gap="sm" align="center">
-                  <span className={styles.count}>{t("problemLibrary.showing", { total: libraryReady.total, shown: libraryReady.results.length })}</span>
+                  <span className={styles.count}>{libraryReady.total !== null ? t("problemLibrary.showing", { total: libraryReady.total, shown: libraryReady.results.length }) : t("problemLibrary.showingPartial", { shown: libraryReady.results.length })}</span>
                   {more === "failed" && <span className={styles.stateMessage} role="alert">{t("problemLibrary.moreFailed")}</span>}
-                  {libraryReady.results.length < libraryReady.total && libraryReady.results.length < 10_000 && (
+                  {libraryReady.hasMore && libraryReady.results.length < 10_000 && (
                     <Button size="sm" disabled={more === "loading" || busy} onClick={() => void loadMore()}>
                       {t(more === "loading" ? "problemLibrary.loadingMore" : "problemLibrary.more")}
                     </Button>
                   )}
                 </Stack>
               )}
-              {active === "all" && libraryReady && !libraryReady.error && libraryReady.total > libraryReady.results.length && (
+              {active === "all" && libraryReady && !libraryReady.error && libraryReady.total !== null && libraryReady.hasMore && (
                 <Inline justify="center">
                   <Button size="sm" tone="ghost" disabled={busy} onClick={() => selectSource("library")}>
                     {t("problemLibrary.showAllInSource", { source: libraryLabel, total: libraryReady.total })}

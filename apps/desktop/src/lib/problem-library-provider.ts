@@ -24,6 +24,8 @@ export const LibrarySearchRequestSchema = z.object({
   offset: z.number().int().min(0).max(10_000).optional(),
 }).strict();
 export type LibrarySearchRequest = z.input<typeof LibrarySearchRequestSchema>;
+export const LibraryCountsRequestSchema = LibrarySearchRequestSchema.pick({ q: true, facets: true });
+export type LibraryCountsRequest = z.input<typeof LibraryCountsRequestSchema>;
 
 export const LibraryFacetsRequestSchema = z.object({ parent: LibraryFacetKeySchema.nullable() }).strict();
 export type LibraryFacetsRequest = z.input<typeof LibraryFacetsRequestSchema>;
@@ -55,6 +57,10 @@ export const LibrarySearchResponseSchema = z.object({
   facetCounts: z.record(LibraryFacetKeySchema, count).default({}).refine(counts => Object.keys(counts).length <= 5000, "facet counts"),
 });
 export type LibrarySearchResponse = z.infer<typeof LibrarySearchResponseSchema>;
+export const LibraryPageResponseSchema = LibrarySearchResponseSchema.pick({ results: true }).extend({ hasMore: z.boolean() });
+export const LibraryCountsResponseSchema = LibrarySearchResponseSchema.pick({ total: true, facetCounts: true });
+export type LibraryPageResult = { ok: true; page: z.infer<typeof LibraryPageResponseSchema> } | Failure;
+export type LibraryCountsResult = { ok: true; counts: z.infer<typeof LibraryCountsResponseSchema> } | Failure;
 
 export const LibraryFacetSchema = z.object({
   key: LibraryFacetKeySchema,
@@ -77,6 +83,9 @@ export interface MemberLibraryBridge {
   /** Any failure (signed out, not a member, offline) resolves to `{ available: false }`. */
   access(): Promise<LibraryAccess>;
   search(request: LibrarySearchRequest): Promise<LibrarySearchResult>;
+  /** Optional for renderer compatibility with an older desktop bridge. */
+  searchPage?(request: LibrarySearchRequest): Promise<LibraryPageResult>;
+  counts?(request: LibraryCountsRequest): Promise<LibraryCountsResult>;
   facets(request: LibraryFacetsRequest): Promise<LibraryFacetsResult>;
   /** The full document; its referenced fonts are already in the application font store. */
   get(request: LibraryGetRequest): Promise<LibraryGetResult>;

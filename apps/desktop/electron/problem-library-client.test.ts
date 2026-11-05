@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { importTexProblem } from "@/lib/tex-import";
 import { ApplicationFontStore } from "./application-font-store";
-import { fetchLibraryAccess, fetchLibraryFacets, fetchLibraryProblem, fetchLibrarySearch, type ProblemLibraryFontStore } from "./problem-library-client";
+import { fetchLibraryAccess, fetchLibraryCounts, fetchLibraryPage, fetchLibraryFacets, fetchLibraryProblem, fetchLibrarySearch, type ProblemLibraryFontStore } from "./problem-library-client";
 
 const TOKEN = "synthetic-user-token-0123456789";
 const connection = { config: { authUrl: "https://project.example" }, authorization: async () => `Bearer ${TOKEN}` };
@@ -223,5 +223,30 @@ describe("library problem", () => {
       expect((await fetchLibraryProblem({ id }, connection, memoryFontStore().store, fetcher)).ok).toBe(false);
     }
     expect(fetcher).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("progressive library endpoints", () => {
+  it("requests a bounded page without requiring total or counts", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json({ results: [problem(), problem()], hasMore: true }));
+    expect(await fetchLibraryPage({ q: "微分", offset: 24 }, connection, fetcher)).toEqual({ ok: true, page: { results: [problem()], hasMore: true } });
+    expect(fetcher.mock.calls[0][0]).toBe(`${BASE}search-page`);
+    expect(JSON.parse(fetcher.mock.calls[0][1]!.body as string)).toEqual({ q: "微分", offset: 24 });
+  });
+  it("requests exact counts separately and rejects paging input and invalid totals", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json({ total: 1, facetCounts: searchBody.facetCounts }));
+    expect(await fetchLibraryCounts({ q: "微分" }, connection, fetcher)).toEqual({ ok: true, counts: { total: 1, facetCounts: searchBody.facetCounts } });
+    expect(fetcher.mock.calls[0][0]).toBe(`${BASE}search-counts`);
+    expect((await fetchLibraryCounts({ offset: 10 }, connection, fetcher)).ok).toBe(false);
+    expect(fetcher).toHaveBeenCalledOnce();
+    fetcher.mockResolvedValue(json({ total: -1, facetCounts: {} }));
+    expect((await fetchLibraryCounts({}, connection, fetcher)).ok).toBe(false);
+  });
+  it("checks credentials and authorization on both routes", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json({ results: [{ ...problem(), title: TOKEN }], hasMore: false }));
+    expect((await fetchLibraryPage({}, connection, fetcher)).ok).toBe(false);
+    fetcher.mockResolvedValue(new Response("forbidden", { status: 403 }));
+    expect((await fetchLibraryCounts({}, connection, fetcher)).ok).toBe(false);
   });
 });
