@@ -1,12 +1,12 @@
 import { normalizePhysicsTex } from "@/lib/physics-tex";
 import { parseTexPreamble, type TexPreambleIssue } from "@/lib/tex-preamble";
 import {
-  ESVECT_D_ARROW_CLASS,
-  ESVECT_D_CLASS,
-  ESVECT_D_EDITOR_DEF,
-  ESVECT_D_KATEX_DEF,
-  ESVECT_D_MATHLIVE_DEF,
-} from "@/lib/esvect";
+  VV_ARROW_CLASS,
+  VV_CLASS,
+  VV_EDITOR_DEF,
+  VV_KATEX_DEF,
+  VV_MATHLIVE_DEF,
+} from "@/lib/vv-vector";
 
 export const KYOUTSUU_CHOICE_CLASS = "sigma-kyoutsuu-choice";
 
@@ -105,18 +105,18 @@ export const SIGMA_MATHLIVE_EDITOR_MACROS = {
   },
 } as const;
 
-/** esvect `\vv` while editing: the same box as static output with an editable
- * operand, drawn with the esvect-d arrow and written back as `\vv{…}` (lib/esvect.ts). */
-export const SIGMA_MATHLIVE_EDITOR_VECTOR_MACRO = { def: ESVECT_D_EDITOR_DEF, args: 1, captureSelection: false } as const;
+/** `\vv` while editing: the same box as static output with an editable
+ * operand, drawn with the same arrow and written back as `\vv{…}` (lib/vv-vector.ts). */
+export const SIGMA_MATHLIVE_EDITOR_VECTOR_MACRO = { def: VV_EDITOR_DEF, args: 1, captureSelection: false } as const;
 
 /**
- * Whether a field's `\vv` is the built-in esvect one. Compared by definition,
+ * Whether a field's `\vv` is the built-in one. Compared by definition,
  * not identity: the macro tables reach an editor rebuilt or copied (for
  * example with a document preamble). A document's own different `\vv` is kept.
  */
-export function isBuiltInEsvectMacro(macro: unknown): boolean {
+export function isBuiltInVvMacro(macro: unknown): boolean {
   const candidate = macro as { def?: unknown; args?: unknown } | null | undefined;
-  return candidate?.def === ESVECT_D_MATHLIVE_DEF && (candidate.args ?? 0) === 1;
+  return candidate?.def === VV_MATHLIVE_DEF && (candidate.args ?? 0) === 1;
 }
 
 /** Sigma macros shared by MathLive editing and static rendering. */
@@ -137,9 +137,9 @@ export const SIGMA_MATHLIVE_MACROS = {
     def: String.raw`\class{sigma-outerthick-doubleboxed}{\boxed{#1}}`,
     args: 1,
   },
-  /** esvect option d (`\usepackage[d]{esvect}`), see lib/esvect.ts. */
+  /** The vector command of LaTeX's esvect package, with Sigma's own arrow; see lib/vv-vector.ts. */
   vv: {
-    def: ESVECT_D_MATHLIVE_DEF,
+    def: VV_MATHLIVE_DEF,
     args: 1,
   },
 } as const;
@@ -149,7 +149,7 @@ export const SIGMA_KATEX_MACROS = {
   [String.raw`\doubleboxed`]: String.raw`\htmlClass{sigma-doubleboxed}{\boxed{#1}}`,
   [String.raw`\thickboxed`]: String.raw`\htmlClass{sigma-thickboxed}{\boxed{#1}}`,
   [String.raw`\outerthickdoubleboxed`]: String.raw`\htmlClass{sigma-outerthick-doubleboxed}{\boxed{#1}}`,
-  [String.raw`\vv`]: ESVECT_D_KATEX_DEF,
+  [String.raw`\vv`]: VV_KATEX_DEF,
 } as const;
 
 export interface MathMacroSet {
@@ -222,8 +222,8 @@ export const TRUSTED_SIGMA_MATH_CLASSES: ReadonlySet<string> = new Set([
   "sigma-doubleboxed",
   "sigma-thickboxed",
   "sigma-outerthick-doubleboxed",
-  ESVECT_D_CLASS,
-  ESVECT_D_ARROW_CLASS,
+  VV_CLASS,
+  VV_ARROW_CLASS,
 ]);
 
 /** Trust only fixed classes emitted by Sigma Studio's internal math macros. */

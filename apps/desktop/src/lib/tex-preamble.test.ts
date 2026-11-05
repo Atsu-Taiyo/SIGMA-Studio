@@ -39,7 +39,7 @@ describe("parseTexPreamble", () => {
     });
     expect(parseTexPreamble(String.raw`\usepackage[a]{esvect}`).issues).toEqual([{
       line: 1,
-      message: "esvectのオプションaにはまだ対応していません。オプションdの矢印で表示します。",
+      message: "esvectのオプションaの矢印にはまだ対応していません。標準の矢印で表示します。",
     }]);
     expect(parseTexPreamble(String.raw`\usepackage[d]{esvect,physics}`).issues.map((issue) => issue.message))
       .toEqual(["パッケージphysicsにはまだ対応していません。\\usepackage[d]{esvect}だけを読み込めます。"]);

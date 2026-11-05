@@ -193,7 +193,7 @@ jobs:
               tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts tests/electron/ai-proposal-controls-above-shapes.spec.ts \
               tests/electron/math-ime-placeholder.spec.ts \
               tests/electron/math-selection-format.spec.ts \
-              tests/electron/math-esvect-vectors.spec.ts \
+              tests/electron/math-vv-vectors.spec.ts \
               tests/electron/font-format-roundtrip.spec.ts tests/electron/clipboard-routing.spec.ts \
               tests/electron/pocket.spec.ts tests/electron/pocket-shared-table.spec.ts \
               tests/electron/editor-state-regressions.spec.ts \

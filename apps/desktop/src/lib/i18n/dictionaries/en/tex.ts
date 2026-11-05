@@ -36,7 +36,7 @@ export const tex = {
     notDefined: "\\{{name}} isn't defined yet.",
     tooMany: "You can define up to {{max}} custom commands.",
     packageUnsupported: "The {{name}} package isn't supported yet. Only \\usepackage[d]{esvect} can be loaded.",
-    packageOptionUnsupported: "The esvect option {{name}} isn't supported yet. Vectors use the option d arrow.",
+    packageOptionUnsupported: "The arrow of esvect option {{name}} isn't supported yet. Vectors use the standard arrow.",
   },
   examples: {
     preambleComment: "TeX commands used in this file",

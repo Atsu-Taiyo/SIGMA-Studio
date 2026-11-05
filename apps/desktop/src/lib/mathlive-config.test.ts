@@ -97,7 +97,7 @@ describe("MathLive config", () => {
     expect(mathField.macros).toMatchObject({ RR: { args: 0, def: String.raw`\mathbb{R}` } });
   });
 
-  it("edits the built-in esvect \\vv in its static box and keeps a document's own \\vv", () => {
+  it("edits the built-in \\vv in its static box and keeps a document's own \\vv", () => {
     const builtIn = { executeCommand: vi.fn() } as unknown as InlineMathLiveFieldElement;
     configureInlineMathLiveField(builtIn, createMathRenderEnvironment());
     expect(builtIn.macros?.vv).toEqual(SIGMA_MATHLIVE_EDITOR_VECTOR_MACRO);
