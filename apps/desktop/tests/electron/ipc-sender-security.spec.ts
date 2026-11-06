@@ -212,6 +212,10 @@ test("real Electron IPC rejects other windows, subframes and navigation while st
 
     // Main-process navigation bypasses will-navigate; the IPC guard must still reject its new page.
     await app.evaluate(async ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].loadURL("data:text/html,<title>Untrusted</title>"));
+    // Electron's loadURL promise can finish before Playwright replaces its
+    // execution context. Observe the committed navigation before probing IPC.
+    await page.waitForURL("data:text/html,<title>Untrusted</title>");
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
     const navigationRejected = await page.evaluate(async () => {
       try { await window.desktopAPI!.storage.listFiles(); return "allowed"; } catch (error) { return String(error); }
     });
