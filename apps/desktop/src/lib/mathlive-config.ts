@@ -1,6 +1,6 @@
 import { mathFieldDefaultMode } from "@/features/rendering/core";
 import type { MathRenderEnvironment } from "@/lib/math-environment";
-import { installVvEditorSupport } from "@/lib/vv-vector";
+import { installVvEditorSupport, releaseVvEditorSupport } from "@/lib/mathlive-vv-editor";
 import {
   isBuiltInVvMacro,
   SIGMA_MATHLIVE_EDITOR_MACROS,
@@ -105,7 +105,7 @@ export function configureInlineMathLiveField(
   if (isBuiltInVvMacro(macros.vv)) {
     macros.vv = SIGMA_MATHLIVE_EDITOR_VECTOR_MACRO;
     installVvEditorSupport(mathField);
-  }
+  } else releaseVvEditorSupport(mathField);
   mathField.macros = macros;
   mathField.popoverPolicy = "auto";
   // 開き括弧を打った時点で閉じ括弧も入る MathLive 標準の挙動 (`\left(\right)` を作る)。
