@@ -508,13 +508,19 @@ export function syncGraphOwnedLabelTextShapePositions(
       } as OverlayShape;
     }
 
-    const nextAnchor = shape.anchor?.type === "shape"
+    const nextAnchor = shape.anchor?.type === "shape" && shape.anchor.shapeId === graphShape.id
       ? {
           ...templateAnchor,
           dx: shape.anchor.dx,
           dy: shape.anchor.dy,
         }
-      : templateAnchor;
+      : {
+          ...templateAnchor,
+          // Legacy/imported owners may only store absolute x/y. Adopt that
+          // authored position once, instead of snapping to the default label.
+          dx: templateAnchor.dx + shape.x - template.x,
+          dy: templateAnchor.dy + shape.y - template.y,
+        };
     // The final x/y is re-derived from the anchor by resolveShapeAnchorPositions
     // below, so only the anchor and hidden flag matter here. Keying `changed` on
     // the throwaway syncedX/syncedY made this sync fight resolveShapeAnchorPositions
