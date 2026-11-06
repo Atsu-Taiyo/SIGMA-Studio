@@ -144,7 +144,7 @@ test("Viewer display settings preserve SigmaDoc; edits survive host save and rel
   const downloadReady = page.waitForEvent("download");
   await page.getByText("JSONをエクスポート", { exact: true }).click();
   const download = await downloadReady;
-  expect(download.suggestedFilename()).toBe(`${resavedTitle.replaceAll(" ", "-")}.sigma`);
+  expect(download.suggestedFilename()).toBe(`${resavedTitle}.sigma`);
   expect(await download.failure()).toBeNull();
   const downloadedPath = await download.path();
   if (!downloadedPath) throw new Error("Expected a downloaded SigmaDoc file");

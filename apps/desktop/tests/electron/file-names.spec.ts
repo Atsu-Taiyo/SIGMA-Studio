@@ -30,10 +30,14 @@ test("preserves spaces through real UI rename, storage and restart", async () =>
     expect(records.second.file.title).toBe("数学\u3000演習.sigma");
     expect(records.copy.file.title).toBe("数学 演習 のコピー.sigma");
     expect(records.loaded?.metadata.title).toBe("改名 後.sigma");
+    // Main settings and renderer locale preferences are independent. Set both
+    // before navigation so a fresh static renderer cannot reset the UI to English.
+    await page.evaluate(() => localStorage.setItem("sigma-studio:ui-locale", "ja"));
     const workspaceUrl = new URL(page.url());
     workspaceUrl.pathname = env.SIGMA_STUDIO_DEV_SERVER_URL ? "/workspace" : workspaceUrl.pathname.replace(/index\.html$/, "workspace.html");
     workspaceUrl.search = `workspaceId=${records.first.file.workspaceId}`;
     await page.goto(workspaceUrl.href);
+    await expect(page.locator("html")).toHaveAttribute("lang", "ja");
     const card = page.getByRole("button", { name: "改名 後.sigma を開く", exact: true });
     await expect(card).toBeVisible();
     await card.hover();
