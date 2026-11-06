@@ -56,12 +56,16 @@ test("preamble circled numbers and built-in quantities agree in desktop settings
     };
     const fileId = await page.evaluate(async document => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      // Renderer hydration also reads its own saved locale. Keep it in sync
+      // before reload so Japanese locators never race the default English UI.
+      localStorage.setItem("sigma-studio:ui-locale", "ja");
       await window.desktopAPI!.settings!.setUiLocale!("ja");
       const { file } = await window.desktopAPI!.storage.createFileFromDocument({ document });
       await window.desktopAPI!.storage.saveWorkspace({ openFileIds: [file.fileId], activeFileId: file.fileId });
       return file.fileId;
     }, source);
     await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("lang", "ja");
     await expect(page.locator('.page-flow [data-id="circled_math"]').first()).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
     for (const id of ["circled_math", "fallback_math"]) {
@@ -123,6 +127,7 @@ test("preamble circled numbers and built-in quantities agree in desktop settings
     await expect.poll(async () => JSON.stringify((await saved())?.content)).toContain("31");
     const savedContent = (await saved())!.content;
     await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("lang", "ja");
     await expect(page.locator('.page-flow [data-id="quantity_math"] .ML__frac-line').first()).toBeVisible();
     expect((await saved())!.content).toEqual(savedContent);
 
@@ -176,11 +181,15 @@ test("preamble circled settings remain reachable when the session invitation app
     await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
     await page.evaluate(async () => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      // Renderer hydration also reads its own saved locale. Keep it in sync
+      // before reload so Japanese locators never race the default English UI.
+      localStorage.setItem("sigma-studio:ui-locale", "ja");
       await window.desktopAPI!.settings!.setUiLocale!("ja");
     });
     // Install before reload so the invitation registers its interval on this clock.
     await page.clock.install();
     await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("lang", "ja");
     await expect(page.locator(".startup-splash")).toBeHidden();
     await expect(page.getByRole("button", { name: "設定", exact: true })).toBeVisible();
     // Unpackaged windows now show inactive; focus only after ready-to-show has displayed it.
