@@ -1,4 +1,4 @@
-import { spaceFreeFileName, splitFileName } from "@/lib/file-name";
+import { normalizeNewFileName, splitFileName } from "@/lib/file-name";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { existsSync } from "node:fs";
@@ -164,6 +164,6 @@ export class DownloadTracker {
 
 /** Chromium が付けた名前でも、パス区切りや制御文字を含まない単一のファイル名に整える。 */
 export function safeFilename(name: string): string {
-  const base = spaceFreeFileName(path.basename(name.replace(/\\/g, "/"))).replace(/[\u0000-\u001f<>:"|?*]/g, "_").trim();
+  const base = normalizeNewFileName(path.basename(name.replace(/\\/g, "/"))).replace(/[\u0000-\u001f<>:"|?*]/g, "_").trim();
   return base && base !== "." && base !== ".." ? base.slice(0, 200) : "download";
 }

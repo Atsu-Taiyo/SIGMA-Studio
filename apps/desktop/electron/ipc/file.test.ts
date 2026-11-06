@@ -114,12 +114,12 @@ describe("file:export-pdf", () => {
 
     await expect(handler?.({ sender }, {
       ...B5,
-      suggestedName: "教材.pdf",
+      suggestedName: "高校数学　高校3年 A-B組.pdf",
     })).resolves.toEqual({ filePath: "/Users/test/Downloads/教材.pdf", pageCount: 2 });
 
     expect(mocks.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({
       title: "PDFを書き出し",
-      defaultPath: "教材.pdf",
+      defaultPath: "高校数学　高校3年 A-B組.pdf",
       filters: [{ name: "PDF", extensions: ["pdf"] }],
     }));
     expect(mocks.visiblePrintToPDF).not.toHaveBeenCalled();
@@ -306,10 +306,10 @@ describe("file:save-to-downloads", () => {
     );
   });
 
-  it("normalizes whitespace without changing the download directory or extension", async () => {
+  it("preserves spaces without changing the download directory or extension", async () => {
     mocks.getPath.mockReturnValue("/Users/test/My Downloads");
     const result = await save({ fileName: " 数学\u3000演習.mp4 ", dataBase64: Buffer.from("x").toString("base64") });
-    expect(result).toEqual({ filePath: "/Users/test/My Downloads/数学-演習.mp4" });
+    expect(result).toEqual({ filePath: "/Users/test/My Downloads/数学\u3000演習.mp4" });
   });
 
   it("never lets the renderer choose the directory or the kind of file", async () => {

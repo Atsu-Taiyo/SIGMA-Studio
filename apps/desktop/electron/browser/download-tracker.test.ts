@@ -78,13 +78,13 @@ describe("DownloadTracker", () => {
     expect(tracker.list()[0].filename).toBe("figure-2.png");
   });
 
-  it("keeps whitespace out of names and reserves distinct in-flight paths with compound extensions", () => {
+  it("preserves spaces and reserves distinct in-flight paths with compound extensions", () => {
     const { dir, tracker } = setup();
-    writeFileSync(path.join(dir, "数学-演習.sigmadoc.json"), "original");
+    writeFileSync(path.join(dir, "数学 演習.sigmadoc.json"), "original");
     const first = tracker.track(new FakeItem("数学 演習.sigmadoc.json"));
-    const second = tracker.track(new FakeItem("数学\u3000演習.sigmadoc.json"));
-    expect(first.filename).toBe("数学-演習-2.sigmadoc.json");
-    expect(second.filename).toBe("数学-演習-3.sigmadoc.json");
+    const second = tracker.track(new FakeItem("数学 演習.sigmadoc.json"));
+    expect(first.filename).toBe("数学 演習-2.sigmadoc.json");
+    expect(second.filename).toBe("数学 演習-3.sigmadoc.json");
   });
 
   it("cancels an in-flight download and refuses to hand out a path for anything unfinished", () => {
@@ -168,6 +168,6 @@ describe("safeFilename", () => {
     expect(safeFilename("bad:na?me*.pdf")).toBe("bad_na_me_.pdf");
     expect(safeFilename("..")).toBe("download");
     expect(safeFilename("   ")).toBe("download");
-    expect(safeFilename("日本語 の 資料.pdf")).toBe("日本語-の-資料.pdf");
+    expect(safeFilename("日本語 の 資料.pdf")).toBe("日本語 の 資料.pdf");
   });
 });

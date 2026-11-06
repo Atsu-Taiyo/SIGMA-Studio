@@ -314,7 +314,6 @@ function suggestedPdfFileName(title: string): string {
   const stem = title
     .trim()
     .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_")
-    .replace(/\s+/g, "-")
     .slice(0, 80)
     .trim() || "lesson";
   return `${stem}.pdf`;

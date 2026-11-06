@@ -1,4 +1,4 @@
-import { spaceFreeFileName, splitFileName } from "@/lib/file-name";
+import { normalizeNewFileName, splitFileName } from "@/lib/file-name";
 import { LIBRARY_VERSION } from "@/lib/library-schema";
 import type {
   DocumentMetadata,
@@ -122,7 +122,7 @@ export function availableDocumentTitle(
     && file.fileId !== location.excludeFileId
     && file.workspaceId === location.workspaceId
     && (file.folderId ?? null) === (location.folderId ?? null)).map((file) => file.title.trim()));
-  const requested = spaceFreeFileName(title);
+  const requested = normalizeNewFileName(title);
   if (!names.has(requested)) return requested;
   const { stem, extension } = splitFileName(requested);
   const match = /^(.*)-([1-9]\d*)$/.exec(stem);

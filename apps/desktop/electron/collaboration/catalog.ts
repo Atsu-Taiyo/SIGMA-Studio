@@ -1,4 +1,4 @@
-import { spaceFreeFileName, splitFileName } from "@/lib/file-name";
+import { normalizeNewFileName, splitFileName } from "@/lib/file-name";
 import { availableDocumentTitle } from "@/lib/library-ledger";
 import { retryDelay } from "./transport";
 import { validateCatalogDelta } from "./response-validation";
@@ -784,7 +784,7 @@ export class DesktopSharedCatalog {
     if (!currentParent || currentParent.state !== "active") throw new Error("TARGET_UNAVAILABLE");
     if (!currentParent.capabilities.createChildren) throw new Error("FORBIDDEN");
     if (kind === "document") {
-      name = spaceFreeFileName(name);
+      name = normalizeNewFileName(name);
       if (document) document = { ...document, metadata: { ...document.metadata, title: name } };
     }
     let intent = Object.values(cache.data.creates).find(item => !item.complete && item.parentId === parent.id && item.kind === kind && (kind === "document" ? item.document?.docId === document?.docId : item.name === name));

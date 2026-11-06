@@ -243,8 +243,8 @@ it("duplicates a material in an editable shared folder into that folder, with it
 
   const copy = await app.local.duplicateFile(source.fileId);
 
-  // New shared names never contain spaces (`spaceFreeFileName`).
-  expect(copy.file.title).toBe("図つきの教材-のコピー");
+  // Shared copies preserve the original title and the space before the copy suffix.
+  expect(copy.file.title).toBe("図つきの教材 のコピー");
   expect(copy.file.sharing?.target.kind).toBe("document");
   expect([copy.file.workspaceId, copy.file.folderId]).toEqual([source.workspaceId, source.folderId]);
   const copyNode = [...server.nodes.values()].find((node) => node.id === copy.file.sharing?.target.catalogNodeId)!;
@@ -302,7 +302,7 @@ it("copies a material shared with me on its own into my own workspace, carrying 
   await app.close();
   // The local copy keeps the image itself: it no longer depends on the shared session.
   const reopened = await new LocalSigmaDocStore(directory).loadDocument(copy.file.fileId);
-  expect(reopened?.metadata.title).toBe("受け取った教材-のコピー");
+  expect(reopened?.metadata.title).toBe("受け取った教材 のコピー");
   expect(imageSources(reopened)).toEqual([IMAGE_SOURCE]);
 });
 
@@ -366,9 +366,9 @@ it("retries a failed duplicate into a shared folder without making a second copy
   expect(paragraphText((await app.local.loadDocument(source.fileId))!)).toBe("本文");
 
   const copy = await app.local.duplicateFile(source.fileId);
-  expect(copy.file.title).toBe("図つきの教材-のコピー");
+  expect(copy.file.title).toBe("図つきの教材 のコピー");
   const copies = [...server.nodes.values()].filter((node) => node.kind === "document" && node.id !== material.id);
-  expect(copies.map((node) => [node.name, node.state])).toEqual([["図つきの教材-のコピー", "active"]]);
+  expect(copies.map((node) => [node.name, node.state])).toEqual([["図つきの教材 のコピー", "active"]]);
   expect(new Set(server.createRequests).size).toBe(1);
   expect(Object.values((await CatalogCache.open(app.sessions.directory, ACTOR)).data.creates).every((intent) => intent.complete)).toBe(true);
   // A deliberate second duplicate is a new copy.
