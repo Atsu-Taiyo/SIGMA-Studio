@@ -623,15 +623,7 @@ const desktopAPI = {
   },
 
   workspacePreview: {
-    getShared(fileId: string) { return ipcRenderer.invoke("workspace-preview:shared-get", fileId); },
-    putShared(fileId: string, token: string, dataUrl: string) { return ipcRenderer.invoke("workspace-preview:shared-put", { fileId, token, dataUrl }); },
     loadSharedDocument(fileId: string, options?: { assets?: boolean }) { return ipcRenderer.invoke("workspace-preview:shared-document", fileId, options); },
-    get(fileId: string, revision: number): Promise<string | null> {
-      return ipcRenderer.invoke("workspace-preview:get", { fileId, revision });
-    },
-    put(fileId: string, revision: number, dataUrl: string): Promise<{ ok: boolean }> {
-      return ipcRenderer.invoke("workspace-preview:put", { fileId, revision, dataUrl });
-    },
   },
 
   onMenuAction(handler: (action: string) => void): () => void {

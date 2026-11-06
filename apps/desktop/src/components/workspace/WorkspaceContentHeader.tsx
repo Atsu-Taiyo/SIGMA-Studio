@@ -5,11 +5,9 @@ import { Fragment } from "react";
 import type { DragEvent as ReactDragEvent } from "react";
 
 import type { WorkspaceFolderSummary } from "@/lib/workspace-repository";
-import type { WorkspaceViewMode } from "@/lib/workspace-view-preferences";
 
 import type { WorkspaceDropTarget } from "./workspace-drag";
 import { resolveFolderDisplayName } from "./workspace-format";
-import { WorkspaceViewToggle } from "./WorkspaceViewToggle";
 import { Shimmer } from "@/components/ui/Shimmer";
 import { useT } from "@/lib/i18n/react";
 
@@ -28,8 +26,6 @@ interface WorkspaceContentHeaderProps {
   };
   onNavigateRoot: () => void;
   onNavigateFolder: (folderId: string) => void;
-  viewMode: WorkspaceViewMode;
-  onViewModeChange: (mode: WorkspaceViewMode) => void;
   canEditFolder?: boolean;
   canDeleteFolder?: boolean;
   onEditFolder: () => void;
@@ -46,8 +42,6 @@ export function WorkspaceContentHeader({
   dropProps,
   onNavigateRoot,
   onNavigateFolder,
-  viewMode,
-  onViewModeChange,
   canEditFolder = true,
   canDeleteFolder = true,
   onEditFolder,
@@ -110,33 +104,30 @@ export function WorkspaceContentHeader({
           <Shimmer>{t("search.searchingBody")}</Shimmer>
         </span>
       )}
-      <div className="workspace-content-header-actions">
-        <WorkspaceViewToggle value={viewMode} onChange={onViewModeChange} />
-        {showFolderActions && selectedFolder && (
-          <>
-            <button
-              type="button"
-              className="icon-button"
-              title={t("action.moveFolder")}
-              aria-label={t("action.moveFolder")}
-              disabled={!canEditFolder}
-              onClick={onEditFolder}
-            >
-              <Pencil size={15} />
-            </button>
-            <button
-              type="button"
-              className="icon-button danger"
-              title={t("action.deleteFolder")}
-              aria-label={t("action.deleteFolder")}
-              disabled={!canDeleteFolder}
-              onClick={onDeleteFolder}
-            >
-              <Trash2 size={15} />
-            </button>
-          </>
-        )}
-      </div>
+      {showFolderActions && selectedFolder && (
+        <div className="workspace-content-header-actions">
+          <button
+            type="button"
+            className="icon-button"
+            title={t("action.moveFolder")}
+            aria-label={t("action.moveFolder")}
+            disabled={!canEditFolder}
+            onClick={onEditFolder}
+          >
+            <Pencil size={15} />
+          </button>
+          <button
+            type="button"
+            className="icon-button danger"
+            title={t("action.deleteFolder")}
+            aria-label={t("action.deleteFolder")}
+            disabled={!canDeleteFolder}
+            onClick={onDeleteFolder}
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

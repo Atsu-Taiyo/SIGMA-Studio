@@ -177,8 +177,6 @@ export const workspace = {
     materialName: "Material name",
     openInEditor: "Editing",
     parentFolder: "Parent folder",
-    folders: "Folders",
-    materials: "Materials",
     materialsAndFolders: "Materials and folders",
     itemCount_one: "{{count}} item",
     itemCount_other: "{{count}} items",
@@ -227,11 +225,6 @@ export const workspace = {
     rootMessage: "No materials",
     folderMessage: "This folder is empty",
     searchMessage: "No matching materials",
-  },
-  view: {
-    label: "View mode",
-    grid: "Grid view",
-    list: "List view",
   },
   library: {
     title: "Materials",

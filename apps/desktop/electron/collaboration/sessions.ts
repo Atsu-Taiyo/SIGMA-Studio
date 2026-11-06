@@ -723,12 +723,7 @@ export class CollaborationSessions {
     for (let offset = 0; offset < fileIds.length; offset += 4)
       await Promise.all(fileIds.slice(offset, offset + 4).map(fileId => this.flush(fileId, true)));
   }
-  previewVersion(fileId: string): string | undefined {
-    const session = this.sessions.get(fileId);
-    if (!session || this.registry.files[fileId]?.actorId !== this.actorId() || session.stopped || session.failed) return undefined;
-    return createHash("sha256").update(session.journal.document.snapshot()).digest("hex");
-  }
-  /** Read-only thumbnail projection: no journal, socket, presence or catalog mutation. */
+  /** Read-only projection (no journal, socket, presence or catalog mutation): lets the workspace read shared bodies, e.g. to list comments. */
   async previewCatalogDocument(fileId: string, sharedDocumentId: string, options?: { assets?: boolean }): Promise<SigmaDocument> {
     const actor = this.actorId();
     if (!actor) throw new Error("AUTH_REQUIRED");

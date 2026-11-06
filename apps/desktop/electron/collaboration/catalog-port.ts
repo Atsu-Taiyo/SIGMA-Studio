@@ -13,7 +13,6 @@ export function catalogSessionsPort(sessions: CollaborationSessions): CatalogSes
       await sessions.openCatalogDocument(id, sharedId);
       return sessions.exportDocument(id);
     },
-    previewVersion: id => sessions.previewVersion(id),
     preview: (id, sharedId, options) => sessions.previewCatalogDocument(id, sharedId, options),
     initialize: (id, sharedId, operationId, document, staged) => sessions.initializeCatalogDocument(id, sharedId, operationId, document, staged),
     activate: ids => sessions.activateCatalogDocuments(ids),

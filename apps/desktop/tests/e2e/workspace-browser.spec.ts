@@ -25,13 +25,16 @@ function appUrl(path: string): string {
 async function gotoWorkspace(page: Page): Promise<void> {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(appUrl("/workspace"), { waitUntil: "domcontentloaded" });
+  // The rows come from the client-side overview, so they only appear once the page has
+  // hydrated. Typing or right-clicking before that would hit the server-rendered markup.
+  await expect(page.locator("tr[data-item-key]").first()).toBeVisible();
 }
 
 /** Sets the persisted view preference before the app boots, for tests that
- * aren't themselves exercising the toggle/sort UI. */
+ * aren't themselves exercising the sort UI. */
 async function seedViewPreference(
   page: Page,
-  preference: { mode: "grid" | "list"; sortKey?: "name" | "updatedAt"; sortDirection?: "asc" | "desc" },
+  preference: { sortKey?: "name" | "updatedAt"; sortDirection?: "asc" | "desc" },
 ): Promise<void> {
   await page.addInitScript((pref) => {
     window.localStorage.setItem("sigma-studio:workspace-view-preference", JSON.stringify(pref));
@@ -51,33 +54,32 @@ async function readOverview(page: Page, workspaceId: string): Promise<WorkspaceO
   );
 }
 
-test("switching to list view persists the preference across a reload", async ({ page }) => {
+test("the workspace always lists folders and materials as a table, and the sort order persists across a reload", async ({ page }) => {
   await installWorkspaceRuntimeMock(page, createDefaultWorkspaceMockSeed());
   await gotoWorkspace(page);
-
-  await expect(page.getByRole("table")).toHaveCount(0);
-  await page.getByRole("button", { name: "リスト表示" }).click();
 
   const table = page.getByRole("table");
   await expect(table).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "名前" })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "更新日時" })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "場所" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "グリッド表示", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "リスト表示", exact: true })).toHaveCount(0);
 
+  await page.getByRole("button", { name: "名前" }).click();
+  await expect(page.getByRole("columnheader", { name: "名前" })).toHaveAttribute("aria-sort", "ascending");
   const stored = await page.evaluate(() => window.localStorage.getItem("sigma-studio:workspace-view-preference"));
-  expect(stored).not.toBeNull();
-  expect(JSON.parse(stored as string)).toMatchObject({ mode: "list" });
+  expect(JSON.parse(stored as string)).toMatchObject({ sortKey: "name", sortDirection: "asc" });
+  expect(JSON.parse(stored as string)).not.toHaveProperty("mode");
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.getByRole("table")).toBeVisible();
-  const storedAfterReload = await page.evaluate(() => window.localStorage.getItem("sigma-studio:workspace-view-preference"));
-  expect(JSON.parse(storedAfterReload as string)).toMatchObject({ mode: "list" });
+  await expect(page.getByRole("columnheader", { name: "名前" })).toHaveAttribute("aria-sort", "ascending");
 });
 
 test("sorting by name and updated-at orders rows, flips aria-sort, and keeps folders above files", async ({ page }) => {
   await installWorkspaceRuntimeMock(page, createDefaultWorkspaceMockSeed());
   await gotoWorkspace(page);
-  await page.getByRole("button", { name: "リスト表示" }).click();
 
   const rowKeys = () => page.locator("tr[data-item-key]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-item-key")));
 
@@ -110,15 +112,15 @@ test("sorting by name and updated-at orders rows, flips aria-sort, and keeps fol
   await expect(page.getByRole("columnheader", { name: "名前" })).toHaveAttribute("aria-sort", "none");
 });
 
-test("場所 column shows the containing folder while searching and the workspace name at root", async ({ page }) => {
+test("場所 column shows the folder path while searching and the workspace name at root", async ({ page }) => {
   await installWorkspaceRuntimeMock(page, createDefaultWorkspaceMockSeed());
   await gotoWorkspace(page);
-  await page.getByRole("button", { name: "リスト表示" }).click();
 
   await page.getByLabel("教材を検索").fill("フォルダ内");
   const nestedRow = page.locator(`tr[data-item-key="file:${MOCK_FILE_IN_FOLDER_ID}"]`);
   await expect(nestedRow).toBeVisible();
-  await expect(nestedRow.locator(".workspace-list-cell-location")).toHaveText(MOCK_FOLDER_B_NAME);
+  // 検索中の「場所」はワークスペースからの道筋 (createSearchLocationResolver)。
+  await expect(nestedRow.locator(".workspace-list-cell-location")).toHaveText(`${MOCK_WORKSPACE_1_NAME} / ${MOCK_FOLDER_A_NAME} / ${MOCK_FOLDER_B_NAME}`);
 
   await page.getByLabel("検索をクリア").click();
   const rootRow = page.locator(`tr[data-item-key="file:${MOCK_FILE_K2_ID}"]`);
@@ -126,8 +128,8 @@ test("場所 column shows the containing folder while searching and the workspac
   await expect(rootRow.locator(".workspace-list-cell-location")).toHaveText(MOCK_WORKSPACE_1_NAME);
 });
 
-async function runDragAndDropScenario(page: Page, viewMode: "grid" | "list"): Promise<void> {
-  await seedViewPreference(page, { mode: viewMode, sortKey: "name", sortDirection: "asc" });
+test("drag and drop moves a file into a folder, nests a folder, and moves a file to another workspace", async ({ page }) => {
+  await seedViewPreference(page, { sortKey: "name", sortDirection: "asc" });
   await installWorkspaceRuntimeMock(page, createDefaultWorkspaceMockSeed());
   await gotoWorkspace(page);
 
@@ -159,20 +161,11 @@ async function runDragAndDropScenario(page: Page, viewMode: "grid" | "list"): Pr
   if (secondOverview?.state === "ready") {
     expect(secondOverview.overview.files.some((file) => file.fileId === MOCK_FILE_K10_ID)).toBe(true);
   }
-}
-
-test("drag and drop moves a file into a folder, nests a folder, and moves a file to another workspace (grid view)", async ({ page }) => {
-  await runDragAndDropScenario(page, "grid");
 });
 
-test("drag and drop moves a file into a folder, nests a folder, and moves a file to another workspace (list view)", async ({ page }) => {
-  await runDragAndDropScenario(page, "list");
-});
-
-test("right-clicking a folder row in list view offers rename and delete", async ({ page }) => {
+test("right-clicking a folder row offers rename and delete", async ({ page }) => {
   await installWorkspaceRuntimeMock(page, createDefaultWorkspaceMockSeed());
   await gotoWorkspace(page);
-  await page.getByRole("button", { name: "リスト表示" }).click();
 
   const row = page.locator(`tr[data-item-key="folder:${MOCK_FOLDER_EMPTY_ID}"]`);
   await expect(row).toBeVisible();
@@ -262,10 +255,9 @@ test("opening an empty folder shows the folder empty-state variant", async ({ pa
   await expect(emptyState.getByRole("button", { name: "教材を作成" })).toBeVisible();
 });
 
-test("inline rename in list view accepts a full pressSequentially-typed value for a folder and a file", async ({ page }) => {
+test("inline rename accepts a full pressSequentially-typed value for a folder and a file", async ({ page }) => {
   await installWorkspaceRuntimeMock(page, createDefaultWorkspaceMockSeed());
   await gotoWorkspace(page);
-  await page.getByRole("button", { name: "リスト表示" }).click();
 
   // Folder rename via right-click context menu.
   const folderRow = page.locator(`tr[data-item-key="folder:${MOCK_FOLDER_A_ID}"]`);
@@ -275,7 +267,7 @@ test("inline rename in list view accepts a full pressSequentially-typed value fo
   const folderInput = page.getByLabel("フォルダ名");
   await expect(folderInput).toBeFocused();
   // fill() は1イベントで値を差し込むため「1文字打つと全選択され直す」退行を検出できない。
-  // 必ず pressSequentially で1文字ずつ打つこと (S1のリグレッションネット、リスト表示版)。
+  // 必ず pressSequentially で1文字ずつ打つこと (S1のリグレッションネット)。
   await folderInput.pressSequentially("改称フォルダA");
   await expect(folderInput).toHaveValue("改称フォルダA");
   await folderInput.press("Enter");

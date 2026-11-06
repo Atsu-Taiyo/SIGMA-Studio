@@ -12,11 +12,11 @@ export function isInteractiveTargetWithin(target: EventTarget, container: EventT
   return Boolean(interactive && interactive !== container);
 }
 
-const SELECTABLE_ITEM_SELECTOR = ".workspace-file-card, .workspace-folder-card, .workspace-list-row";
+const SELECTABLE_ITEM_SELECTOR = ".workspace-list-row";
 
 /**
  * True when `target` is inside (or is) a selectable item -- a file/folder
- * card or list row. Used to detect a click on empty space within the
+ * list row. Used to detect a click on empty space within the
  * workspace content area (background, group gaps, the section chrome
  * itself) so it can clear the current multi-selection without also
  * swallowing clicks that land on an actual item.

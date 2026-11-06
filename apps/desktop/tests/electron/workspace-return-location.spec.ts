@@ -150,7 +150,7 @@ test("deleting the only open tab returns to the workspace without a back button,
       await expect(item).toBeEnabled();
       await item.click();
       await page.waitForURL(url => /\/workspace(?:\.html)?\/?$/.test(url.pathname), { timeout: 30_000 });
-      await expect(page.locator(".workspace-view-toggle")).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator(".workspace-list-table")).toBeVisible({ timeout: 30_000 });
     };
     const openFromWorkspace = async (fileId: string, name: string) => {
       await page.locator(`[data-item-key="file:${fileId}"]`).dblclick();

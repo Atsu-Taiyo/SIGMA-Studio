@@ -3,14 +3,12 @@ import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
-import { WorkspaceItemGrid } from "./WorkspaceItemGrid";
 import { WorkspaceItemList } from "./WorkspaceItemList";
 import { WorkspaceMenuSurface } from "./WorkspaceMenuSurface";
 import { WorkspaceSharingDialog } from "./WorkspaceSharingDialog";
 import type { CatalogSharingDetails, SharedCatalogBridge, SharedCatalogStatus } from "@/lib/runtime/shared-catalog";
 import * as bridgeModule from "@/lib/desktop-bridge";
 vi.mock("@/features/rendering/adapters/react", () => ({ DocumentTitleText: ({ title }: { title: string }) => <>{title}</> }));
-vi.mock("./WorkspaceFileCardPreview", () => ({ WorkspaceFileCardPreview: () => null }));
 let root: Root;
 let container: HTMLDivElement;
 const now = "2026-09-22T00:00:00.000Z";
@@ -49,26 +47,26 @@ describe("workspace menu targets", () => {
     expect(onFileContextMenu.mock.calls.map((call) => call[1].fileId)).toEqual(["d", "nested"]);
     expect(onSwitchWorkspace).not.toHaveBeenCalled(); expect(onOpenFile).not.toHaveBeenCalled(); expect(setFolderFilter).not.toHaveBeenCalled();
   });
-  for (const mode of ["list", "grid"] as const) it(`${mode} folder/file menus do not select/open the row`, async () => {
+  it("list folder/file menus do not select/open the row", async () => {
     const onItemClick = vi.fn(), onOpenFolder = vi.fn(), onOpenFile = vi.fn(), onFolderContextMenu = vi.fn(), onOpenFileActionMenu = vi.fn(), onToggleBookmark = vi.fn();
     const common = { folders: [folder], files: [file], sortKey: "name" as const, sortDirection: "asc" as const, emptyVariant: "root" as const,
       dragItem: null, dropTarget: null, dragProps: () => ({ onDragStart: vi.fn(), onDragEnd: vi.fn() }), dropProps: () => ({ onDragOver: vi.fn(), onDragLeave: vi.fn(), onDrop: vi.fn() }), selectedKeys: new Set<string>(), focusedKey: null,
       onItemClick, onItemKeyDown: vi.fn(), onOpenFolder, onFolderContextMenu, onOpenFile, savingFileId: null, saving: false, fileActionMenuFileId: null, onOpenFileActionMenu,
       onCreateDocument: vi.fn(), onClearSearch: vi.fn(), isRenameEditing: () => false, onCommitRename: vi.fn(), onCancelRename: vi.fn(),
       bookmarkedKeys: new Set<string>(["file:d"]), onToggleBookmark };
-    act(() => root.render(mode === "grid" ? <WorkspaceItemGrid {...common} /> : <WorkspaceItemList {...common} allFolders={[folder]} workspaceName="授業" onRequestSort={vi.fn()} searchActive={false} />));
+    act(() => root.render(<WorkspaceItemList {...common} allFolders={[folder]} workspaceName="授業" onRequestSort={vi.fn()} searchActive={false} />));
     for (const name of ["数学", "問題"]) await click(container.querySelector(`button[aria-label="${name} の操作"]`)!);
     expect(onFolderContextMenu).toHaveBeenCalledOnce(); expect(onOpenFileActionMenu).toHaveBeenCalledOnce();
     expect(onItemClick).not.toHaveBeenCalled(); expect(onOpenFolder).not.toHaveBeenCalled(); expect(onOpenFile).not.toHaveBeenCalled();
   });
-  for (const mode of ["list", "grid"] as const) it(`${mode} bookmark buttons toggle only the bookmark and show the current state`, async () => {
+  it("list bookmark buttons toggle only the bookmark and show the current state", async () => {
     const onItemClick = vi.fn(), onOpenFolder = vi.fn(), onOpenFile = vi.fn(), onToggleBookmark = vi.fn();
     const common = { folders: [folder], files: [file], sortKey: "name" as const, sortDirection: "asc" as const, emptyVariant: "root" as const,
       dragItem: null, dropTarget: null, dragProps: () => ({ onDragStart: vi.fn(), onDragEnd: vi.fn() }), dropProps: () => ({ onDragOver: vi.fn(), onDragLeave: vi.fn(), onDrop: vi.fn() }), selectedKeys: new Set<string>(), focusedKey: null,
       onItemClick, onItemKeyDown: vi.fn(), onOpenFolder, onFolderContextMenu: vi.fn(), onOpenFile, savingFileId: null, saving: false, fileActionMenuFileId: null, onOpenFileActionMenu: vi.fn(),
       onCreateDocument: vi.fn(), onClearSearch: vi.fn(), isRenameEditing: () => false, onCommitRename: vi.fn(), onCancelRename: vi.fn(),
       bookmarkedKeys: new Set<string>(["file:d"]), onToggleBookmark };
-    act(() => root.render(mode === "grid" ? <WorkspaceItemGrid {...common} /> : <WorkspaceItemList {...common} allFolders={[folder]} workspaceName="授業" onRequestSort={vi.fn()} searchActive={false} />));
+    act(() => root.render(<WorkspaceItemList {...common} allFolders={[folder]} workspaceName="授業" onRequestSort={vi.fn()} searchActive={false} />));
     const removeFile = container.querySelector('button[aria-label="問題 のブックマークを外す"]')!;
     expect(removeFile.getAttribute("aria-pressed")).toBe("true");
     expect(container.querySelector('button[aria-label="数学 をブックマークに追加"]')!.getAttribute("aria-pressed")).toBe("false");
@@ -84,6 +82,16 @@ describe("workspace menu targets", () => {
     act(() => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
     expect(document.activeElement?.textContent).toBe("削除");
     act(() => root.render(null)); expect(document.activeElement).toBe(trigger); trigger.remove();
+  });
+  it("menu keeps focus where its action put it, e.g. on an inline rename field", () => {
+    const trigger = document.createElement("button"); document.body.append(trigger); trigger.focus();
+    const field = document.createElement("input"); document.body.append(field);
+    try {
+      act(() => root.render(<WorkspaceMenuSurface><button>名前を変更</button></WorkspaceMenuSurface>));
+      expect(document.activeElement?.textContent).toBe("名前を変更");
+      act(() => { field.focus(); root.render(null); });
+      expect(document.activeElement).toBe(field);
+    } finally { trigger.remove(); field.remove(); }
   });
 });
 
