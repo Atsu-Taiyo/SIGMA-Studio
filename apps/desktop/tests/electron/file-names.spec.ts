@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
@@ -8,6 +8,8 @@ const APP_ROOT = path.resolve(__dirname, "../..");
 test("preserves spaces through real UI rename, storage and restart", async () => {
   test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")) || (!process.env.SIGMA_STUDIO_DEV_SERVER_URL && !existsSync(path.join(APP_ROOT, "out/index.html"))), "Build Electron and provide a dev server or static renderer first.");
   const profile = mkdtempSync(path.join(os.tmpdir(), "sigma-file-names-"));
+  mkdirSync(path.join(profile, "data"), { recursive: true });
+  writeFileSync(path.join(profile, "data/settings.json"), JSON.stringify({ uiLocale: "ja" }));
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   env.SIGMA_STUDIO_USER_DATA_DIR = profile;
   delete env.ELECTRON_RUN_AS_NODE;
