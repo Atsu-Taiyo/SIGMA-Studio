@@ -1,6 +1,6 @@
 import { handleSessionPrompts } from "./session-prompts";
 import { APP_READY_EVENT } from "../../src/components/StartupSplash";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type Locator } from "@playwright/test";
@@ -8,6 +8,14 @@ import type { SigmaDocument } from "@/features/document";
 
 const ROOT = path.resolve(__dirname, "../..");
 const PREAMBLE = String.raw`\newcommand{\maru}[1]{\textcircled{\scriptsize#1}}`;
+
+/** Set main's canonical locale before the renderer can perform first-run writeback. */
+function createJapaneseProfile(prefix: string): string {
+  const profile = mkdtempSync(path.join(tmpdir(), prefix));
+  mkdirSync(path.join(profile, "data"), { recursive: true });
+  writeFileSync(path.join(profile, "data/settings.json"), JSON.stringify({ uiLocale: "ja" }));
+  return profile;
+}
 
 /** Measure the rendered digit and its circle, for both supported math renderers. */
 async function circleCenters(surface: Locator) {
@@ -32,7 +40,7 @@ async function circleCenters(surface: Locator) {
 test("preamble circled numbers and built-in quantities agree in desktop settings, editing and saved PDF", async ({}, testInfo) => {
   test.skip(!existsSync(path.join(ROOT, "dist-electron/main.cjs")), "Build Electron first");
   test.skip(!process.env.SIGMA_STUDIO_E2E_BASE_URL && !existsSync(path.join(ROOT, "out/index.html")), "Build the renderer first");
-  const profile = mkdtempSync(path.join(tmpdir(), "sigma-math-preamble-"));
+  const profile = createJapaneseProfile("sigma-math-preamble-");
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.SIGMA_STUDIO_DEV_SERVER_URL;
@@ -167,7 +175,7 @@ test("preamble circled numbers and built-in quantities agree in desktop settings
 });
 
 test("preamble circled settings remain reachable when the session invitation appears", async () => {
-  const profile = mkdtempSync(path.join(tmpdir(), "sigma-settings-invitation-"));
+  const profile = createJapaneseProfile("sigma-settings-invitation-");
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.SIGMA_STUDIO_DEV_SERVER_URL;
