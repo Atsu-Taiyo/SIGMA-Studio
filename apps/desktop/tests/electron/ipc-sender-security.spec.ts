@@ -221,6 +221,8 @@ test("real Electron IPC rejects other windows, subframes and navigation while st
     });
     expect(navigationRejected).toContain("TRUSTED_RENDERER_REQUIRED");
     await app.evaluate(async ({ BrowserWindow }, url) => BrowserWindow.getAllWindows()[0].loadURL(url), mainUrl);
+    await page.waitForURL(mainUrl);
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
     expect((await page.evaluate(() => window.desktopAPI!.storage.listFiles())).some(file => file.fileId === created.file.fileId)).toBe(true);
 
     // Exercise the actual minimal sandboxed preview preload through the local AI renderer service.
