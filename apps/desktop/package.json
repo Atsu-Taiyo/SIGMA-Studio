@@ -55,7 +55,7 @@
     "next": "^16.4.4",
     "node-tikzjax": "^1.0.5",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "6.4.299",
+    "pdfjs-dist": "6.5.438",
     "pptx-svg": "^0.6.8",
     "pptx-viewer-core": "^4.13.5",
     "qrcode": "^1.5.4",
