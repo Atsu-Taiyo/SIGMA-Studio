@@ -14,6 +14,8 @@ import {
   VV_MATHLIVE_DEF,
   VV_MIN_WIDTH_EM,
   VV_SLOT_STYLE,
+  VV_ARROW_SLICE_MARGIN,
+  vvArrowMarkup,
   vvArrowTopEm,
   vvCaretTarget,
   normalizeVvMarkup,
@@ -89,6 +91,36 @@ describe("\\vv vectors", () => {
     // The operand glyphs stay real text; the slot rule is invisible.
     expect(html.replace(/<[^>]+>/g, "")).toBe("AB");
     expect(html).toMatch(/class="ML__rule" style="[^"]*opacity:0/);
+  });
+
+  it("keeps the ink clear of each half's edges, so pixel snapping cannot cut the barbs' ends or the tip", () => {
+    const markup = vvArrowMarkup(0.1);
+    // The arrow's own box is the ink box: rise and width are measured from it.
+    expect(markup).toMatch(new RegExp(`^<span class="${VV_ARROW_CLASS}" style="[^"]*top:0.1em;width:100%;height:${VV_ARROW_HEIGHT / 1000}em"`));
+    const slices = [...markup.matchAll(/<span style="([^"]*)"><svg [^>]*viewBox="([^"]*)"/g)].map(([, style, viewBox]) => ({
+      style, viewBox: viewBox.split(" ").map(Number),
+      top: Number(/top:(-?[\d.]+)em/.exec(style)?.[1]), height: Number(/height:([\d.]+)em/.exec(style)?.[1]),
+    }));
+    expect(slices).toHaveLength(2);
+    const margin = VV_ARROW_SLICE_MARGIN;
+    expect(margin).toBeGreaterThanOrEqual(15); // more than half a device pixel at 16px on a 2x display (~31 units)
+    for (const { viewBox: [, y, , h], top, height } of slices) {
+      // The ink (0..VV_ARROW_HEIGHT, vv-arrow-outline.test.ts) sits `margin` inside the top and bottom...
+      expect(y).toBe(-margin);
+      expect(y + h).toBe(VV_ARROW_HEIGHT + margin);
+      // ...at the same scale and place as the arrow's box (1 unit = 0.001em).
+      expect(height * 1000).toBeCloseTo(h, 6);
+      expect(top * 1000).toBeCloseTo(y, 6);
+    }
+    // The head's half reaches `margin` right of the box; the tip (x = slice width) stays at its right edge.
+    const [left, right] = slices;
+    expect(left.style).toContain("left:0;width:50.2%");
+    expect(right.style).toContain(`right:-${margin / 1000}em`);
+    expect(right.viewBox[2]).toBe(left.viewBox[2] + margin);
+    // The sanitizer keeps all of it.
+    const html = renderMathHtml(L`\vv{AB}`, env);
+    expect(html).toContain(`viewBox="0 ${-margin} ${right.viewBox[2]} ${VV_ARROW_HEIGHT + 2 * margin}"`);
+    expect(html).toContain(`right:-${margin / 1000}em;top:-${margin / 1000}em`);
   });
 
   it("reserves the arrow's geometry: its rise over the operand, the operand's depth, and the minimum width", () => {

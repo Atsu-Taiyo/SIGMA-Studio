@@ -90,17 +90,35 @@ export function vvArrowTopEm(vlistHeightEm: number, operandHeightEm: number): nu
 interface ArrowSlice { style: string; svg: Record<string, string>; paths: readonly string[] }
 
 /**
+ * Room around the ink inside the halves (font units). An SVG viewport is
+ * snapped to device pixels, which cut ink touching its edge: at 16px on a 2x
+ * display the lower barb lost most of its round end and the tip 0.012em. The
+ * halves reach this far above, below and (the head's) right of the arrow's
+ * box, so `.sigma-vv-arrow` itself stays the ink box.
+ */
+export const VV_ARROW_SLICE_MARGIN = 20;
+const MARGIN = em(VV_ARROW_SLICE_MARGIN / 1000);
+const SLICE_HEIGHT_UNITS = VV_ARROW_HEIGHT + 2 * VV_ARROW_SLICE_MARGIN;
+const SLICE_HEIGHT = em(SLICE_HEIGHT_UNITS / 1000);
+
+/**
  * Two halves, as MathLive's own stretchy accents: the shaft's start is fixed on
  * the left and the head on the right, and the shaft between them stretches.
  * Each half is an inline-flex box, so its SVG cannot sit on a line-box strut.
+ * The left half needs no margin on the left: the shaft starts `inset` in.
  */
-const ARROW_SLICES: readonly ArrowSlice[] = [
-  [VV_ARROW_LEFT_SLICE_PATHS, "xMinYMin", "0"],
-  [VV_ARROW_RIGHT_SLICE_PATHS, "xMaxYMin", "49.8%"],
-].map(([paths, align, left]) => ({
-  style: `position:absolute;left:${left};top:0;width:50.2%;height:${ARROW_HEIGHT};overflow:hidden;display:inline-flex`,
-  svg: { width: "100%", height: ARROW_HEIGHT, viewBox: `0 0 ${VV_ARROW_SLICE_WIDTH} ${VV_ARROW_HEIGHT}`, preserveAspectRatio: `${align} slice` },
-  paths: paths as readonly string[],
+const ARROW_SLICES: readonly ArrowSlice[] = ([
+  [VV_ARROW_LEFT_SLICE_PATHS, "xMinYMin", "left:0;width:50.2%", VV_ARROW_SLICE_WIDTH],
+  [VV_ARROW_RIGHT_SLICE_PATHS, "xMaxYMin", `left:49.8%;right:-${MARGIN}`, VV_ARROW_SLICE_WIDTH + VV_ARROW_SLICE_MARGIN],
+] as const).map(([paths, align, horizontal, width]) => ({
+  style: `position:absolute;${horizontal};top:-${MARGIN};height:${SLICE_HEIGHT};overflow:hidden;display:inline-flex`,
+  svg: {
+    width: "100%",
+    height: SLICE_HEIGHT,
+    viewBox: `0 ${-VV_ARROW_SLICE_MARGIN} ${width} ${SLICE_HEIGHT_UNITS}`,
+    preserveAspectRatio: `${align} slice`,
+  },
+  paths,
 }));
 
 /** The stretchy `\vv` arrow, placed across a positioned vlist cell `topEm` below its top. */
