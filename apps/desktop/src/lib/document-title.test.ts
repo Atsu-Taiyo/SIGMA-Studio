@@ -425,3 +425,10 @@ describe("isDocumentTitleExplicit across locales", () => {
     expect(isDocumentTitleExplicit(english)).toBe(false);
   });
 });
+
+it("preserves explicit file-name spaces and hyphens in both title projections", () => {
+  const title = "高校数学　高校3年 A-B組  演習";
+  const document = createBlankDocument(title);
+  expect(resolveDocumentTitle(document)).toBe(title);
+  expect(resolveDocumentTitleContent(document).text).toBe(title);
+});

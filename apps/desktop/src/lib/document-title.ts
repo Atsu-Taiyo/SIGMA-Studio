@@ -70,7 +70,7 @@ export function resolveDocumentTitleContent(document: SigmaDocument, fallback = 
   if (isDocumentTitleExplicit(document.metadata.title)) {
     // 明示タイトルは保存値が素の文字列なので、数式は表示時に読むしかない。
     // 保存値は 1 バイトも書き換えない。
-    const text = normalizeDocumentTitleText(document.metadata.title) ?? fallback;
+    const text = normalizeDocumentTitleText(document.metadata.title, { preserveSpaces: true }) ?? fallback;
     return { text, nodes: parseDocumentTitleInlineNodes(text) };
   }
 
@@ -105,6 +105,7 @@ export function getFirstContentLineTitleNodes(document: SigmaDocument): InlineNo
  *    入力欄 (DOM が改行を黙って落とす) の全部にかかっているため
  * 2. 各 text ノードの連続空白を 1 個へ畳み、行頭・行末の空白はノード境界をまたいで落とす
  *    (改行以外の tex 内部の空白には触れない — 保存値を描画都合で書き換えないため)
+ *    明示的なファイル名では preserveSpaces により行内の空白を保持する。
  * 3. 上限は text が `text.length`、数式が `tex.length + 2` (`$…$` の分)。**数式は分割しない** —
  *    直前までが上限未満なら丸ごと入れ、達していたら入れない。これが「`$\sum` で止まる」の根治。
  *    したがって上限をまたぐ数式が 1 つあると、結果は `MAX_DOCUMENT_TITLE_LENGTH` を超えうる。
@@ -117,9 +118,9 @@ export function getFirstContentLineTitleNodes(document: SigmaDocument): InlineNo
  * 数式の id も本文のものは持ち込まず `t<index>` を振り直す (本文と同じ `data-id` が
  * ヘッダーとページの両方に出ると、DOM 全体を引く問い合わせが本文ではなくタイトルを掴む)。
  */
-export function normalizeDocumentTitleInlineNodes(nodes: readonly InlineNode[]): InlineNode[] | null {
+export function normalizeDocumentTitleInlineNodes(nodes: readonly InlineNode[], options: { preserveSpaces?: boolean } = {}): InlineNode[] | null {
   for (const line of splitTitleLines(nodes)) {
-    const normalized = normalizeTitleLine(line);
+    const normalized = normalizeTitleLine(line, options.preserveSpaces);
     if (normalized.length > 0) {
       return clampTitleLine(normalized);
     }
@@ -127,8 +128,8 @@ export function normalizeDocumentTitleInlineNodes(nodes: readonly InlineNode[]):
   return null;
 }
 
-export function normalizeDocumentTitleText(value: string | null | undefined): string | null {
-  const nodes = normalizeDocumentTitleInlineNodes([{ type: "text", text: value ?? "" }]);
+export function normalizeDocumentTitleText(value: string | null | undefined, options: { preserveSpaces?: boolean } = {}): string | null {
+  const nodes = normalizeDocumentTitleInlineNodes([{ type: "text", text: value ?? "" }], options);
   return nodes ? inlineNodesToPlainText(nodes) : null;
 }
 
@@ -151,11 +152,11 @@ function splitTitleLines(nodes: readonly InlineNode[]): InlineNode[][] {
   return lines;
 }
 
-function normalizeTitleLine(line: readonly InlineNode[]): InlineNode[] {
+function normalizeTitleLine(line: readonly InlineNode[], preserveSpaces = false): InlineNode[] {
   const nodes: InlineNode[] = [];
   for (const node of line) {
     if (node.type === "text") {
-      nodes.push({ type: "text", text: node.text.replace(/\s+/g, " ") });
+      nodes.push({ type: "text", text: preserveSpaces ? node.text : node.text.replace(/\s+/g, " ") });
       continue;
     }
     // 空の tex はグリフを持たない (画面には何も出ない) ので、行の中身としては数えない。

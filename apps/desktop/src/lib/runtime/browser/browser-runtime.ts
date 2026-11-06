@@ -1,4 +1,3 @@
-import { spaceFreeFileName } from "@/lib/file-name";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import { createId } from "@/lib/id";
 import {
@@ -276,7 +275,7 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): AppRuntime
           const stored = await tx.get<WorkspaceState>("workspaceState", WORKSPACE_STATE_KEY);
           const pinnedFileIds: string[] = [];
           for (const title of PINNED_BROWSER_DOCUMENT_TITLES) {
-            const existing = visibleFiles(record).find((file) => (file.title === title || file.title === spaceFreeFileName(title)));
+            const existing = visibleFiles(record).find((file) => (file.title === title || file.title === title.replace(/\s+/gu, "-")));
             if (existing) {
               const storedDocument = await tx.get<StoredDocumentRecord>("documents", existing.fileId);
               if (storedDocument && isLegacyPinnedBrowserDocument(title, storedDocument.document)) {
