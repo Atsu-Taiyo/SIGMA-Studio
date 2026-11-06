@@ -48,23 +48,32 @@ function modelAtoms(mathField: unknown): AtomLike[] | null {
   return Array.isArray(atoms) ? atoms as AtomLike[] : null;
 }
 
+/** The `\vv` box whose invisible slot holds `atom`, at any depth (the slot is `\phantom{\rule…}`). */
+function slotBoxOf(atom: AtomLike): AtomLike | null {
+  for (let node = atom; node.parent; node = node.parent) {
+    if (node.parentBranch === "above" && node.parent.command === BOX_COMMAND && node.parent.parent?.command === COMMAND) return node.parent;
+  }
+  return null;
+}
+
 /**
  * Where the caret may not rest inside a `\vv`: the macro's own edges and the
- * invisible slot above the operand. Returns the offset to move to instead, in
- * the direction of travel, so arrow keys and clicks behave as with an accent.
+ * invisible slot above the operand, inside its `\phantom` included, where
+ * anything typed would neither show nor be saved. Returns the offset to move to
+ * instead, in the direction of travel, so arrow keys and clicks behave as with
+ * an accent.
  */
 export function vvCaretTarget(model: ModelLike, offset: number, forward: boolean): number | null {
   const leaf = model.at?.(offset);
-  const parent = leaf?.parent;
-  if (!leaf || !parent || !model.offsetOf) return null;
-  const inSlot = parent.command === BOX_COMMAND && leaf.parentBranch === "above" && parent.parent?.command === COMMAND;
-  const inMacro = parent.command === COMMAND && parent.type === "macro";
-  if (!inSlot && !inMacro) return null;
-  const macro = inSlot ? parent.parent! : parent;
+  if (!leaf?.parent || !model.offsetOf) return null;
+  const slotBox = slotBoxOf(leaf);
+  const inMacro = leaf.parent.command === COMMAND && leaf.parent.type === "macro";
+  if (!slotBox && !inMacro) return null;
+  const macro = slotBox ? slotBox.parent! : leaf.parent;
   const box = macro.body?.find((child) => child.command === BOX_COMMAND);
   const operand = box?.branch?.("body");
   if (!box || !operand?.length) return null;
-  const beforeBox = inMacro && model.offsetOf(leaf) < model.offsetOf(box) && leaf !== box;
+  const beforeBox = !slotBox && model.offsetOf(leaf) < model.offsetOf(box) && leaf !== box;
   if (forward) return beforeBox ? model.offsetOf(operand[0]) : model.offsetOf(macro);
   if (beforeBox) return macro.leftSibling ? model.offsetOf(macro.leftSibling) : model.offsetOf(operand[0]) - 1;
   return model.offsetOf(operand.at(-1)!);

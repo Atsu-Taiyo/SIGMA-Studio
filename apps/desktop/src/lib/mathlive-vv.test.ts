@@ -59,26 +59,31 @@ describe("editor serialization of \\vv", () => {
 });
 
 describe("editor caret inside \\vv", () => {
-  // Offsets as MathLive numbers them for `x\vv{AB}+1`: 0 root start, 1 x, 2 macro start,
-  // 3 box operand start, 4 A, 5 B, 6 slot start, 7 phantom, 8 after box, 9 after macro.
+  // Offsets as MathLive 0.111 numbers them for `x\vv{AB}+1` (checked in mathlive-vv-real.test.ts):
+  // 0 root start, 1 x, 2 macro start, 3 operand start, 4 A, 5 B, 6 slot start, 7 phantom start,
+  // 8 rule, 9 phantom, 10 the box, 11 the macro, 12 +, 13 1.
   type Atom = { command?: string; type?: string; parentBranch?: string; parent?: Atom; leftSibling?: Atom; body?: Atom[]; branch?: (n: string) => Atom[] };
   const x: Atom = { command: "x" };
   const macro: Atom = { command: L`\vv`, type: "macro", leftSibling: x };
-  const box: Atom = { command: L`\overset`, parent: macro };
+  const box: Atom = { command: L`\overset`, parent: macro, parentBranch: "body" };
   const operand: Atom[] = [{ type: "first" }, { command: "A" }, { command: "B" }].map((a) => ({ ...a, parent: box, parentBranch: "body" }));
-  const slot: Atom[] = [{ type: "first" }, { command: L`\phantom` }].map((a) => ({ ...a, parent: box, parentBranch: "above" }));
+  const phantom: Atom = { command: L`\phantom`, parent: box, parentBranch: "above" };
+  const slot: Atom[] = [{ type: "first", parent: box, parentBranch: "above" }, phantom];
+  const inPhantom: Atom[] = [{ type: "first" }, { command: L`\rule` }].map((a) => ({ ...a, parent: phantom, parentBranch: "body" }));
   const macroFirst: Atom = { type: "first", parent: macro, parentBranch: "body" };
   macro.body = [macroFirst, box];
   box.branch = (name) => (name === "body" ? operand : slot);
-  const atoms: Atom[] = [{ type: "first" }, x, macroFirst, operand[0], operand[1], operand[2], slot[0], slot[1], box, macro];
+  const atoms: Atom[] = [{ type: "first" }, x, macroFirst, ...operand, slot[0], ...inPhantom, phantom, box, macro, { command: "+" }, { command: "1" }];
   const model = { at: (offset: number) => atoms[offset], offsetOf: (atom: Atom) => atoms.indexOf(atom) } as unknown as Parameters<typeof vvCaretTarget>[0];
 
-  it("keeps the caret on the operand and skips the macro edges and the invisible slot", () => {
+  it("keeps the caret on the operand and skips the macro edges and the whole invisible slot", () => {
     expect(vvCaretTarget(model, 2, true)).toBe(3); // entering: operand start
     expect(vvCaretTarget(model, 2, false)).toBe(1); // leaving backwards: before the vector
-    expect(vvCaretTarget(model, 6, true)).toBe(9); // past the operand: after the vector
-    expect(vvCaretTarget(model, 7, false)).toBe(5); // back from the slot: operand end
-    expect(vvCaretTarget(model, 8, false)).toBe(5);
-    for (const offset of [0, 1, 3, 4, 5, 9]) expect(vvCaretTarget(model, offset, true)).toBeNull();
+    expect(vvCaretTarget(model, 10, false)).toBe(5); // back from the box: operand end
+    for (const offset of [6, 7, 8, 9]) {
+      expect(vvCaretTarget(model, offset, true)).toBe(11); // past the operand: after the vector
+      expect(vvCaretTarget(model, offset, false)).toBe(5); // back into the operand's end
+    }
+    for (const offset of [0, 1, 3, 4, 5, 11, 12, 13]) expect(vvCaretTarget(model, offset, true)).toBeNull();
   });
 });
