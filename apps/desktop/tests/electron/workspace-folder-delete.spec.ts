@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-test("workspace uses a two-button toggle and deletes nested folders after explicit confirmation", async () => {
+test("workspace deletes nested folders after explicit confirmation and recovers from a failed reload", async () => {
   const root = path.resolve(__dirname, "../..");
   const profile = await mkdtemp(path.join(tmpdir(), "sigma-folder-delete-"));
   const env: Record<string, string> = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)), SIGMA_STUDIO_USER_DATA_DIR: profile };
@@ -35,9 +35,6 @@ test("workspace uses a two-button toggle and deletes nested folders after explic
     await page.goto(url.href);
     await expect(page.getByRole("button", { name: "ワークスペースを再読み込み", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "再試行", exact: true })).toHaveCount(0);
-    const toggle = page.locator(".workspace-view-toggle");
-    await expect(toggle.locator("button")).toHaveCount(2);
-    expect(await toggle.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(2);
     const parent = page.locator(`[data-item-key="folder:${fixture.parent}"]`);
     await parent.click({ button: "right" });
     await page.getByRole("menuitem", { name: "削除", exact: true }).click();
@@ -66,6 +63,6 @@ test("workspace uses a two-button toggle and deletes nested folders after explic
     }, after);
     await retry.click();
     await expect(retry).toHaveCount(0);
-    await expect(page.locator(".workspace-view-toggle")).toBeVisible();
+    await expect(page.locator(`[data-item-key="folder:${fixture.kept}"]`)).toBeVisible();
   } finally { await app.close(); await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 });

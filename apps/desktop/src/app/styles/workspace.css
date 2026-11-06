@@ -407,12 +407,6 @@ button.workspace-breadcrumb-item:focus-visible {
   gap: 6px;
 }
 
-.segmented.workspace-view-toggle {
-  grid-template-columns: repeat(2, 32px);
-  width: max-content;
-  flex-shrink: 0;
-}
-
 .workspace-section-heading {
   display: flex;
   align-items: center;
@@ -436,159 +430,10 @@ button.workspace-breadcrumb-item:focus-visible {
   gap: 10px;
 }
 
-.workspace-group-title {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-}
-
-.workspace-item-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--workspace-item-min, 200px), 1fr));
-  gap: 12px;
-}
-
-.workspace-folder-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  min-height: 46px;
-  padding: 0 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 14px;
-  background: var(--background);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: border-color 140ms ease, box-shadow 160ms ease, transform 160ms ease;
-}
-
-.workspace-folder-card svg {
-  flex: 0 0 auto;
-}
-
-.workspace-folder-card-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-folder-card small {
-  flex: 0 0 auto;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.workspace-folder-card:hover,
-.workspace-folder-card:focus-visible {
-  border-color: var(--border);
-  box-shadow: 0 8px 24px rgba(17, 17, 17, 0.08);
-  transform: translateY(-1px);
-  outline: none;
-}
-
-.workspace-folder-card.drop-active {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-subtle));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent);
-}
-
-.workspace-folder-card.dragging {
-  opacity: 0.5;
-}
-
-/* Selection (single click, Drive semantics) vs drop-active (a valid drag
-   target) vs hover must all read distinctly at a glance: hover is a plain
-   grey lift with no accent color at all; drop-active is an accent RING with
-   no fill; selected is an accent border plus a faint accent-tinted fill so
-   it stays legible underneath both hover and drop-active. */
-.workspace-folder-card.selected {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--background));
-}
-
-.workspace-file-card {
-  position: relative;
-  display: grid;
-  /* 同じ行のカードが本文検索の抜粋で高くなっても、題名の位置は上で揃える (行の高さへ間延びさせない)。 */
-  align-content: start;
-  min-width: 0;
-  contain-intrinsic-size: 0 214px;
-  content-visibility: auto;
-  border: 1px solid var(--border-subtle);
-  border-radius: 14px;
-  background: var(--background);
-  overflow: hidden;
-  cursor: pointer;
-  transition: border-color 140ms ease, box-shadow 160ms ease, transform 160ms ease;
-}
-
-.workspace-file-card:hover,
-.workspace-file-card:focus-visible {
-  border-color: var(--border);
-  box-shadow: 0 8px 24px rgba(17, 17, 17, 0.08);
-  transform: translateY(-1px);
-  outline: none;
-}
-
-.workspace-file-card.dragging {
-  opacity: 0.5;
-}
-
-/* See the comment above .workspace-folder-card.selected -- same rationale,
-   kept distinct from hover (grey, no accent) and legible under it. */
-.workspace-file-card.selected {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 6%, var(--background));
-}
-
-.workspace-file-card-preview {
-  position: relative;
-  display: grid;
-  place-items: center;
-  height: 152px;
-  overflow: hidden;
-  border-bottom: 1px solid var(--border-subtle);
-  background: #f3f4f6;
-  color: var(--text-muted);
-}
-
-.workspace-file-card-preview-stage,
-.workspace-file-card-thumbnail,
-.workspace-file-card-preview-fallback {
-  position: absolute;
-  inset: 0;
-}
-
-.workspace-file-card-preview-stage {
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.workspace-file-card-thumbnail {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0)),
-    #f3f4f6;
-}
-
-.workspace-file-card-preview-image {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: top center;
-  background: #ffffff;
-}
-
-/* Thumbnails are rendered with the print preview's surface off screen, then drawn to
-   an image. The host has to lay out normally (measurement drives pagination), so it is
-   moved out of view rather than hidden. Fixed positioning keeps it out of any scroller. */
+/* Template gallery thumbnails (PagedThumbnailRenderer) are rendered with the print
+   preview's surface off screen, then drawn to an image. The host has to lay out
+   normally (measurement drives pagination), so it is moved out of view rather than
+   hidden. Fixed positioning keeps it out of any scroller. */
 .paged-thumbnail-host {
   position: fixed;
   top: 0;
@@ -597,105 +442,10 @@ button.workspace-breadcrumb-item:focus-visible {
   pointer-events: none;
 }
 
-.workspace-file-card-preview-fallback {
-  display: grid;
-  place-items: center;
-  color: var(--text-muted);
-}
-
-.workspace-file-card-preview-fallback.loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 18px 28px;
-}
-
-.workspace-file-preview-shimmer {
-  position: relative;
-  display: block;
-  overflow: hidden;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--surface-muted) 82%, #ffffff);
-}
-
-.workspace-file-preview-shimmer::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.72),
-    transparent
-  );
-  animation: ui-shimmer-sweep 1.8s ease-in-out infinite;
-}
-
-.workspace-file-preview-shimmer.page {
-  width: 72px;
-  height: 88px;
-  border-radius: 3px;
-}
-
-.workspace-file-preview-shimmer.line,
-.workspace-file-preview-shimmer.short-line {
-  height: 8px;
-}
-
-.workspace-file-preview-shimmer.line {
-  width: 84px;
-}
-
-.workspace-file-preview-shimmer.short-line {
-  width: 58px;
-}
-
-.workspace-file-card-body {
-  display: grid;
-  gap: 3px;
-  padding: 10px 12px 12px;
-}
-
-.workspace-file-card-body strong {
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-file-card-body small {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.workspace-file-card-actions {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.workspace-file-card:hover .workspace-file-card-actions,
-.workspace-file-card:focus-within .workspace-file-card-actions {
-  opacity: 1;
-}
-
-.workspace-file-card-actions .icon-button {
-  background: color-mix(in srgb, var(--background) 90%, transparent);
-  box-shadow: 0 1px 4px rgba(17, 17, 17, 0.14);
-}
-
-/* Shared chrome for the inline rename <input> across the sidebar nav entry,
-   folder/file cards, and list rows -- each caller also passes its own
-   positional class (workspace-nav-name, workspace-folder-card-name, etc.)
-   for sizing, so only the input-specific look lives here. */
+/* Shared chrome for the inline rename <input> across the sidebar nav entry
+   and list rows -- each caller also passes its own positional class
+   (workspace-nav-name, workspace-list-name-text) for sizing, so only the
+   input-specific look lives here. */
 .workspace-inline-rename-input {
   min-width: 0;
   height: 26px;
@@ -713,8 +463,6 @@ button.workspace-breadcrumb-item:focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
-.workspace-folder-card.editing,
-.workspace-file-card.editing,
 .workspace-nav-item.editing,
 .workspace-list-row.editing {
   cursor: default;
@@ -784,7 +532,7 @@ button.workspace-breadcrumb-item:focus-visible {
 
 /* content-visibility / contain-intrinsic-size は <tr> に付けないこと。
    行が独立してレイアウトされ、列ごとに高さがずれてテーブルが崩れる。
-   リスト表示はサムネイルを描かないので、そもそも遅延描画の必要もない。 */
+   一覧はサムネイルを描かないので、そもそも遅延描画の必要もない。 */
 .workspace-list-row {
   cursor: pointer;
   transition: background-color 120ms ease;
@@ -3137,16 +2885,6 @@ nav.app-menu-list[inert] *,
   white-space: nowrap;
 }
 
-.workspace-file-card-title {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-.workspace-file-card-title strong {
-  min-width: 0;
-  flex: 0 1 auto;
-}
-
 /* ── サイドバーの開閉 / コメント一覧 / ブックマーク ─────────────────────────────── */
 
 .workspace-sidebar-toggle {
@@ -3509,35 +3247,20 @@ nav.app-menu-list[inert] *,
   color: var(--text-primary);
 }
 
-.workspace-folder-card > .workspace-bookmark-button:not(.is-active),
-.workspace-list-cell-actions .workspace-bookmark-button:not(.is-active),
-.workspace-file-card-bookmark:not(.is-active) {
+.workspace-list-cell-actions .workspace-bookmark-button:not(.is-active) {
   opacity: 0;
   transition: opacity 120ms ease;
 }
 
-.workspace-folder-card:hover > .workspace-bookmark-button,
-.workspace-folder-card:focus-within > .workspace-bookmark-button,
 .workspace-list-row:hover .workspace-list-cell-actions .workspace-bookmark-button,
-.workspace-list-row:focus-within .workspace-list-cell-actions .workspace-bookmark-button,
-.workspace-file-card:hover .workspace-file-card-bookmark,
-.workspace-file-card:focus-within .workspace-file-card-bookmark {
+.workspace-list-row:focus-within .workspace-list-cell-actions .workspace-bookmark-button {
   opacity: 1;
-}
-
-.workspace-file-card-bookmark {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 1;
-  background: color-mix(in srgb, var(--background) 90%, transparent);
-  box-shadow: 0 1px 4px rgba(17, 17, 17, 0.14);
 }
 
 /* ── 本文検索 ─────────────────────────────────────────────────────────────── */
 
 /* 索引からすぐ答えが返る検索では出さない。続いたときだけ、少し遅れて静かに現れる。
-   左の見出しに寄せ、右の表示切り替えとの間の余白を自分の右側で吸う。 */
+   左の見出しに寄せ、右側の余白は自分の右側で吸う。 */
 .workspace-body-search-progress {
   flex: 0 1 auto;
   min-width: 0;

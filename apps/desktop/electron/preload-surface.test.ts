@@ -27,8 +27,8 @@ describe("preload bridge surface", () => {
     expect(preloadSource).toMatch(/setUiLocale/u);
   });
 
-  it("exposes the workspace preview disk cache bridge", () => {
-    expect(preloadSource).toMatch(/workspace-preview:get/u);
-    expect(preloadSource).toMatch(/workspace-preview:put/u);
+  it("exposes only the read-only shared document reader, not the retired thumbnail cache", () => {
+    expect(preloadSource).toMatch(/workspace-preview:shared-document/u);
+    expect(preloadSource).not.toMatch(/workspace-preview:(?:get|put|shared-get|shared-put)\b/u);
   });
 });

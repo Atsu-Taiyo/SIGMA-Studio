@@ -128,7 +128,7 @@ test("comment list, bookmarks and the collapsible sidebar work in the real app",
     const folderCard = page.locator(`[data-item-key="folder:${fixture.folderId}"]`);
     await folderCard.hover();
     await folderCard.getByRole("button", { name: "数学 をブックマークに追加" }).click();
-    await expect(page.locator(".workspace-file-card.selected, .workspace-folder-card.selected")).toHaveCount(0);
+    await expect(page.locator('.workspace-list-row[aria-selected="true"]')).toHaveCount(0);
     await page.reload();
     await expect(page.locator(`[data-item-key="file:${fixture.authored}"]`).getByRole("button", { name: "図形の証明 のブックマークを外す" })).toHaveAttribute("aria-pressed", "true");
     await page.locator(".workspace-nav-panels").getByRole("button", { name: "ブックマーク" }).click();

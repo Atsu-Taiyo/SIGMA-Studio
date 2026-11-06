@@ -82,8 +82,6 @@ import { WorkspaceCreateDialog, type WorkspaceCreateDialogState, type WorkspaceC
 import { WorkspaceConfirmDialog } from "./WorkspaceConfirmDialog";
 import { WorkspaceDeleteDialog, type WorkspaceDeleteDialogState } from "./WorkspaceDeleteDialog";
 import type { WorkspaceEmptyVariant } from "./WorkspaceEmptyState";
-import { WorkspaceItemGrid } from "./WorkspaceItemGrid";
-import { setWorkspacePreviewLoadsPaused } from "./WorkspaceFileCardPreview";
 import { WorkspaceItemList } from "./WorkspaceItemList";
 import { canDeleteWorkspaceItem, canMutateWorkspaceItem } from "./workspace-sharing-permissions";
 import { editorOpenFileIdsSnapshot, readEditorOpenFileIds, rememberWorkspaceReturnLocation } from "@/lib/workspace-return-location";
@@ -107,8 +105,6 @@ import { WorkspaceCollaborationAccount } from "@/features/collaboration/renderer
 const ALL_FOLDERS = "all";
 /** 検索結果を一度に描く数。「さらに表示」1 回ごとにこれだけ足す。 */
 const SEARCH_RESULT_PAGE_SIZE = 100;
-/** 最後の打鍵からこれだけ空いたら、打ち終えたとみなしてプレビューを作り始める。 */
-const SEARCH_TYPING_IDLE_MS = 1000;
 
 type FolderFilter = typeof ALL_FOLDERS | string;
 type SaveStatus = "idle" | "loading" | "saving" | "error" | "saved";
@@ -466,9 +462,9 @@ export function WorkspaceManager() {
   const selection = useWorkspaceSelection();
 
   // Unified row order for keyboard navigation and Shift-click range math.
-  // WorkspaceItemGrid/WorkspaceItemList each independently rebuild the same
-  // array from the same folders/files/sortKey/sortDirection inputs via the
-  // same deterministic buildWorkspaceRows -- the .key order always matches
+  // WorkspaceItemList independently rebuilds the same array from the same
+  // folders/files/sortKey/sortDirection inputs via the same deterministic
+  // buildWorkspaceRows -- the .key order always matches
   // even though the array instances differ, so there is no need to thread
   // this array down as a prop.
   // 本文まで探すと数万件が一致しうる。検索結果は先頭から一定数だけ描き、続きは「さらに表示」で足す
@@ -509,23 +505,6 @@ export function WorkspaceManager() {
   const showMoreSearchResults = useCallback(() => {
     setSearchShown({ query: listQuery.trim(), count: searchLimit + SEARCH_RESULT_PAGE_SIZE });
   }, [listQuery, searchLimit]);
-  // 検索欄に焦点がある間は保存済みの画像だけを使い、新しいプレビューは欄を離れてから作る。
-  // 打鍵の休止だけで再開すると、次の文字を打つときに教材の読み込み・組版が走って入力を妨げる。
-  const [searchTyping, setSearchTyping] = useState(false);
-  useEffect(() => {
-    if (!searchTyping) return;
-    const timer = window.setTimeout(() => setSearchTyping(false), SEARCH_TYPING_IDLE_MS);
-    return () => window.clearTimeout(timer);
-  }, [searchQuery, searchTyping]);
-  // 判定は打った値そのもので行う (一覧に使う後回しの値で判定すると、最初の 1 文字の直後に一瞬だけ
-  // 止めるのをやめてしまい、そこで大きな教材のプレビューを組み始める)。
-  const searchTyped = searchQuery.trim().length > 0;
-  const previewsPaused = searchFocused
-    || ((searchTyped || searchActive) && (searchTyping || bodySearch.pending));
-  useEffect(() => {
-    setWorkspacePreviewLoadsPaused(previewsPaused);
-  }, [previewsPaused]);
-  useEffect(() => () => setWorkspacePreviewLoadsPaused(false), []);
 
   // Prune (not clear) whenever the overview refreshes: an unrelated
   // rename/background sync must not blow away what the user had selected,
@@ -1271,7 +1250,6 @@ export function WorkspaceManager() {
 
   const itemKeyboardHandler = useWorkspaceItemKeyboard({
     rows: selectionRows,
-    layout: viewPreference.mode,
     anchorKey: selection.anchorKey,
     onFocusKey: selection.setFocusedKey,
     onReplaceSelection: selection.replaceSelection,
@@ -1336,7 +1314,7 @@ export function WorkspaceManager() {
           clearLabel={t("search.clear")}
           value={searchQuery}
           placeholder={t("search.placeholder")}
-          onChange={(value) => { setSearchQuery(value); setSearchTyping(true); setPanel("files"); }}
+          onChange={(value) => { setSearchQuery(value); setPanel("files"); }}
           onClear={() => setSearchQuery("")}
           onFocus={() => setSearchFocused(true)}
           onBlur={() => setSearchFocused(false)}
@@ -1501,8 +1479,6 @@ export function WorkspaceManager() {
                 setFolderFilter(folderId);
                 setSearchQuery("");
               }}
-              viewMode={viewPreference.mode}
-              onViewModeChange={(mode) => setViewPreference({ mode })}
               onEditFolder={() => selectedFolder && startEditingFolder(selectedFolder)}
               onDeleteFolder={() => selectedFolder && void removeFolder(selectedFolder)}
             />
@@ -1534,89 +1510,48 @@ export function WorkspaceManager() {
               </div>
             )}
 
-            {viewPreference.mode === "grid" ? (
-              <WorkspaceItemGrid
-            menuKey={menuKey}
-                locationLabel={searchActive ? searchLocationLabel : undefined}
-                folders={shownFolders}
-                files={shownFiles}
-                sortKey={viewPreference.sortKey}
-                sortDirection={viewPreference.sortDirection}
-                emptyVariant={emptyVariant}
-                loading={searchActive && !searchResult}
-                searchFailed={searchActive && Boolean(searchResult?.failed)}
-                bodyMatches={searchActive ? bodyMatches : undefined}
-                bodySearchPending={searchActive && bodySearch.pending}
-                dragItem={dragDrop.dragItem}
-                dropTarget={dragDrop.dropTarget}
-                dragProps={dragDrop.dragProps}
-                dropProps={dragDrop.dropProps}
-                selectedKeys={selection.selectedKeys}
-                focusedKey={selection.focusedKey}
-                onItemClick={(event, key, rows) => selection.handleItemClick(event, key, rows)}
-                onItemKeyDown={itemKeyboardHandler}
-                onOpenFolder={openFolder}
-                onFolderContextMenu={(event, folderId) => openContextMenu(event, folderId, { allowInteractiveTarget: true })}
-                onOpenFile={openFile}
-                savingFileId={savingFileId}
-                saving={status === "saving"}
-                fileActionMenuFileId={fileActionMenu?.fileId ?? null}
-                onOpenFileActionMenu={openFileActionMenu}
-                canCreate={canCreateAt(currentFolderContextId)}
-                canMove={(kind, id) => canMutateDragItem(kind === "file" ? { type: "file", fileId: id } : { type: "folder", folderId: id }, "move")}
-                onCreateDocument={() => openCreateDialog("document", currentFolderContextId)}
-                onClearSearch={() => setSearchQuery("")}
-                isRenameEditing={inlineRename.isEditing}
-                onCommitRename={inlineRename.commit}
-                onCancelRename={inlineRename.cancel}
-                bookmarkedKeys={bookmarkedKeys}
-                onToggleBookmark={toggleBookmark}
-                openInEditorFileIds={editorOpenFileIds}
-              />
-            ) : (
-              <WorkspaceItemList
-            menuKey={menuKey}
-                locationLabel={searchActive ? searchLocationLabel : undefined}
-                folders={shownFolders}
-                files={shownFiles}
-                allFolders={resultFolders}
-                workspaceName={workspaceName}
-                sortKey={viewPreference.sortKey}
-                sortDirection={viewPreference.sortDirection}
-                onRequestSort={(sortKey, sortDirection) => setViewPreference({ sortKey, sortDirection })}
-                searchActive={searchActive}
-                emptyVariant={emptyVariant}
-                loading={searchActive && !searchResult}
-                searchFailed={searchActive && Boolean(searchResult?.failed)}
-                bodyMatches={searchActive ? bodyMatches : undefined}
-                bodySearchPending={searchActive && bodySearch.pending}
-                dragItem={dragDrop.dragItem}
-                dropTarget={dragDrop.dropTarget}
-                dragProps={dragDrop.dragProps}
-                dropProps={dragDrop.dropProps}
-                selectedKeys={selection.selectedKeys}
-                focusedKey={selection.focusedKey}
-                onItemClick={(event, key, rows) => selection.handleItemClick(event, key, rows)}
-                onItemKeyDown={itemKeyboardHandler}
-                onOpenFolder={openFolder}
-                onFolderContextMenu={(event, folderId) => openContextMenu(event, folderId, { allowInteractiveTarget: true })}
-                onOpenFile={openFile}
-                savingFileId={savingFileId}
-                saving={status === "saving"}
-                fileActionMenuFileId={fileActionMenu?.fileId ?? null}
-                onOpenFileActionMenu={openFileActionMenu}
-                canCreate={canCreateAt(currentFolderContextId)}
-                canMove={(kind, id) => canMutateDragItem(kind === "file" ? { type: "file", fileId: id } : { type: "folder", folderId: id }, "move")}
-                onCreateDocument={() => openCreateDialog("document", currentFolderContextId)}
-                onClearSearch={() => setSearchQuery("")}
-                isRenameEditing={inlineRename.isEditing}
-                onCommitRename={inlineRename.commit}
-                onCancelRename={inlineRename.cancel}
-                bookmarkedKeys={bookmarkedKeys}
-                onToggleBookmark={toggleBookmark}
-                openInEditorFileIds={editorOpenFileIds}
-              />
-            )}
+            <WorkspaceItemList
+              menuKey={menuKey}
+              locationLabel={searchActive ? searchLocationLabel : undefined}
+              folders={shownFolders}
+              files={shownFiles}
+              allFolders={resultFolders}
+              workspaceName={workspaceName}
+              sortKey={viewPreference.sortKey}
+              sortDirection={viewPreference.sortDirection}
+              onRequestSort={(sortKey, sortDirection) => setViewPreference({ sortKey, sortDirection })}
+              searchActive={searchActive}
+              emptyVariant={emptyVariant}
+              loading={searchActive && !searchResult}
+              searchFailed={searchActive && Boolean(searchResult?.failed)}
+              bodyMatches={searchActive ? bodyMatches : undefined}
+              bodySearchPending={searchActive && bodySearch.pending}
+              dragItem={dragDrop.dragItem}
+              dropTarget={dragDrop.dropTarget}
+              dragProps={dragDrop.dragProps}
+              dropProps={dragDrop.dropProps}
+              selectedKeys={selection.selectedKeys}
+              focusedKey={selection.focusedKey}
+              onItemClick={(event, key, rows) => selection.handleItemClick(event, key, rows)}
+              onItemKeyDown={itemKeyboardHandler}
+              onOpenFolder={openFolder}
+              onFolderContextMenu={(event, folderId) => openContextMenu(event, folderId, { allowInteractiveTarget: true })}
+              onOpenFile={openFile}
+              savingFileId={savingFileId}
+              saving={status === "saving"}
+              fileActionMenuFileId={fileActionMenu?.fileId ?? null}
+              onOpenFileActionMenu={openFileActionMenu}
+              canCreate={canCreateAt(currentFolderContextId)}
+              canMove={(kind, id) => canMutateDragItem(kind === "file" ? { type: "file", fileId: id } : { type: "folder", folderId: id }, "move")}
+              onCreateDocument={() => openCreateDialog("document", currentFolderContextId)}
+              onClearSearch={() => setSearchQuery("")}
+              isRenameEditing={inlineRename.isEditing}
+              onCommitRename={inlineRename.commit}
+              onCancelRename={inlineRename.cancel}
+              bookmarkedKeys={bookmarkedKeys}
+              onToggleBookmark={toggleBookmark}
+              openInEditorFileIds={editorOpenFileIds}
+            />
             {searchActive && searchResult && hiddenSearchResults > 0 && (
               <WorkspaceSearchMore remaining={hiddenSearchResults} onShowMore={showMoreSearchResults} />
             )}

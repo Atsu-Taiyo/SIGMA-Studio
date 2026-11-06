@@ -180,8 +180,6 @@ export const workspace = {
     materialName: "教材名",
     openInEditor: "編集中",
     parentFolder: "親フォルダ",
-    folders: "フォルダ",
-    materials: "教材",
     materialsAndFolders: "教材とフォルダ",
     // 日本語は単複同形。英語側だけ _one/_other を持つと型が合わないので両方置く。
     itemCount_one: "{{count}}件の項目",
@@ -231,11 +229,6 @@ export const workspace = {
     rootMessage: "教材がありません",
     folderMessage: "このフォルダは空です",
     searchMessage: "一致する教材がありません",
-  },
-  view: {
-    label: "表示形式",
-    grid: "グリッド表示",
-    list: "リスト表示",
   },
   library: {
     title: "教材一覧",

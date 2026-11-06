@@ -934,13 +934,10 @@ export interface DesktopStorageAPI {
   onChange(handler: (event: DesktopStorageChangeEvent) => void): () => void;
 }
 
+/** Read-only access to shared materials without opening an editing session. */
 export interface DesktopWorkspacePreviewAPI {
-  getShared?: (fileId: string) => Promise<{ token: string; opened: boolean; dataUrl: string | null; updatedAt: number } | null>;
-  putShared?: (fileId: string, token: string, dataUrl: string) => Promise<{ ok: boolean }>;
   /** `{ assets: false }` skips downloading images: enough for reading text and comments. */
   loadSharedDocument?: (fileId: string, options?: { assets?: boolean }) => Promise<SigmaDocument | null>;
-  get(fileId: string, revision: number): Promise<string | null>;
-  put(fileId: string, revision: number, dataUrl: string): Promise<{ ok: boolean }>;
 }
 
 export interface DesktopAPI {

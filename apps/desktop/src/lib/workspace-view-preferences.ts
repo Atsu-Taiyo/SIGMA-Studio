@@ -4,15 +4,17 @@ import { subscribeStoragePreference } from "./subscribe-storage-preference";
 
 import { useCallback, useSyncExternalStore } from "react";
 
-export type WorkspaceViewMode = "grid" | "list";
 export type WorkspaceSortKey = "name" | "updatedAt";
 export type WorkspaceSortDirection = "asc" | "desc";
 
+/**
+ * 教材一覧はリスト表示だけ。以前のグリッド表示の選択 (`mode`) が保存に残っていても読まず、
+ * 次に書くときに落とす。
+ */
 export interface WorkspaceViewPreference {
-  mode: WorkspaceViewMode;
   sortKey: WorkspaceSortKey;
   sortDirection: WorkspaceSortDirection;
-  /** 左サイドバーを細いアイコン列へ畳む。表示形式と同じく次回起動時も維持する。 */
+  /** 左サイドバーを細いアイコン列へ畳む。並び順と同じく次回起動時も維持する。 */
   sidebarCollapsed: boolean;
 }
 
@@ -20,15 +22,10 @@ const STORAGE_KEY = "sigma-studio:workspace-view-preference";
 const CHANGE_EVENT = "sigma-studio:workspace-view-preference-change";
 
 const DEFAULT_PREFERENCE: WorkspaceViewPreference = {
-  mode: "grid",
   sortKey: "updatedAt",
   sortDirection: "desc",
   sidebarCollapsed: false,
 };
-
-function isWorkspaceViewMode(value: unknown): value is WorkspaceViewMode {
-  return value === "grid" || value === "list";
-}
 
 function isWorkspaceSortKey(value: unknown): value is WorkspaceSortKey {
   return value === "name" || value === "updatedAt";
@@ -52,7 +49,6 @@ function readWorkspaceViewPreference(): WorkspaceViewPreference {
       return DEFAULT_PREFERENCE;
     }
     return {
-      mode: isWorkspaceViewMode(parsed.mode) ? parsed.mode : DEFAULT_PREFERENCE.mode,
       sortKey: isWorkspaceSortKey(parsed.sortKey) ? parsed.sortKey : DEFAULT_PREFERENCE.sortKey,
       sortDirection: isWorkspaceSortDirection(parsed.sortDirection)
         ? parsed.sortDirection

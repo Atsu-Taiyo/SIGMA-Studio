@@ -52,7 +52,7 @@ export interface WorkspaceRuntimeMockSeed {
 
 export interface InstallWorkspaceRuntimeMockOptions {
   /** Applies only to saveDocument (i.e. the tail end of a file rename), mirroring
-   * the old workspace-preview.spec.ts mock's renameDelayMs. */
+   * the old inline mock's renameDelayMs (see workspace-items.spec.ts). */
   renameDelayMs?: number;
   ledgerSchemaFailure?: LedgerSchemaFailure;
 }
@@ -734,10 +734,6 @@ export async function installWorkspaceRuntimeMock(
             changeHandlers.delete(handler);
           };
         },
-      },
-      workspacePreview: {
-        get: async () => "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
-        put: async () => ({ ok: true }),
       },
       onMenuAction: () => () => undefined,
     } as unknown as Window["desktopAPI"];
