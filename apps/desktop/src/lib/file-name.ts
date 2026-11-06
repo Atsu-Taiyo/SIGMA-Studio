@@ -1,6 +1,6 @@
-/** Trim new names while preserving internal spaces and hyphens; existing names are opaque. */
+/** Normalize new names; printable spaces and hyphens remain, existing names stay opaque. */
 export function normalizeNewFileName(name: string): string {
-  return name.trim();
+  return name.trim().replace(/[\t\n\r\v\f]+/gu, "-");
 }
 
 /** Keep compound SigmaDoc extensions intact when adding a collision suffix. */
