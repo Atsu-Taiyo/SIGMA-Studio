@@ -1,4 +1,4 @@
-import { spaceFreeFileName } from "@/lib/file-name";
+import { normalizeNewFileName } from "@/lib/file-name";
 import { getDesktopBridge } from "./desktop-bridge";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 
@@ -19,7 +19,7 @@ export interface DownloadedFile {
 }
 
 export async function downloadGeneratedFile(blob: Blob, fileName: string): Promise<DownloadedFile> {
-  fileName = spaceFreeFileName(fileName);
+  fileName = normalizeNewFileName(fileName);
   const saveToDownloads = getDesktopBridge()?.file.saveToDownloads;
   if (saveToDownloads) {
     const dataBase64 = await blobToBase64(blob);
@@ -37,7 +37,7 @@ export function downloadBlobInBrowser(blob: Blob, fileName: string): void {
   try {
     anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = spaceFreeFileName(fileName);
+    anchor.download = normalizeNewFileName(fileName);
     anchor.rel = "noopener";
     document.body.append(anchor);
     anchor.click();

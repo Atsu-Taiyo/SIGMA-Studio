@@ -1,6 +1,6 @@
 "use client";
 
-import { spaceFreeFileName } from "@/lib/file-name";
+import { normalizeNewFileName } from "@/lib/file-name";
 
 import { useRef, useState, type RefObject } from "react";
 import type { DocumentBlockClock, DocumentBlockIdFactory, SigmaDocument } from "@/features/document";
@@ -65,7 +65,7 @@ export function useDocumentFileCommands({
     try { document = exportDocument ? await exportDocument() : documentRef.current; }
     catch { setStatusMessage(tEditor("status.saveFailed")); return; }
     const data = serializeDocumentText(document);
-    const suggestedName = `${spaceFreeFileName(resolveDocumentTitle(documentRef.current, "lesson"))}.sigma`;
+    const suggestedName = `${normalizeNewFileName(resolveDocumentTitle(documentRef.current, "lesson"))}.sigma`;
     const bridge = getDesktopBridge();
     if (bridge) {
       try {

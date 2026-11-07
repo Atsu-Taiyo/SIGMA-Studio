@@ -337,9 +337,9 @@ test("duplicates shared materials with their images, explains failures, and retr
 
     // 2. Retrying makes exactly one copy, in the same shared folder, with its own image.
     await duplicateFromFileMenu(page);
-    await expect(page.getByRole("tab", { name: /図つきの教材-のコピー/ })).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByRole("tab", { name: /図つきの教材 のコピー/ })).toBeVisible({ timeout: 60_000 });
     await expect(page.getByRole("dialog", { name: "教材を複製しました" })).toHaveCount(0);
-    expect(copiesOf(inFolder).map((item) => [item.name, item.state])).toEqual([["図つきの教材-のコピー", "active"]]);
+    expect(copiesOf(inFolder).map((item) => [item.name, item.state])).toEqual([["図つきの教材 のコピー", "active"]]);
     expect(new Set(createRequests).size).toBe(1);
     const copyNode = copiesOf(inFolder)[0];
     const copySharedId = copyNode.sharedDocumentId!;
@@ -373,7 +373,7 @@ test("duplicates shared materials with their images, explains failures, and retr
     await expect(body(page)).toContainText("単独の教材の本文");
     await expect.poll(() => imageShown(page), { timeout: 30_000 }).toBe(true);
     const files = await page.evaluate(() => window.desktopAPI!.storage.listFiles());
-    const privateCopy = files.find((file) => file.title === "受け取った教材-のコピー")!;
+    const privateCopy = files.find((file) => file.title === "受け取った教材 のコピー")!;
     expect(privateCopy).toMatchObject({ workspaceId: home, folderId: null });
     expect(privateCopy.sharing).toBeUndefined();
     expect(createRequests.length).toBe(2);
@@ -391,7 +391,7 @@ test("duplicates shared materials with their images, explains failures, and retr
     expect(sources(reloaded.shared)).toEqual([copySource]);
     expect(JSON.stringify(reloaded.local)).toContain("単独の教材の本文");
     expect(sources(reloaded.local)).toEqual([`data:image/png;base64,${PNG.toString("base64")}`]);
-    await page.getByRole("tab", { name: /図つきの教材-のコピー/ }).click();
+    await page.getByRole("tab", { name: /図つきの教材 のコピー/ }).click();
     await expect(body(page)).toContainText("コピーだけの追記", { timeout: 30_000 });
     await expect.poll(() => imageShown(page), { timeout: 30_000 }).toBe(true);
     await page.screenshot({ path: testInfo.outputPath("04-copy-after-restart.png") });
@@ -405,11 +405,11 @@ test("duplicates shared materials with their images, explains failures, and retr
     await page.keyboard.press("Enter");
     const list = page.getByRole("dialog", { name: "教材一覧" });
     await expect(list).toBeVisible();
-    await list.getByRole("group", { name: "図つきの教材-のコピーの操作" }).getByRole("button", { name: "複製" }).click();
+    await list.getByRole("group", { name: "図つきの教材 のコピーの操作" }).getByRole("button", { name: "複製" }).click();
     await expect(list).toHaveCount(0);
-    await expect(page.getByRole("tab", { name: /図つきの教材-のコピー-のコピー/ })).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByRole("tab", { name: /図つきの教材 のコピー のコピー/ })).toBeVisible({ timeout: 60_000 });
     await expect(page.getByRole("dialog", { name: "教材を複製しました" })).toHaveCount(0);
-    expect(copiesOf(inFolder).map((item) => [item.name, item.state])).toEqual([["図つきの教材-のコピー", "active"], ["図つきの教材-のコピー-のコピー", "active"]]);
+    expect(copiesOf(inFolder).map((item) => [item.name, item.state])).toEqual([["図つきの教材 のコピー", "active"], ["図つきの教材 のコピー のコピー", "active"]]);
     await expect(body(page)).toContainText("コピーだけの追記");
     await expect.poll(() => imageShown(page), { timeout: 30_000 }).toBe(true);
   } finally {

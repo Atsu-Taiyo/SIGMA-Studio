@@ -364,3 +364,33 @@ function createTestGraph(): OverlayGraphShape {
     },
   };
 }
+
+
+describe("imported graph label positions", () => {
+  it.each(["page", "missing", "other-parent"])("adopts saved %s positions before materialization and stays stable after save/reload", (kind) => {
+    const graph = createTestGraph();
+    let counter = 0;
+    const generated = materializeMissingGraphOwnedTextLabels([graph], () => `import_${++counter}`);
+    const ownerWithLabels = generated.find((shape): shape is OverlayGraphShape => shape.type === "graph2dShape")!;
+    const formulaIds = new Set(Object.values(ownerWithLabels.props.labelTextShapeIdsByCurveId ?? {}));
+    const imported: OverlayShape[] = generated.map(shape => shape.type === "text" && !formulaIds.has(shape.id) ? {
+      ...shape, x: shape.x + 31, y: shape.y - 17,
+      anchor: kind === "page" ? {type:"page" as const} : kind === "other-parent"
+        ? {type:"shape" as const,shapeId:"missing-parent",dx:0,dy:0} : undefined,
+    } : shape);
+    const before = labelPositionsById(imported);
+    const migrated = materializeMissingGraphOwnedTextLabels(imported, () => `unexpected_${++counter}`);
+    expect(labelPositionsById(migrated)).toEqual(before);
+    const saved = JSON.parse(JSON.stringify(migrated)) as OverlayShape[];
+    const owner = saved.find((shape): shape is OverlayGraphShape => shape.type === "graph2dShape")!;
+    const synced = syncGraphOwnedLabelTextShapePositions(saved, owner);
+    expect(labelPositionsById(synced)).toEqual(before);
+    expect(syncGraphOwnedLabelTextShapePositions(synced, owner)).toBe(synced);
+    const moved = syncGraphOwnedLabelTextShapePositions(synced.map(shape => shape.id === owner.id
+      ? {...owner,x:owner.x+42,y:owner.y+19} : shape), {...owner,x:owner.x+42,y:owner.y+19});
+    for (const [id,position] of Object.entries(labelPositionsById(moved))) {
+      expect(position.x).toBeCloseTo(before[id].x+42,8);
+      expect(position.y).toBeCloseTo(before[id].y+19,8);
+    }
+  });
+});

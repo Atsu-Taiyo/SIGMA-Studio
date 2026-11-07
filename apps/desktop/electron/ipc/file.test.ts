@@ -102,6 +102,21 @@ describe("file:export-pdf", () => {
     });
   });
 
+  it.each(["\t", "\r", "\r\n"].flatMap(whitespace =>
+    ["pdf", "sigma"].map(extension => ({ whitespace, extension })),
+  ))("normalizes control whitespace $whitespace before suggesting an OS $extension filename", async ({ whitespace, extension }) => {
+    mocks.showSaveDialog.mockResolvedValue({ canceled: true });
+    registerFileIpc({ getMainWindow: () => null });
+    const channel = extension === "pdf" ? "file:export-pdf" : "file:save-sigma-doc";
+    await expect(mocks.handlers.get(channel)!({ sender }, {
+      ...B5, data: "{}", suggestedName: `高校${whitespace}数学　3年 A-B組.${extension}`,
+    })).resolves.toBeNull();
+    expect(mocks.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({
+      defaultPath: `高校-数学　3年 A-B組.${extension}`,
+    }));
+    expect(mocks.printToPDF).not.toHaveBeenCalled();
+  });
+
   it("prints each settled preview page once from a hidden window and writes their validated merged PDF", async () => {
     const pagePdf = await createPdf(1, B5.pageWidthMm, B5.pageHeightMm);
     mocks.showSaveDialog.mockResolvedValue({ canceled: false, filePath: "/Users/test/Downloads/教材" });
@@ -114,12 +129,12 @@ describe("file:export-pdf", () => {
 
     await expect(handler?.({ sender }, {
       ...B5,
-      suggestedName: "教材.pdf",
+      suggestedName: "高校数学　高校3年 A-B組.pdf",
     })).resolves.toEqual({ filePath: "/Users/test/Downloads/教材.pdf", pageCount: 2 });
 
     expect(mocks.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({
       title: "PDFを書き出し",
-      defaultPath: "教材.pdf",
+      defaultPath: "高校数学　高校3年 A-B組.pdf",
       filters: [{ name: "PDF", extensions: ["pdf"] }],
     }));
     expect(mocks.visiblePrintToPDF).not.toHaveBeenCalled();
@@ -306,10 +321,10 @@ describe("file:save-to-downloads", () => {
     );
   });
 
-  it("normalizes whitespace without changing the download directory or extension", async () => {
+  it("preserves spaces without changing the download directory or extension", async () => {
     mocks.getPath.mockReturnValue("/Users/test/My Downloads");
     const result = await save({ fileName: " 数学\u3000演習.mp4 ", dataBase64: Buffer.from("x").toString("base64") });
-    expect(result).toEqual({ filePath: "/Users/test/My Downloads/数学-演習.mp4" });
+    expect(result).toEqual({ filePath: "/Users/test/My Downloads/数学\u3000演習.mp4" });
   });
 
   it("never lets the renderer choose the directory or the kind of file", async () => {

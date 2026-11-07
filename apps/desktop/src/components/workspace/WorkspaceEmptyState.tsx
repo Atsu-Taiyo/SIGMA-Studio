@@ -22,9 +22,7 @@ interface WorkspaceEmptyStateProps {
 /**
  * The three empty-state variants for the workspace listing (root, an empty
  * folder, and no search results), per docs/design-rules.md's "one icon, one
- * line, one action" empty-state rule. Shared by both WorkspaceItemGrid and
- * WorkspaceItemList so the copy and action can't drift between the two view
- * modes.
+ * line, one action" empty-state rule. Rendered inside WorkspaceItemList.
  */
 export function WorkspaceEmptyState({
   variant,

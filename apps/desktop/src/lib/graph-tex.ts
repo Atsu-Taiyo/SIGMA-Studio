@@ -648,6 +648,11 @@ class TexToExpressionConverter {
     let result = base;
     for (;;) {
       this.skipIgnorable();
+      // Ctrl+^ のテンプレートを MathLive が `x{}^2` と書き出す。
+      // 既に読んだ底へ続く空グループだけを飛ばし、通常の冪と同じように結合する。
+      // 単独の `{}^2` や分数の空欄まで消して、不完全な式を受理しない。
+      const scriptBase = /^(?:\{\s*\}\s*)+(?=\^)/.exec(this.source.slice(this.index));
+      if (scriptBase) this.index += scriptBase[0].length;
       const char = this.source[this.index];
       if (char === "^") {
         this.index += 1;

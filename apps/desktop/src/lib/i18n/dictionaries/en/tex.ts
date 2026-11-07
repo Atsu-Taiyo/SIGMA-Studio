@@ -47,6 +47,7 @@ export const tex = {
     radical: "Radical",
     repeated: "Repeated",
     formula: "Formula",
+    vector: "Vector",
   },
   localizedExample: {
     fbox: { command: "\\fbox{Important}", previewTex: "\\boxed{\\text{Important}}" },

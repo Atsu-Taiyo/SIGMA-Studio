@@ -143,6 +143,11 @@ test("\\vv renders, edits in the same box, inserts from the palette and shortcut
     });
     await page.keyboard.type("C");
     await expect.poll(() => field.evaluate(el => (el as MathfieldElement).getValue("latex"))).toBe(String.raw`\vv{ACB}`);
+    // MathLive restores new atom instances from its history snapshots.
+    for (const [command, expected] of [["undo", String.raw`\vv{AB}`], ["redo", String.raw`\vv{ACB}`]] as const) {
+      await field.evaluate((el, command) => (el as MathfieldElement).executeCommand(command), command);
+      await expect.poll(() => field.evaluate(el => (el as MathfieldElement).getValue("latex"))).toBe(expected);
+    }
     await page.keyboard.press("Escape");
     await expect(vector.locator("math-field")).toHaveCount(0);
     await roman.click();
@@ -189,6 +194,64 @@ test("\\vv renders, edits in the same box, inserts from the palette and shortcut
     const restored = await open(active);
     expect(await savedMath(restored, fileId)).toMatchObject(expected);
     await expect(restored.locator(`.page-flow [data-sigma-doc-id="p0"] ${ARROW}`).first()).toBeVisible();
+  } finally {
+    await active.close();
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("editing a built-in vector leaves another document's own vv unchanged after save and restart", async () => {
+  const { app, page, fileId, profile } = await launch();
+  let active = app;
+  const custom: SigmaDocument = {
+    version: "2.0", docId: "custom_vector",
+    metadata: { title: "独自ベクトル", texPreamble: String.raw`\newcommand{\vv}[1]{\overset{x}{#1}+#1}` },
+    content: [math("custom", String.raw`\vv{AB}`), { type: "paragraph", id: "custom-tail", children: [{ type: "text", text: "保存" }] }],
+    outputProfiles: { student: {}, teacher: {}, answerBook: {} },
+  };
+  try {
+    const customId = await page.evaluate(async ({ custom, fileId }) => {
+      const { file } = await window.desktopAPI!.storage.createFileFromDocument({ document: custom });
+      await window.desktopAPI!.storage.saveWorkspace({ openFileIds: [fileId, file.fileId], activeFileId: fileId });
+      return file.fileId;
+    }, { custom, fileId });
+    await page.reload();
+    const builtIn = page.locator('.page-flow [data-id="vector_math"]').first();
+    await builtIn.click();
+    const builtInField = builtIn.locator("math-field");
+    await expect(builtInField).toBeFocused();
+    await builtInField.evaluate(el => {
+      const field = el as MathfieldElement;
+      field.executeCommand("moveToMathfieldStart");
+      field.executeCommand("moveToNextChar");
+      field.executeCommand("moveToNextChar");
+    });
+    await page.keyboard.type("C");
+    await expect.poll(() => builtInField.evaluate(el => (el as MathfieldElement).getValue("latex"))).toBe(String.raw`\vv{ACB}`);
+    await page.keyboard.press("Escape");
+    await expect(builtInField).toHaveCount(0);
+    await expect.poll(() => savedMath(page, fileId)).toMatchObject({ vector: String.raw`$\vv{ACB}$` });
+
+    // Stay in the same renderer: the original bug patched every macro's prototype.
+    await page.getByRole("tab", { name: "独自ベクトル", exact: true }).click();
+    const own = page.locator('.page-flow [data-id="custom_math"]').first();
+    await own.click();
+    const ownField = own.locator("math-field");
+    await expect(ownField).toBeFocused();
+    await expect.poll(() => ownField.evaluate(el => (el as MathfieldElement).getValue("latex"))).toBe(String.raw`\vv{AB}`);
+    await expect(own.locator(ARROW)).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(ownField).toHaveCount(0);
+    await caretAtParagraphEnd(page, "custom-tail");
+    await page.keyboard.type("X");
+    await page.keyboard.press("ControlOrMeta+s");
+    const expected = { custom: String.raw`$\vv{AB}$`, "custom-tail": "保存X" };
+    await expect.poll(() => savedMath(page, customId)).toMatchObject(expected);
+    await active.close();
+    active = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env: launchEnv(profile) });
+    const restored = await open(active);
+    await expect.poll(() => savedMath(restored, customId)).toMatchObject(expected);
+    await expect(restored.locator('.page-flow [data-id="custom_math"]').first()).toBeVisible();
   } finally {
     await active.close();
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

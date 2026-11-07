@@ -12,50 +12,25 @@ vi.mock("electron", () => ({
   },
 }));
 
-import { registerWorkspacePreviewIpc } from "./workspace-preview";
-import { writeWorkspacePreviewPng } from "../workspace-preview-cache";
+import { registerWorkspacePreviewIpc, removeRetiredWorkspacePreviewCaches } from "./workspace-preview";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-const PNG_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-
 describe("workspace-preview ipc", () => {
-  let userDataPath = "";
-
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks();
     mocks.handlers.clear();
-    userDataPath = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-preview-ipc-"));
-    registerWorkspacePreviewIpc({ userDataPath });
   });
 
-  it("persists shared previews across registration, invalidates versions and isolates accounts and revocation", async () => {
-    let context: { scope: string; token: string; opened: boolean } | null = { scope: "account-a-document", token: "a:v1", opened: false };
-    const deps = { userDataPath, sharedContext: async () => context, loadSharedDocument: vi.fn().mockRejectedValue(new Error("HTTP_403")) };
-    registerWorkspacePreviewIpc(deps);
-    const frame = {}; const event = { senderFrame: frame, sender: { mainFrame: frame } };
-    const put = () => mocks.handlers.get("workspace-preview:shared-put")!;
-    const get = () => mocks.handlers.get("workspace-preview:shared-get")!;
-    expect(await put()(event, { fileId: "file", token: "a:v1", dataUrl: PNG_DATA_URL })).toEqual({ ok: true });
-    registerWorkspacePreviewIpc(deps);
-    expect(await get()(event, "file")).toMatchObject({ dataUrl: PNG_DATA_URL, token: "a:v1", opened: false });
-    await expect(mocks.handlers.get("workspace-preview:shared-document")!(event, "file")).rejects.toThrow("HTTP_403");
-    expect(await get()(event, "file")).toMatchObject({ dataUrl: null });
-    await put()(event, { fileId: "file", token: "a:v1", dataUrl: PNG_DATA_URL });
-    context = { ...context!, token: "a:v2", opened: true };
-    expect(await get()(event, "file")).toMatchObject({ dataUrl: null, updatedAt: 0, opened: true });
-    expect(await put()(event, { fileId: "file", token: "a:v1", dataUrl: PNG_DATA_URL })).toEqual({ ok: false });
-    context = { scope: "account-b-document", token: "b:v1", opened: false };
-    expect(await get()(event, "file")).toMatchObject({ dataUrl: null });
-    context = null;
-    expect(await get()(event, "file")).toBeNull();
-    await fs.rm(userDataPath, { recursive: true, force: true });
+  it("registers only the read-only shared document reader", () => {
+    registerWorkspacePreviewIpc({});
+    expect([...mocks.handlers.keys()]).toEqual(["workspace-preview:shared-document"]);
   });
 
   it("passes only the text-only option to the shared document loader", async () => {
     const loadSharedDocument = vi.fn().mockResolvedValue(null);
-    registerWorkspacePreviewIpc({ userDataPath, loadSharedDocument });
+    registerWorkspacePreviewIpc({ loadSharedDocument });
     const frame = {}; const event = { senderFrame: frame, sender: { mainFrame: frame } };
     const load = mocks.handlers.get("workspace-preview:shared-document")!;
     await load(event, "file");
@@ -68,22 +43,34 @@ describe("workspace-preview ipc", () => {
     expect(loadSharedDocument).toHaveBeenLastCalledWith("file");
   });
 
-  it("returns a cached PNG and rejects malformed puts", async () => {
-    await writeWorkspacePreviewPng(userDataPath, "file_a", 4, PNG_DATA_URL);
-    const get = mocks.handlers.get("workspace-preview:get");
-    const put = mocks.handlers.get("workspace-preview:put");
-    expect(get).toBeDefined();
-    expect(put).toBeDefined();
+  it("rejects subframes and malformed ids, and passes loader failures through", async () => {
+    const loadSharedDocument = vi.fn().mockRejectedValue(new Error("HTTP_403"));
+    registerWorkspacePreviewIpc({ loadSharedDocument });
+    const frame = {}; const event = { senderFrame: frame, sender: { mainFrame: frame } };
+    const load = mocks.handlers.get("workspace-preview:shared-document")!;
+    await expect(load({ senderFrame: {}, sender: { mainFrame: frame } }, "file")).resolves.toBeNull();
+    await expect(load(event, "../file")).resolves.toBeNull();
+    expect(loadSharedDocument).not.toHaveBeenCalled();
+    await expect(load(event, "file")).rejects.toThrow("HTTP_403");
+  });
 
-    await expect(get?.(null, { fileId: "file_a", revision: 4 })).resolves.toBe(PNG_DATA_URL);
-    await expect(get?.(null, { fileId: "file_a", revision: 5 })).resolves.toBeNull();
-    await expect(put?.(null, { fileId: "file_a", revision: 5, dataUrl: "not-a-png" }))
-      .resolves.toEqual({ ok: false });
-    await expect(put?.(null, { fileId: "file_a", revision: 5, dataUrl: PNG_DATA_URL }))
-      .resolves.toEqual({ ok: true });
-    await expect(get?.(null, { fileId: "file_a", revision: 5 })).resolves.toBe(PNG_DATA_URL);
+  it("removes the thumbnail images left by earlier versions and leaves other data alone", async () => {
+    const userDataPath = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-preview-cleanup-"));
+    try {
+      await fs.mkdir(path.join(userDataPath, "workspace-previews"), { recursive: true });
+      await fs.writeFile(path.join(userDataPath, "workspace-previews", "file_a.3.png"), "png");
+      await fs.mkdir(path.join(userDataPath, "shared-workspace-previews"), { recursive: true });
+      await fs.writeFile(path.join(userDataPath, "shared-workspace-previews", "scope.json"), "{}");
+      await fs.mkdir(path.join(userDataPath, "workspace-search-index"), { recursive: true });
 
-    await fs.rm(userDataPath, { recursive: true, force: true });
+      await removeRetiredWorkspacePreviewCaches(userDataPath);
+      // A second run (nothing left to remove) must not throw either.
+      await removeRetiredWorkspacePreviewCaches(userDataPath);
+
+      expect((await fs.readdir(userDataPath)).sort()).toEqual(["workspace-search-index"]);
+    } finally {
+      await fs.rm(userDataPath, { recursive: true, force: true });
+    }
   });
 });
 

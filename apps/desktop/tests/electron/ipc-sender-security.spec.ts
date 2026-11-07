@@ -176,7 +176,7 @@ test("real Electron IPC rejects other windows, subframes and navigation while st
     }, { expectedRevision: revision }), { id: created.file.fileId, document: load.document, revision: load.revision });
     expect(saved.ok).toBe(true);
     await page.reload();
-    expect((await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), created.file.fileId))?.metadata.title).toBe("IPC-persistence-verified");
+    expect((await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), created.file.fileId))?.metadata.title).toBe("IPC persistence verified");
 
     // A full real preload in another window on the same renderer URL must not gain editor privileges.
     const siblingId = await app.evaluate(async ({ BrowserWindow }, { url, preload }) => {
@@ -212,11 +212,17 @@ test("real Electron IPC rejects other windows, subframes and navigation while st
 
     // Main-process navigation bypasses will-navigate; the IPC guard must still reject its new page.
     await app.evaluate(async ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].loadURL("data:text/html,<title>Untrusted</title>"));
+    // Electron's loadURL promise can finish before Playwright replaces its
+    // execution context. Observe the committed navigation before probing IPC.
+    await page.waitForURL("data:text/html,<title>Untrusted</title>");
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
     const navigationRejected = await page.evaluate(async () => {
       try { await window.desktopAPI!.storage.listFiles(); return "allowed"; } catch (error) { return String(error); }
     });
     expect(navigationRejected).toContain("TRUSTED_RENDERER_REQUIRED");
     await app.evaluate(async ({ BrowserWindow }, url) => BrowserWindow.getAllWindows()[0].loadURL(url), mainUrl);
+    await page.waitForURL(mainUrl);
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
     expect((await page.evaluate(() => window.desktopAPI!.storage.listFiles())).some(file => file.fileId === created.file.fileId)).toBe(true);
 
     // Exercise the actual minimal sandboxed preview preload through the local AI renderer service.

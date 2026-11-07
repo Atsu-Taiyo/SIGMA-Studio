@@ -98,11 +98,11 @@ describe("LocalSigmaDocStore", () => {
     expect(conflict.metadata).toBeUndefined();
   });
 
-  it("assigns a space-free name to the first document without changing the source", async () => {
+  it("preserves spaces in the first document name without changing the source", async () => {
     const source = createBlankDocument("最初の 教材.sigma");
     const workspace = await store.initializeWorkspace({ initialDocument: source });
-    expect((await store.listFiles()).map(file => file.title)).toEqual(["最初の-教材.sigma"]);
-    expect((await store.loadDocument(workspace.activeFileId))?.metadata.title).toBe("最初の-教材.sigma");
+    expect((await store.listFiles()).map(file => file.title)).toEqual(["最初の 教材.sigma"]);
+    expect((await store.loadDocument(workspace.activeFileId))?.metadata.title).toBe("最初の 教材.sigma");
     expect(source.metadata.title).toBe("最初の 教材.sigma");
   });
 
@@ -113,17 +113,17 @@ describe("LocalSigmaDocStore", () => {
     for (const record of created) expect(record.file.title).toBe(record.document.metadata.title);
   });
 
-  it("normalizes create/import/duplicate/rename names and preserves legacy names through save and restart", async () => {
+  it("preserves spaces in create/import/duplicate/rename names and preserves legacy names through save and restart", async () => {
     await store.initializeWorkspace({ initialDocument: sampleDocument });
     const created = await store.createFileFromDocument({ document: createBlankDocument(" 数学\u3000演習.sigmadoc.json ") });
-    expect(created.file.title).toBe("数学-演習.sigmadoc.json");
+    expect(created.file.title).toBe("数学\u3000演習.sigmadoc.json");
     const imported = await store.createFileFromDocument({ document: createBlankDocument("数学 演習.sigmadoc.json") });
-    expect(imported.file.title).toBe("数学-演習-2.sigmadoc.json");
+    expect(imported.file.title).toBe("数学 演習.sigmadoc.json");
     const duplicate = await store.duplicateFile(created.file.fileId);
-    expect(duplicate.file.title).toBe("数学-演習-のコピー.sigmadoc.json");
+    expect(duplicate.file.title).toBe("数学\u3000演習 のコピー.sigmadoc.json");
     const renamed = { ...created.document, metadata: { title: "数学 演習.sigmadoc.json" } };
     expect((await store.saveDocument(created.file.fileId, renamed, { expectedRevision: 1 })).ok).toBe(true);
-    expect((await store.loadDocument(created.file.fileId))?.metadata.title).toBe("数学-演習.sigmadoc.json");
+    expect((await store.loadDocument(created.file.fileId))?.metadata.title).toBe("数学 演習-2.sigmadoc.json");
 
     // Seed a pre-change on-disk document and ledger, rather than creating it through the new naming policy.
     const libraryPath = path.join(userDataDir, "data/library.json");
@@ -141,7 +141,7 @@ describe("LocalSigmaDocStore", () => {
     expect(saved.ok).toBe(true);
     expect((await restarted.listFiles()).find(file => file.fileId === row.fileId)?.title).toBe("既存 名前 2");
     const copy = await restarted.duplicateFile(row.fileId);
-    expect(copy.document.metadata.title).not.toMatch(/\s/u);
+    expect(copy.document.metadata.title).toBe("既存 名前 2 のコピー");
     expect((await new LocalSigmaDocStore(userDataDir).loadDocument(row.fileId))?.metadata.title).toBe("既存 名前 2");
   });
 

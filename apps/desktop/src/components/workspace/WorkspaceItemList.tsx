@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronUp, Folder, FileText } from "lucide-react";
+import { ArrowDown, ArrowUp, Folder, FileText } from "lucide-react";
 import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
 import { WorkspaceSharedBadge } from "./WorkspaceSharedBadge";
@@ -148,6 +148,12 @@ export function WorkspaceItemList({
     onRequestSort(next.sortKey, next.sortDirection);
   };
 
+  const sortTitle = (column: WorkspaceSortKey) => {
+    if (column !== sortKey) return t(column === "name" ? "sort.sortByName" : "sort.sortByUpdatedAt");
+    if (column === "name") return t(sortDirection === "asc" ? "sort.nameAscending" : "sort.nameDescending");
+    return t(sortDirection === "asc" ? "sort.updatedOldest" : "sort.updatedNewest");
+  };
+
   const openRow = (row: WorkspaceRow) => {
     if (row.kind === "folder") {
       onOpenFolder(row.id);
@@ -165,22 +171,22 @@ export function WorkspaceItemList({
           <thead className="workspace-list-head">
             <tr>
               <th scope="col" aria-sort={ariaSortFor("name", sortKey, sortDirection)}>
-                <button type="button" className="workspace-list-sort-button" onClick={() => handleSortClick("name")}>
+                <button type="button" className="workspace-open-button workspace-list-sort-button" title={sortTitle("name")} onClick={() => handleSortClick("name")}>
                   <span>{t("label.name")}</span>
                   {sortKey === "name" && (
                     sortDirection === "asc"
-                      ? <ChevronUp className="workspace-list-sort-icon" size={13} aria-hidden="true" />
-                      : <ChevronDown className="workspace-list-sort-icon" size={13} aria-hidden="true" />
+                      ? <ArrowUp className="workspace-list-sort-icon" size={15} aria-hidden="true" />
+                      : <ArrowDown className="workspace-list-sort-icon" size={15} aria-hidden="true" />
                   )}
                 </button>
               </th>
               <th scope="col" aria-sort={ariaSortFor("updatedAt", sortKey, sortDirection)}>
-                <button type="button" className="workspace-list-sort-button" onClick={() => handleSortClick("updatedAt")}>
+                <button type="button" className="workspace-open-button workspace-list-sort-button" title={sortTitle("updatedAt")} onClick={() => handleSortClick("updatedAt")}>
                   <span>{t("label.updatedAt")}</span>
                   {sortKey === "updatedAt" && (
                     sortDirection === "asc"
-                      ? <ChevronUp className="workspace-list-sort-icon" size={13} aria-hidden="true" />
-                      : <ChevronDown className="workspace-list-sort-icon" size={13} aria-hidden="true" />
+                      ? <ArrowUp className="workspace-list-sort-icon" size={15} aria-hidden="true" />
+                      : <ArrowDown className="workspace-list-sort-icon" size={15} aria-hidden="true" />
                   )}
                 </button>
               </th>

@@ -44,6 +44,7 @@ export const tex = {
     radical: "根号",
     repeated: "繰り返し",
     formula: "数式",
+    vector: "ベクトル",
   },
   localizedExample: {
     fbox: { command: "\\fbox{重要}", previewTex: "\\boxed{\\text{重要}}" },

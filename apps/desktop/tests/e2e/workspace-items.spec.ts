@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { SigmaDocument } from "@/types/sigma-doc";
 
 import {
@@ -6,10 +6,10 @@ import {
   type WorkspaceRuntimeMockSeed,
 } from "./workspace-runtime-mock";
 
-const WORKSPACE_PREVIEW_FILE_ID = "file_workspace_preview_e2e";
-const WORKSPACE_PREVIEW_WORKSPACE_ID = "workspace_preview_e2e";
+const WORKSPACE_FILE_ID = "file_workspace_items_e2e";
+const WORKSPACE_ID = "workspace_items_e2e";
 
-const WORKSPACE_PREVIEW_DOCUMENT: SigmaDocument = {
+const WORKSPACE_DOCUMENT: SigmaDocument = {
   version: "2.0",
   docId: "doc_workspace_preview_e2e",
   metadata: { title: "二次関数の確認" },
@@ -65,74 +65,80 @@ const WORKSPACE_PREVIEW_DOCUMENT: SigmaDocument = {
   },
 };
 
-test("shows a cached preview image of the first page in workspace cards and keeps opening behavior", async ({ page }) => {
+test("lists materials as table rows only, with no thumbnails or view switch, and opens them on double-click", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
-  await installWorkspaceRuntimeMock(page, buildWorkspacePreviewSeed());
+  // A stale "grid" choice from before the list became the only view must not bring the cards back.
+  await page.addInitScript(() => {
+    window.localStorage.setItem("sigma-studio:workspace-view-preference", JSON.stringify({ mode: "grid", sortKey: "name", sortDirection: "asc" }));
+  });
+  await installWorkspaceRuntimeMock(page, buildWorkspaceSeed());
 
   await page.goto(appUrl("/workspace"), { waitUntil: "domcontentloaded" });
 
-  const card = page.getByRole("button", { name: "二次関数の確認 を開く" });
-  await expect(card).toBeVisible();
-  await expect(card.locator(".workspace-file-card-preview")).toBeVisible();
-  await expect(card.getByTestId("workspace-file-preview-image")).toBeVisible();
-  await expect(card.getByTestId("workspace-file-preview-image")).toHaveAttribute("src", /^data:image\/png/);
-  await expect(card.locator(".print-preview-thumbnail")).toHaveCount(0);
+  const row = fileRow(page);
+  await expect(row).toBeVisible();
+  await expect(page.getByRole("table")).toBeVisible();
+  await expect(row.locator(".workspace-list-name-text")).toHaveText("二次関数の確認");
+  await expect(page.locator(".workspace-content img")).toHaveCount(0);
+  await expect(page.locator(".paged-thumbnail-host")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "グリッド表示", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "リスト表示", exact: true })).toHaveCount(0);
 
   // Drive semantics: a single click selects rather than opens (see
-  // WorkspaceItemGrid/use-workspace-selection.ts) -- double-click opens.
-  await card.dblclick();
-  await expect(page).toHaveURL(new RegExp(`\\?fileId=${WORKSPACE_PREVIEW_FILE_ID}$`));
+  // use-workspace-selection.ts) -- double-click opens.
+  await row.dblclick();
+  await expect(page).toHaveURL(new RegExp(`\\?fileId=${WORKSPACE_FILE_ID}$`));
 });
 
-test("single click selects a workspace card without navigating", async ({ page }) => {
+test("single click selects a workspace row without navigating", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
-  await installWorkspaceRuntimeMock(page, buildWorkspacePreviewSeed());
+  await installWorkspaceRuntimeMock(page, buildWorkspaceSeed());
 
   await page.goto(appUrl("/workspace"), { waitUntil: "domcontentloaded" });
 
-  const card = page.getByRole("button", { name: "二次関数の確認 を開く" });
-  await expect(card).toBeVisible();
+  const row = fileRow(page);
+  await expect(row).toBeVisible();
 
-  await card.click();
+  await row.click();
 
-  await expect(card).toHaveClass(/selected/);
-  await expect(page).not.toHaveURL(new RegExp(`\\?fileId=${WORKSPACE_PREVIEW_FILE_ID}$`));
+  await expect(row).toHaveAttribute("aria-selected", "true");
+  await expect(page).not.toHaveURL(new RegExp(`\\?fileId=${WORKSPACE_FILE_ID}$`));
 });
 
-test("pressing Enter on the focused card opens it", async ({ page }) => {
+test("pressing Enter on the focused row opens it", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
-  await installWorkspaceRuntimeMock(page, buildWorkspacePreviewSeed());
+  await installWorkspaceRuntimeMock(page, buildWorkspaceSeed());
 
   await page.goto(appUrl("/workspace"), { waitUntil: "domcontentloaded" });
 
-  const card = page.getByRole("button", { name: "二次関数の確認 を開く" });
-  // A plain click both selects and moves DOM focus onto the card (roving
+  const row = fileRow(page);
+  // A plain click both selects and moves DOM focus onto the row (roving
   // tabIndex), matching how a keyboard user would have arrived there via
   // Tab/arrow-key navigation.
-  await card.click();
-  await expect(card).toHaveClass(/selected/);
+  await row.click();
+  await expect(row).toHaveAttribute("aria-selected", "true");
 
-  await card.press("Enter");
-  await expect(page).toHaveURL(new RegExp(`\\?fileId=${WORKSPACE_PREVIEW_FILE_ID}$`));
+  await row.press("Enter");
+  await expect(page).toHaveURL(new RegExp(`\\?fileId=${WORKSPACE_FILE_ID}$`));
 });
 
 test("Escape clears the current selection", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
-  await installWorkspaceRuntimeMock(page, buildWorkspacePreviewSeed());
+  await installWorkspaceRuntimeMock(page, buildWorkspaceSeed());
 
   await page.goto(appUrl("/workspace"), { waitUntil: "domcontentloaded" });
 
-  const card = page.getByRole("button", { name: "二次関数の確認 を開く" });
-  await card.click();
-  await expect(card).toHaveClass(/selected/);
+  const row = fileRow(page);
+  await row.click();
+  await expect(row).toHaveAttribute("aria-selected", "true");
 
-  await card.press("Escape");
-  await expect(card).not.toHaveClass(/selected/);
+  await row.press("Escape");
+  await expect(row).toHaveAttribute("aria-selected", "false");
 });
 
 test("keeps the workspace tree collapsed and renames the workspace inline from the context menu", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
-  await installWorkspaceRuntimeMock(page, buildWorkspacePreviewSeed());
+  await installWorkspaceRuntimeMock(page, buildWorkspaceSeed());
 
   await page.goto(appUrl("/workspace"), { waitUntil: "domcontentloaded" });
 
@@ -189,7 +195,7 @@ test("keeps the workspace tree collapsed and renames the workspace inline from t
 
 test("disables deleting the workspace from the nav context menu when it is the last one", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
-  await installWorkspaceRuntimeMock(page, buildWorkspacePreviewSeed());
+  await installWorkspaceRuntimeMock(page, buildWorkspaceSeed());
 
   await page.goto(appUrl("/workspace"), { waitUntil: "domcontentloaded" });
 
@@ -206,19 +212,19 @@ test("disables deleting the workspace from the nav context menu when it is the l
   await expect(deleteMenuItem).toHaveAttribute("title", "最後のワークスペースは削除できません。");
 });
 
-test("uses the workspace card action menu for rename, template add, and delete", async ({ page }) => {
+test("uses the workspace row action menu for rename, template add, and delete", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
-  await installWorkspaceRuntimeMock(page, buildWorkspacePreviewSeed());
+  await installWorkspaceRuntimeMock(page, buildWorkspaceSeed());
 
   await page.goto(appUrl("/workspace"), { waitUntil: "domcontentloaded" });
 
-  let card = page.getByRole("button", { name: "二次関数の確認 を開く" });
-  await expect(card).toBeVisible();
-  await card.hover();
-  await card.getByRole("button", { name: "二次関数の確認 の操作" }).click();
+  const row = fileRow(page);
+  await expect(row).toBeVisible();
+  await row.hover();
+  await row.getByRole("button", { name: "二次関数の確認 の操作" }).click();
   await page.getByRole("menuitem", { name: "名前を変更" }).click();
 
-  // No dialog anymore: the card's title swaps in place for an inline <input>.
+  // No dialog anymore: the row's title swaps in place for an inline <input>.
   const fileNameInput = page.getByLabel("教材名");
   await expect(fileNameInput).toBeFocused();
   // fill() ではなく pressSequentially。理由は上の「ワークスペース名を変更」テストと同じ。
@@ -227,11 +233,10 @@ test("uses the workspace card action menu for rename, template add, and delete",
   await fileNameInput.press("Enter");
   await expect(fileNameInput).toBeHidden();
 
-  card = page.getByRole("button", { name: "リネーム済み教材 を開く" });
-  await expect(card).toBeVisible();
+  await expect(row.locator(".workspace-list-name-text")).toHaveText("リネーム済み教材");
 
-  await card.hover();
-  await card.getByRole("button", { name: "リネーム済み教材 の操作" }).click();
+  await row.hover();
+  await row.getByRole("button", { name: "リネーム済み教材 の操作" }).click();
   await page.getByRole("menuitem", { name: "テンプレートに追加" }).click();
   await expect(page.getByText("テンプレートに追加しました")).toBeVisible();
   await expect.poll(async () => page.evaluate(async () => {
@@ -245,11 +250,11 @@ test("uses the workspace card action menu for rename, template add, and delete",
     return (await api.templates.listTemplates()).map((template) => template.name);
   })).toContain("リネーム済み教材");
 
-  await card.hover();
-  await card.getByRole("button", { name: "リネーム済み教材 の操作" }).click();
+  await row.hover();
+  await row.getByRole("button", { name: "リネーム済み教材 の操作" }).click();
   await page.getByRole("menuitem", { name: "削除" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "削除する" }).click();
-  await expect(page.getByRole("button", { name: "リネーム済み教材 を開く" })).toBeHidden();
+  await expect(row).toHaveCount(0);
 });
 
 test("an optimistic rename survives a background overview refresh mid-flight", async ({ page }) => {
@@ -258,15 +263,16 @@ test("an optimistic rename survives a background overview refresh mid-flight", a
   // the storage watcher's 400ms-debounced silent reload (triggered below)
   // lands from a mocked backing store that hasn't caught up yet -- exactly
   // the race applyPendingRenames/pendingRenamesRef exist to cover. Without
-  // that overlay, the reload at ~400ms would revert the card to its old
+  // that overlay, the reload at ~400ms would revert the row to its old
   // title until the slow rename finally resolves at ~700ms.
-  await installWorkspaceRuntimeMock(page, buildWorkspacePreviewSeed(), { renameDelayMs: 700 });
+  await installWorkspaceRuntimeMock(page, buildWorkspaceSeed(), { renameDelayMs: 700 });
 
   await page.goto(appUrl("/workspace"), { waitUntil: "domcontentloaded" });
 
-  const card = page.locator(`[data-item-key="file:${WORKSPACE_PREVIEW_FILE_ID}"]`);
-  await card.hover();
-  await card.getByRole("button", { name: "二次関数の確認 の操作" }).click();
+  const row = fileRow(page);
+  const title = row.locator(".workspace-list-name-text");
+  await row.hover();
+  await row.getByRole("button", { name: "二次関数の確認 の操作" }).click();
   await page.getByRole("menuitem", { name: "名前を変更" }).click();
 
   const fileNameInput = page.getByLabel("教材名");
@@ -274,9 +280,9 @@ test("an optimistic rename survives a background overview refresh mid-flight", a
   await fileNameInput.pressSequentially("最新の教材名");
   await fileNameInput.press("Enter");
 
-  // Commit is optimistic: the card already shows the new title even though
+  // Commit is optimistic: the row already shows the new title even though
   // the mocked rename call won't resolve for 700ms.
-  await expect(card).toHaveAttribute("aria-label", "最新の教材名 を開く");
+  await expect(title).toHaveText("最新の教材名");
 
   await page.evaluate(() => {
     (window as typeof window & { __triggerWorkspaceChange?: () => void }).__triggerWorkspaceChange?.();
@@ -287,12 +293,16 @@ test("an optimistic rename survives a background overview refresh mid-flight", a
   // a one-frame-then-recovers regression by waiting for the eventually
   // correct state instead of catching a transient revert.
   await page.waitForTimeout(550);
-  expect(await card.getAttribute("aria-label")).toBe("最新の教材名 を開く");
+  expect(await title.textContent()).toBe("最新の教材名");
 
   // ...and it stays correct once the slow rename call itself resolves.
   await page.waitForTimeout(300);
-  await expect(card).toHaveAttribute("aria-label", "最新の教材名 を開く");
+  await expect(title).toHaveText("最新の教材名");
 });
+
+function fileRow(page: Page): Locator {
+  return page.locator(`tr[data-item-key="file:${WORKSPACE_FILE_ID}"]`);
+}
 
 function appUrl(path: string): string {
   return process.env.SIGMA_STUDIO_E2E_BASE_URL ? new URL(path, process.env.SIGMA_STUDIO_E2E_BASE_URL).toString() : path;
@@ -301,19 +311,19 @@ function appUrl(path: string): string {
 // A single workspace / single file seed matching the old (now-removed)
 // inline mock exactly, so every assertion below -- including "the last
 // workspace can't be deleted" -- still holds unchanged.
-function buildWorkspacePreviewSeed(): WorkspaceRuntimeMockSeed {
+function buildWorkspaceSeed(): WorkspaceRuntimeMockSeed {
   return {
-    activeWorkspaceId: WORKSPACE_PREVIEW_WORKSPACE_ID,
+    activeWorkspaceId: WORKSPACE_ID,
     workspaces: [
-      { id: WORKSPACE_PREVIEW_WORKSPACE_ID, name: "マイ教材" },
+      { id: WORKSPACE_ID, name: "マイ教材" },
     ],
     files: [
       {
-        fileId: WORKSPACE_PREVIEW_FILE_ID,
-        workspaceId: WORKSPACE_PREVIEW_WORKSPACE_ID,
+        fileId: WORKSPACE_FILE_ID,
+        workspaceId: WORKSPACE_ID,
         folderId: null,
-        title: WORKSPACE_PREVIEW_DOCUMENT.metadata.title,
-        document: WORKSPACE_PREVIEW_DOCUMENT,
+        title: WORKSPACE_DOCUMENT.metadata.title,
+        document: WORKSPACE_DOCUMENT,
       },
     ],
   };

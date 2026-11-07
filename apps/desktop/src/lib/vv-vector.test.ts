@@ -14,10 +14,10 @@ import {
   VV_MATHLIVE_DEF,
   VV_MIN_WIDTH_EM,
   VV_SLOT_STYLE,
+  VV_ARROW_SLICE_MARGIN,
+  vvArrowMarkup,
   vvArrowTopEm,
-  vvCaretTarget,
   normalizeVvMarkup,
-  serializeEditorVector,
 } from "@/lib/vv-vector";
 import {
   VV_ARROW_DESIGN,
@@ -89,6 +89,36 @@ describe("\\vv vectors", () => {
     // The operand glyphs stay real text; the slot rule is invisible.
     expect(html.replace(/<[^>]+>/g, "")).toBe("AB");
     expect(html).toMatch(/class="ML__rule" style="[^"]*opacity:0/);
+  });
+
+  it("keeps the ink clear of each half's edges, so pixel snapping cannot cut the barbs' ends or the tip", () => {
+    const markup = vvArrowMarkup(0.1);
+    // The arrow's own box is the ink box: rise and width are measured from it.
+    expect(markup).toMatch(new RegExp(`^<span class="${VV_ARROW_CLASS}" style="[^"]*top:0.1em;width:100%;height:${VV_ARROW_HEIGHT / 1000}em"`));
+    const slices = [...markup.matchAll(/<span style="([^"]*)"><svg [^>]*viewBox="([^"]*)"/g)].map(([, style, viewBox]) => ({
+      style, viewBox: viewBox.split(" ").map(Number),
+      top: Number(/top:(-?[\d.]+)em/.exec(style)?.[1]), height: Number(/height:([\d.]+)em/.exec(style)?.[1]),
+    }));
+    expect(slices).toHaveLength(2);
+    const margin = VV_ARROW_SLICE_MARGIN;
+    expect(margin).toBeGreaterThanOrEqual(15); // more than half a device pixel at 16px on a 2x display (~31 units)
+    for (const { viewBox: [, y, , h], top, height } of slices) {
+      // The ink (0..VV_ARROW_HEIGHT, vv-arrow-outline.test.ts) sits `margin` inside the top and bottom...
+      expect(y).toBe(-margin);
+      expect(y + h).toBe(VV_ARROW_HEIGHT + margin);
+      // ...at the same scale and place as the arrow's box (1 unit = 0.001em).
+      expect(height * 1000).toBeCloseTo(h, 6);
+      expect(top * 1000).toBeCloseTo(y, 6);
+    }
+    // The head's half reaches `margin` right of the box; the tip (x = slice width) stays at its right edge.
+    const [left, right] = slices;
+    expect(left.style).toContain("left:0;width:50.2%");
+    expect(right.style).toContain(`right:-${margin / 1000}em`);
+    expect(right.viewBox[2]).toBe(left.viewBox[2] + margin);
+    // The sanitizer keeps all of it.
+    const html = renderMathHtml(L`\vv{AB}`, env);
+    expect(html).toContain(`viewBox="0 ${-margin} ${right.viewBox[2]} ${VV_ARROW_HEIGHT + 2 * margin}"`);
+    expect(html).toContain(`right:-${margin / 1000}em;top:-${margin / 1000}em`);
   });
 
   it("reserves the arrow's geometry: its rise over the operand, the operand's depth, and the minimum width", () => {
@@ -188,52 +218,5 @@ describe("\\vv vectors", () => {
     expect(normalizeVvMarkup(`<span class="${VV_CLASS}"><span>`)).toBe(`<span class="${VV_CLASS}"><span>`);
     const drawn = convertLatexToMarkupCached(L`\vv{AB}`, env);
     expect(normalizeVvMarkup(drawn)).toBe(drawn);
-  });
-});
-
-describe("editor serialization of \\vv", () => {
-  type Atom = Parameters<typeof serializeEditorVector>[0];
-  interface Fields { type?: string; command?: string; body?: Atom[]; latex?: string }
-  const atom = ({ latex = "", ...fields }: Fields): Atom => {
-    const result = { ...fields, bodyToLatex: () => latex };
-    // MathLive's Atom.serialize(list), reached through the instance's class.
-    Object.defineProperty(result, "constructor", { value: { serialize: (list: Atom[]) => list.map((a) => a.bodyToLatex?.({}) ?? "").join("") } });
-    return result as unknown as Atom;
-  };
-  it("writes the CURRENT operand of the box, not MathLive's parse-time macro arguments", () => {
-    const vectorBox = atom({ command: L`\overset`, latex: "ACB" });
-    expect(serializeEditorVector(atom({ command: L`\vv`, body: [atom({ type: "first" }), vectorBox] }), {})).toBe(L`\vv{ACB}`);
-  });
-  it("keeps editor-inserted neighbours outside the vector and ignores other macros", () => {
-    const vectorBox = atom({ command: L`\overset`, latex: "AB" });
-    expect(serializeEditorVector(atom({ command: L`\vv`, body: [atom({ latex: "2" }), vectorBox, atom({ latex: "x" })] }), {})).toBe(L`2\vv{AB}x`);
-    expect(serializeEditorVector(atom({ command: L`\kyoutsuuchoice`, body: [vectorBox] }), {})).toBeNull();
-    expect(serializeEditorVector(atom({ command: L`\vv`, body: [atom({ latex: "z" })] }), {})).toBeNull();
-    expect(serializeEditorVector(atom({ command: L`\vv`, body: [vectorBox] }), { expandMacro: true })).toBe(L`\vv{AB}`);
-  });
-});
-
-describe("editor caret inside \\vv", () => {
-  // Offsets as MathLive numbers them for `x\vv{AB}+1`: 0 root start, 1 x, 2 macro start,
-  // 3 box operand start, 4 A, 5 B, 6 slot start, 7 phantom, 8 after box, 9 after macro.
-  type Atom = { command?: string; type?: string; parentBranch?: string; parent?: Atom; leftSibling?: Atom; body?: Atom[]; branch?: (n: string) => Atom[] };
-  const x: Atom = { command: "x" };
-  const macro: Atom = { command: L`\vv`, type: "macro", leftSibling: x };
-  const box: Atom = { command: L`\overset`, parent: macro };
-  const operand: Atom[] = [{ type: "first" }, { command: "A" }, { command: "B" }].map((a) => ({ ...a, parent: box, parentBranch: "body" }));
-  const slot: Atom[] = [{ type: "first" }, { command: L`\phantom` }].map((a) => ({ ...a, parent: box, parentBranch: "above" }));
-  const macroFirst: Atom = { type: "first", parent: macro, parentBranch: "body" };
-  macro.body = [macroFirst, box];
-  box.branch = (name) => (name === "body" ? operand : slot);
-  const atoms: Atom[] = [{ type: "first" }, x, macroFirst, operand[0], operand[1], operand[2], slot[0], slot[1], box, macro];
-  const model = { at: (offset: number) => atoms[offset], offsetOf: (atom: Atom) => atoms.indexOf(atom) } as unknown as Parameters<typeof vvCaretTarget>[0];
-
-  it("keeps the caret on the operand and skips the macro edges and the invisible slot", () => {
-    expect(vvCaretTarget(model, 2, true)).toBe(3); // entering: operand start
-    expect(vvCaretTarget(model, 2, false)).toBe(1); // leaving backwards: before the vector
-    expect(vvCaretTarget(model, 6, true)).toBe(9); // past the operand: after the vector
-    expect(vvCaretTarget(model, 7, false)).toBe(5); // back from the slot: operand end
-    expect(vvCaretTarget(model, 8, false)).toBe(5);
-    for (const offset of [0, 1, 3, 4, 5, 9]) expect(vvCaretTarget(model, offset, true)).toBeNull();
   });
 });

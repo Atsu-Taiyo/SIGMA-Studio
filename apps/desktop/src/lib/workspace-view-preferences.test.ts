@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const STORAGE_KEY = "sigma-studio:workspace-view-preference";
-const DEFAULT_PREFERENCE = { mode: "grid", sortKey: "updatedAt", sortDirection: "desc", sidebarCollapsed: false };
+const DEFAULT_PREFERENCE = { sortKey: "updatedAt", sortDirection: "desc", sidebarCollapsed: false };
 
 class FakeWindow extends EventTarget {
   private readonly store = new Map<string, string>();
@@ -47,37 +47,40 @@ describe("workspace-view-preferences", () => {
   });
 
   it("falls back per-field for a partial stored object", () => {
-    fakeWindow.localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode: "list" }));
+    fakeWindow.localStorage.setItem(STORAGE_KEY, JSON.stringify({ sortKey: "name" }));
     expect(mod.getWorkspaceViewPreference()).toEqual({
-      mode: "list",
-      sortKey: "updatedAt",
+      sortKey: "name",
       sortDirection: "desc",
       sidebarCollapsed: false,
     });
   });
 
-  it("defaults an invalid mode while the other fields survive", () => {
+  it("ignores the retired grid/list mode and drops it on the next save", () => {
     fakeWindow.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      mode: "kanban",
-      sortKey: "name",
-      sortDirection: "asc",
-    }));
-    expect(mod.getWorkspaceViewPreference()).toEqual({
       mode: "grid",
       sortKey: "name",
       sortDirection: "asc",
-      sidebarCollapsed: false,
+      sidebarCollapsed: true,
+    }));
+    expect(mod.getWorkspaceViewPreference()).toEqual({
+      sortKey: "name",
+      sortDirection: "asc",
+      sidebarCollapsed: true,
+    });
+    mod.saveWorkspaceViewPreference({ sortDirection: "desc" });
+    expect(JSON.parse(fakeWindow.localStorage.getItem(STORAGE_KEY) as string)).toEqual({
+      sortKey: "name",
+      sortDirection: "desc",
+      sidebarCollapsed: true,
     });
   });
 
   it("defaults an invalid sortKey while the other fields survive", () => {
     fakeWindow.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      mode: "list",
       sortKey: "size",
       sortDirection: "asc",
     }));
     expect(mod.getWorkspaceViewPreference()).toEqual({
-      mode: "list",
       sortKey: "updatedAt",
       sortDirection: "asc",
       sidebarCollapsed: false,
@@ -86,12 +89,10 @@ describe("workspace-view-preferences", () => {
 
   it("defaults an invalid sortDirection while the other fields survive", () => {
     fakeWindow.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      mode: "list",
       sortKey: "name",
       sortDirection: "sideways",
     }));
     expect(mod.getWorkspaceViewPreference()).toEqual({
-      mode: "list",
       sortKey: "name",
       sortDirection: "desc",
       sidebarCollapsed: false,
@@ -99,9 +100,8 @@ describe("workspace-view-preferences", () => {
   });
 
   it("round-trips a saved preference", () => {
-    mod.saveWorkspaceViewPreference({ mode: "list", sortKey: "name", sortDirection: "asc" });
+    mod.saveWorkspaceViewPreference({ sortKey: "name", sortDirection: "asc" });
     expect(mod.getWorkspaceViewPreference()).toEqual({
-      mode: "list",
       sortKey: "name",
       sortDirection: "asc",
       sidebarCollapsed: false,
@@ -109,37 +109,36 @@ describe("workspace-view-preferences", () => {
   });
 
   it("merges a partial save on top of the previously saved preference", () => {
-    mod.saveWorkspaceViewPreference({ mode: "list" });
+    mod.saveWorkspaceViewPreference({ sortDirection: "asc" });
     mod.saveWorkspaceViewPreference({ sortKey: "name" });
     expect(mod.getWorkspaceViewPreference()).toEqual({
-      mode: "list",
       sortKey: "name",
-      sortDirection: "desc",
+      sortDirection: "asc",
       sidebarCollapsed: false,
     });
   });
 
   it("keeps the sidebar state when other fields are saved", () => {
     mod.saveWorkspaceViewPreference({ sidebarCollapsed: true });
-    mod.saveWorkspaceViewPreference({ mode: "list" });
+    mod.saveWorkspaceViewPreference({ sortKey: "name" });
     expect(mod.getWorkspaceViewPreference().sidebarCollapsed).toBe(true);
   });
 
   it("defaults a non-boolean sidebar state", () => {
-    fakeWindow.localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode: "list", sidebarCollapsed: "yes" }));
-    expect(mod.getWorkspaceViewPreference()).toEqual({ ...DEFAULT_PREFERENCE, mode: "list" });
+    fakeWindow.localStorage.setItem(STORAGE_KEY, JSON.stringify({ sortKey: "name", sidebarCollapsed: "yes" }));
+    expect(mod.getWorkspaceViewPreference()).toEqual({ ...DEFAULT_PREFERENCE, sortKey: "name" });
   });
 
   it("returns defaults when window is unavailable", () => {
     vi.stubGlobal("window", undefined);
     expect(mod.getWorkspaceViewPreference()).toEqual(DEFAULT_PREFERENCE);
-    expect(() => mod.saveWorkspaceViewPreference({ mode: "list" })).not.toThrow();
+    expect(() => mod.saveWorkspaceViewPreference({ sortKey: "name" })).not.toThrow();
   });
 
   it("dispatches the change event when saving", () => {
     const listener = vi.fn();
     fakeWindow.addEventListener("sigma-studio:workspace-view-preference-change", listener);
-    mod.saveWorkspaceViewPreference({ mode: "list" });
+    mod.saveWorkspaceViewPreference({ sortKey: "name" });
     expect(listener).toHaveBeenCalledTimes(1);
   });
 

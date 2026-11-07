@@ -1,11 +1,11 @@
-import { spaceFreeFileName, splitFileName } from "@/lib/file-name";
+import { normalizeNewFileName, splitFileName } from "@/lib/file-name";
 import { availableDocumentTitle } from "@/lib/library-ledger";
 import { retryDelay } from "./transport";
 import { validateCatalogDelta } from "./response-validation";
 import { normalizeWorkspaceLayout } from "@/lib/workspace-tab-groups";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import { shell } from "electron";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { SigmaDocument } from "@/features/document";
 import type { CatalogDelta, CatalogNode, CatalogNodeId, HierarchyShareOperation, ServerCollaborationCapabilities, SharedTargetRef } from "@/features/collaboration/model/catalog";
 import type { MemberRole } from "@/features/collaboration/model/protocol";
@@ -42,7 +42,6 @@ export interface CatalogSessionsPort {
   open(fileId: string, sharedDocumentId: string): Promise<SigmaDocument>;
   /** Opens the document and returns it with its images inlined, for a copy that must not refer to this document's images. */
   export(fileId: string, sharedDocumentId: string): Promise<SigmaDocument>;
-  previewVersion?(fileId: string): string | undefined;
   preview?(fileId: string, sharedDocumentId: string, options?: { assets?: boolean }): Promise<SigmaDocument>;
   initialize(fileId: string, sharedDocumentId: string, operationId: string, document: SigmaDocument, staged?: boolean): Promise<void>;
   activate(fileIds: string[]): Promise<void>;
@@ -308,14 +307,6 @@ export class DesktopSharedCatalog {
       if (workspace.id !== projected.activeWorkspaceId) results.push(...this.cache.project(local, workspace.id, hidden).files);
     }
     return results;
-  }
-  async previewContext(fileId: string): Promise<{ scope: string; token: string; opened: boolean } | null> {
-    await this.account();
-    const node = this.find(fileId, "document");
-    if (!node || node.state !== "active" || !node.capabilities.read || !node.sharedDocumentId) return null;
-    const scope = createHash("sha256").update(JSON.stringify([this.actor, node.id, node.sharedDocumentId])).digest("hex");
-    const version = this.sessions.previewVersion?.(fileId) ?? "unopened";
-    return { scope, token: `${scope}:${version}`, opened: this.cache!.data.mappings[node.id]?.bodyCached ?? false };
   }
   async preview(fileId: string, options?: { assets?: boolean }): Promise<SigmaDocument | null> {
     await this.account();
@@ -784,7 +775,7 @@ export class DesktopSharedCatalog {
     if (!currentParent || currentParent.state !== "active") throw new Error("TARGET_UNAVAILABLE");
     if (!currentParent.capabilities.createChildren) throw new Error("FORBIDDEN");
     if (kind === "document") {
-      name = spaceFreeFileName(name);
+      name = normalizeNewFileName(name);
       if (document) document = { ...document, metadata: { ...document.metadata, title: name } };
     }
     let intent = Object.values(cache.data.creates).find(item => !item.complete && item.parentId === parent.id && item.kind === kind && (kind === "document" ? item.document?.docId === document?.docId : item.name === name));

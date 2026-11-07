@@ -1340,7 +1340,6 @@
   background: var(--background);
 }
 
-.workspace-template-button,
 .workspace-reload-button {
   display: inline-flex;
   align-items: center;
@@ -1357,7 +1356,6 @@
   transition: background 120ms ease, border-color 120ms ease;
 }
 
-.workspace-template-button:hover,
 .workspace-reload-button:hover {
   background: var(--surface-muted);
   border-color: var(--accent);

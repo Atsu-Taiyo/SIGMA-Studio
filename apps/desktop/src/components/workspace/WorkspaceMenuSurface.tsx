@@ -1,13 +1,24 @@
 "use client";
 import { useEffect, useRef, type HTMLAttributes } from "react";
 
-/** Keyboard focus stays inside an open action menu and returns to its trigger. */
+/**
+ * Keyboard focus stays inside an open action menu and returns to its trigger.
+ * Focus goes back only while it is still the menu's (inside it, or dropped to the body because
+ * the menu was removed): an action that put focus somewhere on purpose keeps it there. Otherwise
+ * "名前を変更" from a row's right-click menu would pull focus off the inline rename field it just
+ * opened, and the field would close on that blur.
+ */
 export function WorkspaceMenuSurface({ children, ...props }: HTMLAttributes<HTMLDivElement>) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    ref.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
-    return () => { if (trigger?.isConnected) trigger.focus({ preventScroll: true }); };
+    const menu = ref.current;
+    menu?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    return () => {
+      const active = document.activeElement;
+      const focusLeftWithMenu = !active || active === document.body || Boolean(menu?.contains(active));
+      if (focusLeftWithMenu && trigger?.isConnected) trigger.focus({ preventScroll: true });
+    };
   }, []);
   return <div {...props} ref={ref} role="menu" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}
     onKeyDown={(event) => {

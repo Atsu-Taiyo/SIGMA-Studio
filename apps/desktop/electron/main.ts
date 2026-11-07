@@ -90,7 +90,7 @@ import { profileProtocolResponse } from "./collaboration/profiles";
 import { startSessionBridge } from "./collaboration/local-bridge";
 import { createSharedProposalApprover } from "./collaboration/proposal-approval";
 import { createProposalApprovalCoordinator } from "./proposal-approval";
-import { registerWorkspacePreviewIpc } from "./ipc/workspace-preview";
+import { registerWorkspacePreviewIpc, removeRetiredWorkspacePreviewCaches } from "./ipc/workspace-preview";
 import { registerWorkspaceSearchIpc } from "./ipc/workspace-search";
 import { createWorkspaceBodySearchService } from "./workspace-body-search";
 import { createWindowCloseHandshake, type WindowCloseHandshake } from "./window-close-handshake";
@@ -340,6 +340,8 @@ void localGeminiRunContextStore.clear();
 void sweepOrphanPerRunContextFiles(USER_DATA_PATH, "claude");
 void sweepOrphanPerRunContextFiles(USER_DATA_PATH, "chatgpt");
 void sweepOrphanPerRunContextFiles(USER_DATA_PATH, "antigravity");
+// 教材一覧のサムネイル画像は廃止した。以前の版が端末に残した画像を消す。
+void removeRetiredWorkspacePreviewCaches(USER_DATA_PATH);
 void localAiRenderBridgeStore.clear();
 let aiRenderBridgeServer: http.Server | null = null;
 const pendingRenderDocuments = new Map<string, SigmaDocument>();
@@ -1787,9 +1789,7 @@ function registerIpc() {
   });
 
   registerWorkspacePreviewIpc({
-    userDataPath: USER_DATA_PATH,
     loadSharedDocument: (id, options) => options ? sharedCatalog.preview(id, options) : sharedCatalog.preview(id),
-    sharedContext: id => sharedCatalog.previewContext(id),
   });
 
   registerWorkspaceSearchIpc(workspaceBodySearch);

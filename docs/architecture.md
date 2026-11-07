@@ -265,7 +265,7 @@ TeXは数式ノードの中だけに閉じ込めます。
 
 ワークスペースの検索欄は、題名と本文を同時に探します。題名は画面 (`WorkspaceManager`) が全ワークスペースの一覧からその場で絞り、本文は`useWorkspaceBodySearch`が検索語を送って、見つかった教材から差分で受け取ります (題名で一致した教材が先、本文だけで一致した教材は後ろに一致箇所の抜粋つきで並び、検索結果は100件ずつ描きます)。照合・抜粋・索引の読み進め方は`lib/workspace-body-search.ts`の純粋な`WorkspaceBodyTextIndex`と`WorkspaceBodySearchSession`が持ち、教材から人が読む文字を取り出すのは`features/document`の`documentSearchText`です。デスクトップ版では索引とセッションをElectron main (`electron/workspace-body-search.ts`、IPCは`electron/ipc/workspace-search.ts`) が持ちます。ローカル教材の本文はワーカースレッドで読んで解析し (main を止めない)、取り出した文字列を`userData/workspace-search-index/`の64の束に追記して、版が変わった教材だけを読み直します。本文の文字列はメモリに抱えず、検索のたびに束を読み通して照合します (数万教材でもmainが持つのは教材ごとの版の印だけ)。共有教材の本文は端末に残さず、メモリにだけ置いて一定時間で読み直し、サインインしている人が替わったら捨てます。ブラウザ版は同じ中核を画面の中で動かします。
 
-検索欄への入力は何より優先します。Electronでは打鍵もmainを通って画面へ届くので、打っている間にmainや画面で重い処理を走らせないことを守ります。教材の一覧 (台帳を丸ごと読む) は検索欄に入った時点で1回だけ取り (題名用と本文用の同時の要求は`DesktopSharedCatalog.searchOverview`が1回の読み込みにまとめる)、打鍵中には取り直さず、教材が変わったときだけ取り直して、開いている検索は今の検索語で自動的に探し直します (変更の後の求めには、変更の前に読み始めた一覧を渡しません)。ローカル教材のプレビュー画像は教材IDと版ごとにメモリと端末へ保存して再利用します。検索欄に焦点がある間は保存済み画像だけを表示し、画像の無い教材の読み込み・組版は欄を離れてから始めます (`setWorkspacePreviewLoadsPaused`)。欄を離れても打鍵の休止待ち・本文の結果が流れ込んでいる間は作らず、作るときも同時に2件までで、カードは一覧の描き直しでは描き直しません。画面の一覧は`useDeferredValue`で入力の後に組み、本文の結果は`startTransition`で反映し、並べ替えは描く分の上位だけを選びます。
+検索欄への入力は何より優先します。Electronでは打鍵もmainを通って画面へ届くので、打っている間にmainや画面で重い処理を走らせないことを守ります。教材の一覧 (台帳を丸ごと読む) は検索欄に入った時点で1回だけ取り (題名用と本文用の同時の要求は`DesktopSharedCatalog.searchOverview`が1回の読み込みにまとめる)、打鍵中には取り直さず、教材が変わったときだけ取り直して、開いている検索は今の検索語で自動的に探し直します (変更の後の求めには、変更の前に読み始めた一覧を渡しません)。教材一覧はリスト表示だけで、教材のサムネイル画像は作りません (一覧を出すために本文を読んだり組版したりしない。以前の版が端末に残した画像は起動時に消します)。画面の一覧は`useDeferredValue`で入力の後に組み、本文の結果は`startTransition`で反映し、並べ替えは描く分の上位だけを選びます。
 
 IDの境界は分けます。`fileId` はローカルのファイル管理IDで、workspace、folder、revision、タブ、一覧、watch、AI編集対象の基準です。`docId` はSigmaDoc内部IDで、教材本文の内部識別子としてだけ残します。
 
@@ -330,7 +330,7 @@ mathInline (インライン)
 
 手動の改ページ/改段(`pagination.break: true`)は、枠付き問題文や全幅エリアでは「分割禁止」より優先します。`boxBlock`・引用・問題エリア・1段組の`layoutSection`の中のブロックに付けた区切りも、その位置で入れ物を分割して次のページ (段組みのページでは次の段) へ続けます (TeXの`\newpage`と同じ)。例外は独立した複数段の`layoutSection`の中で、段の所属は`columnStartIds`が決めるので区切りを置けません (箱内の複数段の既存の区切りは改段として扱います)。長い箱のページ・外側段への分割は自動ページネーションも担当します。区切りを置ける場所・持ち上げ・隣接の判定は`features/text-editing/application/manual-break-rules.ts`が唯一の出典です。分割の適格判定はDOM非依存の`features/rendering/core`に置いた`isProblemAreaFlowEligible`が唯一の出典です。分割位置がページキャンバスとPDFで一致することは`tests/e2e/object-break-parity.spec.ts`で担保します。
 
-`components/print/PrintPreview.tsx` の静的レンダラはPDFの経路から外れており、`packages/viewer`・サムネイル・テンプレートギャラリーの近似プレビュー専用です。ここに用紙出力を追加しないこと。
+`components/print/PrintPreview.tsx` の静的レンダラはPDFの経路から外れており、`packages/viewer`・テンプレートギャラリー (のサムネイル) の近似プレビュー専用です。ここに用紙出力を追加しないこと。
 
 ### 5. Read-only Viewer Shares The Static Renderer
 
@@ -461,7 +461,7 @@ MathLiveを使います。
 
 数式の入力欄のキー入力は、本文と図形内テキストで同じ入力欄 (`components/tiptap/inline-math-extension.tsx`) を通ります。次の3つはMathLiveの既定とは違う動きなので、各ファイルが持ちます。
 - 分数のテンプレート (`\frac{#?}{#?}`・`\dfrac`・`\tfrac`・`\cfrac`) は、数式の中のCtrl+/・本文から押したCtrl+/・数式パレット・`/frac`の入力のどれでも、入れた直後に分母の空欄が選ばれます (`lib/math-keyboard-shortcuts.ts` の `focusMathFractionDenominator`。入口ごとに分けず挿入の1か所で揃える)。分子へはMathLiveの↑で移ります。選んだ範囲を包むテンプレート (`wrapsSelection`) と、分数ではない二項係数 (`\binom`) は最初の空欄のままです。
-- 上付きと下付きの両方を持つ原子 (`\int_a^b`・`\sum`・`x_1^2`) では、上付きの中で↓、下付きの中で↑を押すと反対側の枠の末尾へ移ります。いちばん内側の枠で決め、分数・配列・片側だけの原子はMathLiveの動きのままです (`lib/mathlive-script-navigation.ts`。MathLiveの内部 `_mathfield.model` を読むのはここと `mathlive-open-fence.ts` だけで、実物のMathLiveで確かめるtestがあります)。
+- 上付きと下付きの両方を持つ原子 (`\int_a^b`・`\sum`・`x_1^2`) では、上付きの中で↓、下付きの中で↑を押すと反対側の枠の末尾へ移ります。いちばん内側の枠で決め、分数・配列・片側だけの原子はMathLiveの動きのままです (`lib/mathlive-script-navigation.ts`)。MathLiveの内部 `_mathfield.model` はこのadapter、`mathlive-open-fence.ts`、`mathlive-vv.ts` に限定し、ほかのファイルから読まないことを `lib/mathlive-internals-boundary.test.ts` が見張ります。`mathlive-vv.ts` は組み込みベクトルの編集用atomだけに直列化・矢印・caretの補正を適用し、共通prototypeを変更しません。caretはマクロの端と、矢印の下の見えない枠 (`\phantom` の中まで) に止めず中身へ移します。静的な形状・寸法・markupは `vv-vector.ts` が所有し、MathLive内部を参照しません。実MathLiveの入力契約 (`mathlive-vv-real.test.ts`。原子の木の位置の数え方・書き戻し・矢印・caret) と `tests/electron/math-vv-vectors.spec.ts` で、組み込みベクトルの編集後も別教材の独自マクロが変わらず、保存・全終了後の再起動でも同じTeXを保持することを確かめます。
 - IMEが全角で確定した英数・記号 (U+FF01〜U+FF5E と全角スペース) は、MathLiveへ渡す前に半角へ戻します (`lib/half-width-ascii.ts`・`lib/mathlive-half-width-input.ts`)。変換中の文字には触れず、かな・漢字はそのままです。入力ソースの英数への切り替え (`electron/input-source.ts`) は非同期で英語の入力ソースが無いと失敗するため、この確定時の変換が本体で、切り替えの失敗は開発中だけ `console.warn` に出します。
 
 数式の一部に選んだフォントは、TeXの `\htmlStyle{font-family:…}{…}` として正本に残します (`lib/math-font-style.ts`)。ツールバーのフォントは、数式の入力欄で範囲を選んでいればその範囲だけに付きます (`components/tiptap/inline-math-font.ts`。範囲はMathLiveが構造の境目をまたいで持つことがあるので、同じTeXを表す最も狭い範囲へ詰めてから置き換える)。数式の入力欄は焦点を失うと確定して閉じますが、フォントメニュー (`INLINE_MATH_FONT_MENU_ATTRIBUTE` の印の中) の検索欄へ移ったときだけは閉じずに待ち、メニューを開いた時点の入力欄へ付けます。メニューの外へ焦点が出るか、入力欄へ焦点が戻らないままメニューが閉じたら確定します。数式の文字は書体クラスが自前のフォントを持つので、包んだ要素の指定を継がせる規則を静的描画 (`document-surface.css`) と編集中の入力欄 (`SIGMA_MATHLIVE_MACRO_STYLES`) の両方に置きます。無害化 (`math-markup.ts`) は `font-family` をフォント名の並びとしてだけ通します。

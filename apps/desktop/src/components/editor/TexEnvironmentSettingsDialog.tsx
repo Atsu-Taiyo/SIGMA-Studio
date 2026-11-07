@@ -169,7 +169,7 @@ export function TexEnvironmentSettingsDialog({ preamble, onChange, onClose, tikz
                 aria-pressed={previewTex === example.tex}
                 title={example.tex}
                 onClick={() => {
-                  if (!parsed.macros.answerbox) setDraft(examplePreamble);
+                  if (example.usesExamplePreamble && !parsed.macros.answerbox) setDraft(examplePreamble);
                   setPreviewTex(example.tex);
                 }}
               >
