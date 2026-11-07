@@ -167,7 +167,7 @@ test("the realtime graph expression field deletes sin(x) one element per Backspa
     await details.getByRole("button", { name: "範囲の最大値", exact: true }).click();
     const bound = details.locator("math-field");
     await expect.poll(async () => (await readFieldState(bound))?.focused).toBe(true);
-    await page.keyboard.press("Meta+a");
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+a" : "Control+a");
     await page.keyboard.type("10");
     await page.keyboard.press("Control+^");
     await page.keyboard.type("2");
