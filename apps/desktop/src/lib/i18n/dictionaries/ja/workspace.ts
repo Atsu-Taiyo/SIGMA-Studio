@@ -10,6 +10,12 @@
  */
 export const workspace = {
   sharedItems: "共有アイテム",
+  usageGuide: {
+    title: "使い方を見てみませんか？",
+    description: "教材の管理や編集の手順を、画面つきの操作マニュアルで紹介しています。",
+    view: "使い方を見る",
+    neverShow: "もう表示しない",
+  },
   githubStar: {
     title: "GitHubのStarで応援しませんか？",
     description: "Sigma Studioが役に立ったら、GitHubでStarを付けていただけるとうれしいです。開発を続ける励みになります。",

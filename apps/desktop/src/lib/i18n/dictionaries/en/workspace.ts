@@ -10,6 +10,12 @@ import type { TranslationsOf } from "../types";
  */
 export const workspace = {
   sharedItems: "Shared Items",
+  usageGuide: {
+    title: "Need help getting started?",
+    description: "Learn how to manage and edit your materials with our illustrated operation manual.",
+    view: "View usage guide",
+    neverShow: "Don’t show again",
+  },
   githubStar: {
     title: "Support Sigma Studio with a GitHub star",
     description: "If Sigma Studio is useful to you, consider starring the project on GitHub. Your support encourages continued development.",
