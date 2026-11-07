@@ -28,16 +28,20 @@ export interface TexEnvironmentPreviewExample {
   id: string;
   label: string;
   tex: string;
+  /** Uses the example preamble's `\answerbox`. Built-in commands (`\vv`) need no preamble. */
+  usesExamplePreamble: boolean;
 }
 
 const TEX_ENVIRONMENT_PREVIEW_EXAMPLE_DESCRIPTORS = [
-  { id: "single", tex: String.raw`\answerbox{\text{ア}}` },
-  { id: "multiple", tex: String.raw`\answerbox{\text{イウ}}` },
-  { id: "fraction", tex: String.raw`\frac{\answerbox{\text{エオ}}}{\answerbox{\text{カ}}}` },
-  { id: "decimal", tex: String.raw`\answerbox{\text{キ}}.\answerbox{\text{クケ}}` },
-  { id: "radical", tex: String.raw`\sqrt{\answerbox{\text{コ}}}` },
-  { id: "repeated", tex: String.raw`\answerbox{\text{サシ}},\ \answerbox{\text{ス}}` },
-  { id: "formula", tex: String.raw`\answerbox{\displaystyle\sum_{i=1}^{n}i}` },
+  { id: "single", tex: String.raw`\answerbox{\text{ア}}`, usesExamplePreamble: true },
+  { id: "multiple", tex: String.raw`\answerbox{\text{イウ}}`, usesExamplePreamble: true },
+  { id: "fraction", tex: String.raw`\frac{\answerbox{\text{エオ}}}{\answerbox{\text{カ}}}`, usesExamplePreamble: true },
+  { id: "decimal", tex: String.raw`\answerbox{\text{キ}}.\answerbox{\text{クケ}}`, usesExamplePreamble: true },
+  { id: "radical", tex: String.raw`\sqrt{\answerbox{\text{コ}}}`, usesExamplePreamble: true },
+  { id: "repeated", tex: String.raw`\answerbox{\text{サシ}},\ \answerbox{\text{ス}}`, usesExamplePreamble: true },
+  { id: "formula", tex: String.raw`\answerbox{\displaystyle\sum_{i=1}^{n}i}`, usesExamplePreamble: true },
+  // \vv (esvect) is built in: it previews without touching the preamble.
+  { id: "vector", tex: String.raw`\vv{AB}+\vv{BC}=\vv{AC}`, usesExamplePreamble: false },
 ] as const;
 
 export function resolveTexEnvironmentPreviewExamples(

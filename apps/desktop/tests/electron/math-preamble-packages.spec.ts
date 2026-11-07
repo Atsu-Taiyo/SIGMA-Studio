@@ -87,6 +87,15 @@ test("preamble circled numbers and built-in quantities agree in desktop settings
     await expect(preview.locator(".ML__frac-line")).toBeVisible();
     await expect(preview.locator(".ML__error")).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("quantity-settings.png") });
+    // The built-in \vv previews from its example button without replacing the document's preamble.
+    const preamble = settings.locator("#tex-preamble-editor");
+    const preambleBefore = await preamble.inputValue();
+    await settings.getByRole("group", { name: "プレビューの例", exact: true }).getByRole("button", { name: "ベクトル", exact: true }).click();
+    await expect(settings.locator("#tex-environment-preview-input")).toHaveValue(String.raw`\vv{AB}+\vv{BC}=\vv{AC}`);
+    await expect(preview.locator(".sigma-vv-arrow")).toHaveCount(3);
+    await expect(preview.locator(".ML__error")).toHaveCount(0);
+    await expect(preamble).toHaveValue(preambleBefore);
+    await expect(settings.getByText(String.raw`ベクトルの\vv{AB}も設定なしで使えます`, { exact: false })).toBeVisible();
     await settings.getByRole("button", { name: "設定を保存", exact: true }).click();
 
     // The same author macro remains editable without becoming an unknown command.
