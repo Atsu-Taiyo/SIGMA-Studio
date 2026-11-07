@@ -23,7 +23,7 @@ async function readFieldState(field: Locator): Promise<FieldState | null> {
   });
 }
 
-async function readSavedCurves(page: Page) {
+async function readSavedGraph(page: Page) {
   return page.evaluate(async () => {
     window.dispatchEvent(new CustomEvent("sigma-studio:flush-overlay-changes"));
     await new Promise((resolve) => setTimeout(resolve, 450));
@@ -31,8 +31,12 @@ async function readSavedCurves(page: Page) {
     const doc = await window.desktopAPI!.storage.loadDocument(file.fileId);
     const graph = doc?.pageLayout?.overlay?.overlaySnapshot?.shapes.find((shape) => shape.type === "graph2dShape");
     if (graph?.type !== "graph2dShape") return null;
-    return graph.props.spec.curves.map((curve) => ({ expr: curve.expr, exprTex: curve.exprTex ?? null }));
+    return graph.props.spec;
   });
+}
+
+async function readSavedCurves(page: Page) {
+  return (await readSavedGraph(page))?.curves.map((curve) => ({ expr: curve.expr, exprTex: curve.exprTex ?? null }));
 }
 
 /** グラフに描かれている曲線の path (式が変わると変わる)。 */
@@ -142,26 +146,42 @@ test("the realtime graph expression field deletes sin(x) one element per Backspa
     expect(await readFieldState(field)).toEqual({ value: "", focused: true });
     await expect(panel.locator(".graph-expression-error")).toHaveText("数値や変数を使った式を入力してください。");
 
-    // 新しい式を打つと欄に入り、そのままグラフへ反映される。
+    // 新しい式を Ctrl+^ のテンプレートで打っても、通常の冪と同じようにグラフへ反映される。
     await page.keyboard.type("x");
-    await page.keyboard.type("^");
+    await page.keyboard.press("Control+^");
     await page.keyboard.type("2");
-    await expect.poll(async () => (await readFieldState(field))?.value).toBe("x^2");
+    await expect.poll(async () => (await readFieldState(field))?.value).toBe("x{}^2");
     await expect.poll(() => drawnCurvePath(graph)).not.toBe(sinPath);
     await expect(panel.locator(".graph-expression-error")).toHaveText("");
     await page.screenshot({ path: testInfo.outputPath("graph-expression-retyped.png") });
 
     await page.keyboard.press("Enter");
     await expect(field).toHaveCount(0);
-    await expect.poll(() => readSavedCurves(page)).toEqual([{ expr: "x^2", exprTex: "x^2" }]);
+    await expect.poll(() => readSavedCurves(page)).toEqual([{ expr: "x^2", exprTex: "x{}^2" }]);
     const parabolaPath = await drawnCurvePath(graph);
+
+    // パラメータの範囲も同じ変換器を通る。Ctrl+^ で入力した 10^2 を数値 100 として保存する。
+    await panel.getByRole("button", { name: "パラメータを追加" }).click();
+    await panel.getByRole("button", { name: "s の詳細設定" }).click();
+    const details = page.getByRole("dialog", { name: "s の詳細設定" });
+    await details.getByRole("button", { name: "範囲の最大値", exact: true }).click();
+    const bound = details.locator("math-field");
+    await expect.poll(async () => (await readFieldState(bound))?.focused).toBe(true);
+    await page.keyboard.press("Meta+a");
+    await page.keyboard.type("10");
+    await page.keyboard.press("Control+^");
+    await page.keyboard.type("2");
+    await expect.poll(async () => (await readFieldState(bound))?.value).toBe("10{}^2");
+    await page.keyboard.press("Enter");
+    await expect.poll(async () => (await readSavedGraph(page))?.parameters?.[0]?.max).toBe(100);
 
     await page.reload();
     await expect(page.locator(".startup-splash")).toBeHidden();
     const reloaded = page.locator(".graph-shape").first();
     await expect(reloaded).toBeVisible();
-    expect(await readSavedCurves(page)).toEqual([{ expr: "x^2", exprTex: "x^2" }]);
+    expect(await readSavedCurves(page)).toEqual([{ expr: "x^2", exprTex: "x{}^2" }]);
     await expect.poll(() => drawnCurvePath(reloaded)).toBe(parabolaPath);
+    expect((await readSavedGraph(page))?.parameters?.[0]?.max).toBe(100);
   } finally {
     await app.close();
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

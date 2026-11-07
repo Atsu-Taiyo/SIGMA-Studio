@@ -19,6 +19,24 @@ describe("texToGraphExpression", () => {
     expect(texToGraphExpression("x^{10}")).toBe("x^10");
   });
 
+  it.each([
+    ["x{}^2", "x^2"],
+    ["2{}^{10}", "2^10"],
+    ["(x+1){}^{2}", "(x+1)^2"],
+    ["2x{}^{2}", "2*x^2"],
+    ["\\sin(x){}^2", "sin(x)^2"],
+    ["\\frac{x}{2}{}^{3}", "(x/2)^3"],
+    ["x{}^{2{}^{3}}", "x^(2^3)"],
+    ["x{}^{2}{}^{3}", "(x^2)^3"],
+  ])("recognizes the empty script base in %s", (tex, expression) => {
+    expect(texToGraphExpressionWithError(tex)).toEqual({ expression });
+  });
+
+  it.each(["{}^2", "x{}^{}", "x{}^{\\placeholder{}}", "\\frac{}{2}", "x{}+2", "x{}_2"])(
+    "keeps incomplete or unsupported template %s invalid",
+    (tex) => expect(texToGraphExpression(tex)).toBeNull(),
+  );
+
   it.each(["s x", "s\\ x", "s\\,x", "s\\quad x"])("evaluates spacing in %s as multiplication", (tex) => {
     expect(texToGraphExpression(tex)).toBe("s*x");
   });
