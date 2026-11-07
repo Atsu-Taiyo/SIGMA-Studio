@@ -21,13 +21,25 @@ describe("TeX environment examples", () => {
     expect(EXAMPLE_TEX_PREAMBLE).toContain("% このファイルで使うTeXコマンド");
   });
 
-  it.each(TEX_ENVIRONMENT_PREVIEW_EXAMPLES)("renders $label", ({ tex }) => {
+  it.each(TEX_ENVIRONMENT_PREVIEW_EXAMPLES.filter((example) => example.usesExamplePreamble))("renders $label", ({ tex }) => {
     const macroSet = createMathMacroSet(EXAMPLE_TEX_PREAMBLE);
     const html = convertLatexToMarkupCached(tex, createMathRenderEnvironment(EXAMPLE_TEX_PREAMBLE));
 
     expect(validateMathTex(tex, macroSet)).toEqual([]);
     expect(html).toContain("sigma-doubleboxed");
     expect(html).not.toContain("math-unrendered");
+  });
+
+  it("previews the built-in \\vv without any preamble", () => {
+    const vector = TEX_ENVIRONMENT_PREVIEW_EXAMPLES.find((example) => example.id === "vector")!;
+    expect(vector).toMatchObject({ label: "ベクトル", usesExamplePreamble: false });
+    expect(resolveTexEnvironmentPreviewExamples(createTranslator("en", "tex")).at(-1)?.label).toBe("Vector");
+    const html = convertLatexToMarkupCached(vector.tex, createMathRenderEnvironment(""));
+    expect(validateMathTex(vector.tex, createMathMacroSet(""))).toEqual([]);
+    expect(html.match(/sigma-vv-arrow/g)).toHaveLength(3);
+    expect(html).not.toContain("math-unrendered");
+    // The other examples use the example preamble's \\answerbox.
+    expect(TEX_ENVIRONMENT_PREVIEW_EXAMPLES.filter((example) => !example.usesExamplePreamble).map(({ id }) => id)).toEqual(["vector"]);
   });
 
   it.each([

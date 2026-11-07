@@ -5,6 +5,7 @@ import { normalizeMathLiveBoxMarkup } from "@/lib/mathlive-box-layout";
 import { withMathLiveDefaultMacros } from "@/lib/mathlive-default-macros";
 import { readMathTextFormat } from "@/lib/math-text-format";
 import { isPhysicsTexCommand, normalizePhysicsTex } from "@/lib/physics-tex";
+import { seatVectorAbsoluteBars, type MathBoxEm } from "@/lib/vector-absolute-bars";
 
 import { applyMathTypesetStyle } from "@/features/rendering/core";
 import { mathRenderEnvironmentCacheKey, type MathRenderEnvironment } from "@/lib/math-environment";
@@ -83,8 +84,9 @@ export function convertLatexToMarkupCached(
  * 入力だけで、ここを KaTeX で描き直すと「危ないものは丸ごと生 TeX 表示へ倒す」不変条件
  * (`math-html.ts` のフォールバック、`math-html.security.test.ts`) が黙って外れる。
  */
-function renderMathMarkup(tex: string, environment: MathRenderEnvironment): string {
+function renderMathMarkup(source: string, environment: MathRenderEnvironment): string {
   const { macroSet, typesetStyle } = environment;
+  const tex = toDrawnMathTex(source, environment);
   const mathLiveMarkup = convertLatexToMarkup(
     applyMathTypesetStyle(toMathLivePreviewTex(tex, macroSet) || "\\square", typesetStyle),
     {
@@ -105,6 +107,33 @@ function renderMathMarkup(tex: string, environment: MathRenderEnvironment): stri
     applyMathTypesetStyle(toKatexPreviewTex(tex, macroSet) || "\\square", typesetStyle),
     macroSet,
   ) ?? mathLiveMarkup;
+}
+
+const MATHLIVE_STRUT_TOP = /class="ML__strut" style="height:(-?[0-9.]+)em"/;
+const MATHLIVE_STRUT_BOTTOM = /class="ML__strut--bottom" style="height:[0-9.]+em;vertical-align:-([0-9.]+)em"/;
+
+/** The static MathLive box of `tex` (its struts), exactly as drawn: no safety factor. */
+function mathLiveBoxEm(tex: string, environment: MathRenderEnvironment): MathBoxEm | undefined {
+  let markup: string;
+  try {
+    markup = convertLatexToMarkupCached(tex, environment);
+  } catch {
+    return undefined;
+  }
+  const top = MATHLIVE_STRUT_TOP.exec(markup);
+  if (!top) return undefined; // KaTeX fallback: no MathLive box
+  const box = { height: Number(top[1]), depth: Number(MATHLIVE_STRUT_BOTTOM.exec(markup)?.[1] ?? 0) };
+  return Number.isFinite(box.height) && Number.isFinite(box.depth) ? box : undefined;
+}
+
+/**
+ * The TeX the static renderers (MathLive, the KaTeX fallback and the KaTeX
+ * measurement) draw for `tex`. Only drawing changes: the saved TeX is kept.
+ * Absolute-value bars around a vector sit on the baseline and reach the arrow
+ * (lib/vector-absolute-bars.ts).
+ */
+export function toDrawnMathTex(tex: string, environment: MathRenderEnvironment): string {
+  return seatVectorAbsoluteBars(tex, (part) => mathLiveBoxEm(part, environment));
 }
 
 /**

@@ -11,7 +11,7 @@ import {
   mathRenderEnvironmentCacheKey,
   type MathRenderEnvironment,
 } from "@/lib/math-environment";
-import { convertLatexToMarkupCached, toKatexPreviewTex } from "@/lib/math-tex";
+import { convertLatexToMarkupCached, toDrawnMathTex, toKatexPreviewTex } from "@/lib/math-tex";
 import { trustSigmaKatexMacro, type MathMacroSet } from "@/lib/math-macros";
 
 /**
@@ -195,7 +195,7 @@ function measureKatexTree(tex: string, environment: MathRenderEnvironment): { as
   try {
     // 採寸に使う組版スタイルは描画と同じ出典から取る。ここだけ display 組版を直書きすると、
     // 用紙設定を textstyle にした文書で図形テキストの箱だけが過大なまま取り残される。
-    const styledTex = applyMathTypesetStyle(toKatexPreviewTex(normalizeMathLiveBboxForMeasurement(tex), environment.macroSet) || "\\square", environment.typesetStyle);
+    const styledTex = applyMathTypesetStyle(toKatexPreviewTex(normalizeMathLiveBboxForMeasurement(toDrawnMathTex(tex, environment)), environment.macroSet) || "\\square", environment.typesetStyle);
     const tree = katexRenderToHTMLTree(styledTex, {
       ...KATEX_MEASURE_OPTIONS,
       macros: environment.macroSet.katexMacros,
