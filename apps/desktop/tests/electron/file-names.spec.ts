@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
@@ -8,6 +8,8 @@ const APP_ROOT = path.resolve(__dirname, "../..");
 test("preserves spaces through real UI rename, storage and restart", async () => {
   test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")) || (!process.env.SIGMA_STUDIO_DEV_SERVER_URL && !existsSync(path.join(APP_ROOT, "out/index.html"))), "Build Electron and provide a dev server or static renderer first.");
   const profile = mkdtempSync(path.join(os.tmpdir(), "sigma-file-names-"));
+  mkdirSync(path.join(profile, "data"), { recursive: true });
+  writeFileSync(path.join(profile, "data/settings.json"), JSON.stringify({ uiLocale: "ja" }));
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   env.SIGMA_STUDIO_USER_DATA_DIR = profile;
   delete env.ELECTRON_RUN_AS_NODE;
@@ -22,18 +24,24 @@ test("preserves spaces through real UI rename, storage and restart", async () =>
       await window.desktopAPI!.settings!.setUiLocale!("ja");
       const first = await api.createDocument({ title: "数学 演習.sigma" });
       const second = await api.createDocument({ title: "数学\u3000演習.sigma" });
+      const controlled = await api.createDocument({ title: "高校\t数学\r3年.sigma" });
       const copy = await api.duplicateFile(first.file.fileId);
       await api.renameDocument!(first.file.workspaceId, first.file.fileId, "改名 後.sigma");
-      return { first, second, copy, loaded: await api.loadDocument(first.file.fileId) };
+      return { first, second, controlled, copy, loaded: await api.loadDocument(first.file.fileId) };
     });
     expect(records.first.file.title).toBe("数学 演習.sigma");
     expect(records.second.file.title).toBe("数学\u3000演習.sigma");
+    expect(records.controlled.file.title).toBe("高校-数学-3年.sigma");
     expect(records.copy.file.title).toBe("数学 演習 のコピー.sigma");
     expect(records.loaded?.metadata.title).toBe("改名 後.sigma");
+    // Main settings and renderer locale preferences are independent. Set both
+    // before navigation so a fresh static renderer cannot reset the UI to English.
+    await page.evaluate(() => localStorage.setItem("sigma-studio:ui-locale", "ja"));
     const workspaceUrl = new URL(page.url());
     workspaceUrl.pathname = env.SIGMA_STUDIO_DEV_SERVER_URL ? "/workspace" : workspaceUrl.pathname.replace(/index\.html$/, "workspace.html");
     workspaceUrl.search = `workspaceId=${records.first.file.workspaceId}`;
     await page.goto(workspaceUrl.href);
+    await expect(page.locator("html")).toHaveAttribute("lang", "ja");
     const card = page.locator(`[data-item-key="file:${records.first.file.fileId}"]`);
     await expect(card).toBeVisible();
     await card.hover();
@@ -71,6 +79,7 @@ test("preserves spaces through real UI rename, storage and restart", async () =>
     expect(restored.document?.metadata.title).toBe("高校数学　高校3年 A-B組");
     expect(restored.files.find(file => file.fileId === records.first.file.fileId)?.title).toBe("高校数学　高校3年 A-B組");
     expect(restored.files.some(file => file.title === "数学\u3000演習.sigma")).toBe(true);
+    expect(restored.files.find(file => file.fileId === records.controlled.file.fileId)?.title).toBe("高校-数学-3年.sigma");
   } finally {
     await app?.close();
     rmSync(profile, { recursive: true, force: true });

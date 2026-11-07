@@ -1,6 +1,6 @@
 import { handleSessionPrompts } from "./session-prompts";
 import { APP_READY_EVENT } from "../../src/components/StartupSplash";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type Locator } from "@playwright/test";
@@ -8,6 +8,14 @@ import type { SigmaDocument } from "@/features/document";
 
 const ROOT = path.resolve(__dirname, "../..");
 const PREAMBLE = String.raw`\newcommand{\maru}[1]{\textcircled{\scriptsize#1}}`;
+
+/** Set main's canonical locale before the renderer can perform first-run writeback. */
+function createJapaneseProfile(prefix: string): string {
+  const profile = mkdtempSync(path.join(tmpdir(), prefix));
+  mkdirSync(path.join(profile, "data"), { recursive: true });
+  writeFileSync(path.join(profile, "data/settings.json"), JSON.stringify({ uiLocale: "ja" }));
+  return profile;
+}
 
 /** Measure the rendered digit and its circle, for both supported math renderers. */
 async function circleCenters(surface: Locator) {
@@ -32,7 +40,7 @@ async function circleCenters(surface: Locator) {
 test("preamble circled numbers and built-in quantities agree in desktop settings, editing and saved PDF", async ({}, testInfo) => {
   test.skip(!existsSync(path.join(ROOT, "dist-electron/main.cjs")), "Build Electron first");
   test.skip(!process.env.SIGMA_STUDIO_E2E_BASE_URL && !existsSync(path.join(ROOT, "out/index.html")), "Build the renderer first");
-  const profile = mkdtempSync(path.join(tmpdir(), "sigma-math-preamble-"));
+  const profile = createJapaneseProfile("sigma-math-preamble-");
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.SIGMA_STUDIO_DEV_SERVER_URL;
@@ -56,12 +64,16 @@ test("preamble circled numbers and built-in quantities agree in desktop settings
     };
     const fileId = await page.evaluate(async document => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      // Renderer hydration also reads its own saved locale. Keep it in sync
+      // before reload so Japanese locators never race the default English UI.
+      localStorage.setItem("sigma-studio:ui-locale", "ja");
       await window.desktopAPI!.settings!.setUiLocale!("ja");
       const { file } = await window.desktopAPI!.storage.createFileFromDocument({ document });
       await window.desktopAPI!.storage.saveWorkspace({ openFileIds: [file.fileId], activeFileId: file.fileId });
       return file.fileId;
     }, source);
     await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("lang", "ja");
     await expect(page.locator('.page-flow [data-id="circled_math"]').first()).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
     for (const id of ["circled_math", "fallback_math"]) {
@@ -123,6 +135,7 @@ test("preamble circled numbers and built-in quantities agree in desktop settings
     await expect.poll(async () => JSON.stringify((await saved())?.content)).toContain("31");
     const savedContent = (await saved())!.content;
     await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("lang", "ja");
     await expect(page.locator('.page-flow [data-id="quantity_math"] .ML__frac-line').first()).toBeVisible();
     expect((await saved())!.content).toEqual(savedContent);
 
@@ -162,7 +175,7 @@ test("preamble circled numbers and built-in quantities agree in desktop settings
 });
 
 test("preamble circled settings remain reachable when the session invitation appears", async () => {
-  const profile = mkdtempSync(path.join(tmpdir(), "sigma-settings-invitation-"));
+  const profile = createJapaneseProfile("sigma-settings-invitation-");
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.SIGMA_STUDIO_DEV_SERVER_URL;
@@ -176,11 +189,15 @@ test("preamble circled settings remain reachable when the session invitation app
     await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
     await page.evaluate(async () => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      // Renderer hydration also reads its own saved locale. Keep it in sync
+      // before reload so Japanese locators never race the default English UI.
+      localStorage.setItem("sigma-studio:ui-locale", "ja");
       await window.desktopAPI!.settings!.setUiLocale!("ja");
     });
     // Install before reload so the invitation registers its interval on this clock.
     await page.clock.install();
     await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("lang", "ja");
     await expect(page.locator(".startup-splash")).toBeHidden();
     await expect(page.getByRole("button", { name: "設定", exact: true })).toBeVisible();
     // Unpackaged windows now show inactive; focus only after ready-to-show has displayed it.

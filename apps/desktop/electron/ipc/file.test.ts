@@ -102,6 +102,21 @@ describe("file:export-pdf", () => {
     });
   });
 
+  it.each(["\t", "\r", "\r\n"].flatMap(whitespace =>
+    ["pdf", "sigma"].map(extension => ({ whitespace, extension })),
+  ))("normalizes control whitespace $whitespace before suggesting an OS $extension filename", async ({ whitespace, extension }) => {
+    mocks.showSaveDialog.mockResolvedValue({ canceled: true });
+    registerFileIpc({ getMainWindow: () => null });
+    const channel = extension === "pdf" ? "file:export-pdf" : "file:save-sigma-doc";
+    await expect(mocks.handlers.get(channel)!({ sender }, {
+      ...B5, data: "{}", suggestedName: `高校${whitespace}数学　3年 A-B組.${extension}`,
+    })).resolves.toBeNull();
+    expect(mocks.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({
+      defaultPath: `高校-数学　3年 A-B組.${extension}`,
+    }));
+    expect(mocks.printToPDF).not.toHaveBeenCalled();
+  });
+
   it("prints each settled preview page once from a hidden window and writes their validated merged PDF", async () => {
     const pagePdf = await createPdf(1, B5.pageWidthMm, B5.pageHeightMm);
     mocks.showSaveDialog.mockResolvedValue({ canceled: false, filePath: "/Users/test/Downloads/教材" });
