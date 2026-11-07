@@ -4,6 +4,7 @@ import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
 
 test("Star invitation supports keyboard dismissal, returns on the next launch, and reports issues to GitHub", async ({ page }) => {
   await installDesktopRuntimeMock(page, sampleDocument);
+  await page.addInitScript(() => localStorage.setItem("sigma-studio:usage-guide-dismissed:v1", "1"));
   await page.clock.install();
   await page.goto("/");
   await expect(page.locator(".startup-splash")).toBeHidden();
