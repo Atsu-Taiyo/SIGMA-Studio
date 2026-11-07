@@ -230,6 +230,14 @@ export const workspace = {
     folderMessage: "このフォルダは空です",
     searchMessage: "一致する教材がありません",
   },
+  sort: {
+    sortByName: "名前で並び替え",
+    sortByUpdatedAt: "更新日時で並び替え",
+    updatedNewest: "更新日時：新しい順",
+    updatedOldest: "更新日時：古い順",
+    nameAscending: "名前：昇順",
+    nameDescending: "名前：降順",
+  },
   library: {
     title: "教材一覧",
     description: "このPCに保存されている教材",

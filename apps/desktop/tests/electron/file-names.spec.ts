@@ -34,7 +34,7 @@ test("preserves spaces through real UI rename, storage and restart", async () =>
     workspaceUrl.pathname = env.SIGMA_STUDIO_DEV_SERVER_URL ? "/workspace" : workspaceUrl.pathname.replace(/index\.html$/, "workspace.html");
     workspaceUrl.search = `workspaceId=${records.first.file.workspaceId}`;
     await page.goto(workspaceUrl.href);
-    const card = page.getByRole("button", { name: "改名 後.sigma を開く", exact: true });
+    const card = page.locator(`[data-item-key="file:${records.first.file.fileId}"]`);
     await expect(card).toBeVisible();
     await card.hover();
     await card.getByRole("button", { name: "改名 後.sigma の操作", exact: true }).click();
@@ -43,7 +43,7 @@ test("preserves spaces through real UI rename, storage and restart", async () =>
     await input.pressSequentially("高校数学　高校3年 A-B組");
     await expect(input).toHaveValue("高校数学　高校3年 A-B組");
     await input.press("Enter");
-    await expect(page.getByRole("button", { name: "高校数学　高校3年 A-B組 を開く", exact: true })).toBeVisible();
+    await expect(card).toContainText("高校数学　高校3年 A-B組");
     await expect.poll(() => page.evaluate(async fileId => (await window.desktopAPI!.storage.loadDocument(fileId))?.metadata.title, records.first.file.fileId)).toBe("高校数学　高校3年 A-B組");
     await app.close();
     app = undefined;

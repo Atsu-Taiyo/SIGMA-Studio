@@ -1323,7 +1323,7 @@ export function WorkspaceManager() {
           {overview?.catalog && <Button size="sm" tone="ghost" onClick={() => setJoinOpen(true)}><UserRoundPlus size={15} />{tc("collaboration.join")}</Button>}
           <button
             type="button"
-            className="workspace-template-button"
+            className="workspace-open-button"
             title={t("action.openTemplateGallery")}
             aria-label={t("action.openTemplateGallery")}
             onClick={() => setTemplateGalleryOpen(true)}
@@ -1334,7 +1334,7 @@ export function WorkspaceManager() {
           {editorOpenFileIds.size > 0 && (
             <button
               type="button"
-              className="workspace-template-button"
+              className="workspace-open-button"
               onClick={() => navigateToAppRoute("/")}
             >
               <PenLine size={15} />

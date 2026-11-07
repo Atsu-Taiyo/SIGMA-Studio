@@ -505,29 +505,14 @@ button.workspace-breadcrumb-item:focus-visible {
   white-space: nowrap;
 }
 
-.workspace-list-sort-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-weight: inherit;
-  letter-spacing: inherit;
-  cursor: pointer;
-}
-
-.workspace-list-sort-button:hover,
-.workspace-list-sort-button:focus-visible {
-  color: var(--text-primary);
-  outline: none;
-}
-
 .workspace-list-sort-icon {
   flex: 0 0 auto;
-  color: var(--text-muted);
+  box-sizing: content-box;
+  padding: var(--space-xs);
+  margin-right: calc(-1 * var(--space-xs));
+  border-radius: var(--radius-round);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 /* content-visibility / contain-intrinsic-size は <tr> に付けないこと。

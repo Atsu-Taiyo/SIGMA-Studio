@@ -226,6 +226,14 @@ export const workspace = {
     folderMessage: "This folder is empty",
     searchMessage: "No matching materials",
   },
+  sort: {
+    sortByName: "Sort by name",
+    sortByUpdatedAt: "Sort by update time",
+    updatedNewest: "Updated: newest first",
+    updatedOldest: "Updated: oldest first",
+    nameAscending: "Name: ascending",
+    nameDescending: "Name: descending",
+  },
   library: {
     title: "Materials",
     description: "Materials saved on this PC",
