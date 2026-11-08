@@ -204,28 +204,17 @@ async function untrackLine(page: Page): Promise<Line[]> {
 
 /** 先頭の段落の中の文字を [from, to) 文字目で選ぶ (to を省くとキャレットだけ)。 */
 async function placeCaret(page: Page, from: number, to?: number): Promise<void> {
-  await page.evaluate(([id, start, end]) => {
-    const paragraph = document.querySelector(`.overlay-shape-text[data-overlay-shape-id="${id}"] .ProseMirror p`)!;
-    const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
-    const nodes: Text[] = [];
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      if ((node.textContent ?? "").length && !(node.parentElement?.closest(".boxed-run-frame-layer"))) nodes.push(node as Text);
-    }
-    const locate = (offset: number) => {
-      let left = offset;
-      for (const node of nodes) {
-        const length = node.textContent!.length;
-        if (left <= length) return { node, offset: left };
-        left -= length;
-      }
-      return { node: nodes.at(-1)!, offset: nodes.at(-1)!.textContent!.length };
-    };
-    const selection = window.getSelection()!;
-    const a = locate(start);
-    const b = end === undefined ? a : locate(end);
-    selection.setBaseAndExtent(a.node, a.offset, b.node, b.offset);
-  }, [SHAPE_ID, from, to] as const);
-  await page.waitForTimeout(250);
+  const editor = page.locator(`.overlay-shape-text[data-overlay-shape-id="${SHAPE_ID}"] .ProseMirror`);
+  await editor.focus();
+  // Use editor input so ProseMirror and the toolbar's saved selection agree.
+  // A DOM-only range followed by a fixed delay can be overwritten by a pending
+  // focus/selection transaction on a slower CI runner.
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("ArrowLeft");
+  for (let index = 0; index < from; index++) await page.keyboard.press("ArrowRight");
+  for (let index = from; index < (to ?? from); index++) await page.keyboard.press("Shift+ArrowRight");
+  const expected = (await editor.locator("p").textContent())!.slice(from, to ?? from);
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(expected);
 }
 
 async function placeCaretAtEnd(page: Page): Promise<void> {
