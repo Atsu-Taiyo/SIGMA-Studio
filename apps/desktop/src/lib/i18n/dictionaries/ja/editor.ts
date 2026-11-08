@@ -778,6 +778,8 @@ export const editor = {
   },
   extensions: {
     run: {
+      loadingTitle: "教材を読み込み中…",
+      loadingDescription: "教材の量によって時間がかかることがあります。そのままお待ちください。",
       running: "拡張機能で読み込んでいます…",
       error: {
         busy: "別の取り込みを実行中です。完了後にもう一度お試しください。",

@@ -9,6 +9,7 @@ import type { ExtensionBridge } from "@/lib/extension-contracts";
 import * as desktop from "@/lib/desktop-bridge";
 import { createTranslator } from "@/lib/i18n";
 import * as storage from "@/lib/storage";
+import { ExtensionImportLoading } from "../ExtensionImportLoading";
 import { useDocumentFileCommands, type DocumentFileCommandOptions } from "./use-document-file-commands";
 
 let root: Root;
@@ -32,7 +33,7 @@ afterEach(() => {
 function Probe({ options }: { options: DocumentFileCommandOptions }) {
   const result = useDocumentFileCommands(options);
   useLayoutEffect(() => { actions = result; });
-  return null;
+  return result.extensionImportBusy ? <ExtensionImportLoading /> : null;
 }
 
 function render(options: DocumentFileCommandOptions) {
@@ -238,6 +239,44 @@ describe("document file commands", () => {
     };
     afterEach(() => { delete window.sigmaExtensions; });
 
+    it("shows a loading dialog through conversion and opening, and prevents duplicate imports", async () => {
+      const f = fixture();
+      let finishConversion!: (result: Awaited<ReturnType<ExtensionBridge["run"]>>) => void;
+      let finishOpening!: () => void;
+      const run = vi.fn(() => new Promise<Awaited<ReturnType<ExtensionBridge["run"]>>>(resolve => { finishConversion = resolve; }));
+      vi.mocked(f.options.openDocumentAsTab).mockImplementation(() => new Promise<void>(resolve => { finishOpening = resolve; }));
+      withBridge(run);
+      render(f.options);
+      act(() => {
+        actions.runExtensionItem("sample-tool", "import-sample");
+        actions.runExtensionItem("sample-tool", "import-sample");
+      });
+      expect(run).toHaveBeenCalledOnce();
+      expect(document.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("教材を読み込み中…");
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      expect(actions.extensionImportBusy).toBe(true);
+      await act(async () => { finishConversion({ ok: true, document: sigma(), issues: [], sourceName: "a.smp" }); });
+      expect(f.options.openDocumentAsTab).toHaveBeenCalledOnce();
+      expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+      await act(async () => { finishOpening(); });
+      expect(actions.extensionImportBusy).toBe(false);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it("removes loading when the host rejects, allowing retry", async () => {
+      const f = fixture();
+      const run = vi.fn<ExtensionBridge["run"]>().mockRejectedValueOnce(new Error("host failed"))
+        .mockResolvedValueOnce({ ok: false, error: "canceled" });
+      withBridge(run);
+      render(f.options);
+      await act(async () => { actions.runExtensionItem("sample-tool", "import-sample"); });
+      expect(actions.extensionImportBusy).toBe(false);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      await act(async () => { actions.runExtensionItem("sample-tool", "import-sample"); });
+      expect(run).toHaveBeenCalledTimes(2);
+      expect(actions.extensionImportBusy).toBe(false);
+    });
+
     it("opens the returned document as a separate library copy and shows the diagnostics notice", async () => {
       const f = fixture();
       const issues = [{ code: "font-substitution", detail: "Example Mincho" }];
@@ -264,6 +303,8 @@ describe("document file commands", () => {
       expect(vi.mocked(f.options.setStatusMessage).mock.calls.map(([message]) => message)).toEqual(["拡張機能で読み込んでいます…", ""]);
       expect(f.create).not.toHaveBeenCalled();
       expect(f.options.saveCurrentDocumentBeforeReplacement).not.toHaveBeenCalled();
+      expect(actions.extensionImportBusy).toBe(false);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
     });
 
     it.each([
@@ -278,6 +319,7 @@ describe("document file commands", () => {
       await act(async () => { actions.runExtensionItem("sample-tool", "import-sample"); });
       await act(async () => undefined);
       expect(vi.mocked(f.options.setStatusMessage).mock.calls.at(-1)?.[0]).toContain(message);
+      expect(actions.extensionImportBusy).toBe(false);
       expect(f.create).not.toHaveBeenCalled();
     });
 
