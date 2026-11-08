@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 import { ensurePageLayout, type SigmaDocument } from "@/features/document";
 import { grabShapeFromBody } from "../e2e/body-overlay-entry";
 
@@ -205,16 +206,19 @@ async function untrackLine(page: Page): Promise<Line[]> {
 /** 先頭の段落の中の文字を [from, to) 文字目で選ぶ (to を省くとキャレットだけ)。 */
 async function placeCaret(page: Page, from: number, to?: number): Promise<void> {
   const editor = page.locator(`.overlay-shape-text[data-overlay-shape-id="${SHAPE_ID}"] .ProseMirror`);
-  await editor.focus();
-  // Use editor input so ProseMirror and the toolbar's saved selection agree.
-  // A DOM-only range followed by a fixed delay can be overwritten by a pending
-  // focus/selection transaction on a slower CI runner.
-  await page.keyboard.press("ControlOrMeta+a");
-  await page.keyboard.press("ArrowLeft");
-  for (let index = 0; index < from; index++) await page.keyboard.press("ArrowRight");
-  for (let index = from; index < (to ?? from); index++) await page.keyboard.press("Shift+ArrowRight");
-  const expected = (await editor.locator("p").textContent())!.slice(from, to ?? from);
-  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(expected);
+  // Set the editor selection as one transaction, as the other editor E2Es do.
+  // DOM-only ranges and select-all/arrow sequences can leave ProseMirror's
+  // selection behind the DOM when focus is restored by the toolbar.
+  await editor.evaluate((element, range) => {
+    const instance = (element as HTMLElement & { editor: Editor }).editor;
+    instance.commands.setTextSelection({ from: range.from + 1, to: range.to + 1 });
+    instance.view.focus();
+  }, { from, to: to ?? from });
+  await expect.poll(() => editor.evaluate(element => {
+    const selection = (element as HTMLElement & { editor: Editor }).editor.state.selection;
+    return { from: selection.from, to: selection.to };
+  })).toEqual({ from: from + 1, to: (to ?? from) + 1 });
+  await expect(editor).toBeFocused();
 }
 
 async function placeCaretAtEnd(page: Page): Promise<void> {
