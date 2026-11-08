@@ -1,6 +1,7 @@
 import { handleSessionPrompts } from "./session-prompts";
 import { APP_READY_EVENT } from "../../src/components/StartupSplash";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type Locator } from "@playwright/test";
@@ -179,7 +180,8 @@ test("preamble circled numbers and built-in quantities agree in desktop settings
     expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
   } finally {
     await app.close();
-    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    // Let Chromium helpers finish releasing their profile files after app exit.
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -239,6 +241,7 @@ async function checkSettingsInvitation(invitationKind: "usage-guide" | "github-s
     await expect(page.getByRole("dialog", { name: "TeX環境設定", exact: true })).toBeVisible();
   } finally {
     await app.close();
-    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    // Let Chromium helpers finish releasing their profile files after app exit.
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 }
