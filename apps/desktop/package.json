@@ -57,7 +57,7 @@
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "6.5.438",
     "pptx-svg": "^0.6.8",
-    "pptx-viewer-core": "^4.13.5",
+    "pptx-viewer-core": "^4.14.1",
     "qrcode": "^1.5.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
