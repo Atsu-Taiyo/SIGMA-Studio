@@ -101,8 +101,28 @@ test("the Extensions menu at the right end of the menu bar is drawn from the ext
 
     // 項目を押すと、id だけがホストへ渡り、返った教材が別の教材として開く。取り込みの所見は通知で見せる。
     const before = await page.evaluate(async () => (await window.desktopAPI!.storage.listFiles()).length);
+    await app.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler("extensions:run");
+      ipcMain.handle("extensions:run", (_event, extensionId, itemId) => {
+        (globalThis as { __runs?: unknown[] }).__runs!.push([extensionId, itemId]);
+        return new Promise(resolve => {
+          (globalThis as { __finishImport?: (value: unknown) => void }).__finishImport = resolve;
+        });
+      });
+    });
     await bar.getByRole("button", { name: "拡張機能", exact: true }).click();
     await page.getByRole("menuitem", { name: "サンプルを取り込む" }).click();
+    const loading = page.getByRole("dialog", { name: "教材を読み込み中…" });
+    await expect(loading).toBeVisible();
+    await expect(loading.locator(".ui-shimmer-surface")).toHaveCount(5);
+    await page.keyboard.press("Escape");
+    await expect(loading).toBeVisible();
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: "test-results/extension-import-loading.png" });
+    await app.evaluate((_electron, result) => {
+      (globalThis as { __finishImport?: (value: unknown) => void }).__finishImport!(result);
+    }, RESULT);
+    await expect(loading).toHaveCount(0);
     const notice = page.getByRole("dialog", { name: "取り込み結果" });
     await expect(notice).toBeVisible();
     await expect(notice).toContainText("Example Mincho");
