@@ -81,7 +81,7 @@ import {
   type VisiblePageRange,
 } from "@/features/rendering/core";
 import { useT } from "@/lib/i18n/react";
-import { SUPPORTED_OVERLAY_IMAGE_MIME_TYPES } from "@/lib/overlay-image-files";
+import { OVERLAY_IMAGE_FILE_ACCEPT } from "@/lib/overlay-image-files";
 import {
   type DragAutoScrollPanBy
 } from "./drag-auto-scroll";
@@ -1772,7 +1772,7 @@ export default function OverlayCanvasEditorClient({
         <input
           ref={imageReplacementInputRef}
           type="file"
-          accept={SUPPORTED_OVERLAY_IMAGE_MIME_TYPES.join(", ")}
+          accept={OVERLAY_IMAGE_FILE_ACCEPT}
           hidden
           data-testid="overlay-image-replacement-input"
           onChange={(event) => void handleImageReplacementChange(event)}

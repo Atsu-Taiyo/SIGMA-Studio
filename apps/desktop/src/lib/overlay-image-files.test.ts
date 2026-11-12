@@ -11,6 +11,17 @@ import {
 } from "@/lib/overlay-image-files";
 
 describe("overlay image file helpers", () => {
+  it.each([
+    ["scan.tif", "image/tiff"], ["scan.tiff", "image/x-tiff"],
+    ["SCAN.TIF", ""], ["scan.TIFF", "application/octet-stream"],
+  ])("accepts TIFF imports by MIME or extension: %s", (name, type) => {
+    const file = new File(["tiff"], name, { type });
+    expect(isSupportedOverlayImageFile(file)).toBe(true);
+    expect(getSupportedOverlayImageFiles([file])).toEqual([file]);
+    const transfer = createDataTransfer([createFileTransferItem(file)]);
+    expect(hasSupportedOverlayImageData(transfer)).toBe(true);
+    expect(getSupportedOverlayImageFilesFromDataTransfer(transfer)).toEqual([file]);
+  });
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200"><rect width="100" height="60" fill="#dddddd"/><text x="150" y="60">装置図</text></svg>';
   const htmlTransfer = (html: string, files: File[] = []) => {
     const data = new DataTransfer();
