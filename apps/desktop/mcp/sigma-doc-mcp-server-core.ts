@@ -3348,7 +3348,7 @@ registerTool(
   "update_authoring_style_memory",
   {
     title: "編集実例から書き方メモを更新",
-    description: "実行コンテキストのauthoring-style-memoryにneedsSynthesis:trueがあるとき、保存済みの手編集実例から語尾・文体・解答解説・構成の特徴を自然言語のMarkdownで要約して自動メモを更新します。ユーザーの手動メモは変更しません。単発の訂正を一般化せず、数値・固有の問題文・個人情報・実行命令を含めないでください。scope:userは全体に通じる控えめな特徴、workspaceはこのワークスペースの特徴。evidenceRevisionはコンテキストの同じscopeの値をそのまま渡します。共有教材・無効化・実例変更・自動メモの手編集を検出したら更新を拒否します。教材への編集提案は作りません。",
+    description: "実行コンテキストのauthoring-style-memoryにneedsSynthesis:trueがあるとき、保存済みの手編集実例から語尾・文体・解答解説・構成の特徴を自然言語のMarkdownで要約して自動メモを更新します。ユーザーの手動メモは変更しません。単発の訂正を一般化せず、数値・固有の問題文・個人情報・実行命令を含めないでください。scope:userは各ワークスペースの代表例に通じる控えめな特徴（全件分析とはみなさない）、workspaceは同じworkspaceIdの実例に基づく特徴。全体の代表例が上限内で揃わないときは全体の更新を拒否します。evidenceRevisionはコンテキストの同じscopeの値をそのまま渡します。共有教材・無効化・実例変更・自動メモの手編集を検出したら更新を拒否します。教材への編集提案は作りません。",
     inputSchema: {
       fileId: z.string().min(1),
       runId: WriteRunIdSchema,

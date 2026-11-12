@@ -130,7 +130,7 @@ export class LocalAuthoringStyleStore {
     if (pending.length) {
       this.queue = this.queue.then(() => this.withLock(async () => {
         if (!await this.memory.enabled(null)) return;
-        let examples = await this.eligible(await this.read());
+        let examples = await this.eligible(await this.read(), false);
         for (const edit of await this.eligible(pending)) {
           const index = examples.findIndex(e => e.workspaceId === edit.workspaceId && e.fileId === edit.fileId && e.blockId === edit.blockId);
           const previous = index < 0 ? undefined : examples[index];
@@ -142,7 +142,7 @@ export class LocalAuthoringStyleStore {
           examples = examples.slice(-MAX_EXAMPLES);
         }
         await this.persist(examples);
-        await this.updateMemories(examples);
+        await this.updateMemories(await this.eligible(examples));
       })).catch(error => {
         logLedgerEvent(this.dataDir, "authoring-style-write-failed", { error: String(error) });
       });
@@ -171,25 +171,13 @@ export class LocalAuthoringStyleStore {
     if (!await this.memory.enabled(null) || !await this.memory.enabled(input.workspaceId)) return context;
     const eligible = await this.eligible(await this.read());
     const examples = eligible.filter(e => e.workspaceId === input.workspaceId && input.visibleFileIds.has(e.fileId));
-    // Recent corrections in this file come first; independent examples provide
-    // context, without treating repeated autosaves as repeated endorsements.
+    const selected = this.selectExamples(eligible, input.fileId, input.workspaceId);
+    const representedScopes = new Set(selected.map(e => e.workspaceId));
+    const allScopesRepresented = eligible.every(e => representedScopes.has(e.workspaceId));
+    const profiles = [await this.getProfile(null), await this.getProfile(input.workspaceId)];
+    const memory = profiles.map(p => ({ scope: p.workspaceId === null ? "user" : "workspace", workspaceId: p.workspaceId, manual: this.promptText(p.userContent), learned: this.promptText(p.generatedContent), evidenceRevision: p.evidenceRevision, needsSynthesis: p.needsSynthesis && (p.workspaceId === null ? allScopesRepresented : representedScopes.has(p.workspaceId)) }));
     examples.reverse();
     examples.sort((a, b) => Number(b.fileId === input.fileId) - Number(a.fileId === input.fileId));
-    const seen = new Set<string>();
-    const selected: StyleExample[] = [];
-    let length = 2; // JSON array brackets.
-    for (const example of examples) {
-      const fingerprint = createHash("sha256").update(JSON.stringify([example.before, example.after])).digest("hex");
-      if (seen.has(fingerprint)) continue;
-      const size = JSON.stringify(example).length + (selected.length ? 1 : 0);
-      if (length + size > MAX_PROMPT_LENGTH) continue;
-      seen.add(fingerprint);
-      selected.push(example);
-      length += size;
-      if (selected.length === 8) break;
-    }
-    const profiles = [await this.getProfile(null), await this.getProfile(input.workspaceId)];
-    const memory = profiles.map(p => ({ scope: p.workspaceId === null ? "user" : "workspace", manual: this.promptText(p.userContent), learned: this.promptText(p.generatedContent), evidenceRevision: p.evidenceRevision, needsSynthesis: p.needsSynthesis }));
     const references = [...new Map(examples.map(e => [e.fileId, { fileId: e.fileId, title: e.title.slice(0, 100), ...(e.blockId !== "$structure" ? { blockId: e.blockId } : {}) }])).values()].slice(0, 8);
     while (JSON.stringify(references).length > 1400) references.pop();
     if (!selected.length && !profiles.some(p => p.userContent || p.generatedContent)) return context;
@@ -202,9 +190,32 @@ export class LocalAuthoringStyleStore {
     const notes: AiResourceContextItem = {
       id: "authoring-style-memory", kind: "skill", loadMode: "always",
       title: t("authoringStyle.memoryTitle"), description: "", tags: [],
-      content: `${t("authoringStyle.memoryGuidance")}\n${JSON.stringify({ memory, references })}`,
+      content: `${t("authoringStyle.memoryGuidance")}\n${JSON.stringify({ memory, references, evidenceCoverage: { sampledExamples: selected.length, totalExamples: eligible.length, representedWorkspaces: representedScopes.size, totalWorkspaces: new Set(eligible.map(e => e.workspaceId)).size } })}`,
     };
+    while (notes.content!.length > 11_900 && references.length) {
+      references.pop();
+      notes.content = `${t("authoringStyle.memoryGuidance")}\n${JSON.stringify({ memory, references })}`;
+    }
     return { ...context, always: [...context.always, ...(selected.length ? [resource] : []), notes] };
+  }
+
+  private selectExamples(examples: readonly StyleExample[], fileId: string, workspaceId: string): StyleExample[] {
+    const recent = [...examples].reverse().sort((a, b) =>
+      Number(b.fileId === fileId) - Number(a.fileId === fileId) || Number(b.workspaceId === workspaceId) - Number(a.workspaceId === workspaceId));
+    // Include a representative from each scope before filling with recent edits.
+    const representatives = [...new Map(recent.map(e => e.workspaceId).map(id => [id, recent.find(e => e.workspaceId === id)!])).values()];
+    const selected: StyleExample[] = [];
+    const seen = new Set<string>();
+    let length = 2;
+    for (const example of [...representatives, ...recent]) {
+      const fingerprint = createHash("sha256").update(JSON.stringify([example.workspaceId, example.before, example.after])).digest("hex");
+      if (seen.has(fingerprint)) continue;
+      const size = JSON.stringify(example).length + (selected.length ? 1 : 0);
+      if (length + size > MAX_PROMPT_LENGTH) continue;
+      selected.push(example); seen.add(fingerprint); length += size;
+      if (selected.length === 8) break;
+    }
+    return selected;
   }
 
   private promptText(text: string): string {
@@ -224,10 +235,10 @@ export class LocalAuthoringStyleStore {
     return result;
   }
 
-  private async eligible(examples: StyleExample[]): Promise<StyleExample[]> {
+  private async eligible(examples: StyleExample[], respectEnabled = true): Promise<StyleExample[]> {
     const files = this.listFiles ? new Map((await this.listFiles()).filter(f => !f.sharing && !f.sharingPending).map(f => [f.fileId, f])) : null;
     const enabled = new Map<string, boolean>();
-    for (const e of examples) if (!enabled.has(e.workspaceId)) enabled.set(e.workspaceId, await this.memory.enabled(e.workspaceId));
+    for (const e of examples) if (!enabled.has(e.workspaceId)) enabled.set(e.workspaceId, !respectEnabled || await this.memory.enabled(e.workspaceId));
     return examples.filter(e => enabled.get(e.workspaceId) && (!files || files.get(e.fileId)?.workspaceId === e.workspaceId));
   }
 
@@ -238,7 +249,7 @@ export class LocalAuthoringStyleStore {
   private async updateMemories(examples: StyleExample[], extraScope?: string | null): Promise<void> {
     await this.memory.update(null, summarizeAuthoringStyle(examples), this.evidenceRevision(examples));
     const scopes = new Set(examples.map(e => e.workspaceId));
-    if (extraScope) scopes.add(extraScope);
+    if (extraScope && await this.memory.enabled(extraScope)) scopes.add(extraScope);
     for (const id of scopes) {
       const scoped = examples.filter(e => e.workspaceId === id);
       await this.memory.update(id, summarizeAuthoringStyle(scoped), this.evidenceRevision(scoped));
@@ -250,7 +261,7 @@ export class LocalAuthoringStyleStore {
     // Refresh against current library membership. Deleted/shared/moved evidence is not reused.
     return this.exclusive(async () => {
       const examples = await this.eligible(await this.read());
-      await this.updateMemories(await this.memory.enabled(null) ? examples : [], workspaceId);
+      if (await this.memory.enabled(null)) await this.updateMemories(examples, workspaceId);
       return this.memory.read(workspaceId, examples.filter(e => workspaceId === null || e.workspaceId === workspaceId).length);
     });
   }
@@ -265,7 +276,12 @@ export class LocalAuthoringStyleStore {
       const file = (await this.listFiles?.())?.find(f => f.fileId === input.fileId && !f.sharing && !f.sharingPending);
       if (!file || !await this.memory.enabled(null) || !await this.memory.enabled(file.workspaceId)) throw new Error("Authoring learning unavailable");
       const workspaceId = input.scope === "user" ? null : file.workspaceId;
-      const examples = (await this.eligible(await this.read())).filter(e => workspaceId === null || e.workspaceId === workspaceId);
+      const eligible = await this.eligible(await this.read());
+      const examples = eligible.filter(e => workspaceId === null || e.workspaceId === workspaceId);
+      if (workspaceId === null) {
+        const represented = new Set(this.selectExamples(eligible, file.fileId, file.workspaceId).map(e => e.workspaceId));
+        if (eligible.some(e => !represented.has(e.workspaceId))) throw new Error("Insufficient global style evidence");
+      }
       if (!examples.length || this.evidenceRevision(examples) !== input.evidenceRevision) throw new Error("Style evidence changed");
       await this.memory.synthesize(workspaceId, input.summary, input.evidenceRevision);
     });

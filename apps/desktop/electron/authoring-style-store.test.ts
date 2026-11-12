@@ -244,4 +244,58 @@ describe("automatic authoring style", () => {
     const memory = resources.always.find(r => r.id === "authoring-style-memory")!;
     expect(JSON.parse(memory.content!.split("\n").slice(1).join("\n"))).toHaveProperty("references.0.fileId", "f1");
   });
+
+  it("preserves AI summaries and stored evidence across pauses and unrelated workspace edits", async () => {
+    const files = [event(document("前"), document("後")).file];
+    const tracked = new LocalAuthoringStyleStore(root, async () => files);
+    tracked.observe(event(document("前"), document("後")));
+    const profile = await tracked.getProfile("ws1");
+    const global = await tracked.getProfile(null);
+    for (const [scope, revision] of [["user", global.evidenceRevision], ["workspace", profile.evidenceRevision]] as const) {
+      await tracked.synthesize({ fileId: "f1", scope, summary: `# AIの要約 ${scope}`, evidenceRevision: revision });
+    }
+    await tracked.setEnabled(null, false);
+    await tracked.setEnabled(null, true);
+    expect((await tracked.getProfile(null)).generatedContent).toBe("# AIの要約 user");
+    expect((await tracked.getProfile("ws1")).generatedContent).toBe("# AIの要約 workspace");
+    await tracked.setEnabled("ws1", false);
+    const other = event(document("other before"), document("other after"));
+    other.file = { ...other.file, fileId: "f2", workspaceId: "ws2" };
+    files.push(other.file);
+    tracked.observe(other);
+    await tracked.flush();
+    await tracked.setEnabled("ws1", true);
+    expect((await tracked.getProfile("ws1")).generatedContent).toBe("# AIの要約 workspace");
+    expect((await tracked.getProfile("ws1")).exampleCount).toBe(1);
+  });
+
+  it("supplies a representative of every workspace before allowing global synthesis", async () => {
+    const files: LocalDocumentSavedEvent["file"][] = [];
+    for (let n = 0; n < 10; n++) {
+      const edit = event(document(`before${n}`), document(`after${n}`));
+      edit.file = { ...edit.file, fileId: `f${n}`, workspaceId: `ws${n}` };
+      files.push(edit.file);
+      store.observe(edit);
+    }
+    const resources = await store.augmentRunContext(context(), { ...input, workspaceId: "ws0", fileId: "f0", visibleFileIds: new Set(["f0"]) });
+    const memory = JSON.parse(resources.always.find(r => r.id === "authoring-style-memory")!.content!.split("\n").slice(1).join("\n"));
+    expect(memory.memory.find((m: { scope: string }) => m.scope === "user").needsSynthesis).toBe(false);
+    const tracked = new LocalAuthoringStyleStore(root, async () => files);
+    const profile = await tracked.getProfile(null);
+    await expect(tracked.synthesize({ fileId: "f0", scope: "user", summary: "不十分な根拠での全体要約", evidenceRevision: profile.evidenceRevision })).rejects.toThrow("Insufficient global");
+  });
+
+  it("includes evidence from both workspaces for a bounded global summary", async () => {
+    store.observe(event(document("before A"), document("after A")));
+    const other = event(document("before B"), document("after B"));
+    other.file = { ...other.file, workspaceId: "ws2", fileId: "f2" };
+    store.observe(other);
+    const resources = await store.augmentRunContext(context(), input);
+    const examples = JSON.parse(resources.always.find(r => r.id === "automatic-authoring-style")!.content!.split("\n").slice(1).join("\n"));
+    expect(new Set(examples.map((e: { workspaceId: string }) => e.workspaceId))).toEqual(new Set(["ws1", "ws2"]));
+    const memory = JSON.parse(resources.always.find(r => r.id === "authoring-style-memory")!.content!.split("\n").slice(1).join("\n"));
+    expect(memory.memory.find((m: { scope: string }) => m.scope === "user").needsSynthesis).toBe(true);
+    expect(memory.references).toEqual([{ fileId: "f1", title: "演習", blockId: "p1" }]);
+    expect(memory.evidenceCoverage).toMatchObject({ representedWorkspaces: 2, totalWorkspaces: 2 });
+  });
 });
