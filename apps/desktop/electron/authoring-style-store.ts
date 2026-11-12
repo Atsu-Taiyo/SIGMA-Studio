@@ -168,36 +168,39 @@ export class LocalAuthoringStyleStore {
     visibleFileIds: ReadonlySet<string>;
   }): Promise<AiResourceRunContext> {
     await this.flush();
-    if (!input.workspaceId || !input.visibleFileIds.has(input.fileId)) return context;
-    if (!await this.memory.enabled(null) || !await this.memory.enabled(input.workspaceId)) return context;
-    const eligible = await this.eligible(await this.read());
-    const examples = eligible.filter(e => e.workspaceId === input.workspaceId && input.visibleFileIds.has(e.fileId));
-    const selected = this.selectExamples(eligible, input.fileId, input.workspaceId);
-    const representedScopes = new Set(selected.map(e => e.workspaceId));
-    const allScopesRepresented = eligible.every(e => representedScopes.has(e.workspaceId));
-    const profiles = [await this.getProfile(null), await this.getProfile(input.workspaceId)];
-    const memory = profiles.map(p => ({ scope: p.workspaceId === null ? "user" : "workspace", workspaceId: p.workspaceId, manual: this.promptText(p.userContent), learned: this.promptText(p.generatedContent), evidenceRevision: p.evidenceRevision, needsSynthesis: p.needsSynthesis && (p.workspaceId === null ? allScopesRepresented : representedScopes.has(p.workspaceId)) }));
-    examples.reverse();
-    examples.sort((a, b) => Number(b.fileId === input.fileId) - Number(a.fileId === input.fileId));
-    const references = [...new Map(examples.map(e => [e.fileId, { fileId: e.fileId, title: e.title.slice(0, 100), ...(e.blockId !== "$structure" ? { blockId: e.blockId } : {}) }])).values()].slice(0, 8);
-    while (JSON.stringify(references).length > 1400) references.pop();
-    if (!selected.length && !profiles.some(p => p.userContent || p.generatedContent)) return context;
-    const t = createTranslator(input.locale, "prompt");
-    const resource: AiResourceContextItem = {
-      id: "automatic-authoring-style", kind: "skill", loadMode: "always",
-      title: t("authoringStyle.title"), description: t("authoringStyle.description"), tags: [],
-      content: `${t("authoringStyle.guidance")}\n${JSON.stringify(selected)}`,
-    };
-    const notes: AiResourceContextItem = {
-      id: "authoring-style-memory", kind: "skill", loadMode: "always",
-      title: t("authoringStyle.memoryTitle"), description: "", tags: [],
-      content: `${t("authoringStyle.memoryGuidance")}\n${JSON.stringify({ memory, references, evidenceCoverage: { sampledExamples: selected.length, totalExamples: eligible.length, representedWorkspaces: representedScopes.size, totalWorkspaces: new Set(eligible.map(e => e.workspaceId)).size } })}`,
-    };
-    while (notes.content!.length > 11_900 && references.length) {
-      references.pop();
-      notes.content = `${t("authoringStyle.memoryGuidance")}\n${JSON.stringify({ memory, references })}`;
-    }
-    return { ...context, always: [...context.always, ...(selected.length ? [resource] : []), notes] };
+    return this.exclusive(async () => {
+      if (!input.workspaceId || !input.visibleFileIds.has(input.fileId)) return context;
+      if (!await this.memory.enabled(null) || !await this.memory.enabled(input.workspaceId)) return context;
+      const eligible = await this.eligible(await this.read());
+      const examples = eligible.filter(e => e.workspaceId === input.workspaceId && input.visibleFileIds.has(e.fileId));
+      await this.updateMemories(eligible, input.workspaceId);
+      const selected = this.selectExamples(eligible, input.fileId, input.workspaceId);
+      const representedScopes = new Set(selected.map(e => e.workspaceId));
+      const allScopesRepresented = eligible.every(e => representedScopes.has(e.workspaceId));
+      const profiles = [await this.memory.read(null, eligible.length), await this.memory.read(input.workspaceId, examples.length)];
+      const memory = profiles.map(p => ({ scope: p.workspaceId === null ? "user" : "workspace", workspaceId: p.workspaceId, manual: this.promptText(p.userContent), learned: this.promptText(p.generatedContent), evidenceRevision: p.evidenceRevision, needsSynthesis: p.needsSynthesis && (p.workspaceId === null ? allScopesRepresented : representedScopes.has(p.workspaceId)) }));
+      examples.reverse();
+      examples.sort((a, b) => Number(b.fileId === input.fileId) - Number(a.fileId === input.fileId));
+      const references = [...new Map(examples.map(e => [e.fileId, { fileId: e.fileId, title: e.title.slice(0, 100), ...(e.blockId !== "$structure" ? { blockId: e.blockId } : {}) }])).values()].slice(0, 8);
+      while (JSON.stringify(references).length > 1400) references.pop();
+      if (!selected.length && !profiles.some(p => p.userContent || p.generatedContent)) return context;
+      const t = createTranslator(input.locale, "prompt");
+      const resource: AiResourceContextItem = {
+        id: "automatic-authoring-style", kind: "skill", loadMode: "always",
+        title: t("authoringStyle.title"), description: t("authoringStyle.description"), tags: [],
+        content: `${t("authoringStyle.guidance")}\n${JSON.stringify(selected)}`,
+      };
+      const notes: AiResourceContextItem = {
+        id: "authoring-style-memory", kind: "skill", loadMode: "always",
+        title: t("authoringStyle.memoryTitle"), description: "", tags: [],
+        content: `${t("authoringStyle.memoryGuidance")}\n${JSON.stringify({ memory, references, evidenceCoverage: { sampledExamples: selected.length, totalExamples: eligible.length, representedWorkspaces: representedScopes.size, totalWorkspaces: new Set(eligible.map(e => e.workspaceId)).size } })}`,
+      };
+      while (notes.content!.length > 11_900 && references.length) {
+        references.pop();
+        notes.content = `${t("authoringStyle.memoryGuidance")}\n${JSON.stringify({ memory, references })}`;
+      }
+      return { ...context, always: [...context.always, ...(selected.length ? [resource] : []), notes] };
+    });
   }
 
   private selectExamples(examples: readonly StyleExample[], fileId: string, workspaceId: string): StyleExample[] {

@@ -314,4 +314,28 @@ describe("automatic authoring style", () => {
     expect(memory.references).toEqual([{ fileId: "f1", title: "演習", blockId: "p1" }]);
     expect(memory.evidenceCoverage).toMatchObject({ representedWorkspaces: 2, totalWorkspaces: 2 });
   });
+
+  it("snapshots examples and their evidence revision together when an autosave arrives during context construction", async () => {
+    let interleave = false;
+    const file = event(document("元"), document("最初の修正")).file;
+    const tracked = new LocalAuthoringStyleStore(root, async () => {
+      if (interleave) {
+        interleave = false;
+        tracked.observe(event(document("最初の修正"), document("後から入った修正"), 3));
+      }
+      return [file];
+    });
+    tracked.observe(event(document("元"), document("最初の修正")));
+    await tracked.flush();
+    interleave = true;
+    const resources = await tracked.augmentRunContext(context(), input);
+    const examples = JSON.parse(resources.always.find(r => r.id === "automatic-authoring-style")!.content!.split("\n").slice(1).join("\n"));
+    const notes = JSON.parse(resources.always.find(r => r.id === "authoring-style-memory")!.content!.split("\n").slice(1).join("\n"));
+    const snapshotRevision = notes.memory.find((m: { scope: string }) => m.scope === "workspace").evidenceRevision;
+    await tracked.flush();
+    const current = await tracked.getProfile("ws1");
+    expect(examples[0].after.text).toBe("最初の修正");
+    expect(snapshotRevision).not.toBe(current.evidenceRevision);
+    await expect(tracked.synthesize({ fileId: "f1", scope: "workspace", summary: "古い実例で要約", evidenceRevision: snapshotRevision })).rejects.toThrow("changed");
+  });
 });
