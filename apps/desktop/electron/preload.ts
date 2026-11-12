@@ -653,6 +653,12 @@ contextBridge.exposeInMainWorld("sigmaPlugins", {
 contextBridge.exposeInMainWorld("sigmaExtensions", {
   menu: () => ipcRenderer.invoke("extensions:menu"),
   run: (extensionId: string, itemId: string) => ipcRenderer.invoke("extensions:run", extensionId, itemId),
+  openFolderResult: (jobId: string, target: "folder" | "report") => ipcRenderer.invoke("extensions:open-folder-result", jobId, target),
+  onFolderProgress: (listener: (progress: unknown) => void) => {
+    const receive = (_event: unknown, progress: unknown) => listener(progress);
+    ipcRenderer.on("extensions:folder-progress", receive);
+    return () => ipcRenderer.removeListener("extensions:folder-progress", receive);
+  },
   onMenuChange: (listener: (groups: unknown) => void) => {
     const receive = (_event: unknown, groups: unknown) => listener(groups);
     ipcRenderer.on("extensions:menu-change", receive);

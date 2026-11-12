@@ -55,6 +55,7 @@ function catalog() {
       { path: `fonts/${fontId}.ttf`, kind: "font", sha256: fontId, bytes: font.length, family: "Sample Font", displayName: "Sample Font", portable: true },
     ],
     contributes: { menu: { sections: [{ title: "取り込み", items: [
+      { type: "button", id: "import-folder", label: "フォルダを変換", action: { type: "import-folder", command: "convert", extensions: [".smp"] } },
       { type: "button", id: "import-sample", label: "サンプルを取り込む", action: { type: "import-file", command: "convert", extensions: [".smp"] } },
     ] }] } },
   };
@@ -109,6 +110,24 @@ describe("PluginHost with a real worker", () => {
     const document = (result as { document: { content: Array<{ children: Array<{ text: string }> }>; metadata: { title: string } } }).document;
     expect(document.metadata.title).toBe("from 教材.smp");
     expect(document.content[0].children[0].text).toBe("取り込む本文");
+  });
+
+  it("converts a folder through the signed action and real worker, then reloads saved documents", async () => {
+    const { host, dataDir } = await setup();
+    await host.manager.check(); await host.manager.install(ID);
+    const inputDirectory = path.join(dataDir, "input");
+    const outputParent = path.join(dataDir, "output");
+    await fs.mkdir(path.join(inputDirectory, "math"), { recursive: true }); await fs.mkdir(outputParent);
+    await fs.writeFile(path.join(inputDirectory, "math", "sample.smp"), "folder content");
+    const result = await host.runItem(ID, "import-folder", async () => { throw new Error("file picker must not run"); }, async () => ({ inputDirectory, outputParent }));
+    expect(result).toMatchObject({ ok: true, kind: "folder", counts: { success: 1, skipped: 0, failed: 0 } });
+    if (!result.ok || !("kind" in result)) throw new Error("expected folder");
+    const saved = JSON.parse(await fs.readFile(path.join(result.outputDirectory, "math/sample.smp.sigma"), "utf8"));
+    expect(saved.content[0].children[0].text).toBe("folder content");
+    expect(await host.folderResultPath(result.jobId, "folder")).toBe(result.outputDirectory);
+    expect(await host.folderResultPath(result.jobId, "report")).toBe(path.join(result.outputDirectory, "conversion-report.json"));
+    expect(await host.folderResultPath(result.jobId, "/arbitrary/path")).toBeNull();
+    expect(await host.folderResultPath("forged", "folder")).toBeNull();
   });
 
   it("does not copy the bundled fonts again on every start, but repairs a broken copy", async () => {

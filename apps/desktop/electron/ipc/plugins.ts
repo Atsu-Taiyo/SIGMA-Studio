@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, type IpcMainInvokeEvent, type OpenDialogOptions } from "electron";
+import { app, BrowserWindow, dialog, shell, type IpcMainInvokeEvent, type OpenDialogOptions } from "electron";
 import fs from "node:fs/promises";
 
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
@@ -86,7 +86,23 @@ export function registerPluginIpc({ host, getMainWindow }: RegisterPluginIpcDeps
       const stat = await fs.stat(filePath);
       if (!stat.isFile() || stat.size > IMPORT_MAX_INPUT_BYTES) throw new PluginError("import-failed");
       return { filePath, bytes: await fs.readFile(filePath) };
-    }));
+    }, async () => {
+      const pick = async (title: string) => {
+        const window = getMainWindow();
+        const options: OpenDialogOptions = { title, properties: ["openDirectory"] };
+        const result = await (window ? dialog.showOpenDialog(window, options) : dialog.showOpenDialog(options));
+        return result.canceled ? null : result.filePaths[0] ?? null;
+      };
+      const inputDirectory = await pick(te("electron.plugins.inputFolderTitle"));
+      if (!inputDirectory) return null;
+      const outputParent = await pick(te("electron.plugins.outputFolderTitle"));
+      return outputParent ? { inputDirectory, outputParent } : null;
+    }, progress => sendToTrustedWindows("extensions:folder-progress", progress)));
+
+  ipcMain.handle("extensions:open-folder-result", async (_event, jobId: unknown, target: unknown) => {
+    const filename = await host.folderResultPath(jobId, target);
+    return filename ? (await shell.openPath(filename)) === "" : false;
+  });
 
   // 権限は定期的に確かめ直す。本人が変わったときは、前の本人の権限と所属を即座に捨てる。
   void host.ready.then(() => manager.refreshAutomatically());

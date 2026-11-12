@@ -33,8 +33,10 @@ export interface ImportFileAction {
   extensions: string[];
 }
 
+export type ImportAction = Omit<ImportFileAction, "type"> & { type: "import-file" | "import-folder" };
+
 export type CatalogMenuItem =
-  | { type: "button"; id: string; label: string; description?: string; icon?: ExtensionIconName; action: ImportFileAction }
+  | { type: "button"; id: string; label: string; description?: string; icon?: ExtensionIconName; action: ImportAction }
   | { type: "text"; text: string }
   | { type: "separator" };
 
@@ -127,8 +129,8 @@ function validateMenu(menu: unknown): CatalogMenuSection[] {
       ids.add(item.id);
       if (item.description !== undefined && !isText(item.description, EXTENSION_MENU_LIMITS.description)) return invalid();
       if (item.icon !== undefined && !(EXTENSION_ICON_NAMES as readonly string[]).includes(item.icon as string)) return invalid();
-      const action = item.action as Partial<ImportFileAction> | undefined;
-      if (!action || action.type !== "import-file" || !isId(action.command)
+      const action = item.action as Partial<ImportAction> | undefined;
+      if (!action || (action.type !== "import-file" && action.type !== "import-folder") || !isId(action.command)
         || !Array.isArray(action.extensions) || !action.extensions.length || action.extensions.length > EXTENSION_MENU_LIMITS.extensions
         || !action.extensions.every((extension) => typeof extension === "string" && EXTENSION_PATTERN.test(extension))) return invalid();
     }

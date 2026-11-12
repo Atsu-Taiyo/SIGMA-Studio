@@ -1,0 +1,10 @@
+.content { display: grid; gap: 16px; padding: 20px; }
+.content p { margin: 0; }
+.loading { height: 8px; margin: 12px 0; }
+.path { overflow-wrap: anywhere; }
+.table { max-height: 45vh; overflow: auto; border: 1px solid var(--ui-border, #dadada); border-radius: 8px; }
+.table table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+.table th, .table td { padding: 10px; border-bottom: 1px solid var(--ui-border, #dadada); vertical-align: top; }
+.table th { position: sticky; top: 0; background: var(--ui-surface, #fafafa); }
+.table small { display: block; color: var(--ui-text-secondary, #555); margin-top: 4px; }
+.actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-wrap: wrap; }

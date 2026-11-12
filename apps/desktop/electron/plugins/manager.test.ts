@@ -2,7 +2,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { OfficialPluginProgress } from "@/lib/plugin-status-contracts";
 
@@ -533,4 +533,19 @@ describe("extension menu", () => {
     await manager.refreshAccess();
     expect(manager.isFontVisible(sha)).toBe(false);
   });
+});
+
+
+it("does not start a worker if the pinned actor changes during installed-file verification", async () => {
+  const runWorker = vi.fn(async () => "should not run");
+  const { manager, state } = await setup({ runWorker });
+  await manager.check(); await manager.install(ID);
+  const installed = manager.installedPlugin.bind(manager);
+  vi.spyOn(manager, "installedPlugin").mockImplementation(async id => {
+    const plugin = await installed(id);
+    state.userId = OTHER_USER;
+    return plugin;
+  });
+  await expect(manager.run(ID, {}, USER)).rejects.toThrow("unauthorized");
+  expect(runWorker).not.toHaveBeenCalled();
 });

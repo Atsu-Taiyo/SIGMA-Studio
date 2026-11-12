@@ -63,10 +63,45 @@ export type ExtensionRunResult =
   | { ok: true; document: unknown; issues: ExtensionImportIssue[]; sourceName: string }
   | { ok: false; error: ExtensionRunError };
 
+/** Folder jobs return metadata only; documents remain on disk. */
+export type FolderImportReason =
+  | "converted" | "hidden" | "temporary" | "link" | "unsupported" | "unsafe-name"
+  | "empty" | "input-size" | "input-total" | "file-limit" | "depth-limit"
+  | "read-failed" | "changed" | "write-failed" | "output-size" | "output-total"
+  | ExtensionRunError;
+export interface FolderImportEntry {
+  relativePath: string;
+  status: "success" | "skipped" | "failed";
+  reason: FolderImportReason;
+  scope: "file" | "subtree";
+  outputPath?: string;
+  issueCount?: number;
+}
+export interface FolderImportProgress {
+  phase: "scanning" | "converting";
+  counts: { success: number; skipped: number; failed: number };
+  completed: number;
+  total: number;
+  currentPath?: string;
+}
+export interface FolderImportResult {
+  ok: true;
+  kind: "folder";
+  jobId: string;
+  outputDirectory: string;
+  counts: FolderImportProgress["counts"];
+  entries: FolderImportEntry[];
+  truncated: boolean;
+  reportError?: "write-failed";
+}
+export type ExtensionItemResult = ExtensionRunResult | FolderImportResult;
+
 export interface ExtensionBridge {
   menu(): Promise<ExtensionMenuGroup[]>;
   /** 項目 id を指名して実行する。ファイル選択などはホストが出す。 */
-  run(extensionId: string, itemId: string): Promise<ExtensionRunResult>;
+  run(extensionId: string, itemId: string): Promise<ExtensionItemResult>;
+  onFolderProgress?(listener: (progress: FolderImportProgress) => void): () => void;
+  openFolderResult?(jobId: string, target: "folder" | "report"): Promise<boolean>;
   onMenuChange(listener: (groups: ExtensionMenuGroup[]) => void): () => void;
 }
 

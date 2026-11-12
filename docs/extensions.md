@@ -67,6 +67,60 @@
 
 ワーカーは、このPCの書体が要るときだけ `{ type: "local-font-request", families }` を投げ、`{ type: "local-font-response", fonts }` を受け取る。ホストは個数と文字列の形を検査し、拡張機能が自分で同梱している書体と、カタログの `ownFontFamilyPrefixes` (自分の書体の系統名の頭。最大 8 個) に当たる系統は、このPCから読まない。
 
+## `import-folder` の契約
+
+`action: { type: "import-folder", command: "convert", extensions: [".smp"] }` を指定すると、
+同じ `sigmaExtensions.run(extensionId, itemId)` がフォルダジョブを開始する。
+`command` と `extensions` の検証は `import-file` と共通。既存カタログと単一ファイルの結果型は維持する。
+
+- 入力フォルダ、保存先の親フォルダを順にOSダイアログで選ぶ。rendererからパスは受け取らない。
+  ダイアログ前からジョブを排他し、どちらかのキャンセルでは出力を作らない。
+- 保存先に新規の `SIGMA-import-*` フォルダを作り、`数学/教材.smp` を
+  `数学/教材.smp.sigma` として保存する。SigmaDoc JSONの既存シリアライザーを使い、既存ファイルは上書きしない。
+  教材ライブラリには自動登録しない。通常のファイル取り込みで保存した教材を開ける。
+- 各ファイルで `manager.run` と `acceptResult` を通す。本人はダイアログ前のアカウントに固定し、
+  権限とインストール済み資源の検証後にも本人を再確認する。1ワーカー、90秒、768 MiBの制限を共用する。
+  測定機能付きワーカーも90秒に揃える。本人変更後の結果は採用せず、後続ワーカーも開始しない。
+- フォントは既存経路で検証・アプリ内キャッシュへ登録する。保存ファイルの参照は同じアプリの
+  フォント資源を利用する。フォントを全ファイルへ複製しない。
+
+| 対象 | 上限 |
+| --- | --- |
+| 走査項目（ディレクトリを含む） | 10,000 |
+| 変換候補 | 500 |
+| 入力1件 / 合計 | 64 MiB / 512 MiB |
+| 出力教材1件 / 合計 | 128 MiB / 1 GiB |
+| サブフォルダの深さ | 32 |
+
+ディレクトリをストリームで列挙し、メタデータだけを上限内で保持して1ファイルずつ処理する。
+未対応形式、空ファイル、隠し項目、一時項目、リンク、移植できない名前を除外する。
+隠し・一時ディレクトリや深さ上限による除外は配下全体を1項目として記録する。
+走査上限に達したら `truncated: true` を返し、未走査があることを表示する。
+入力はパス成分・realpath・inode・サイズ・更新時刻を再確認し、`O_NOFOLLOW` と固定サイズ読み取りを使う。
+出力は専用ディレクトリ0700、ファイル0600で排他的に作成し、失敗した教材の部分書き込みは削除する。
+同一ユーザーの悪意あるプロセスがsyscall間で連続的にパスを交換する環境の隔離は保証しない。
+
+単一ファイル成功は従来の `{ ok: true, document, issues, sourceName }`。
+フォルダ成功は `{ ok: true, kind: "folder", jobId, outputDirectory, counts, entries, truncated, reportError? }`。
+`counts` は `success / skipped / failed`、`entries` は相対パス・状態・固定理由コード・
+`scope: "file" | "subtree"`・出力相対パス・所見件数を持つ。成功は保存まで終わった項目だけ。
+個々の変換・検証・保存失敗では後続を続ける。全文書の配列はIPCへ返さない。
+`conversion-report.json` は相対パスと理由コードを保存し、レポートだけ保存できなければ
+`reportError: "write-failed"` と一覧を返す。表示用の文章はja/en辞書からUIで組み立てる。
+
+`onFolderProgress` は `{ phase, counts, completed, total, currentPath? }` を通知する。
+`completed / total` は候補の処理件数で、走査中の総数は未確定。
+結果画面は100行ずつ表示し、保存先とレポートを開ける。
+`openFolderResult(jobId, "folder" | "report")` は最後に完了したジョブの固定出力だけを開き、任意パスを受け取らない。
+
+### 拡張を配布するとき
+
+このAPIを含むアプリをリリースしてから、対応リリースの版を `minAppVersion` として
+`import-folder` メニューを持つ署名済みカタログを配布する。実装時点の既存リリース版を対応版として指定しない。
+旧ホストは未知のactionを含むカタログ全体を検証時に拒否するため、`minAppVersion` だけでは旧ホストの
+カタログ互換を確保できない。旧ホストには従来のメニューを持つカタログを提供し続ける必要がある。
+ワーカーの入力・コマンド・結果形式に追加変更は不要。
+
 ## 書体
 
 拡張機能が同梱する書体は、内容ハッシュの資源として登録され、書体の選択に出る。配った拡張機能が有効で、権限があるあいだだけ見える。ユーザーが自分で追加した書体とは別で、「拡張機能」ダイアログの追加フォントには出ない。
@@ -80,4 +134,5 @@
 - `electron/plugins/*.test.ts`: 署名・改ざん・巻き戻り・不正な経路、権限の取り消しと本人の切り替え、更新と実行中の処理の競合、メニューと action の解決、項目の実行と結果の検証、実ワーカースレッドでの結合。
 - `src/lib/extension-contracts.test.ts`、`use-extension-menu.test.tsx`: 描く前の検査と購読。
 - `tests/electron/extensions-menu.spec.ts`: 実アプリで、メニューの位置・内容・取り込み・保存と再読み込み・権限が外れたときの消去。
+- `electron/ipc/plugins.test.ts`、`tests/electron/folder-import.spec.ts`: OS選択の受け渡し、パスの非受理、進捗、結果のページ送り、ライブラリ非登録。
 - `scripts/extension-build-config.test.mjs`: ビルド設定 (秘密鍵や安全でない URL の拒否)。
