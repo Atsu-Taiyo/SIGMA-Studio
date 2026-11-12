@@ -9,7 +9,7 @@ import { SettingsField, SettingsSection, SettingsStatus, Switch } from "@/compon
 import { AUTHORING_STYLE_NOTE_LIMIT, type AuthoringStyleAPI, type AuthoringStyleProfile } from "@/lib/ai/authoring-style";
 import { useT } from "@/lib/i18n/react";
 
-export function AuthoringStylePane({ api, workspaceId, id }: { id: string; api: AuthoringStyleAPI; workspaceId: string | null }) {
+export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api: AuthoringStyleAPI; workspaceId: string | null }) {
   const t = useT("settings");
   const [profile, setProfile] = useState<AuthoringStyleProfile | null>(null);
   const [content, setContent] = useState("");

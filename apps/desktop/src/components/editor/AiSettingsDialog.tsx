@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Plus } from "lucide-react";
 
-import { AuthoringStylePane } from "./AuthoringStylePane";
+import { AiAuthoringStylePane } from "./AiAuthoringStylePane";
 import { ChatPromptField } from "./ChatPromptField";
 import { DesktopSettingsModal } from "./DesktopSettingsModal";
 import { Button, IconButton } from "@/components/ui/Button";
@@ -239,9 +239,9 @@ function AiSettingsBody({ onClose, activeWorkspaceId, focusEntryId }: { onClose:
                 取得完了(tree非null)までコンテンツは出さない(通常は一瞬)。 */}
             {tree === null ? <AiSettingsLoading /> : (
             <>
-            {section === "global-style" && bridge.authoringStyle && <AuthoringStylePane id="ai-settings-global-style" key="global-style" api={bridge.authoringStyle} workspaceId={null} />}
+            {section === "global-style" && bridge.authoringStyle && <AiAuthoringStylePane id="ai-settings-global-style" key="global-style" api={bridge.authoringStyle} workspaceId={null} />}
             {section === "workspace-style" && bridge.authoringStyle && (selectedWorkspaceId
-              ? <AuthoringStylePane id="ai-settings-workspace-style" key={`workspace-style-${selectedWorkspaceId}`} api={bridge.authoringStyle} workspaceId={selectedWorkspaceId} />
+              ? <AiAuthoringStylePane id="ai-settings-workspace-style" key={`workspace-style-${selectedWorkspaceId}`} api={bridge.authoringStyle} workspaceId={selectedWorkspaceId} />
               : <p>{t("ai.selectWorkspaceHint")}</p>)}
             {section === "ai-runtime" && (
               <DesktopSettingsModal
