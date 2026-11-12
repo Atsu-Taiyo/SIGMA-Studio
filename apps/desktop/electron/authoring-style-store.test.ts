@@ -146,6 +146,22 @@ describe("automatic authoring style", () => {
     expect(examples[0].fileId).toBe("file189");
   });
 
+  it("keeps a readable UTF-8 profile when retained Japanese fragments approach the size limit", async () => {
+    for (let n = 0; n < 160; n++) {
+      const edit = event(document(`前${n}${"あ".repeat(1500)}`), document(`後${n}${"い".repeat(1500)}`));
+      edit.file.fileId = `large${n}`;
+      store.observe(edit);
+    }
+    await store.flush();
+    const bytes = await fs.readFile(path.join(root, "data/ai-authoring-style/examples.json"));
+    expect(bytes.length).toBeLessThanOrEqual(2_000_000);
+    const data = JSON.parse(bytes.toString("utf8"));
+    expect(data.examples.length).toBeGreaterThan(0);
+    const restarted = new LocalAuthoringStyleStore(root);
+    expect((await restarted.getProfile("ws1")).exampleCount).toBe(data.examples.length);
+    expect((await restarted.getProfile("ws1")).generatedContent).not.toBe("");
+  });
+
   it("keeps the AI usable with a damaged derived profile and records the failure", async () => {
     await fs.mkdir(path.join(root, "data/ai-authoring-style"), { recursive: true });
     await fs.writeFile(path.join(root, "data/ai-authoring-style/examples.json"), "{broken");

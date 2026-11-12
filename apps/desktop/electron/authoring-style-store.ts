@@ -14,6 +14,7 @@ import { logLedgerEvent } from "./ledger-log";
 import type { LocalDocumentSavedEvent } from "./local-sigma-doc-store";
 
 const MAX_EXAMPLES = 160;
+const MAX_EXAMPLE_FILE_BYTES = 2_000_000;
 const MAX_FRAGMENT_LENGTH = 1800;
 const MAX_PROMPT_LENGTH = 9000;
 const FLUSH_DELAY_MS = 750;
@@ -141,7 +142,7 @@ export class LocalAuthoringStyleStore {
           if (!same(merged.before, merged.after)) examples.push(merged);
           examples = examples.slice(-MAX_EXAMPLES);
         }
-        await this.persist(examples);
+        examples = await this.persist(examples);
         await this.updateMemories(await this.eligible(examples));
       })).catch(error => {
         logLedgerEvent(this.dataDir, "authoring-style-write-failed", { error: String(error) });
@@ -242,8 +243,17 @@ export class LocalAuthoringStyleStore {
     return examples.filter(e => enabled.get(e.workspaceId) && (!files || files.get(e.fileId)?.workspaceId === e.workspaceId));
   }
 
-  private async persist(examples: StyleExample[]): Promise<void> {
-    await atomicStyleWrite(this.filePath, JSON.stringify({ version: 1, examples }));
+  private async persist(examples: StyleExample[]): Promise<StyleExample[]> {
+    const bounded: StyleExample[] = [];
+    let bytes = Buffer.byteLength(JSON.stringify({ version: 1, examples: [] }));
+    for (const example of examples.slice(-MAX_EXAMPLES).reverse()) {
+      const size = Buffer.byteLength(JSON.stringify(example)) + (bounded.length ? 1 : 0);
+      if (bytes + size > MAX_EXAMPLE_FILE_BYTES) continue;
+      bounded.unshift(example);
+      bytes += size;
+    }
+    await atomicStyleWrite(this.filePath, JSON.stringify({ version: 1, examples: bounded }));
+    return bounded;
   }
 
   private async updateMemories(examples: StyleExample[], extraScope?: string | null): Promise<void> {
@@ -313,7 +323,7 @@ export class LocalAuthoringStyleStore {
   private async read(): Promise<StyleExample[]> {
     try {
       const stat = await fs.stat(this.filePath);
-      if (stat.size > 2_000_000) throw new Error("Authoring style data exceeds the size limit");
+      if (stat.size > MAX_EXAMPLE_FILE_BYTES) throw new Error("Authoring style data exceeds the size limit");
       const data = JSON.parse(await fs.readFile(this.filePath, "utf8"));
       if (data.version !== 1 || !Array.isArray(data.examples)) throw new Error("Invalid authoring style data");
       return data.examples.filter((e: StyleExample) => typeof e?.workspaceId === "string" && typeof e.fileId === "string"
