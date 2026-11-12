@@ -52,13 +52,15 @@ export class AuthoringStyleMemory {
     const userContent = await boundedRead(userPath, AUTHORING_STYLE_NOTE_LIMIT);
     const generatedContent = await boundedRead(generatedPath, AUTHORING_STYLE_NOTE_LIMIT);
     const hash = await boundedRead(path.join(dir, "learned.sha256"), 100);
+    // Clearing a note (or deleting it while its baseline exists) is a hand edit too.
+    const generatedEdited = Boolean(hash ? styleHash(generatedContent) !== hash : generatedContent);
     const evidenceText = await boundedRead(path.join(dir, "learned-evidence.json"), 1000);
     const evidence = evidenceText ? JSON.parse(evidenceText) : {};
     return { evidenceRevision: typeof evidence.revision === "string" ? evidence.revision : "",
-      needsSynthesis: exampleCount > 0 && evidence.synthesized !== true && !(generatedContent && styleHash(generatedContent) !== hash),
+      needsSynthesis: exampleCount > 0 && evidence.synthesized !== true && !generatedEdited,
       workspaceId, enabled: await this.enabled(workspaceId), userContent, generatedContent,
       userPath, generatedPath, revision: styleHash(userContent),
-      generatedEdited: Boolean(generatedContent && styleHash(generatedContent) !== hash), exampleCount };
+      generatedEdited, exampleCount };
   }
 
   async update(workspaceId: string | null, generated: string, evidenceRevision: string): Promise<void> {

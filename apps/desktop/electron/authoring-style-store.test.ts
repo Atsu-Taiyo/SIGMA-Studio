@@ -181,6 +181,10 @@ describe("automatic authoring style", () => {
     profile = await store.getProfile("ws1");
     expect(profile.generatedEdited).toBe(true);
     expect(profile.generatedContent).toBe("# 自分で直した特徴");
+    await fs.writeFile(profile.generatedPath, "");
+    profile = await store.getProfile("ws1");
+    expect(profile.generatedEdited).toBe(true);
+    expect(profile.generatedContent).toBe("");
     const restarted = new LocalAuthoringStyleStore(root);
     expect((await restarted.getProfile("ws1")).userContent).toContain("# 手編集");
     profile = await store.reset("ws1");
