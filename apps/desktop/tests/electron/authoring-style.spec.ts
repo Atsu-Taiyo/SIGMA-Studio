@@ -59,6 +59,12 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       const page = await app.firstWindow();
       await page.waitForFunction(() => Boolean(window.desktopAPI));
       await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
+      await page.evaluate(async () => {
+        await window.desktopAPI!.settings!.setUiLocale!("ja");
+        localStorage.setItem("sigma-studio:ui-locale", "ja");
+      });
+      await page.reload();
+      await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
       return page;
     };
     const runAi = (page: Page, fileId: string) => page.evaluate(async id => {
