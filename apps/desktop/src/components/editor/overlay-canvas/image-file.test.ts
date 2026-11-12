@@ -1,3 +1,4 @@
+import { encode, encodeImage } from "utif";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const identifiers = vi.hoisted(() => ({ asset: vi.fn(), shape: vi.fn() }));
@@ -45,6 +46,40 @@ async function completeRead(dataUrl = "data:image/png;base64,AA==") {
 }
 
 describe("overlay image browser decoding", () => {
+  it("rejects invalid TIFF bytes before allocating an asset or a fallback image", async () => {
+    await expect(createOverlayImageAsset(new File(["not a TIFF"], "broken.tif"))).rejects.toThrow("Invalid TIFF header");
+    expect(identifiers.asset).not.toHaveBeenCalled();
+    expect(FileReaderStub.instances).toHaveLength(0);
+    expect(ImageStub.instances).toHaveLength(0);
+  });
+
+  it("rejects an oversized TIFF from its header before allocating pixels", async () => {
+    const buffer = encode([{ t256: [100_000], t257: [100_000] } as unknown as Parameters<typeof encode>[0][number]]);
+    await expect(createOverlayImageAsset(new File([buffer], "huge.tiff", { type: "image/tiff" }))).rejects.toThrow("Invalid or oversized TIFF image");
+    expect(identifiers.asset).not.toHaveBeenCalled();
+  });
+
+  it("decodes TIFF pixels into a PNG asset while preserving the source name", async () => {
+    const pixels = new Uint8Array([255, 0, 0, 255, 0, 0, 255, 255]);
+    const canvas = { width: 0, height: 0, getContext: vi.fn(), toBlob: vi.fn() };
+    const imageData = { data: new Uint8ClampedArray(8) };
+    const context = { createImageData: vi.fn(() => imageData), putImageData: vi.fn() };
+    canvas.getContext.mockReturnValue(context);
+    canvas.toBlob.mockImplementation((callback: (blob: Blob) => void) => callback(new Blob(["PNG pixels"], { type: "image/png" })));
+    vi.stubGlobal("document", { createElement: vi.fn(() => canvas) });
+    const pending = createOverlayImageAsset(new File([encodeImage(pixels, 2, 1)], "scan.tif", { type: "image/tiff" }));
+    await vi.waitFor(() => expect(FileReaderStub.instances).toHaveLength(1));
+    expect(imageData.data).toEqual(new Uint8ClampedArray(pixels));
+    expect(context.putImageData).toHaveBeenCalledWith(imageData, 0, 0);
+    expect(canvas).toMatchObject({ width: 2, height: 1 });
+    expect(FileReaderStub.instances[0].file).toMatchObject({ type: "image/png", size: 10 });
+    await completeRead();
+    ImageStub.instances[0].naturalWidth = 2;
+    ImageStub.instances[0].naturalHeight = 1;
+    ImageStub.instances[0].onload!();
+    expect((await pending).props).toMatchObject({ name: "scan.tif", mimeType: "image/png", fileSize: 10, w: 2, h: 1 });
+  });
+
   it("waits for file bytes and image dimensions before allocating asset and shape IDs", async () => {
     const file = new File(["bytes"], "picture.png", { type: "image/png" });
     const decoding = createOverlayImageEntry(file, { w: 800, h: 600 });

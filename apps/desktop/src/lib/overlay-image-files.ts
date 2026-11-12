@@ -1,4 +1,4 @@
-// 受け付ける MIME の集合は、文書へ入れてよい `src` の許可判定と **同じ 1 箇所**から取る。
+// 文書へ保存する MIME の集合は、文書へ入れてよい `src` の許可判定と **同じ 1 箇所**から取る。
 // 2 つに分かれていると、ファイルピッカーは通すのに正規化境界が落とす (= 貼れるのに消える)
 // という食い違いが静かに生まれる。
 export { SUPPORTED_OVERLAY_IMAGE_MIME_TYPES } from "@/features/document/asset-source";
@@ -10,8 +10,16 @@ import { decodeSvgDataUrl, parseStaticSvg, resolvedAttrs, svgViewport } from "@/
 
 const SUPPORTED_OVERLAY_IMAGE_MIME_TYPE_SET = new Set<string>(SUPPORTED_OVERLAY_IMAGE_MIME_TYPES);
 
+// TIFF is an import format only: normalize to PNG before creating a document asset.
+const TIFF_MIME_TYPES = ["image/tiff", "image/x-tiff"];
+export const OVERLAY_IMAGE_FILE_ACCEPT = [...SUPPORTED_OVERLAY_IMAGE_MIME_TYPES, ...TIFF_MIME_TYPES, ".tif", ".tiff"].join(",");
+
+export function isTiffImageFile(file: Pick<File, "name" | "type">): boolean {
+  return TIFF_MIME_TYPES.includes(file.type.toLowerCase()) || /\.tiff?$/i.test(file.name);
+}
+
 export function isSupportedOverlayImageFile(file: File): boolean {
-  return SUPPORTED_OVERLAY_IMAGE_MIME_TYPE_SET.has(file.type);
+  return SUPPORTED_OVERLAY_IMAGE_MIME_TYPE_SET.has(file.type) || isTiffImageFile(file);
 }
 
 export function getSupportedOverlayImageFiles(files: ArrayLike<File> | Iterable<File> | null | undefined): File[] {
@@ -74,10 +82,12 @@ function getStandaloneSvgFile(doc: Document): File | null {
 
 export function hasSupportedOverlayImageData(dataTransfer: DataTransfer): boolean {
   if (dataTransfer.items.length > 0) {
-    return Array.from(dataTransfer.items).some((item) => (
-      item.kind === "file" &&
-      SUPPORTED_OVERLAY_IMAGE_MIME_TYPE_SET.has(item.type)
-    ));
+    return Array.from(dataTransfer.items).some((item) => {
+      if (item.kind !== "file") return false;
+      if (SUPPORTED_OVERLAY_IMAGE_MIME_TYPE_SET.has(item.type) || TIFF_MIME_TYPES.includes(item.type)) return true;
+      const file = item.getAsFile?.();
+      return Boolean(file && isTiffImageFile(file));
+    });
   }
 
   return getSupportedOverlayImageFiles(dataTransfer.files).length > 0;

@@ -1,3 +1,4 @@
+import { isTiffImageFile } from "@/lib/overlay-image-files";
 import type { OverlayAsset } from "@/features/document";
 import { fitImageSizeWithinArea, type ImageInsertionSize, type OverlayImageEntry } from "@/features/drawing";
 import { createOverlayAssetId, createOverlayShapeId } from "./ids";
@@ -30,7 +31,8 @@ export async function createOverlayImageEntry(file: File, areaSize: ImageInserti
 }
 
 export async function createOverlayImageAsset(file: File): Promise<OverlayAsset> {
-  const dataUrl = await readFileAsDataUrl(file);
+  const source = isTiffImageFile(file) ? await convertTiffToPng(file) : file;
+  const dataUrl = await readFileAsDataUrl(source);
   const dimensions = await readImageDimensions(dataUrl);
   const width = dimensions.width || 240;
   const height = dimensions.height || Math.max(80, Math.round(width * 0.66));
@@ -42,9 +44,9 @@ export async function createOverlayImageAsset(file: File): Promise<OverlayAsset>
       h: height,
       name: file.name,
       isAnimated: false,
-      mimeType: file.type || null,
+      mimeType: source.type || null,
       src: dataUrl,
-      fileSize: file.size,
+      fileSize: source.size,
     },
   };
 }
@@ -69,4 +71,37 @@ function readImageDimensions(dataUrl: string): Promise<{ width?: number; height?
     image.onerror = () => resolve({});
     image.src = dataUrl;
   });
+}
+
+/** TIFF never enters SigmaDoc: all renderers and exports consume the same PNG. */
+async function convertTiffToPng(file: File): Promise<File> {
+  const { decode, decodeImage, toRGBA8 } = await import("utif");
+  const buffer = await file.arrayBuffer();
+  const header = new DataView(buffer);
+  if (buffer.byteLength < 8 || !(
+    (header.getUint32(0) === 0x49492a00) || (header.getUint32(0) === 0x4d4d002a)
+  )) throw new Error("Invalid TIFF header");
+  const pages = decode(buffer);
+  const page = pages[0];
+  const width = Number(Array.isArray(page?.t256) ? page.t256[0] : 0);
+  const height = Number(Array.isArray(page?.t257) ? page.t257[0] : 0);
+  // Check before decompression and RGBA allocation, including malformed dimensions.
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0 || width * height > 40_000_000) {
+    throw new Error("Invalid or oversized TIFF image");
+  }
+  decodeImage(buffer, page);
+  const pixels = toRGBA8(page);
+  if (!page.data || pixels.length !== width * height * 4) throw new Error("Invalid TIFF pixels");
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Image conversion unavailable");
+  const image = context.createImageData(width, height);
+  image.data.set(pixels);
+  context.putImageData(image, 0, 0);
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(value => value ? resolve(value) : reject(new Error("TIFF conversion failed")), "image/png");
+  });
+  return new File([blob], file.name, { type: "image/png" });
 }
