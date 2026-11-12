@@ -42,7 +42,7 @@
     "@tiptap/react": "^3.33.0",
     "@tiptap/starter-kit": "^3.33.0",
     "electron-updater": "^6.8.11",
-    "fast-xml-parser": "^5.9.3",
+    "fast-xml-parser": "^5.12.0",
     "fs-native-extensions": "1.5.3",
     "i18next": "^26.7.1",
     "jsdom": "^31.0.0",
