@@ -52,6 +52,7 @@ import {
 } from "./desktop-settings";
 import { AUTO_APPLY_DEFER_MS, shouldDeferAutoApply } from "./auto-apply-defer";
 import { LocalSigmaDocStore, type LocalStoreChangeEvent } from "./local-sigma-doc-store";
+import { LocalAuthoringStyleStore } from "./authoring-style-store";
 import { LocalMaterialStore } from "./local-material-store";
 import { LocalTemplateStore } from "./local-template-store";
 import {
@@ -191,7 +192,10 @@ let stopLocalStoreWatch: (() => void) | null = null;
 let stopLocalProposalWatch: (() => void) | null = null;
 let stopAiResourceWatch: (() => void) | null = null;
 let stopAiSettingsWatch: (() => void) | null = null;
-const localSigmaDocStore = new LocalSigmaDocStore(USER_DATA_PATH);
+const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH);
+const localSigmaDocStore = new LocalSigmaDocStore(USER_DATA_PATH, {
+  onDocumentSaved: event => localAuthoringStyleStore.observe(event),
+});
 protocol.registerSchemesAsPrivileged([
   { scheme: "sigma-app-font", privileges: { secure: true, corsEnabled: true, supportFetchAPI: true, stream: true } },
   { scheme: "sigma-doc-storage", privileges: { secure: true, supportFetchAPI: false, stream: true } },
@@ -1741,6 +1745,7 @@ function registerIpc() {
     dataDir: SIGMA_STUDIO_DATA_PATH,
     localSigmaDocStore,
     localAiResourceStore,
+    localAuthoringStyleStore,
     localAiEditRunLogStore,
     localAiEditChatRoomStore,
     localMcpProposalStore,
@@ -1869,11 +1874,21 @@ app.whenReady().then(async () => {
   }
 });
 
+let authoringStyleFlushedForQuit = false;
+let authoringStyleQuitFlush: Promise<void> | undefined;
 app.on("before-quit", (event) => {
   if (mainWindow && !mainWindow.isDestroyed() && !allowMainWindowClose) {
     event.preventDefault();
     quitAfterMainWindowClose = true;
     mainWindow.close();
+    return;
+  }
+  if (!authoringStyleFlushedForQuit) {
+    event.preventDefault();
+    authoringStyleQuitFlush ??= localAuthoringStyleStore.flush().finally(() => {
+      authoringStyleFlushedForQuit = true;
+      app.quit();
+    });
     return;
   }
   codexAppServerClient.dispose();

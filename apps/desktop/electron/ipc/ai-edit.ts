@@ -16,6 +16,7 @@ import { clearVisualSessionStateFiles, LocalAiEditRunContextStore, prepareAiEdit
 import { LocalAiEditRunLogStore } from "../ai-edit-run-log-store";
 import type { LocalAiRenderBridgeStore } from "../ai-render-bridge";
 import { LocalAiResourceStore } from "../ai-resource-store";
+import type { LocalAuthoringStyleStore } from "../authoring-style-store";
 import { buildClaudeMcpConfig } from "../claude-mcp-config";
 import { runClaudeEditForIpc } from "../claude-edit";
 import type { ClaudeStreamClient } from "../claude-stream-client";
@@ -70,6 +71,7 @@ export interface RegisterAiEditIpcDeps {
   dataDir: string;
   localSigmaDocStore: LocalSigmaDocStore;
   localAiResourceStore: LocalAiResourceStore;
+  localAuthoringStyleStore?: LocalAuthoringStyleStore;
   localAiEditRunLogStore: LocalAiEditRunLogStore;
   localAiEditChatRoomStore: LocalAiEditChatRoomStore;
   localMcpProposalStore: LocalMcpEditProposalStore;
@@ -89,6 +91,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
     dataDir,
     localSigmaDocStore,
     localAiResourceStore,
+    localAuthoringStyleStore,
     localAiEditRunLogStore,
     localAiEditChatRoomStore,
     localMcpProposalStore,
@@ -236,6 +239,13 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
         workspaceIds: [workspaceIdForAiResources],
       });
       const agentWorkspaceDir = localAiResourceStore.getAgentWorkspaceDir(aiResourceProvider, workspaceIdForAiResources);
+      const baseResources = await localAiResourceStore.buildRunContext(aiResourceProvider, getExplicitAiResourceIds(payload), workspaceIdForAiResources);
+      const aiResources = localAuthoringStyleStore ? await localAuthoringStyleStore.augmentRunContext(baseResources, {
+        workspaceId: workspaceIdForAiResources,
+        fileId: proposalFileId,
+        locale,
+        visibleFileIds: new Set((await localSigmaDocStore.listFiles()).filter(file => file.workspaceId === workspaceIdForAiResources).map(file => file.fileId)),
+      }) : baseResources;
       const result = provider === "claude"
         ? await (async () => {
             // Claude is 1-turn-per-spawn and takes its MCP config as a
@@ -248,7 +258,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
               [claudeRunContextStore],
               {
                 claude: claudeStreamClient,
-                aiResources: await localAiResourceStore.buildRunContext("claude", getExplicitAiResourceIds(payload), workspaceIdForAiResources),
+                aiResources,
                 payload,
                 runId,
                 userDataPath,
@@ -300,7 +310,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
               [localGeminiRunContextStore, new LocalAiEditRunContextStore(userDataPath, "antigravity", { runId })],
               {
                 gemini: geminiHeadlessClient,
-                aiResources: await localAiResourceStore.buildRunContext("antigravity", getExplicitAiResourceIds(payload), workspaceIdForAiResources),
+                aiResources,
                 payload,
                 runId,
                 userDataPath,
@@ -322,7 +332,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
             [localChatgptRunContextStore, new LocalAiEditRunContextStore(userDataPath, "chatgpt", { runId })],
             {
               codex: codexAppServerClient,
-              aiResources: await localAiResourceStore.buildRunContext("codex", getExplicitAiResourceIds(payload), workspaceIdForAiResources),
+              aiResources,
               payload,
               runId,
               userDataPath,
