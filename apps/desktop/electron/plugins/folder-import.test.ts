@@ -36,6 +36,10 @@ it("saves canonical JSON with hierarchy and original extension, reloads it, and 
   }
   const report = JSON.parse(await fs.readFile(path.join(result.outputDirectory, "conversion-report.json"), "utf8"));
   expect(report.entries).toEqual(result.entries);
+  for (const entry of result.entries) {
+    const issueReport = JSON.parse(await fs.readFile(path.join(result.outputDirectory, entry.issueReportPath!), "utf8"));
+    expect(issueReport).toEqual({ source: entry.relativePath, issues: [{ code: "notice", detail: "test" }] });
+  }
   expect(JSON.stringify(report)).not.toContain(options.inputDirectory);
   expect(result.entries.every(entry => entry.issueCount === 1 && !("document" in entry))).toBe(true);
   expect(progress.mock.calls.at(-1)?.[0]).toMatchObject({ completed: 3, total: 3 });
@@ -64,7 +68,7 @@ it.each([
 
 it("enforces aggregate output size and refuses raising limits", async () => {
   const { options } = await setup({ "a.smp": "x", "b.smp": "y" });
-  const size = Buffer.byteLength(options.serialize(sampleDocument));
+  const size = Buffer.byteLength(options.serialize(sampleDocument)) + Buffer.byteLength(JSON.stringify({ source: "a.smp", issues: [{ code: "notice", detail: "test" }] }, null, 2));
   const result = await convertFolder({ ...options, limits: { totalOutputBytes: size } });
   expect(result.counts).toEqual({ success: 1, skipped: 0, failed: 1 });
   expect(result.entries.some(entry => entry.reason === "output-total")).toBe(true);
@@ -134,4 +138,19 @@ it("returns results when only the report write fails", async () => {
   expect(result.reportError).toBe("write-failed");
   expect(result.counts.success).toBe(1);
   expect(JSON.stringify(result)).not.toContain("/private/path");
+});
+
+
+it("cleans up the document when saving issue details fails and continues with later files", async () => {
+  const { options } = await setup({ "a.smp": "a", "b.smp": "b" });
+  const original = fs.open.bind(fs);
+  vi.spyOn(fs, "open").mockImplementation(async (...args: Parameters<typeof fs.open>) => {
+    if (String(args[0]).endsWith("conversion-issues/0.json")) throw new Error("disk full");
+    return original(...args);
+  });
+  const result = await convertFolder(options);
+  expect(result.counts).toEqual({ success: 1, skipped: 0, failed: 1 });
+  const failed = result.entries.find(entry => entry.status === "failed")!;
+  await expect(fs.stat(path.join(result.outputDirectory, `${failed.relativePath}.sigma`))).rejects.toThrow();
+  expect(result.entries.find(entry => entry.status === "success")?.issueReportPath).toBe("conversion-issues/1.json");
 });

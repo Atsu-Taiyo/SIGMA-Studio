@@ -47,7 +47,7 @@ export function FolderImportDialog({ progress, result, onClose }: {
               <tbody>{result.entries.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((entry, index) => <tr key={`${page}-${index}`}>
                 <td className={styles.path}>{entry.relativePath}{entry.scope === "subtree" && <small>{t("extensions.folder.subtree")}</small>}</td>
                 <td>{t(`extensions.folder.${entry.status}`)}</td>
-                <td>{t(`extensions.folder.reasons.${entry.reason}`)}{Boolean(entry.issueCount) && <small>{t("extensions.folder.issues", { count: entry.issueCount })}</small>}</td>
+                <td>{t(`extensions.folder.reasons.${entry.reason}`)}{Boolean(entry.issueCount) && <small>{t("extensions.folder.issues", { count: entry.issueCount, path: entry.issueReportPath ?? "conversion-report.json" })}</small>}</td>
               </tr>)}</tbody>
             </table>
           </div>

@@ -790,7 +790,7 @@ export const editor = {
       "status": "結果",
       "reason": "理由",
       "subtree": "配下全体を1項目として集計",
-      "issues": "所見 {{count}}件（教材内に保存）",
+      "issues": "所見 {{count}}件（{{path}}）",
       "success": "成功",
       "skipped": "スキップ",
       "failed": "失敗",

@@ -103,7 +103,10 @@
 単一ファイル成功は従来の `{ ok: true, document, issues, sourceName }`。
 フォルダ成功は `{ ok: true, kind: "folder", jobId, outputDirectory, counts, entries, truncated, reportError? }`。
 `counts` は `success / skipped / failed`、`entries` は相対パス・状態・固定理由コード・
-`scope: "file" | "subtree"`・出力相対パス・所見件数を持つ。成功は保存まで終わった項目だけ。
+`scope: "file" | "subtree"`・出力相対パス・所見件数を持つ。
+所見のcode/detailは教材ごとの `conversion-issues/<番号>.json` に保存し、一覧とレポートに
+その相対パス `issueReportPath` を記録する。所見ファイルも出力サイズ上限に含め、保存できなければ
+その教材を失敗として部分出力を削除する。成功は保存まで終わった項目だけ。
 個々の変換・検証・保存失敗では後続を続ける。全文書の配列はIPCへ返さない。
 `conversion-report.json` は相対パスと理由コードを保存し、レポートだけ保存できなければ
 `reportError: "write-failed"` と一覧を返す。表示用の文章はja/en辞書からUIで組み立てる。

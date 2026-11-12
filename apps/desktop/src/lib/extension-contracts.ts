@@ -76,6 +76,7 @@ export interface FolderImportEntry {
   scope: "file" | "subtree";
   outputPath?: string;
   issueCount?: number;
+  issueReportPath?: string;
 }
 export interface FolderImportProgress {
   phase: "scanning" | "converting";

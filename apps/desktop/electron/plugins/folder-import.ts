@@ -130,7 +130,7 @@ export async function convertFolder(options: ConvertFolderOptions): Promise<Fold
   await fs.chmod(result.outputDirectory, 0o700);
   const output = { root: result.outputDirectory, identity: await fs.lstat(result.outputDirectory) };
   const outputDirectories = new Map<string, Stats>([[output.root, output.identity]]);
-  async function prepareOutput(relativePath: string): Promise<string> {
+  async function prepareOutput(relativePath: string, suffix = ".sigma"): Promise<string> {
     let current = output.root;
     await checkFolderPath(parent.root, parent.identity, output.root);
     await checkFolderPath(output.root, output.identity, output.root);
@@ -143,7 +143,7 @@ export async function convertFolder(options: ConvertFolderOptions): Promise<Fold
       await checkFolderPath(output.root, output.identity, current);
       if (!same(outputDirectories.get(current)!, await fs.lstat(current))) throw new Error("changed");
     }
-    return path.join(output.root, `${relativePath}.sigma`);
+    return path.join(output.root, `${relativePath}${suffix}`);
   }
   let outputBytes = 0;
   for (const candidate of candidates) {
@@ -172,18 +172,32 @@ export async function convertFolder(options: ConvertFolderOptions): Promise<Fold
       if (!converted.ok) { row(candidate.relativePath, "failed", converted.error, "file"); continue; }
       reason = "output-size";
       const text = options.serialize(converted.document);
-      const size = Buffer.byteLength(text, "utf8");
+      const issueText = converted.issues.length ? JSON.stringify({ source: candidate.relativePath, issues: converted.issues }, null, 2) : null;
+      const size = Buffer.byteLength(text, "utf8") + (issueText ? Buffer.byteLength(issueText, "utf8") : 0);
       if (size > limits.outputBytes) throw new Error("output-size");
       reason = "output-total";
       if (outputBytes + size > limits.totalOutputBytes) throw new Error("output-total");
       reason = "write-failed";
-      const filename = await prepareOutput(candidate.relativePath);
-      const destination = await fs.open(filename, "wx", 0o600);
-      try { await destination.writeFile(text); }
-      catch (error) { await fs.unlink(filename).catch(() => {}); throw error; }
-      finally { await destination.close(); }
+      const created: string[] = [];
+      const issueReportPath = issueText ? `conversion-issues/${completed}.json` : undefined;
+      const write = async (filename: string, content: string) => {
+        const destination = await fs.open(filename, "wx", 0o600);
+        created.push(filename);
+        try { await destination.writeFile(content); } finally { await destination.close(); }
+      };
+      try {
+        await write(await prepareOutput(candidate.relativePath), text);
+        if (issueText && issueReportPath) await write(await prepareOutput(issueReportPath, ""), issueText);
+      } catch (error) {
+        // Only our exclusive creations are removed; existing collisions remain untouched.
+        for (const filename of created) await fs.unlink(filename).catch(() => {});
+        throw error;
+      }
       outputBytes += size;
-      row(candidate.relativePath, "success", "converted", "file", { outputPath: `${candidate.relativePath}.sigma`, issueCount: converted.issues.length });
+      row(candidate.relativePath, "success", "converted", "file", {
+        outputPath: `${candidate.relativePath}.sigma`, issueCount: converted.issues.length,
+        ...(issueReportPath ? { issueReportPath } : {}),
+      });
     } catch { row(candidate.relativePath, "failed", reason, "file"); }
     finally { completed += 1; progress("converting"); }
   }

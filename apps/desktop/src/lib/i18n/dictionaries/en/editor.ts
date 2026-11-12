@@ -731,7 +731,7 @@ export const editor = {
       "status": "Result",
       "reason": "Reason",
       "subtree": "Entire subtree counted as one entry",
-      "issues": "{{count}} issues (saved in material)",
+      "issues": "{{count}} issues ({{path}})",
       "success": "Success",
       "skipped": "Skipped",
       "failed": "Failed",
