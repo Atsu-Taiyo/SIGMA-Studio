@@ -30,6 +30,7 @@ import { LocalMaterialStore } from "../electron/local-material-store";
 import { LocalMcpEditProposalStore } from "../electron/local-sigma-doc-proposal-store";
 import { LocalAiRenderBridgeStore, SIGMA_STUDIO_RENDER_BRIDGE_FILE_ENV } from "../electron/ai-render-bridge";
 import { LocalSigmaDocStore } from "../electron/local-sigma-doc-store";
+import { LocalAuthoringStyleStore } from "../electron/authoring-style-store";
 import { groupMcpProposalsForPreview } from "@/components/editor/ai-edit-preview-types";
 import {
   getOverlayTextBlocksLabelText,
@@ -148,6 +149,7 @@ const DOCUMENTED_TOOL_NAMES = [
   "render_visual_edit_session",
   "review_visual_edit_session",
   "save_ai_resource",
+  "update_authoring_style_memory",
   "search_document",
   "search_library",
   "update_ai_settings",
@@ -5861,6 +5863,26 @@ describe("save_ai_resource / delete_ai_resource / update_ai_settings", () => {
       }
     }
     await fs.rm(userDataDir, { recursive: true, force: true });
+  });
+
+  it("synthesizes authoring memory through MCP without changing documents or manual notes", async () => {
+    const documents = new LocalSigmaDocStore(userDataDir);
+    const file = (await documents.listFiles())[0];
+    const before = (await documents.loadDocument(file.fileId))!;
+    const after = { ...before, content: [{ type: "paragraph" as const, id: "learned", children: [{ type: "text" as const, text: "値を求めよ。" }] }] };
+    const memory = new LocalAuthoringStyleStore(userDataDir, () => documents.listFiles());
+    memory.observe({ file, previousDocument: before, document: after, origin: "user" });
+    let profile = await memory.getProfile(file.workspaceId);
+    profile = await memory.saveProfile({ workspaceId: file.workspaceId, content: "作者のメモ", expectedRevision: profile.revision });
+    const arguments_ = { fileId: file.fileId, scope: "workspace", summary: "# 書き方\n設問を短い常体で書く。まだ実例は少ない。", evidenceRevision: profile.evidenceRevision };
+    expect(extractPayload(await client.callTool({ name: "update_authoring_style_memory", arguments: arguments_ }))).toMatchObject({ ok: true });
+    profile = await memory.getProfile(file.workspaceId);
+    expect(profile.generatedContent).toBe(arguments_.summary);
+    expect(profile.needsSynthesis).toBe(false);
+    expect(profile.userContent).toBe("作者のメモ");
+    expect((await documents.loadDocument(file.fileId))!.content).toEqual(before.content);
+    await memory.setEnabled(file.workspaceId, false);
+    expect((await client.callTool({ name: "update_authoring_style_memory", arguments: arguments_ })).isError).toBe(true);
   });
 
   it("save_ai_resource creates then updates a skill", async () => {

@@ -70,6 +70,7 @@ import { registerTikzIpc } from "./ipc/tikz";
 import { assertUsableCliBinPath } from "./cli-spawn";
 import { registerCodexIpc } from "./ipc/codex";
 import { registerAiEditIpc } from "./ipc/ai-edit";
+import { registerAuthoringStyleIpc } from "./ipc/authoring-style";
 import { registerAiResourcesIpc } from "./ipc/ai-resources";
 import { registerFileIpc } from "./ipc/file";
 import { ApplicationFontStore } from "./application-font-store";
@@ -192,7 +193,7 @@ let stopLocalStoreWatch: (() => void) | null = null;
 let stopLocalProposalWatch: (() => void) | null = null;
 let stopAiResourceWatch: (() => void) | null = null;
 let stopAiSettingsWatch: (() => void) | null = null;
-const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH);
+const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH, () => localSigmaDocStore.listFiles());
 const localSigmaDocStore = new LocalSigmaDocStore(USER_DATA_PATH, {
   onDocumentSaved: event => localAuthoringStyleStore.observe(event),
 });
@@ -1758,6 +1759,8 @@ function registerIpc() {
     resolveMcpServerScriptPath,
     pendingRenderDocuments,
   });
+
+  registerAuthoringStyleIpc(localAuthoringStyleStore);
 
   registerAiResourcesIpc({
     localAiResourceStore,

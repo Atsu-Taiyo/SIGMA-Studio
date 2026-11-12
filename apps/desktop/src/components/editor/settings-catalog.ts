@@ -167,6 +167,24 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
   },
   // --- AI リソース (AiSettingsDialog) ---
   {
+    id: "settings.aiResources.globalStyle",
+    surface: "aiResources",
+    anchorId: "ai-settings-global-style",
+    surfaceState: "global-style",
+    labelKey: "authoringStyle.title",
+    descriptionKey: "authoringStyle.description",
+    keywordsKey: "catalog.keywords.instructions",
+  },
+  {
+    id: "settings.aiResources.workspaceStyle",
+    surface: "aiResources",
+    anchorId: "ai-settings-workspace-style",
+    surfaceState: "workspace-style",
+    labelKey: "authoringStyle.title",
+    descriptionKey: "authoringStyle.description",
+    keywordsKey: "catalog.keywords.instructions",
+  },
+  {
     id: "settings.aiResources.globalInstructions",
     surface: "aiResources",
     anchorId: "ai-settings-global-instructions",

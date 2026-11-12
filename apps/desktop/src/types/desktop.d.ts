@@ -962,6 +962,7 @@ export interface DesktopAPI {
   claude?: DesktopClaudeAPI;
   gemini?: DesktopGeminiAPI;
   aiEdit: DesktopAiEditAPI;
+  authoringStyle?: import("@/lib/ai/authoring-style").AuthoringStyleAPI;
   aiResources?: DesktopAiResourcesAPI;
   aiSkillDraft?: DesktopAiSkillDraftAPI;
   file: DesktopFileAPI;

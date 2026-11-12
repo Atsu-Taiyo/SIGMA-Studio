@@ -385,6 +385,12 @@ const desktopAPI = {
     },
   },
 
+  authoringStyle: {
+    read: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:read", workspaceId),
+    save: (input: unknown) => ipcRenderer.invoke("authoring-style:save", input),
+    setEnabled: (workspaceId: string | null, enabled: boolean) => ipcRenderer.invoke("authoring-style:set-enabled", workspaceId, enabled),
+    reset: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:reset", workspaceId),
+  },
   aiResources: {
     getTree(): Promise<unknown> {
       return ipcRenderer.invoke("ai-resources:get-tree");

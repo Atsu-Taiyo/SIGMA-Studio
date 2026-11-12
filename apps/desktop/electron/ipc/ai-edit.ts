@@ -244,7 +244,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
         workspaceId: workspaceIdForAiResources,
         fileId: proposalFileId,
         locale,
-        visibleFileIds: new Set((await localSigmaDocStore.listFiles()).filter(file => file.workspaceId === workspaceIdForAiResources).map(file => file.fileId)),
+        visibleFileIds: new Set((await localSigmaDocStore.listFiles()).filter(file => file.workspaceId === workspaceIdForAiResources && !file.sharing && !file.sharingPending).map(file => file.fileId)),
       }) : baseResources;
       const result = provider === "claude"
         ? await (async () => {

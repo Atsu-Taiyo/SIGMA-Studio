@@ -41,7 +41,7 @@ describe("automatic authoring style", () => {
     const restarted = new LocalAuthoringStyleStore(root);
     for (const provider of ["codex", "claude", "antigravity"] as const) {
       const resources = await restarted.augmentRunContext(context(provider), { ...input, workspaceId: file.workspaceId, fileId: file.fileId, visibleFileIds: new Set([file.fileId]) });
-      expect(resources.always).toHaveLength(1);
+      expect(resources.always).toHaveLength(2);
       for (const isResumedTurn of [false, true]) {
         const prompt = buildMcpEditPrompt({ provider, fileId: file.fileId, instruction: "次の問題を作って", locale: "ja", aiResources: resources, isResumedTurn });
         expect(prompt).toContain("値を求めなさい。");
@@ -60,7 +60,7 @@ describe("automatic authoring style", () => {
     expect((await documents.saveDocument(file.fileId, document("失敗した編集"), { expectedRevision: file.revision })).ok).toBe(false);
     store.observe({ ...event(before, document("復元された文")), origin: "restore-backup" });
     store.observe(event(before, { ...before, updatedAt: "2026-10-25T00:00:00Z" }));
-    expect((await store.augmentRunContext(context(), { ...input, workspaceId: file.workspaceId, visibleFileIds: new Set([file.fileId]) })).always).toEqual([]);
+    expect((await store.augmentRunContext(context(), { ...input, workspaceId: file.workspaceId, fileId: file.fileId, visibleFileIds: new Set([file.fileId]) })).always).toEqual([]);
   });
 
   it("coalesces autosaves into one correction and removes an undone preference", async () => {
@@ -84,7 +84,7 @@ describe("automatic authoring style", () => {
     after.content[0].hints = [{ type: "paragraph", id: "hint", children: [{ type: "text", text: "両辺の符号に注意。", marks: ["bold"] }, { type: "mathInline", id: "math", tex: "x \\geqq 0", display: "inline" }] }];
     store.observe(event(before, after));
     const resource = (await store.augmentRunContext(context(), { ...input, locale: "en" })).always[0];
-    const examples = JSON.parse(resource.content!.split("\n").slice(1).join("\n"));
+    const examples = JSON.parse(resource.content!.split("\n").slice(1).join("\n")).filter((e: { after?: { area: string } }) => e.after?.area !== "structure");
     expect(examples[0]).toMatchObject({ before: null, after: { area: "hints", context: "不等式を解け。" } });
     expect(examples[0].after.format).toContain("bold");
     expect(JSON.parse(examples[0].after.format).runs[1].tex).toBe("x \\geqq 0");
@@ -96,11 +96,11 @@ describe("automatic authoring style", () => {
     store.observe(event(document("短い文"), document("長".repeat(2000)), 3));
     const base = context();
     base.always.push({ id: "user", kind: "instruction", loadMode: "always", title: "user", description: "", tags: [], content: "ユーザーの指示" });
-    expect((await store.augmentRunContext(base, { ...input, workspaceId: "ws2" })).always).toEqual(base.always);
+    expect((await store.augmentRunContext(base, { ...input, workspaceId: "ws2" })).always.at(-1)?.content).not.toContain('"after"');
     expect((await store.augmentRunContext(base, { ...input, visibleFileIds: new Set() })).always).toEqual(base.always);
     expect((await store.augmentRunContext(base, { ...input, workspaceId: null })).always).toEqual(base.always);
     const learned = await store.augmentRunContext(base, input);
-    expect(learned.always).toHaveLength(2);
+    expect(learned.always).toHaveLength(3);
     expect(learned.always[0]).toEqual(base.always[0]);
     expect(base.always).toHaveLength(1);
     expect(learned.always[1].content).not.toContain("短い文");
@@ -126,7 +126,7 @@ describe("automatic authoring style", () => {
     expect(learned.always[0].content).toContain("AIの説明です。");
     expect(learned.always[0].content).toContain("ここで符号に注意する。");
     await documents.withLocalLibrary(() => documents.saveDocument(file.fileId, document("他の参加者の文章"), { expectedRevision: file.revision + 2 }));
-    const afterSync = await store.augmentRunContext(context(), { ...input, workspaceId: file.workspaceId, visibleFileIds: new Set([file.fileId]) });
+    const afterSync = await store.augmentRunContext(context(), { ...input, workspaceId: file.workspaceId, fileId: file.fileId, visibleFileIds: new Set([file.fileId]) });
     expect(afterSync.always[0].content).not.toContain("他の参加者の文章");
   });
 
@@ -151,5 +151,93 @@ describe("automatic authoring style", () => {
     await fs.writeFile(path.join(root, "data/ai-authoring-style/examples.json"), "{broken");
     expect((await store.augmentRunContext(context(), input)).always).toEqual([]);
     expect(await fs.readFile(path.join(root, "data/logs/ledger.log"), "utf8")).toContain("authoring-style-read-failed");
+  });
+
+  it("creates Markdown observations from independent corrections, not repeated autosaves", async () => {
+    store.observe(event(document("求めなさい。"), document("求めよ。")));
+    let profile = await store.getProfile("ws1");
+    expect(profile.generatedContent).not.toContain("設問の語尾は");
+    const second = event(document("計算しなさい。"), document("面積を求めよ。"));
+    second.file.fileId = "f2";
+    store.observe(second);
+    profile = await store.getProfile("ws1");
+    expect(profile.generatedContent).toContain("設問の語尾は「求めよ。」");
+    expect(await fs.readFile(profile.generatedPath, "utf8")).toBe(profile.generatedContent);
+    expect((await store.getProfile(null)).generatedContent).toContain("設問の語尾は");
+    store.observe({ ...event(second.document, document("面積を求めよ。理由も述べよ。"), 3), file: { ...second.file, revision: 3 } });
+    await store.flush();
+    expect((await store.getProfile("ws1")).exampleCount).toBe(2);
+  });
+
+  it("preserves manual Markdown, detects external edits, and resets only learned data", async () => {
+    store.observe(event(document("前"), document("後")));
+    let profile = await store.getProfile("ws1");
+    profile = await store.saveProfile({ workspaceId: "ws1", content: "# 優先\n解説は常体で。", expectedRevision: profile.revision });
+    const stale = profile.revision;
+    await fs.writeFile(profile.userPath, "# 手編集\n句点を使う。", "utf8");
+    await expect(store.saveProfile({ workspaceId: "ws1", content: "上書き", expectedRevision: stale })).rejects.toThrow("changed");
+    await fs.writeFile(profile.generatedPath, "# 自分で直した特徴", "utf8");
+    store.observe(event(document("後"), document("次の文章"), 3));
+    profile = await store.getProfile("ws1");
+    expect(profile.generatedEdited).toBe(true);
+    expect(profile.generatedContent).toBe("# 自分で直した特徴");
+    const restarted = new LocalAuthoringStyleStore(root);
+    expect((await restarted.getProfile("ws1")).userContent).toContain("# 手編集");
+    profile = await store.reset("ws1");
+    expect(profile.exampleCount).toBe(0);
+    expect(profile.generatedContent).toBe("");
+    expect(profile.userContent).toContain("# 手編集");
+  });
+
+  it("pauses both collection and use globally or per workspace, including after restart", async () => {
+    await store.setEnabled("ws1", false);
+    store.observe(event(document("前"), document("無効中の編集")));
+    expect((await store.getProfile("ws1")).exampleCount).toBe(0);
+    expect((await store.augmentRunContext(context(), input)).always).toEqual([]);
+    await store.setEnabled("ws1", true);
+    store.observe(event(document("前"), document("後"), 3));
+    expect((await store.getProfile("ws1")).exampleCount).toBe(1);
+    await store.setEnabled(null, false);
+    const restarted = new LocalAuthoringStyleStore(root);
+    restarted.observe(event(document("後"), document("全体で無効中"), 4));
+    await restarted.flush();
+    expect((await restarted.augmentRunContext(context(), input)).always).toEqual([]);
+    await restarted.setEnabled(null, true);
+    expect((await restarted.augmentRunContext(context(), input)).always[0].content).not.toContain("無効中");
+  });
+
+  it("prunes deleted, shared and moved evidence before deriving notes or accepting AI summaries", async () => {
+    let files = [event(document("前"), document("後")).file];
+    const tracked = new LocalAuthoringStyleStore(root, async () => files);
+    tracked.observe(event(document("前"), document("後")));
+    const profile = await tracked.getProfile("ws1");
+    expect(profile.needsSynthesis).toBe(true);
+    await tracked.synthesize({ fileId: "f1", scope: "workspace", summary: "# 特徴\n短い常体を使う。", evidenceRevision: profile.evidenceRevision });
+    const restarted = new LocalAuthoringStyleStore(root, async () => files);
+    expect((await restarted.getProfile("ws1")).generatedContent).toContain("短い常体");
+    expect((await restarted.getProfile("ws1")).needsSynthesis).toBe(false);
+    files = [{ ...files[0], workspaceId: "moved" }];
+    expect((await restarted.getProfile("ws1")).generatedContent).toBe("");
+    await expect(restarted.synthesize({ fileId: "f1", scope: "workspace", summary: "古い実例", evidenceRevision: profile.evidenceRevision })).rejects.toThrow("changed");
+    files = [];
+    expect((await restarted.getProfile(null)).generatedContent).toBe("");
+    expect((await restarted.augmentRunContext(context(), { ...input, visibleFileIds: new Set() })).always).toEqual([]);
+  });
+
+  it("rejects stale AI summaries, honors edited generated notes, and bounds every injected resource", async () => {
+    const tracked = new LocalAuthoringStyleStore(root, async () => [event(document("前"), document("後")).file]);
+    tracked.observe(event(document("前"), document("後")));
+    const profile = await tracked.getProfile("ws1");
+    await expect(tracked.synthesize({ fileId: "f1", scope: "workspace", summary: "古い特徴", evidenceRevision: "0".repeat(64) })).rejects.toThrow("changed");
+    await fs.writeFile(profile.generatedPath, "手動の特徴");
+    await expect(tracked.synthesize({ fileId: "f1", scope: "workspace", summary: "AIの特徴", evidenceRevision: profile.evidenceRevision })).rejects.toThrow("manually edited");
+    for (const workspaceId of [null, "ws1"]) {
+      const p = await tracked.getProfile(workspaceId);
+      await tracked.saveProfile({ workspaceId, content: "\n".repeat(3000), expectedRevision: p.revision });
+    }
+    const resources = await tracked.augmentRunContext(context(), input);
+    for (const resource of resources.always) expect(resource.content!.length).toBeLessThan(12_000);
+    const memory = resources.always.find(r => r.id === "authoring-style-memory")!;
+    expect(JSON.parse(memory.content!.split("\n").slice(1).join("\n"))).toHaveProperty("references.0.fileId", "f1");
   });
 });

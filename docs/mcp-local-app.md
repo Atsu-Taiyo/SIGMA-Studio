@@ -29,6 +29,7 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 `(Codexのみ)` と付けた画像ツールは、`SIGMA_STUDIO_MCP_PROVIDER=chatgpt` で起動したときだけ公開します(後述の `SIGMA_STUDIO_MCP_PROVIDER` の説明を参照)。
 
 - `get_local_app_status` - ローカル保存先を確認します。
+- `update_authoring_style_memory` - 保存した手編集の実例から、語尾・文体・解答解説・構成を要約した自動スタイルメモを更新します。手動メモ・共有教材は変更せず、実例の版と無効化を確認します。教材への提案は作りません。
 - `save_ai_resource` - Studio管理下のAIリソース(skill/instruction)を新規作成または更新します。skillは常にアプリ全体スコープ(全ワークスペースで使用)・全プロバイダ(Codex/Claude/Antigravity)向けに保存されます。`kind:"instruction"` はnameに既存の `global-instructions` のみ指定できます。
 - `delete_ai_resource` - Studio管理下のskillをnameで削除します。ユーザーが明示的に削除を依頼した場合のみ使用してください。
 - `update_ai_settings` - `aiAutoApplyVerifiedProposals` / `aiWebSearchEnabled` を部分更新します。変更内容は必ずユーザーへ報告してください。

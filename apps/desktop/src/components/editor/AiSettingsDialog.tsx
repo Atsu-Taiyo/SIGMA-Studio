@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Plus } from "lucide-react";
 
+import { AuthoringStylePane } from "./AuthoringStylePane";
 import { ChatPromptField } from "./ChatPromptField";
 import { DesktopSettingsModal } from "./DesktopSettingsModal";
 import { Button, IconButton } from "@/components/ui/Button";
@@ -32,7 +33,7 @@ export interface AiSettingsDialogProps {
   focusEntryId?: string;
 }
 
-type NavSection = "ai-runtime" | "global-instructions" | "global-skills" | "workspace-instructions" | "workspace-skills";
+type NavSection = "global-style" | "workspace-style" | "ai-runtime" | "global-instructions" | "global-skills" | "workspace-instructions" | "workspace-skills";
 
 const DESCRIPTION_MAX_LENGTH = 250;
 const CONTENT_MAX_LENGTH = 12_000;
@@ -173,6 +174,7 @@ function AiSettingsBody({ onClose, activeWorkspaceId, focusEntryId }: { onClose:
             </Stack>
             <Stack className="ai-settings-nav-group" gap="xs">
               <p className="ai-settings-nav-caption">{t("ai.scopeGlobal")}</p>
+              {bridge.authoringStyle && <Button tone="ghost" size="sm" className={`ai-settings-nav-button ${section === "global-style" ? "active" : ""}`} aria-pressed={section === "global-style"} onClick={() => selectSection("global-style")}>{t("authoringStyle.title")}</Button>}
               <Button
                 tone="ghost"
                 size="sm"
@@ -197,6 +199,7 @@ function AiSettingsBody({ onClose, activeWorkspaceId, focusEntryId }: { onClose:
 
             <Stack className="ai-settings-nav-group" gap="xs">
               <p className="ai-settings-nav-caption">{t("ai.scopeWorkspace")}</p>
+              {bridge.authoringStyle && <Button tone="ghost" size="sm" className={`ai-settings-nav-button ${section === "workspace-style" ? "active" : ""}`} aria-pressed={section === "workspace-style"} onClick={() => selectSection("workspace-style")}>{t("authoringStyle.title")}</Button>}
               {workspaces.length > 0 && (
                 <Button
                   tone="secondary"
@@ -236,6 +239,10 @@ function AiSettingsBody({ onClose, activeWorkspaceId, focusEntryId }: { onClose:
                 取得完了(tree非null)までコンテンツは出さない(通常は一瞬)。 */}
             {tree === null ? <AiSettingsLoading /> : (
             <>
+            {section === "global-style" && bridge.authoringStyle && <AuthoringStylePane id="ai-settings-global-style" key="global-style" api={bridge.authoringStyle} workspaceId={null} />}
+            {section === "workspace-style" && bridge.authoringStyle && (selectedWorkspaceId
+              ? <AuthoringStylePane id="ai-settings-workspace-style" key={`workspace-style-${selectedWorkspaceId}`} api={bridge.authoringStyle} workspaceId={selectedWorkspaceId} />
+              : <p>{t("ai.selectWorkspaceHint")}</p>)}
             {section === "ai-runtime" && (
               <DesktopSettingsModal
                 open

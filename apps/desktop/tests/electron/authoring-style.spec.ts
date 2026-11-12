@@ -97,6 +97,30 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     expect(restartedPrompt).toContain("automatic-authoring-style");
     expect(restartedPrompt).toContain("値を求めよ。");
     expect(restartedPrompt).toContain("理由も述べよ。");
+
+    await page.getByRole("button", { name: "AI", exact: true }).click();
+    await page.getByRole("menuitem", { name: "AI設定", exact: true }).click();
+    const settings = page.getByRole("dialog", { name: "AI設定", exact: true });
+    await settings.getByRole("button", { name: "書き方の学習", exact: true }).first().click();
+    await settings.getByLabel("優先するメモ（Markdown）").fill("# 書き方\n解答は常体で短く書く。");
+    await settings.getByRole("button", { name: "メモを保存", exact: true }).click();
+    await expect(settings.getByRole("button", { name: "メモを保存", exact: true })).toBeDisabled();
+    await settings.getByRole("button", { name: "読み直す", exact: true }).click();
+    await expect(settings.getByLabel("優先するメモ（Markdown）")).toHaveValue("# 書き方\n解答は常体で短く書く。");
+    await settings.getByRole("switch", { name: "書き方を学習してAIに使う" }).click();
+    await expect(settings.getByRole("switch")).not.toBeChecked();
+    await runAi(page, file.fileId);
+    expect((await readFile(capture, "utf8")).trim().split("\n").at(-1)).not.toContain("authoring-style-memory");
+    await settings.getByRole("switch").click();
+    await expect(settings.getByRole("switch")).toBeChecked();
+    await page.screenshot({ path: testInfo.outputPath("authoring-style-settings.png") });
+    await settings.getByRole("button", { name: "学習をリセット", exact: true }).click();
+    await page.getByRole("dialog", { name: "学習をリセット", exact: true }).getByRole("button", { name: "学習をリセット", exact: true }).click();
+    await expect(settings.getByLabel("自動で学んだ特徴")).toHaveValue("");
+    const memory = await page.evaluate(() => window.desktopAPI!.authoringStyle!.read(null));
+    expect(memory.exampleCount).toBe(0);
+    expect(memory.userContent).toContain("解答は常体");
+    await expect.poll(() => readFile(memory.userPath, "utf8")).toContain("解答は常体");
   } finally {
     await app?.close().catch(() => {});
     await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
