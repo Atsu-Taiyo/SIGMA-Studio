@@ -245,7 +245,7 @@ jobs:
               tests/electron/list-items.spec.ts tests/electron/list-indent.spec.ts tests/electron/preferred-font.spec.ts \
               tests/electron/running-region-resize.spec.ts tests/electron/new-document-page-setup.spec.ts \
               tests/electron/running-region-insertion-layout.spec.ts \
-              tests/electron/usage-guide.spec.ts
+              tests/electron/usage-guide.spec.ts tests/electron/tiff-image-import.spec.ts
           '
       - uses: actions/upload-artifact@v7
         if: failure()
