@@ -85,6 +85,15 @@ async function convertTiffToPng(file: File): Promise<File> {
   if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0 || width * height > 40_000_000) {
     throw new Error("Invalid or oversized TIFF image");
   }
+  // UTIF divides by tile dimensions and loops over that result. A zero tile
+  // width/height can otherwise turn a tiny malformed TIFF into an infinite loop.
+  if (page.t322 || page.t323) {
+    const tileWidth = Number(Array.isArray(page.t322) ? page.t322[0] : 0);
+    const tileHeight = Number(Array.isArray(page.t323) ? page.t323[0] : 0);
+    if (!Number.isSafeInteger(tileWidth) || !Number.isSafeInteger(tileHeight) || tileWidth <= 0 || tileHeight <= 0 || tileWidth * tileHeight > 40_000_000) {
+      throw new Error("Invalid or oversized TIFF tile");
+    }
+  }
   decodeImage(buffer, page);
   const pixels = toRGBA8(page);
   if (!page.data || pixels.length !== width * height * 4) throw new Error("Invalid TIFF pixels");

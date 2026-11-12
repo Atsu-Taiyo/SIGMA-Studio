@@ -68,6 +68,24 @@ describe("overlay image browser decoding", () => {
     expect(identifiers.asset).not.toHaveBeenCalled();
   });
 
+  it.each([[0, 1], [1, 0], [100_000, 100_000]])("rejects invalid tile dimensions %s x %s before UTIF decompression", async (tileWidth, tileHeight) => {
+    const buffer = encodeImage(new Uint8Array(8), 2, 1);
+    const view = new DataView(buffer);
+    const offset = view.getUint32(4);
+    const count = view.getUint16(offset);
+    for (let i = 0; i < count; i++) {
+      const entry = offset + 2 + i * 12;
+      const tag = view.getUint16(entry);
+      if (tag === 278 || tag === 282) {
+        view.setUint16(entry, tag === 278 ? 322 : 323);
+        view.setUint16(entry + 2, 4); view.setUint32(entry + 4, 1);
+        view.setUint32(entry + 8, tag === 278 ? tileWidth : tileHeight);
+      }
+    }
+    await expect(createOverlayImageAsset(new File([buffer], "invalid-tile.tif"))).rejects.toThrow("Invalid or oversized TIFF tile");
+    expect(identifiers.asset).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])("rejects truncated or unbounded directory values before decoding (little endian: %s)", async little => {
     const buffer = new ArrayBuffer(26);
     const view = new DataView(buffer);
