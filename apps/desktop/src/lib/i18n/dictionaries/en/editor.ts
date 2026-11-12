@@ -719,6 +719,8 @@ export const editor = {
   },
   extensions: {
     run: {
+      loadingTitle: "Loading material…",
+      loadingDescription: "Large materials may take a while. Please wait.",
       running: "Importing with the extension…",
       error: {
         busy: "Another import is running. Try again when it finishes.",

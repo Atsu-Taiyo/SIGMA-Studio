@@ -91,6 +91,7 @@ export class DownloadTracker {
       download.totalBytes = item.getTotalBytes() || download.receivedBytes;
       download.state = state;
       this.items.delete(id);
+      this.trim();
       this.emit(true);
       if (state === "completed") this.options.onCompleted?.({ ...download });
     });
@@ -129,10 +130,10 @@ export class DownloadTracker {
   }
 
   private trim(): void {
-    while (this.downloads.length > MAX_HISTORY) {
-      const oldest = this.downloads[this.downloads.length - 1];
-      if (oldest.state === "progressing") break;
-      this.downloads.pop();
+    for (let index = this.downloads.length - 1; this.downloads.length > MAX_HISTORY && index >= 0; index--) {
+      // updated/interrupted can resume; done/interrupted is terminal. The live
+      // item map distinguishes them even though their displayed state matches.
+      if (!this.items.has(this.downloads[index].id)) this.downloads.splice(index, 1);
     }
   }
 

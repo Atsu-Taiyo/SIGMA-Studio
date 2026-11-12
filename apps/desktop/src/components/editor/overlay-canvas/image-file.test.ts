@@ -1,3 +1,4 @@
+import { encode, encodeImage } from "utif";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const identifiers = vi.hoisted(() => ({ asset: vi.fn(), shape: vi.fn() }));
@@ -45,6 +46,72 @@ async function completeRead(dataUrl = "data:image/png;base64,AA==") {
 }
 
 describe("overlay image browser decoding", () => {
+  it("rejects invalid TIFF bytes before allocating an asset or a fallback image", async () => {
+    await expect(createOverlayImageAsset(new File(["not a TIFF"], "broken.tif"))).rejects.toThrow("Invalid TIFF header");
+    expect(identifiers.asset).not.toHaveBeenCalled();
+    expect(FileReaderStub.instances).toHaveLength(0);
+    expect(ImageStub.instances).toHaveLength(0);
+  });
+
+  it("rejects an oversized TIFF from its header before allocating pixels", async () => {
+    const buffer = encode([{ t256: [100_000], t257: [100_000] } as unknown as Parameters<typeof encode>[0][number]]);
+    await expect(createOverlayImageAsset(new File([buffer], "huge.tiff", { type: "image/tiff" }))).rejects.toThrow("Invalid or oversized TIFF image");
+    expect(identifiers.asset).not.toHaveBeenCalled();
+  });
+
+  it("rejects a minimal cyclic TIFF without hanging or allocating an asset", async () => {
+    const buffer = new ArrayBuffer(14);
+    const view = new DataView(buffer);
+    view.setUint16(0, 0x4949); view.setUint16(2, 42, true);
+    view.setUint32(4, 8, true); view.setUint32(10, 8, true);
+    await expect(createOverlayImageAsset(new File([buffer], "cycle.tif"))).rejects.toThrow("Invalid or oversized TIFF image");
+    expect(identifiers.asset).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("rejects truncated or unbounded directory values before decoding (little endian: %s)", async little => {
+    const buffer = new ArrayBuffer(26);
+    const view = new DataView(buffer);
+    view.setUint16(0, little ? 0x4949 : 0x4d4d);
+    view.setUint16(2, 42, little); view.setUint32(4, 8, little);
+    view.setUint16(8, 1, little); view.setUint16(10, 256, little);
+    view.setUint16(12, 4, little); view.setUint32(14, 0xffffffff, little);
+    await expect(createOverlayImageAsset(new File([buffer], "bad.tif"))).rejects.toThrow("Invalid TIFF directory value");
+    expect(identifiers.asset).not.toHaveBeenCalled();
+  });
+
+  it.each(["plain", "cyclic page", "cyclic metadata"])("decodes first TIFF page safely into PNG: %s", async variant => {
+    const pixels = new Uint8Array([255, 0, 0, 255, 0, 0, 255, 255]);
+    const canvas = { width: 0, height: 0, getContext: vi.fn(), toBlob: vi.fn() };
+    const imageData = { data: new Uint8ClampedArray(8) };
+    const context = { createImageData: vi.fn(() => imageData), putImageData: vi.fn() };
+    canvas.getContext.mockReturnValue(context);
+    canvas.toBlob.mockImplementation((callback: (blob: Blob) => void) => callback(new Blob(["PNG pixels"], { type: "image/png" })));
+    vi.stubGlobal("document", { createElement: vi.fn(() => canvas) });
+    const encoded = encodeImage(pixels, 2, 1);
+    const view = new DataView(encoded);
+    const offset = view.getUint32(4);
+    const entries = view.getUint16(offset);
+    if (variant === "cyclic page") view.setUint32(offset + 2 + entries * 12, offset);
+    if (variant === "cyclic metadata") {
+      // Replace an optional resolution tag with a SubIFD that refers to itself.
+      const entry = Array.from({ length: entries }, (_, i) => offset + 2 + i * 12)
+        .find(entry => view.getUint16(entry) === 282)!;
+      view.setUint16(entry, 330); view.setUint16(entry + 2, 4);
+      view.setUint32(entry + 4, 1); view.setUint32(entry + 8, offset);
+    }
+    const pending = createOverlayImageAsset(new File([encoded], "scan.tif", { type: "image/tiff" }));
+    await vi.waitFor(() => expect(FileReaderStub.instances).toHaveLength(1));
+    expect(imageData.data).toEqual(new Uint8ClampedArray(pixels));
+    expect(context.putImageData).toHaveBeenCalledWith(imageData, 0, 0);
+    expect(canvas).toMatchObject({ width: 2, height: 1 });
+    expect(FileReaderStub.instances[0].file).toMatchObject({ type: "image/png", size: 10 });
+    await completeRead();
+    ImageStub.instances[0].naturalWidth = 2;
+    ImageStub.instances[0].naturalHeight = 1;
+    ImageStub.instances[0].onload!();
+    expect((await pending).props).toMatchObject({ name: "scan.tif", mimeType: "image/png", fileSize: 10, w: 2, h: 1 });
+  });
+
   it("waits for file bytes and image dimensions before allocating asset and shape IDs", async () => {
     const file = new File(["bytes"], "picture.png", { type: "image/png" });
     const decoding = createOverlayImageEntry(file, { w: 800, h: 600 });

@@ -115,6 +115,33 @@ describe("DownloadTracker", () => {
     expect(tracker.list()).toHaveLength(1);
   });
 
+  it("keeps an interrupted download visible when the history limit is reached, through resume and completion", () => {
+    const { tracker, progress } = setup();
+    const interrupted = new FakeItem("interrupted.bin");
+    const { id } = tracker.track(interrupted);
+    interrupted.received = 10;
+    interrupted.emit("updated", {}, "interrupted");
+
+    for (let index = 0; index < 50; index++) {
+      const item = new FakeItem(`finished-${index}.txt`);
+      tracker.track(item);
+      item.emit("done", {}, "completed");
+    }
+
+    expect(tracker.list().find(download => download.id === id)?.state).toBe("interrupted");
+    expect(tracker.list()).toHaveLength(50);
+    expect(progress.at(-1)).toBeCloseTo(0.1);
+    tracker.clearFinished();
+    expect(tracker.list().map(download => download.id)).toEqual([id]);
+    interrupted.received = 60;
+    interrupted.emit("updated", {}, "progressing");
+    expect(tracker.list()[0]).toMatchObject({ id, state: "progressing", receivedBytes: 60 });
+    interrupted.received = 100;
+    interrupted.emit("done", {}, "completed");
+    expect(tracker.completedPath(id)).toBe(interrupted.savePath);
+    expect(progress.at(-1)).toBeNull();
+  });
+
   it("clears finished downloads but keeps the ones still running", () => {
     const { tracker } = setup();
     const done = new FakeItem("done.txt");
@@ -126,6 +153,31 @@ describe("DownloadTracker", () => {
     tracker.clearFinished();
 
     expect(tracker.list().map((download) => download.filename)).toEqual(["running.txt"]);
+  });
+
+  it("still trims terminal interrupted downloads from a full history", () => {
+    const { tracker } = setup();
+    const failed = new FakeItem("failed.bin");
+    const { id } = tracker.track(failed);
+    failed.emit("done", {}, "interrupted");
+    for (let index = 0; index < 50; index++) {
+      const item = new FakeItem(`finished-${index}.txt`);
+      tracker.track(item);
+      item.emit("done", {}, "completed");
+    }
+    expect(tracker.list()).toHaveLength(50);
+    expect(tracker.list().some(download => download.id === id)).toBe(false);
+  });
+
+  it("keeps every live item and trims finished entries as an oversized active set completes", () => {
+    const { tracker } = setup();
+    const items = Array.from({ length: 51 }, (_, index) => new FakeItem(`active-${index}.txt`));
+    const downloads = items.map(item => tracker.track(item));
+    expect(tracker.list()).toHaveLength(51);
+    items[0].emit("done", {}, "completed");
+    expect(tracker.list()).toHaveLength(50);
+    expect(tracker.list().map(download => download.id)).toEqual(downloads.slice(1).reverse().map(download => download.id));
+    tracker.dispose();
   });
 
   it("reports indeterminate progress when the size is unknown", () => {

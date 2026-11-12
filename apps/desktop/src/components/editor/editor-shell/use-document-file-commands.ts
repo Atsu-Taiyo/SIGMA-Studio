@@ -51,6 +51,8 @@ export function useDocumentFileCommands({
 
   const otherImportInputRef = useRef<HTMLInputElement | null>(null);
   // 拡張機能の取り込みが添えた所見。ある間だけ結果の通知を出す。
+  const extensionImportBusyRef = useRef(false);
+  const [extensionImportBusy, setExtensionImportBusy] = useState(false);
   const [importNotice, setImportNotice] = useState<ExtensionImportIssue[] | null>(null);
 
   // 教材のテキスト受け渡し。取り込みは貼り付け面を開くだけ、書き出しは
@@ -195,7 +197,9 @@ export function useDocumentFileCommands({
    */
   const runExtensionItem = (extensionId: string, itemId: string) => {
     const bridge = getExtensionBridge();
-    if (!bridge) return;
+    if (!bridge || extensionImportBusyRef.current) return;
+    extensionImportBusyRef.current = true;
+    setExtensionImportBusy(true);
     setActiveMenu(null);
     setStatusMessage(tEditor("extensions.run.running"));
     void (async () => {
@@ -214,6 +218,9 @@ export function useDocumentFileCommands({
       } catch (error) {
         setSaveState("error");
         setStatusMessage(error instanceof Error ? error.message : tEditor("extensions.run.error.import-failed"));
+      } finally {
+        extensionImportBusyRef.current = false;
+        setExtensionImportBusy(false);
       }
     })();
   };
@@ -263,7 +270,7 @@ export function useDocumentFileCommands({
   };
 
   return {
-    importNotice, setImportNotice, runExtensionItem,
+    importNotice, setImportNotice, runExtensionItem, extensionImportBusy,
     importInputRef, otherImportInputRef, textImportOpen, setTextImportOpen, documentTextCopyFallback, setDocumentTextCopyFallback, exportJson, copyDocumentText, openTextImportDialog, openDocumentViaDesktop, openExternalDocument, importDocumentFile, importDocumentFileWithResult, openImportDialog, openOtherImportDialog,
   };
 }

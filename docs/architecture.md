@@ -789,6 +789,8 @@ border を引く、running region のリストは region スコープ、静的�
 - 画像のFileReader・Imageによるdecodeは`overlay-canvas/image-file.ts`、寸法と横並び配置は
   `features/drawing/image-insertion.ts`が扱う。canvasごとの`image-import-session.ts`が重複requestと完了通知を管理し、
   取り込み中は空canvasを維持する。完了時の配置情報、選択・履歴・保存への反映はcontrollerが供給する。
+  TIFFはこのbrowser adapterで先頭ページだけをPNGへ変換し、SigmaDocへTIFFを保存しない。
+  UTIFへ渡す前に先頭IFDと値の範囲を検証し、次ページ・再帰的なカメラmetadataへの参照を除く。
 - 公開Editor/Viewerのバンドル設定は各`packages/*/scripts/build-options.mjs`を唯一の入口にする。
   本番buildとpackage-boundary testが同じalias・external・asset loaderを使い、テスト側では出力先への書込だけを止める。
 - `AiEditPanel` は会話store・実行要求と表示部品を接続する。入力の下書き、添付・参照候補、

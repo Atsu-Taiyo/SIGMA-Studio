@@ -1,6 +1,7 @@
 import { handleSessionPrompts } from "./session-prompts";
 import { APP_READY_EVENT } from "../../src/components/StartupSplash";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type Locator } from "@playwright/test";
@@ -179,11 +180,20 @@ test("preamble circled numbers and built-in quantities agree in desktop settings
     expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
   } finally {
     await app.close();
-    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    // Let Chromium helpers finish releasing their profile files after app exit.
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
-test("preamble circled settings remain reachable when the session invitation appears", async () => {
+test("preamble circled settings remain reachable when the usage-guide invitation appears", async () => {
+  await checkSettingsInvitation("usage-guide");
+});
+
+test("preamble circled settings remain reachable when the github-star invitation appears", async () => {
+  await checkSettingsInvitation("github-star");
+});
+
+async function checkSettingsInvitation(invitationKind: "usage-guide" | "github-star") {
   const profile = createJapaneseProfile("sigma-settings-invitation-");
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   delete env.ELECTRON_RUN_AS_NODE;
@@ -203,6 +213,10 @@ test("preamble circled settings remain reachable when the session invitation app
       localStorage.setItem("sigma-studio:ui-locale", "ja");
       await window.desktopAPI!.settings!.setUiLocale!("ja");
     });
+    if (invitationKind === "github-star") {
+      // Isolate the later Star invitation; the guide is covered by the other case.
+      await page.evaluate(() => localStorage.setItem("sigma-studio:usage-guide-dismissed:v1", "1"));
+    }
     // Install before reload so the invitation registers its interval on this clock.
     await page.clock.install();
     await page.reload();
@@ -218,7 +232,7 @@ test("preamble circled settings remain reachable when the session invitation app
     await page.evaluate(event => window.dispatchEvent(new Event(event)), APP_READY_EVENT);
     // Run every idle check; a single fast-forward can race a late focus/activity callback.
     await page.clock.runFor(65_000);
-    const invitation = page.getByRole("dialog", { name: "GitHubのStarで応援しませんか？", exact: true });
+    const invitation = page.getByRole("dialog", { name: invitationKind === "usage-guide" ? "使い方を見てみませんか？" : "GitHubのStarで応援しませんか？", exact: true });
     await expect(invitation).toBeVisible();
     await handleSessionPrompts(page);
     await page.getByRole("button", { name: "設定", exact: true }).click();
@@ -227,6 +241,7 @@ test("preamble circled settings remain reachable when the session invitation app
     await expect(page.getByRole("dialog", { name: "TeX環境設定", exact: true })).toBeVisible();
   } finally {
     await app.close();
-    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    // Let Chromium helpers finish releasing their profile files after app exit.
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
-});
+}

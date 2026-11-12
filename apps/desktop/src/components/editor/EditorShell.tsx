@@ -100,6 +100,7 @@ import { DesktopSettingsModal } from "@/components/editor/DesktopSettingsModal";
 import { ExtensionsDialog } from "@/components/editor/extensions/ExtensionsDialog";
 import { DocumentLibraryDialog } from "@/components/editor/DocumentLibraryDialog";
 import { DocumentOpenFailurePanel } from "@/components/editor/DocumentOpenFailurePanel";
+import { ExtensionImportLoading } from "@/components/editor/ExtensionImportLoading";
 import { ImportResultNotice } from "@/components/editor/ImportResultNotice";
 import { useExtensionMenu } from "@/components/editor/extensions/use-extension-menu";
 import { ProblemLibraryDialog } from "@/components/editor/ProblemLibraryDialog";
@@ -3790,6 +3791,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     importInputRef,
     otherImportInputRef,
     importNotice,
+    extensionImportBusy,
     setImportNotice,
     runExtensionItem,
     textImportOpen,
@@ -5531,7 +5533,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         />
       )}
 
-      {importNotice !== null && (
+      {extensionImportBusy && <ExtensionImportLoading />}
+
+      {!extensionImportBusy && importNotice !== null && (
         <ImportResultNotice issues={importNotice} onClose={() => setImportNotice(null)} />
       )}
 

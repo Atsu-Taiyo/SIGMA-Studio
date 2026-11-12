@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 import { ensurePageLayout, type SigmaDocument } from "@/features/document";
 import { grabShapeFromBody } from "../e2e/body-overlay-entry";
 
@@ -204,28 +205,20 @@ async function untrackLine(page: Page): Promise<Line[]> {
 
 /** 先頭の段落の中の文字を [from, to) 文字目で選ぶ (to を省くとキャレットだけ)。 */
 async function placeCaret(page: Page, from: number, to?: number): Promise<void> {
-  await page.evaluate(([id, start, end]) => {
-    const paragraph = document.querySelector(`.overlay-shape-text[data-overlay-shape-id="${id}"] .ProseMirror p`)!;
-    const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
-    const nodes: Text[] = [];
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      if ((node.textContent ?? "").length && !(node.parentElement?.closest(".boxed-run-frame-layer"))) nodes.push(node as Text);
-    }
-    const locate = (offset: number) => {
-      let left = offset;
-      for (const node of nodes) {
-        const length = node.textContent!.length;
-        if (left <= length) return { node, offset: left };
-        left -= length;
-      }
-      return { node: nodes.at(-1)!, offset: nodes.at(-1)!.textContent!.length };
-    };
-    const selection = window.getSelection()!;
-    const a = locate(start);
-    const b = end === undefined ? a : locate(end);
-    selection.setBaseAndExtent(a.node, a.offset, b.node, b.offset);
-  }, [SHAPE_ID, from, to] as const);
-  await page.waitForTimeout(250);
+  const editor = page.locator(`.overlay-shape-text[data-overlay-shape-id="${SHAPE_ID}"] .ProseMirror`);
+  // Set the editor selection as one transaction, as the other editor E2Es do.
+  // DOM-only ranges and select-all/arrow sequences can leave ProseMirror's
+  // selection behind the DOM when focus is restored by the toolbar.
+  await editor.evaluate((element, range) => {
+    const instance = (element as HTMLElement & { editor: Editor }).editor;
+    instance.commands.setTextSelection({ from: range.from + 1, to: range.to + 1 });
+    instance.view.focus();
+  }, { from, to: to ?? from });
+  await expect.poll(() => editor.evaluate(element => {
+    const selection = (element as HTMLElement & { editor: Editor }).editor.state.selection;
+    return { from: selection.from, to: selection.to };
+  })).toEqual({ from: from + 1, to: (to ?? from) + 1 });
+  await expect(editor).toBeFocused();
 }
 
 async function placeCaretAtEnd(page: Page): Promise<void> {

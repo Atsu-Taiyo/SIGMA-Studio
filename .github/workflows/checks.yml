@@ -110,7 +110,7 @@ jobs:
       - name: Save and reopen pocket tables with custom borders and check TeX input, preview and saved PDF
         run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/pocket.spec.ts tests/electron/pocket-shared-table.spec.ts tests/electron/math-preamble-packages.spec.ts --grep "table pocket copies|customised inner borders|online shared material|preamble circled"
       - name: Repeat the forced session invitation against Windows focus and hydration
-        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/math-preamble-packages.spec.ts --grep "session invitation appears" --repeat-each=3
+        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/math-preamble-packages.spec.ts --grep "preamble circled settings remain reachable" --repeat-each=3
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -244,7 +244,8 @@ jobs:
               tests/electron/comment-composer.spec.ts tests/electron/comment-profiles.spec.ts \
               tests/electron/list-items.spec.ts tests/electron/list-indent.spec.ts tests/electron/preferred-font.spec.ts \
               tests/electron/running-region-resize.spec.ts tests/electron/new-document-page-setup.spec.ts \
-              tests/electron/running-region-insertion-layout.spec.ts
+              tests/electron/running-region-insertion-layout.spec.ts \
+              tests/electron/usage-guide.spec.ts tests/electron/tiff-image-import.spec.ts
           '
       - uses: actions/upload-artifact@v7
         if: failure()

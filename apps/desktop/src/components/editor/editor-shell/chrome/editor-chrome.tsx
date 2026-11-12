@@ -44,7 +44,7 @@ import { DocumentTitleText } from "@/features/rendering/adapters/react";
 import { PROBLEM_DISPLAY_PARTS } from "@/features/rendering/core";
 import type { Translate } from "@/lib/i18n";
 import { INLINE_MATH_FONT_MENU_ATTRIBUTE } from "@/lib/math-font-style";
-import { SUPPORTED_OVERLAY_IMAGE_MIME_TYPES } from "@/lib/overlay-image-files";
+import { OVERLAY_IMAGE_FILE_ACCEPT } from "@/lib/overlay-image-files";
 import { POWERPOINT_IMPORT_ACCEPT } from "@/lib/powerpoint-import";
 import { EXTENSION_ICON_COMPONENTS } from "@/components/editor/extensions/extension-icons";
 import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, BookOpen, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, Eye, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Puzzle, Quote, RectangleVertical, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Shapes, Share2, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
@@ -2698,7 +2698,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
       ref={imageInputRef}
       data-testid="overlay-image-input"
       type="file"
-      accept={SUPPORTED_OVERLAY_IMAGE_MIME_TYPES.join(",")}
+      accept={OVERLAY_IMAGE_FILE_ACCEPT}
       multiple
       hidden
       onChange={(event) => {
