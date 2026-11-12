@@ -46,7 +46,7 @@ test("folder progress and paged results cross the real preload without importing
       (globalThis as { finishFolder?: (result: unknown) => void }).finishFolder!({
         ok: true, kind: "folder", jobId: "job", outputDirectory: "/chosen/SIGMA-import-test", truncated: true, reportError: "write-failed",
         counts: { success: 1, skipped: 100, failed: 1 }, entries: [
-          { relativePath: "数学/教材.smp", status: "success", reason: "converted", scope: "file", issueCount: 2 },
+          { relativePath: "数学/教材.smp", status: "success", reason: "converted", scope: "file", issueCount: 2, issueReportPath: "conversion-issues/0.json" },
           { relativePath: ".hidden", status: "skipped", reason: "hidden", scope: "subtree" },
           { relativePath: "失敗.smp", status: "failed", reason: "timeout", scope: "file" },
           ...Array.from({ length: 99 }, (_, i) => ({ relativePath: `skip-${i}.png`, status: "skipped", reason: "unsupported", scope: "file" })),

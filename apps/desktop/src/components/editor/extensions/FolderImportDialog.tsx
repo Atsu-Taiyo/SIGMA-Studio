@@ -26,7 +26,7 @@ export function FolderImportDialog({ progress, result, onClose }: {
   const pages = Math.max(1, Math.ceil((result?.entries.length ?? 0) / PAGE_SIZE));
   return <ModalFrame open size="lg" onDismiss={dismiss} closeOnEscape={!busy} ariaLabel={title}>
     <ModalHeader title={title} onClose={dismiss} hideCloseButton={busy} />
-    <ModalBody>
+    <ModalBody padding="none">
       <div className={styles.content}>
         <div role="status" aria-live="polite">
           <p>{t("extensions.folder.summary", counts)}</p>
