@@ -36,6 +36,14 @@ test("TIFF imports become PNG assets and survive an Electron restart", async ({}
     const rgba = new Uint8Array(160 * 100 * 4);
     for (let i = 0; i < rgba.length; i += 4) rgba.set([32, 96, 224, 255], i);
     const buffer = Buffer.from(encodeImage(rgba, 160, 100));
+    // Both cycles hung or overflowed UTIF before the first-page import guard.
+    const offset = buffer.readUInt32BE(4);
+    const count = buffer.readUInt16BE(offset);
+    buffer.writeUInt32BE(offset, offset + 2 + count * 12);
+    const metadata = Array.from({ length: count }, (_, i) => offset + 2 + i * 12)
+      .find(entry => buffer.readUInt16BE(entry) === 282)!;
+    buffer.writeUInt16BE(330, metadata); buffer.writeUInt16BE(4, metadata + 2);
+    buffer.writeUInt32BE(1, metadata + 4); buffer.writeUInt32BE(offset, metadata + 8);
     const picker = page.locator('header input[type="file"][multiple][accept*="image/"]');
     await expect(picker).toHaveAttribute("accept", /\.tif/);
     await picker.setInputFiles({ name: "scan.TIF", mimeType: "application/octet-stream", buffer });

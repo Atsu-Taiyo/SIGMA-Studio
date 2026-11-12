@@ -59,7 +59,27 @@ describe("overlay image browser decoding", () => {
     expect(identifiers.asset).not.toHaveBeenCalled();
   });
 
-  it("decodes TIFF pixels into a PNG asset while preserving the source name", async () => {
+  it("rejects a minimal cyclic TIFF without hanging or allocating an asset", async () => {
+    const buffer = new ArrayBuffer(14);
+    const view = new DataView(buffer);
+    view.setUint16(0, 0x4949); view.setUint16(2, 42, true);
+    view.setUint32(4, 8, true); view.setUint32(10, 8, true);
+    await expect(createOverlayImageAsset(new File([buffer], "cycle.tif"))).rejects.toThrow("Invalid or oversized TIFF image");
+    expect(identifiers.asset).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("rejects truncated or unbounded directory values before decoding (little endian: %s)", async little => {
+    const buffer = new ArrayBuffer(26);
+    const view = new DataView(buffer);
+    view.setUint16(0, little ? 0x4949 : 0x4d4d);
+    view.setUint16(2, 42, little); view.setUint32(4, 8, little);
+    view.setUint16(8, 1, little); view.setUint16(10, 256, little);
+    view.setUint16(12, 4, little); view.setUint32(14, 0xffffffff, little);
+    await expect(createOverlayImageAsset(new File([buffer], "bad.tif"))).rejects.toThrow("Invalid TIFF directory value");
+    expect(identifiers.asset).not.toHaveBeenCalled();
+  });
+
+  it.each(["plain", "cyclic page", "cyclic metadata"])("decodes first TIFF page safely into PNG: %s", async variant => {
     const pixels = new Uint8Array([255, 0, 0, 255, 0, 0, 255, 255]);
     const canvas = { width: 0, height: 0, getContext: vi.fn(), toBlob: vi.fn() };
     const imageData = { data: new Uint8ClampedArray(8) };
@@ -67,7 +87,19 @@ describe("overlay image browser decoding", () => {
     canvas.getContext.mockReturnValue(context);
     canvas.toBlob.mockImplementation((callback: (blob: Blob) => void) => callback(new Blob(["PNG pixels"], { type: "image/png" })));
     vi.stubGlobal("document", { createElement: vi.fn(() => canvas) });
-    const pending = createOverlayImageAsset(new File([encodeImage(pixels, 2, 1)], "scan.tif", { type: "image/tiff" }));
+    const encoded = encodeImage(pixels, 2, 1);
+    const view = new DataView(encoded);
+    const offset = view.getUint32(4);
+    const entries = view.getUint16(offset);
+    if (variant === "cyclic page") view.setUint32(offset + 2 + entries * 12, offset);
+    if (variant === "cyclic metadata") {
+      // Replace an optional resolution tag with a SubIFD that refers to itself.
+      const entry = Array.from({ length: entries }, (_, i) => offset + 2 + i * 12)
+        .find(entry => view.getUint16(entry) === 282)!;
+      view.setUint16(entry, 330); view.setUint16(entry + 2, 4);
+      view.setUint32(entry + 4, 1); view.setUint32(entry + 8, offset);
+    }
+    const pending = createOverlayImageAsset(new File([encoded], "scan.tif", { type: "image/tiff" }));
     await vi.waitFor(() => expect(FileReaderStub.instances).toHaveLength(1));
     expect(imageData.data).toEqual(new Uint8ClampedArray(pixels));
     expect(context.putImageData).toHaveBeenCalledWith(imageData, 0, 0);

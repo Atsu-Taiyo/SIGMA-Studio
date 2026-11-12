@@ -76,11 +76,7 @@ function readImageDimensions(dataUrl: string): Promise<{ width?: number; height?
 /** TIFF never enters SigmaDoc: all renderers and exports consume the same PNG. */
 async function convertTiffToPng(file: File): Promise<File> {
   const { decode, decodeImage, toRGBA8 } = await import("utif");
-  const buffer = await file.arrayBuffer();
-  const header = new DataView(buffer);
-  if (buffer.byteLength < 8 || !(
-    (header.getUint32(0) === 0x49492a00) || (header.getUint32(0) === 0x4d4d002a)
-  )) throw new Error("Invalid TIFF header");
+  const buffer = firstTiffPage(await file.arrayBuffer());
   const pages = decode(buffer);
   const page = pages[0];
   const width = Number(Array.isArray(page?.t256) ? page.t256[0] : 0);
@@ -104,4 +100,44 @@ async function convertTiffToPng(file: File): Promise<File> {
     canvas.toBlob(value => value ? resolve(value) : reject(new Error("TIFF conversion failed")), "image/png");
   });
   return new File([blob], file.name, { type: "image/png" });
+}
+
+/** Bound UTIF's directory parsing and only expose the requested first image.
+ * UTIF follows linked pages and recursively decodes camera metadata without a
+ * cycle guard. Neither is needed for the first-page PNG projection.
+ */
+function firstTiffPage(source: ArrayBuffer): ArrayBuffer {
+  const header = new DataView(source);
+  if (source.byteLength < 8 || !(
+    header.getUint32(0) === 0x49492a00 || header.getUint32(0) === 0x4d4d002a
+  )) throw new Error("Invalid TIFF header");
+  const little = header.getUint16(0) === 0x4949;
+  const offset = header.getUint32(4, little);
+  if (offset < 8 || offset + 2 > source.byteLength) throw new Error("Invalid TIFF directory");
+  const count = header.getUint16(offset, little);
+  const end = offset + 2 + count * 12;
+  if (end + 4 > source.byteLength) throw new Error("Invalid TIFF directory");
+  const buffer = source.slice(0);
+  const view = new DataView(buffer);
+  // The product imports only page one; do not traverse subsequent IFDs.
+  view.setUint32(end, 0, little);
+  const typeBytes = [0, 1, 1, 2, 4, 8, 1, 1, 2, 4, 8, 4, 8];
+  for (let entry = offset + 2; entry < end; entry += 12) {
+    const tag = view.getUint16(entry, little);
+    if ([330, 34665, 50740, 37500].includes(tag)) {
+      // SubIFD / EXIF / DNG / MakerNote can recursively point back here.
+      view.setUint16(entry, 0, little);
+      view.setUint16(entry + 2, 1, little);
+      view.setUint32(entry + 4, 0, little);
+      continue;
+    }
+    const type = view.getUint16(entry + 2, little);
+    const values = view.getUint32(entry + 4, little);
+    const bytes = values * (typeBytes[type] ?? 0);
+    const start = bytes <= 4 ? entry + 8 : view.getUint32(entry + 8, little);
+    if (!typeBytes[type] || values > 1_000_000 || start + bytes > buffer.byteLength) {
+      throw new Error("Invalid TIFF directory value");
+    }
+  }
+  return buffer;
 }
