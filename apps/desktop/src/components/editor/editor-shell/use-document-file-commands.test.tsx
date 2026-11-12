@@ -263,6 +263,28 @@ describe("document file commands", () => {
       expect(document.querySelector('[role="dialog"]')).toBeNull();
     });
 
+    it("receives folder progress, keeps results separate from document import, and unsubscribes", async () => {
+      const f = fixture();
+      const unsubscribe = vi.fn();
+      const result = { ok: true as const, kind: "folder" as const, jobId: "job", outputDirectory: "/output", counts: { success: 1, skipped: 0, failed: 0 }, entries: [], truncated: false };
+      let progress!: Parameters<NonNullable<ExtensionBridge["onFolderProgress"]>>[0];
+      let finish!: (value: typeof result) => void;
+      withBridge(() => new Promise(resolve => { finish = resolve; }));
+      window.sigmaExtensions!.onFolderProgress = listener => { progress = listener; return unsubscribe; };
+      render(f.options);
+      act(() => actions.runExtensionItem("sample-tool", "folder"));
+      act(() => progress({ phase: "converting", counts: result.counts, completed: 1, total: 1 }));
+      expect(actions.folderProgress?.completed).toBe(1);
+      await act(async () => finish(result));
+      expect(actions.folderResult).toEqual(result);
+      expect(actions.folderProgress).toBeNull();
+      expect(unsubscribe).toHaveBeenCalledOnce();
+      expect(f.create).not.toHaveBeenCalled();
+      expect(f.options.saveCurrentDocumentBeforeReplacement).not.toHaveBeenCalled();
+      expect(f.options.openDocumentAsTab).not.toHaveBeenCalled();
+      expect(f.options.setStatusMessage).toHaveBeenCalledWith("成功 1件 / スキップ 0件 / 失敗 0件");
+    });
+
     it("removes loading when the host rejects, allowing retry", async () => {
       const f = fixture();
       const run = vi.fn<ExtensionBridge["run"]>().mockRejectedValueOnce(new Error("host failed"))

@@ -26,7 +26,7 @@ import {
   type CatalogFile,
   type CatalogMenuSection,
   type CatalogPlugin,
-  type ImportFileAction,
+  type ImportAction,
 } from "./manifest";
 import { loadOrganizationLogo } from "./organization-logo";
 import { createWorkerRunner, type LocalFontBytes, type RunWorker, type WorkerContext } from "./worker-runner";
@@ -277,7 +277,7 @@ export class PluginManager extends EventEmitter {
   }
 
   /** ボタンの action を、検証済みのカタログから引く。描画側が送る値は id だけで、中身は信用しない。 */
-  resolveAction(id: string, itemId: string): ImportFileAction | null {
+  resolveAction(id: string, itemId: string): ImportAction | null {
     const menu = this.menus.get(id);
     if (!menu || !this.state.installed[id]?.enabled || !this.hasAccess(id)) return null;
     for (const section of menu.sections) {
@@ -778,12 +778,15 @@ export class PluginManager extends EventEmitter {
    * 拡張機能のワーカーを1回動かす。権限は始める直前にもう一度確かめ、
    * 同時に動かすのは1つだけ。更新の有効化中も始めない。
    */
-  async run(id: string, payload: Record<string, unknown>): Promise<unknown> {
+  async run(id: string, payload: Record<string, unknown>, expectedActor = this.currentActor()): Promise<unknown> {
     if (this.jobs || this.activating || !this.state.installed[id]?.enabled) throw new PluginError(this.jobs || this.activating ? "busy" : "unavailable");
     this.jobs += 1;
     try {
+      if (this.currentActor() !== expectedActor) throw new PluginError("unauthorized");
       await this.requireAccess(id);
       const plugin = await this.installedPlugin(id);
+      if (this.currentActor() !== expectedActor) throw new PluginError("unauthorized");
+      if (!this.hasAccess(id)) throw new PluginError("forbidden");
       const directory = this.versionDir(plugin);
       return await this.runWorker(path.join(directory, plugin.entry), {
         ...payload,

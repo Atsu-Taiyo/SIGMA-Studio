@@ -169,7 +169,7 @@ export const error = {
       switchFailed: "英数入力への切り替えに失敗しました。",
     },
     plugins: {
-      importTitle: "拡張機能のファイルを取り込む",
+      inputFolderTitle: "変換するフォルダを選ぶ", outputFolderTitle: "保存先の親フォルダを選ぶ", importTitle: "拡張機能のファイルを取り込む",
       importFiles: "取り込めるファイル",
       partialFont: "（一部の文字のみ）",
     },

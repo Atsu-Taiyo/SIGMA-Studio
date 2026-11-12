@@ -5,14 +5,17 @@ import path from "node:path";
 import type { WebContents } from "electron";
 
 import { documentFontReferences } from "@/features/document";
-import type { ExtensionImportIssue, ExtensionRunError, ExtensionRunResult } from "@/lib/extension-contracts";
+import type { ExtensionImportIssue, ExtensionRunError, ExtensionRunResult, ExtensionItemResult, FolderImportProgress, FolderImportResult } from "@/lib/extension-contracts";
+import { serializeDocumentText } from "@/lib/document-text-transfer";
+import type { SigmaDocument } from "@/features/document";
 import { SigmaDocumentSchema } from "@/lib/sigma-doc-schema";
 
 import type { ApplicationFontStore } from "../application-font-store";
 import { readDesktopSettingsSync, writeDesktopSettings, type DesktopCustomFont } from "../desktop-settings";
 import { LocalFontReader } from "./local-fonts";
 import { PluginManager } from "./manager";
-import type { CatalogFile, CatalogPlugin } from "./manifest";
+import { convertFolder, checkFolderPath } from "./folder-import";
+import type { CatalogFile, CatalogPlugin, ImportAction } from "./manifest";
 import { PluginError } from "./manifest";
 import { createWorkerRunner, type MeasurePluginDocument } from "./worker-runner";
 
@@ -98,6 +101,8 @@ export class PluginHost {
   readonly manager: PluginManager;
   readonly ready: Promise<unknown>;
   private readonly localFonts: LocalFontReader;
+  private running = false;
+  private lastFolder: { result: FolderImportResult; identity: import("node:fs").Stats } | null = null;
 
   constructor(private readonly options: PluginHostOptions) {
     const { config, allowLoopbackHttp } = resolvePluginConfig(options.config, options.isPackaged, options.env ?? process.env);
@@ -121,7 +126,6 @@ export class PluginHost {
       ...(options.measureDocument ? { runWorker: createWorkerRunner({
         loadLocalFonts: (families, context) => this.localFonts.readFamilies(families, context.bundledFamilies, context.ownFamilyPrefixes),
         measureDocument: options.measureDocument,
-        timeoutMs: 600_000,
       }) } : {}),
     });
     this.ready = this.manager.initialize().catch(() => undefined);
@@ -164,33 +168,64 @@ export class PluginHost {
    * メニューの項目を実行する: ファイルを選ばせ、拡張機能のワーカーに渡し、返った教材を検証して返す。
    * 受け取る値は拡張機能と項目の id だけ。何をするか (action) は検証済みのカタログから引く。
    */
-  async runItem(extensionId: unknown, itemId: unknown, pickFile: (extensions: string[]) => Promise<{ filePath: string; bytes: Uint8Array } | null>): Promise<ExtensionRunResult> {
+  async runItem(
+    extensionId: unknown, itemId: unknown,
+    pickFile: (extensions: string[]) => Promise<{ filePath: string; bytes: Uint8Array } | null>,
+    pickFolder?: () => Promise<{ inputDirectory: string; outputParent: string } | null>,
+    onProgress?: (progress: FolderImportProgress) => void,
+  ): Promise<ExtensionItemResult> {
     if (typeof extensionId !== "string" || typeof itemId !== "string") return { ok: false, error: "invalid-input" };
-    await this.ready;
-    const action = this.manager.resolveAction(extensionId, itemId);
-    if (!action) return { ok: false, error: "unavailable" };
-    let picked: { filePath: string; bytes: Uint8Array } | null;
+    if (this.running) return { ok: false, error: "busy" };
+    this.running = true; // Acquire before initialization and before any OS dialog.
+    const actor = this.manager.currentActor();
     try {
-      picked = await pickFile(action.extensions);
+      await this.ready;
+      const action = this.manager.resolveAction(extensionId, itemId);
+      if (!action) return { ok: false, error: "unavailable" };
+      if (action.type === "import-folder") {
+        const picked = await pickFolder?.();
+        if (!picked) return { ok: false, error: "canceled" };
+        if (this.manager.currentActor() !== actor) return { ok: false, error: "unauthorized" };
+        const result = await convertFolder({
+          ...picked, jobId: randomUUID(), extensions: action.extensions, onProgress,
+          convertFile: (bytes, filename) => this.convertFile(extensionId, itemId, action, actor, bytes, filename),
+          serialize: document => serializeDocumentText(document as SigmaDocument),
+        });
+        const identity = await fs.lstat(result.outputDirectory).catch(() => null);
+        this.lastFolder = identity ? { result, identity } : null;
+        return result;
+      }
+      const picked = await pickFile(action.extensions);
+      if (!picked) return { ok: false, error: "canceled" };
+      return await this.convertFile(extensionId, itemId, action, actor, picked.bytes, path.basename(picked.filePath));
     } catch {
       return { ok: false, error: "invalid-input" };
-    }
-    if (!picked) return { ok: false, error: "canceled" };
-    const filename = path.basename(picked.filePath);
-    const extension = path.extname(filename).toLowerCase();
-    if (!picked.bytes.byteLength || picked.bytes.byteLength > IMPORT_MAX_INPUT_BYTES
+    } finally { this.running = false; }
+  }
+
+  /** Both import actions use the same permission, worker, schema, issue and font boundary. */
+  private async convertFile(extensionId: string, itemId: string, action: ImportAction, actor: string | null, bytes: Uint8Array, filename: string): Promise<ExtensionRunResult> {
+    if (this.manager.currentActor() !== actor) return { ok: false, error: "unauthorized" };
+    const current = this.manager.resolveAction(extensionId, itemId);
+    if (!current || JSON.stringify(current) !== JSON.stringify(action)) return { ok: false, error: "unavailable" };
+    if (!bytes.byteLength || bytes.byteLength > IMPORT_MAX_INPUT_BYTES
       || Buffer.byteLength(filename, "utf8") > MAX_FILENAME_BYTES || /[\u0000-\u001f\u007f]/u.test(filename)
-      || !action.extensions.some((candidate) => candidate.toLowerCase() === extension)) return { ok: false, error: "invalid-input" };
+      || !action.extensions.some(candidate => candidate.toLowerCase() === path.extname(filename).toLowerCase())) return { ok: false, error: "invalid-input" };
     try {
-      const raw = await this.manager.run(extensionId, {
-        command: action.command,
-        bytes: Uint8Array.from(picked.bytes).buffer,
-        filename,
-      });
-      return await this.acceptResult(raw, filename);
-    } catch (error) {
-      return { ok: false, error: runError(error) };
-    }
+      const raw = await this.manager.run(extensionId, { command: action.command, bytes: Uint8Array.from(bytes).buffer, filename }, actor);
+      if (this.manager.currentActor() !== actor) return { ok: false, error: "unauthorized" };
+      const result = await this.acceptResult(raw, filename);
+      return this.manager.currentActor() === actor ? result : { ok: false, error: "unauthorized" };
+    } catch (error) { return { ok: false, error: runError(error) }; }
+  }
+
+  /** Renderer can name only the last completed job and one of two fixed destinations. */
+  async folderResultPath(jobId: unknown, target: unknown): Promise<string | null> {
+    const last = this.lastFolder;
+    if (!last || jobId !== last.result.jobId || (target !== "folder" && target !== "report")) return null;
+    const root = last.result.outputDirectory;
+    const filename = target === "folder" ? root : path.join(root, "conversion-report.json");
+    try { await checkFolderPath(root, last.identity, filename); return filename; } catch { return null; }
   }
 
   private async acceptResult(raw: unknown, sourceName: string): Promise<ExtensionRunResult> {

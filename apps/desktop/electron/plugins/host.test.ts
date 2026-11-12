@@ -1,3 +1,6 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({
@@ -165,4 +168,55 @@ describe("PluginHost.runItem", () => {
     stub(host, () => ({ document: sampleDocument, issues: [], localFontResources: [{ resourceId: "c".repeat(64), bytes: new Uint8Array(1) }] }));
     expect(await host.runItem("sample-tool", "import-sample", async () => file("a.smp"))).toEqual({ ok: false, error: "import-failed" });
   });
+});
+
+
+describe("folder job identity and locking", () => {
+  it("locks before the picker and releases on cancellation", async () => {
+    const { host } = createHost();
+    stub(host, () => ({}));
+    let cancel!: (value: null) => void;
+    const first = host.runItem("sample-tool", "import-sample", () => new Promise(resolve => { cancel = resolve; }));
+    await vi.waitFor(() => expect(cancel).toBeTypeOf("function"));
+    const pick = vi.fn(async () => null);
+    expect(await host.runItem("sample-tool", "import-sample", pick)).toEqual({ ok: false, error: "busy" });
+    expect(pick).not.toHaveBeenCalled();
+    cancel(null); await first;
+    expect(await host.runItem("sample-tool", "import-sample", pick)).toEqual({ ok: false, error: "canceled" });
+  });
+
+  it("pins the actor before the dialog for both actions", async () => {
+    let user = "original";
+    const { host } = createHost({ auth: { user: () => ({ id: user }), authorization: async () => "Bearer token" } });
+    const run = stub(host, () => ({ document: sampleDocument, issues: [] }));
+    expect(await host.runItem("sample-tool", "import-sample", async () => { user = "other"; return file("a.smp"); })).toEqual({ ok: false, error: "unauthorized" });
+    user = "original";
+    vi.mocked(host.manager.resolveAction).mockReturnValue({ ...ACTION, type: "import-folder", extensions: [".smp"] });
+    expect(await host.runItem("sample-tool", "folder", async () => null, async () => { user = "other"; return { inputDirectory: "/input", outputParent: "/output" }; })).toEqual({ ok: false, error: "unauthorized" });
+    expect(run).not.toHaveBeenCalled();
+  });
+});
+
+
+it("stops starting files after an account switch in a folder job and validates every result", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-folder-actor-"));
+  try {
+    const inputDirectory = path.join(root, "in"); const outputParent = path.join(root, "out");
+    await fs.mkdir(inputDirectory); await fs.mkdir(outputParent);
+    for (const name of ["a.smp", "b.smp", "c.smp"]) await fs.writeFile(path.join(inputDirectory, name), "test");
+    let actor = "original"; let calls = 0;
+    const { host } = createHost({ auth: { user: () => ({ id: actor }), authorization: async () => "Bearer token" } });
+    const run = stub(host, () => {
+      calls += 1;
+      if (calls === 1) return { document: { version: "bad" }, issues: [] };
+      actor = "other";
+      return { document: sampleDocument, issues: [] };
+    });
+    vi.mocked(host.manager.resolveAction).mockReturnValue({ ...ACTION, type: "import-folder", extensions: [".smp"] });
+    const result = await host.runItem("sample-tool", "folder", async () => null, async () => ({ inputDirectory, outputParent }));
+    expect(result).toMatchObject({ kind: "folder", counts: { success: 0, failed: 3, skipped: 0 } });
+    expect(run).toHaveBeenCalledTimes(2);
+    if (!result.ok || !("kind" in result)) throw new Error("expected folder");
+    expect(result.entries.map(entry => entry.reason)).toEqual(["import-failed", "unauthorized", "unauthorized"]);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
