@@ -119,3 +119,20 @@ it("uses bundled public settings without runtime environment and honors explicit
   vi.stubEnv("SIGMA_COLLABORATION_URL", "");
   expect(collaborationConfig()).toBeNull();
 });
+
+it("classifies a dropped token response stream as offline but preserves malformed response failures", async () => {
+  const { auth } = await fixture();
+  const request = vi.fn(async () => Response.json({ access_token: "fixture", refresh_token: "refresh", expires_in: -1, user: { id: "fixture-user" } }));
+  vi.stubGlobal("fetch", request);
+  await auth.signInWithGoogle();
+  request.mockResolvedValue(new Response(new ReadableStream({ start(controller) { controller.error(new TypeError("terminated")); } }),
+    { headers: { "Content-Type": "application/json" } }));
+  const { NetworkUnavailableError, isNetworkUnavailable } = await import("../network-unavailable");
+  await expect(auth.authorization()).rejects.toBeInstanceOf(NetworkUnavailableError);
+  expect(auth.user()?.id).toBe("fixture-user");
+  request.mockResolvedValue(new Response(new Uint8Array([0xff]), { headers: { "Content-Type": "application/json" } }));
+  let failure: unknown;
+  try { await auth.authorization(); } catch (error) { failure = error; }
+  expect(failure).toBeInstanceOf(TypeError);
+  expect(isNetworkUnavailable(failure)).toBe(false);
+});

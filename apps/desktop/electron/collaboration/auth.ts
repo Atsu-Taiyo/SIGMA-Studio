@@ -190,7 +190,10 @@ export class CollaborationAuth {
         response.status === 429 ? "AUTH_RATE_LIMIT" : "AUTH_FAILED",
       );
     }
-    return readResponseJson(response, 256 * 1024);
+    return readResponseJson(response, 256 * 1024, error => {
+      if (accountSignal.aborted || this.login?.signal.aborted) throw new Error("AUTH_CANCELLED");
+      return transportFailure(error);
+    });
   }
   private store(tokens: Tokens, generation: number, signal?: AbortSignal): Promise<void> {
     const next = this.persistence.then(async () => {

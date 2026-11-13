@@ -1297,6 +1297,7 @@ export class CollaborationSessions {
       const versions = await this.action<SharedBackup[]>(fileId, "backups");
       if (!Array.isArray(versions) || !versions.every(validBackup)) throw new Error("INVALID_VERSION_LIST");
       if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+      await this.versionCache(fileId);
       await cache.saveList(versions).catch(() => {});
       await this.versionCache(fileId);
       if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
@@ -1308,11 +1309,14 @@ export class CollaborationSessions {
         if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
         if (cached) return cached;
       } else {
-        await cache.clear();
-        if (error instanceof CollaborationHttpError && [401, 403].includes(error.status)) this.status(fileId, "permission-error");
+        await this.invalidateVersionCache(fileId, cache, error);
       }
       throw error;
     }
+  }
+  private async invalidateVersionCache(fileId: string, cache: SharedVersionCache, error: unknown): Promise<void> {
+    if (error instanceof CollaborationHttpError && [401, 403].includes(error.status)) this.status(fileId, "permission-error");
+    await cache.clear();
   }
   async signOut(): Promise<void> {
     await this.auth?.signOut();
@@ -1337,11 +1341,19 @@ export class CollaborationSessions {
     const cache = await this.versionCache(fileId);
     let version = await cache.get(backupId);
     if (!version) {
-      version = await this.action<SharedVersion>(fileId, `backups/${backupId}`);
-      if (!validBackup(version) || version.id !== backupId) throw new Error("INVALID_VERSION_RESPONSE");
-      version = { ...version, document: parseSigmaDocument(version.document) };
-      if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
-      await cache.saveBody(version).catch(() => {});
+      try {
+        version = await this.action<SharedVersion>(fileId, `backups/${backupId}`);
+        if (!validBackup(version) || version.id !== backupId) throw new Error("INVALID_VERSION_RESPONSE");
+        version = { ...version, document: parseSigmaDocument(version.document) };
+        if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+        await this.versionCache(fileId);
+        await cache.saveBody(version).catch(() => {});
+      } catch (error) {
+        if (!isNetworkUnavailable(error) && !(error instanceof CollaborationHttpError && error.status >= 500)) {
+          await this.invalidateVersionCache(fileId, cache, error);
+        }
+        throw error;
+      }
     }
     await this.versionCache(fileId);
     if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
@@ -2212,9 +2224,9 @@ export class CollaborationSessions {
             body: JSON.stringify(body),
           },
     );
-    const value = await readResponseJson<T>(response, Math.ceil(MAX_DOCUMENT_BYTES * 4 / 3) + 1024 * 1024).catch(error => {
+    const value = await readResponseJson<T>(response, Math.ceil(MAX_DOCUMENT_BYTES * 4 / 3) + 1024 * 1024, transportFailure).catch(error => {
       if (accountSignal?.aborted) throw new Error("ACCOUNT_CHANGED");
-      return transportFailure(error);
+      throw error;
     });
     if (accountSignal?.aborted || actor !== this.auth?.user()?.id) throw new Error("ACCOUNT_CHANGED");
     return value;

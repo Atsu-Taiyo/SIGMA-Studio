@@ -96,3 +96,40 @@ it("rejects a late response after account change and removes history on logout",
   await expect(fs.access(path.join(dir, "collaboration-v1", "version-cache"))).rejects.toThrow();
   await expect(sessions.cachedBackups("file")).rejects.toThrow("ACCOUNT_CHANGED");
 });
+
+it.each([401, 403])("invalidates previously cached bodies when an uncached version is explicitly denied (%s)", async code => {
+  const { sessions } = await sessionsFixture();
+  const request = vi.spyOn(sessions, "request").mockResolvedValue([summary]);
+  await sessions.backups("file"); request.mockResolvedValue(version); await sessions.version("file", summary.id);
+  request.mockRejectedValue(new CollaborationHttpError("FORBIDDEN", code));
+  await expect(sessions.version("file", "aaaaaaaa-0000-4000-8000-000000000002")).rejects.toThrow("FORBIDDEN");
+  await expect(sessions.version("file", summary.id)).rejects.toThrow("FORBIDDEN");
+  await expect(sessions.cachedBackups("file")).rejects.toThrow("FORBIDDEN");
+});
+
+it("rejects malformed UTF-8 instead of treating decoding failure as a network outage", async () => {
+  const { sessions } = await sessionsFixture();
+  const request = vi.fn(async () => Response.json([summary]));
+  vi.stubGlobal("fetch", request);
+  await sessions.backups("file");
+  request.mockResolvedValue(new Response(new Uint8Array([0xff]), { headers: { "Content-Type": "application/json" } }));
+  await expect(sessions.backups("file")).rejects.toThrow();
+  expect(await sessions.cachedBackups("file")).toEqual([]);
+});
+
+it("does not let a late successful list recreate disk cache after a concurrent permission denial", async () => {
+  const { sessions, dir } = await sessionsFixture();
+  const request = vi.spyOn(sessions, "request").mockResolvedValue([summary]);
+  await sessions.backups("file");
+  const late = Promise.withResolvers<unknown>();
+  const started = Promise.withResolvers<void>();
+  request.mockImplementationOnce(async () => { started.resolve(); return late.promise; });
+  const listing = sessions.backups("file");
+  await started.promise;
+  request.mockRejectedValue(new CollaborationHttpError("FORBIDDEN", 403));
+  await expect(sessions.version("file", summary.id)).rejects.toThrow("FORBIDDEN");
+  late.resolve([summary]);
+  await expect(listing).rejects.toThrow("FORBIDDEN");
+  const cache = new SharedVersionCache(path.join(dir, "collaboration-v1"), JSON.stringify(["https://sync.example.test", "actor", "shared"]));
+  expect(await cache.list()).toBeNull();
+});
