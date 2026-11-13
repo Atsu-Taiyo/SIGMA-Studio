@@ -703,7 +703,7 @@ export function Graph3DPreview({
       const params = issue.code === "commonPartObjectHasNoSurfaceOrInterior" && !issue.params?.name
         ? { ...issue.params, name: tShape("graph3dError.commonPartObjectFallbackName") }
         : issue.params;
-      return `${issue.id}: ${tShape(`graph3dError.${issue.code}` as never, params)}`;
+      return `${issue.id}: ${tShape(`graph3dError.${issue.code}` as never, params ?? {})}`;
     }),
     ...(runtimeError ? [runtimeError] : []),
   ];
