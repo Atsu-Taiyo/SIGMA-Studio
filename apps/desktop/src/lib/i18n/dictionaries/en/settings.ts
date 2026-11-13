@@ -3,6 +3,24 @@ import type { TranslationsOf } from "../types";
 
 /** 対応する日本語 namespace と同時に埋める。詳細は `../ja/settings.ts` を参照。 */
 export const settings = {
+  authoringStyle: {
+    "title": "Writing style",
+    "description": "Learn from your saved manual edits for future AI proposals. Shared materials, AI approvals and restorations are excluded.",
+    "enabled": "Learn and use my writing style",
+    "workspaceEnabled": "Learn and use style in this workspace",
+    "count": "{{count}} examples",
+    "manual": "Preferred notes (Markdown)",
+    "learned": "Automatically learned observations",
+    "empty": "Repeated patterns appear here as editing examples accumulate.",
+    "protected": "This generated note was edited externally. Automatic updates are paused.",
+    "save": "Save notes",
+    "reload": "Reload",
+    "reset": "Reset learning",
+    "resetGlobal": "Delete all examples and generated notes. Keep manual notes.",
+    "resetWorkspace": "Delete examples and generated notes in this workspace. Keep manual notes.",
+    "error": "Could not read or save. If the note was edited externally, copy your input before reloading."
+},
+
   organizations: { title: "Your organizations", membership: "Member of {{name}}", more: "{{count}} more organizations" },
   plugins: {
     offlineExpired: "Unable to connect and the saved access check has expired. Reconnect to verify access.",

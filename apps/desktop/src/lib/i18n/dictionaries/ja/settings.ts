@@ -1,5 +1,23 @@
 /** WI-3 が本格的に埋める namespace。WI-1 は言語切り替え行の文言だけを置く。 */
 export const settings = {
+  authoringStyle: {
+    "title": "書き方の学習",
+    "description": "手で直して保存した文章から、次のAI提案の書き方を学びます。共有教材・AI承認・復元は対象外です。",
+    "enabled": "書き方を学習してAIに使う",
+    "workspaceEnabled": "このワークスペースで学習してAIに使う",
+    "count": "実例 {{count}}件",
+    "manual": "優先するメモ（Markdown）",
+    "learned": "自動で学んだ特徴",
+    "empty": "編集実例が蓄積すると、繰り返し見られる特徴がここに表示されます。",
+    "protected": "この自動メモは外部で編集されたため、自動更新を止めています。",
+    "save": "メモを保存",
+    "reload": "読み直す",
+    "reset": "学習をリセット",
+    "resetGlobal": "すべての実例と自動メモを消します。手動メモは残します。",
+    "resetWorkspace": "このワークスペースの実例と自動メモを消します。手動メモは残します。",
+    "error": "読み込み・保存に失敗しました。外部でメモを編集した場合は、入力内容を控えてから読み直してください。"
+},
+
   organizations: { title: "所属団体", membership: "{{name}}に所属", more: "ほか{{count}}団体" },
   plugins: {
     offlineExpired: "接続できず、保存した権限確認の期限も切れています。接続して再確認してください。",

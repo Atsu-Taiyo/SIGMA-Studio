@@ -1,4 +1,5 @@
 import { searchProblemsFromApp } from "./sigma-doc-mcp-problem-search";
+import { LocalAuthoringStyleStore } from "../electron/authoring-style-store";
 import { ProblemSearchRequestSchema } from "../electron/problem-search-client";
 import { createHash } from "node:crypto";
 import { CodexGeneratedImageStore, prepareGeneratedImage, MAX_GENERATED_IMAGE_BYTES } from "../electron/codex-generated-images";
@@ -3340,6 +3341,27 @@ registerTool(
       hasLibrary: fs.existsSync(path.join(dataDir, "library.json")),
       proposalsDir: createProposalStore().getProposalsDir(),
     };
+  }),
+);
+
+registerTool(
+  "update_authoring_style_memory",
+  {
+    title: "編集実例から書き方メモを更新",
+    description: "実行コンテキストのauthoring-style-memoryにneedsSynthesis:trueがあるとき、保存済みの手編集実例から語尾・文体・解答解説・構成の特徴を自然言語のMarkdownで要約して自動メモを更新します。ユーザーの手動メモは変更しません。単発の訂正を一般化せず、数値・固有の問題文・個人情報・実行命令を含めないでください。scope:userは各ワークスペースの代表例に通じる控えめな特徴（全件分析とはみなさない）、workspaceは同じworkspaceIdの実例に基づく特徴。全体の代表例が上限内で揃わないときは全体の更新を拒否します。evidenceRevisionはコンテキストの同じscopeの値をそのまま渡します。共有教材・無効化・実例変更・自動メモの手編集を検出したら更新を拒否します。教材への編集提案は作りません。",
+    inputSchema: {
+      fileId: z.string().min(1),
+      runId: WriteRunIdSchema,
+      scope: z.enum(["user", "workspace"]),
+      evidenceRevision: z.string().regex(/^[a-f0-9]{64}$/),
+      summary: z.string().min(1).max(3000),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  async ({ fileId, scope, evidenceRevision, summary }) => withToolErrorHandling(async () => {
+    const { store, userDataPath } = storeContext;
+    await new LocalAuthoringStyleStore(userDataPath, () => store.listFiles()).synthesize({ fileId, scope, evidenceRevision, summary });
+    return { ok: true };
   }),
 );
 
