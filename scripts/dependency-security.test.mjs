@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -87,6 +87,54 @@ test("the MCP rate-limit IPv6 parser bounds malformed zone identifiers and prese
   `, addressModule], { timeout: 5000, killSignal: "SIGKILL", encoding: "utf8" });
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stderr);
+});
+
+// Resolve the runtime dependencies used by the installed MCP SDK, not a test-only copy.
+const sdkRequire = createRequire(require.resolve("@modelcontextprotocol/sdk/package.json"));
+
+test("the MCP HTTP dependency checks cross-origin hyperlink auditing requests", async () => {
+  const { Hono } = sdkRequire("hono");
+  const { csrf } = sdkRequire("hono/csrf");
+  const app = new Hono();
+  app.use(csrf());
+  app.post("/action", c => c.text("accepted"));
+  const send = origin => app.request("http://localhost/action", {
+    method: "POST", headers: { "content-type": "text/ping", origin }, body: "PING",
+  });
+  assert.equal((await send("https://other.example.invalid")).status, 403, "GHSA-46wx-v44x-9hh2");
+  assert.equal((await send("http://localhost")).status, 200);
+});
+
+test("the MCP HTTP dependency applies wildcard authorization to equivalent route parameters", async () => {
+  const { Hono } = sdkRequire("hono");
+  const app = new Hono();
+  app.use("/api/:tenant{[^/]+}/admin/*", c => c.text("denied", 401));
+  app.get("/api/:tenant/admin/:id", c => c.text("restricted"));
+  assert.equal((await app.request("http://localhost/api/sample/admin/record")).status, 401,
+    "GHSA-h7mg-cq63-vhpq");
+});
+
+test("the MCP HTTP adapter rejects raw path backslashes without rejecting encoded or query values", async () => {
+  const { getRequestListener } = sdkRequire("@hono/node-server");
+  const server = createServer(getRequestListener(() => new Response("accepted")));
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const port = server.address().port;
+  const status = target => new Promise((resolve, reject) => {
+    const request = httpRequest({ host: "127.0.0.1", port, path: target }, response => {
+      response.resume(); response.once("end", () => resolve(response.statusCode));
+    });
+    request.setTimeout(2000, () => request.destroy(new Error("Local HTTP fixture timed out")));
+    request.on("error", reject); request.end();
+  });
+  try {
+    assert.equal(await status(String.raw`/public\..\admin/record`), 400, "GHSA-jpvv-r467-5p4w");
+    assert.equal(await status("/public%5Cvalue"), 200);
+    assert.equal(await status(String.raw`/public?value=\allowed`), 200);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
 });
 
 const request = { url: "https://cache.example.invalid/account", headers: { host: "cache.example.invalid" } };
