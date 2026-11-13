@@ -270,6 +270,23 @@ test("a shared document's server versions are listed, previewed, and restored fo
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
     await expect(offlinePanel.locator(".version-history-warning")).toHaveCount(0);
 
+    // A known socket permission revocation must survive the next offline restart.
+    await expect.poll(() => [...sockets.clients].some(client => client.readyState === 1)).toBe(true);
+    for (const client of sockets.clients) client.close(4403, "FORBIDDEN");
+    await expect.poll(async () => page.evaluate(async fileId => {
+      const info = await window.desktopAPI!.collaboration!.info();
+      return info.sessions.find(session => session.binding.localFileId === fileId)?.status;
+    }, seeded.fileId)).toBe("permission-error");
+    await app!.close(); app = undefined;
+    offline = true;
+    page = await launch();
+    await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
+    expect(await page.evaluate(fileId => window.desktopAPI!.collaboration!.cachedBackups!(fileId), seeded.fileId)).toEqual([]);
+    expect(await page.evaluate(async ({ fileId, versionId }) => {
+      try { await window.desktopAPI!.collaboration!.version(fileId, versionId); return true; }
+      catch { return false; }
+    }, { fileId: seeded.fileId, versionId: BEFORE_RESTORE_ID })).toBe(false);
+
   } finally {
     await app?.close().catch(() => {});
     sockets.close();

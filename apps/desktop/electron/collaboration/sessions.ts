@@ -124,6 +124,7 @@ export class CollaborationSessions {
   private registryTail: Promise<void> = Promise.resolve();
   private retry?: ReturnType<typeof setInterval>;
   private readonly versionCaches = new Map<string, SharedVersionCache>();
+  private versionCacheInvalidations: Promise<void> = Promise.resolve();
   private readonly lifetime = new AbortController();
   private viewedFileId: string | null = null;
   private visibleFileIds = new Set<string>();
@@ -319,6 +320,7 @@ export class CollaborationSessions {
       else session.role = role;
     }
     this.sessions.set(fileId, session);
+    if (session.status === "permission-error") this.invalidateCachedVersions(fileId);
     this.dormant.delete(fileId);
     try {
       await this.loadAssets(fileId, false);
@@ -680,6 +682,11 @@ export class CollaborationSessions {
   }
   restrictCatalog(allowed: Map<string, MemberRole>): void {
     this.catalogRoles = { actorId: this.actorId(), allowed };
+    for (const [fileId, entry] of Object.entries(this.registry.files)) {
+      if (!this.sessions.has(fileId) && entry.actorId === this.actorId() && !allowed.has(entry.sharedDocumentId)) {
+        this.invalidateCachedVersions(fileId);
+      }
+    }
     for (const [fileId, session] of this.sessions) {
       const entry = this.registry.files[fileId];
       if (entry.actorId !== this.actorId()) { session.socket?.close(); this.status(fileId, "permission-error"); continue; }
@@ -1272,16 +1279,32 @@ export class CollaborationSessions {
       body,
     );
   }
+  private versionCacheFor(fileId: string): SharedVersionCache {
+    const entry = this.registry.files[fileId];
+    const key = JSON.stringify([this.auth?.config?.apiUrl, entry.actorId, entry.sharedDocumentId]);
+    let cache = this.versionCaches.get(key);
+    if (!cache) { cache = new SharedVersionCache(this.directory, key); this.versionCaches.set(key, cache); }
+    return cache;
+  }
+  /** Every known denial invalidates disk copies, including unopened/dormant documents. */
+  private invalidateCachedVersions(fileId: string): void {
+    if (!this.registry.files[fileId]) return;
+    const cache = this.versionCacheFor(fileId);
+    this.versionCacheInvalidations = this.versionCacheInvalidations.then(() => cache.clear()).catch(error => {
+      console.error("[collaboration] unable to invalidate version cache", error);
+    });
+  }
   private async versionCache(fileId: string): Promise<SharedVersionCache> {
     const actor = this.actorId();
     const entry = this.registry.files[fileId];
     if (!actor || entry?.actorId !== actor) throw new Error("ACCOUNT_CHANGED");
     const session = await this.session(fileId);
-    if (session.status === "permission-error") throw new Error("FORBIDDEN");
-    const key = JSON.stringify([this.auth?.config.apiUrl, actor, entry.sharedDocumentId]);
-    let cache = this.versionCaches.get(key);
-    if (!cache) { cache = new SharedVersionCache(this.directory, key); this.versionCaches.set(key, cache); }
-    return cache;
+    if (session.status === "permission-error") {
+      this.invalidateCachedVersions(fileId);
+      await this.versionCacheInvalidations;
+      throw new Error("FORBIDDEN");
+    }
+    return this.versionCacheFor(fileId);
   }
   async cachedBackups(fileId: string): Promise<SharedBackup[]> {
     const actor = this.actorId();
@@ -2169,6 +2192,7 @@ export class CollaborationSessions {
   private status(fileId: string, status: SaveState): void {
     const session = this.require(fileId);
     session.status = session.failed ? "save-error" : status;
+    if (status === "permission-error") this.invalidateCachedVersions(fileId);
     this.emit({
       type: "status",
       fileId,
@@ -2241,6 +2265,7 @@ export class CollaborationSessions {
       await session.tail;
       await session.journal.compact();
     }
+    await this.versionCacheInvalidations;
   }
 }
 

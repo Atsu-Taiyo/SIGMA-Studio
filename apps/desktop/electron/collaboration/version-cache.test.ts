@@ -48,17 +48,17 @@ it("bounds downloaded bodies and keeps the most recently downloaded twenty", asy
   expect(await cache.get(summaries[20].id)).not.toBeNull();
 });
 
-async function sessionsFixture() {
+async function sessionsFixture(existingDirectory?: string) {
   vi.stubEnv("SIGMA_COLLABORATION_URL", "");
-  const dir = await directory();
+  const dir = existingDirectory ?? await directory();
   const sessions = new CollaborationSessions(dir, new LocalSigmaDocStore(dir), vi.fn());
   let actor: string | null = "actor";
   Object.defineProperty(sessions, "auth", { value: { user: () => actor ? { id: actor } : null,
-    config: { apiUrl: "https://sync.example.test" }, signOut: async () => { actor = null; },
+    cancelSignIn: () => {}, config: { apiUrl: "https://sync.example.test" }, signOut: async () => { actor = null; },
     accountSignal: () => new AbortController().signal, authorization: async () => "Bearer fixture" } });
   const internal = sessions as unknown as { registry: { files: Record<string, unknown> }; sessions: Map<string, unknown> };
   internal.registry.files.file = { actorId: "actor", sharedDocumentId: "shared" };
-  internal.sessions.set("file", { status: "offline", journal: { binding: { sharedDocumentId: "shared" }, pendingCount: () => 0 } });
+  internal.sessions.set("file", { status: "offline", journal: { binding: { sharedDocumentId: "shared" }, pendingCount: () => 0, compact: async () => {} } });
   return { dir, sessions, setActor: (value: string) => { actor = value; } };
 }
 it("falls back after real fetch failure, previews without a request and resynchronizes after reconnect", async () => {
@@ -132,4 +132,24 @@ it("does not let a late successful list recreate disk cache after a concurrent p
   await expect(listing).rejects.toThrow("FORBIDDEN");
   const cache = new SharedVersionCache(path.join(dir, "collaboration-v1"), JSON.stringify(["https://sync.example.test", "actor", "shared"]));
   expect(await cache.list()).toBeNull();
+});
+
+it.each(["sync-403", "socket-4403", "catalog", "dormant-catalog"])("keeps revoked history unavailable after an offline restart (%s)", async source => {
+  const f = await sessionsFixture();
+  const request = vi.spyOn(f.sessions, "request").mockResolvedValue([summary]);
+  await f.sessions.backups("file"); request.mockResolvedValue(version); await f.sessions.version("file", summary.id);
+  if (source === "dormant-catalog") {
+    (f.sessions as unknown as { sessions: Map<string, unknown> }).sessions.delete("file");
+  }
+  if (source.includes("catalog")) f.sessions.restrictCatalog(new Map());
+  else {
+    // Both the transport's HTTP failure and socket close callbacks use this single transition.
+    (f.sessions as unknown as { status(fileId: string, status: string): void }).status("file", "permission-error");
+  }
+  await f.sessions.close();
+  const reopened = await sessionsFixture(f.dir);
+  vi.spyOn(reopened.sessions, "request").mockRejectedValue(new NetworkUnavailableError("offline"));
+  expect(await reopened.sessions.cachedBackups("file")).toEqual([]);
+  await expect(reopened.sessions.version("file", summary.id)).rejects.toThrow("offline");
+  await reopened.sessions.close();
 });
