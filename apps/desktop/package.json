@@ -52,7 +52,7 @@
     "lowlight": "^3.3.0",
     "lucide-react": "^1.70.0",
     "mathlive": "^0.111.4",
-    "next": "^16.4.5",
+    "next": "^16.4.6",
     "node-tikzjax": "^1.0.5",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "6.5.438",
@@ -88,7 +88,7 @@
     "electron-builder": "^26.18.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.14.0",
-    "eslint-config-next": "^16.4.5",
+    "eslint-config-next": "^16.4.6",
     "happy-dom": "^21.0.4",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
