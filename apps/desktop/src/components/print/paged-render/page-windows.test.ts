@@ -40,6 +40,44 @@ describe("settled output text boxes", () => {
 });
 
 describe("buildPageWindows", () => {
+  it("omits only off-page text ink while retaining frozen boxes, crossings and unknown content", () => {
+    const stageRoot = document.createElement("div");
+    stageRoot.className = "page-mode";
+    stageRoot.innerHTML = `<div class="page-canvas"><div class="text-flow-editor"><div class="ProseMirror">
+      <p data-sigma-doc-id="first" style="margin: 7px 0"><span class="ML__latex">first formula</span><img class="ProseMirror-separator" alt=""></p>
+      <p data-sigma-doc-id="cross"><span class="ML__latex">crossing formula</span></p>
+      <p data-sigma-doc-id="last"><span class="ML__latex">last formula</span><img class="ProseMirror-separator" alt=""></p>
+      <p data-sigma-doc-id="raised"><span class="ML__latex">raised ink</span></p>
+      <p data-sigma-doc-id="unknown"><span>unmeasured</span></p>
+      <p data-sigma-doc-id="svg"><svg><defs id="shared" /></svg></p>
+      <p data-sigma-doc-id="image"><img class="ProseMirror-separator" src="data:image/png;base64,test"></p>
+    </div></div></div>`;
+    const canvas = stageRoot.querySelector<HTMLElement>(".page-canvas")!;
+    stageRoot.getBoundingClientRect = canvas.getBoundingClientRect = () => domRect(0, 0, 200, 640);
+    const positions = [[50, 20], [190, 100], [550, 20], [550, 20], [0, 0], [550, 20], [550, 20]];
+    const paragraphs = Array.from(stageRoot.querySelectorAll("p"));
+    paragraphs.forEach((p, i) => { p.getBoundingClientRect = () => domRect(0, positions[i][0], 180, positions[i][1]); });
+    // Descendant ink reaches beyond its paragraph border into the first paper.
+    paragraphs[3].firstElementChild!.getBoundingClientRect = () => domRect(0, 50, 20, 520);
+    const original = stageRoot.outerHTML;
+    const container = document.createElement("div");
+    buildPageWindows({ stageRoot, canvas, container, metrics: {
+      pageCount: 3, pageHeightPx: 200, pageStridePx: 220, pageWidthPx: 200,
+    } });
+    const pages = Array.from(container.querySelectorAll(".paged-surface-page"));
+    expect(pages.map(p => Array.from(p.querySelectorAll(".ML__latex"), e => e.textContent)))
+      .toEqual([["first formula", "crossing formula", "raised ink"], ["crossing formula", "raised ink"], ["last formula", "raised ink"]]);
+    for (const page of pages) {
+      expect(page.querySelectorAll("p")).toHaveLength(7);
+      expect(page.querySelector("p")!.style.margin).toBe("7px 0px");
+      expect(page.querySelector("p")!.style.getPropertyValue("--paged-settled-text-height")).toBe("20px");
+      expect(page.textContent).toContain("unmeasured");
+      expect(page.querySelector("#shared")).not.toBeNull();
+      expect(page.querySelector('img[src="data:image/png;base64,test"]')).not.toBeNull();
+    }
+    expect(stageRoot.outerHTML).toBe(original);
+  });
+
   it("keeps a continued paragraph's identity on the page showing its visible lines", () => {
     const canvas = document.createElement("div");
     canvas.className = "page-canvas";

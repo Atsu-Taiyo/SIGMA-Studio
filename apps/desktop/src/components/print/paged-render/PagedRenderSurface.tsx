@@ -21,6 +21,7 @@ import {
 } from "@/features/document";
 import { getPrintableDocument } from "@/lib/print-renderer";
 import { useCustomFonts } from "@/lib/use-custom-fonts";
+import { measurePerformance } from "@/lib/performance";
 
 /** How often the canvas layout is sampled while waiting for it to settle. */
 const SETTLE_SAMPLE_MS = 100;
@@ -114,7 +115,7 @@ export function PagedRenderSurface({
       if (!pages || !stageRoot || !canvas || !metrics) {
         return false;
       }
-      const written = measurementOnly ? metrics.pageCount : buildPageWindows({ stageRoot, canvas, container: pages, metrics });
+      const written = measurementOnly ? metrics.pageCount : measurePerformance("pdf.page-windows", () => buildPageWindows({ stageRoot, canvas, container: pages, metrics }));
       cutSignature = signature;
       setPageCount(written);
       setRevision((current) => current + 1);
