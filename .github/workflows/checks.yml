@@ -83,8 +83,8 @@ jobs:
       - run: npm ci
       - name: Build the actual desktop renderer, main and preload
         run: npm --workspace @sigma-studio/desktop run electron:prepare
-      - name: Compare B4 portrait and landscape editor, preview and saved PDF at 100%, 125% and 150% display scale
-        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/pdf-b4-columns.spec.ts
+      - name: Compare B4 display scales and problem number frames in editor, preview and saved PDF
+        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/pdf-b4-columns.spec.ts tests/electron/problem-number-page-break.spec.ts
       - uses: actions/upload-artifact@v7
         if: always()
         with:
