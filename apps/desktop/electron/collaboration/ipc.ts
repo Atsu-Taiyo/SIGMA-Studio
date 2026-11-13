@@ -123,7 +123,8 @@ export function registerCollaborationIpc(
         .parse(tokenHash),
     }),
   );
-  handle("backups", (id) => sessions.action(fileId.parse(id), "backups"));
+  handle("backups", (id) => sessions.backups(fileId.parse(id)));
+  handle("cached-backups", (id) => sessions.cachedBackups(fileId.parse(id)));
   handle("version", (id, backupId) =>
     sessions.version(fileId.parse(id), uuid.parse(backupId)),
   );

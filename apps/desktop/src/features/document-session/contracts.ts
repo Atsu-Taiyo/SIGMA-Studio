@@ -49,6 +49,9 @@ export interface DocumentSessionVersionEntry {
  * device's version history, so the history panel reads them here. Documents without it use the device's history.
  */
 export interface DocumentSessionVersionHistory {
+  /** Previously downloaded host versions, available before a network refresh. */
+  listCached?(): Promise<DocumentSessionVersionEntry[]>;
+  isOffline?(): boolean;
   /** Newest first. */
   list(): Promise<DocumentSessionVersionEntry[]>;
   get(versionId: string): Promise<SigmaDocument | null>;

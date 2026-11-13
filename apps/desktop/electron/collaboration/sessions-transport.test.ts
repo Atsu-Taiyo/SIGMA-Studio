@@ -11,7 +11,7 @@ function fixture() {
   let actor = "account-before";
   const sessions = new CollaborationSessions("/unused-transport-fixture", {} as LocalSigmaDocStore, () => {});
   Object.defineProperty(sessions, "auth", { value: {
-    config: { apiUrl: "https://sync.example.test" }, user: () => ({ id: actor }),
+    cancelSignIn: () => {}, config: { apiUrl: "https://sync.example.test" }, user: () => ({ id: actor }),
     accountSignal: () => account.signal, authorization: async () => "Bearer fixture",
   } });
   return { sessions, account, switchActor: () => { actor = "account-after"; } };
@@ -48,4 +48,25 @@ it("retains the HTTP status and Retry-After on a server error", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "RATE_LIMIT" }, { status: 429, headers: { "Retry-After": "90" } })));
   await expect(sessions.request("/catalog/delta", {})).rejects.toMatchObject({ status: 429, retryAfterMs: 90_000 });
   await expect(sessions.request("/catalog/delta", {})).rejects.toBeInstanceOf(CollaborationHttpError);
+});
+
+it.each(["headers", "body"])("preserves normal shutdown cancellation while reading %s", async phase => {
+  const { sessions } = fixture();
+  const started = Promise.withResolvers<void>();
+  const aborted = new DOMException("This operation was aborted", "AbortError");
+  vi.stubGlobal("fetch", vi.fn((_url: URL, options: RequestInit) => {
+    if (phase === "headers") return new Promise<Response>((_resolve, reject) => {
+      options.signal!.addEventListener("abort", () => reject(aborted), { once: true });
+      started.resolve();
+    });
+    return Promise.resolve(new Response(new ReadableStream({ start(controller) {
+      options.signal!.addEventListener("abort", () => controller.error(aborted), { once: true });
+      started.resolve();
+    } }), { headers: { "Content-Type": "application/json" } }));
+  }));
+  const pending = sessions.request("/catalog/capabilities");
+  const rejected = expect(pending).rejects.toBe(aborted);
+  await started.promise;
+  await sessions.close();
+  await rejected;
 });
