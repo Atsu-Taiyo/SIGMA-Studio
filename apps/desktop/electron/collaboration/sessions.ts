@@ -24,6 +24,8 @@ import {
   type ObjectValue,
 } from "../../src/features/collaboration/model/value";
 import type {
+  SharedBackup,
+  SharedVersion,
   CollaborationEvent,
   CollaborationInfo,
   CollaborationProfile,
@@ -41,6 +43,9 @@ import { documentImageReferences, mergedOperationId, mergeOperationUpdates, MISS
 import { durableWrite, SharedDocumentJournal, type JournalSummary } from "./journal";
 import { logLedgerEvent } from "../ledger-log";
 import { isRemoteId, validateAcknowledgements, validateApproval, validateDocumentIdentity, validateSnapshot, validateSync } from "./response-validation";
+
+import { isNetworkUnavailable, transportFailure } from "../network-unavailable";
+import { SharedVersionCache, validBackup } from "./version-cache";
 
 /** `info()` が自分のプロフィールの初回の取得を待つ上限。 */
 const PROFILE_INFO_WAIT_MS = 1500;
@@ -118,6 +123,7 @@ export class CollaborationSessions {
   private catalogRoles: { actorId: string | null; allowed: Map<string, MemberRole> } | null = null;
   private registryTail: Promise<void> = Promise.resolve();
   private retry?: ReturnType<typeof setInterval>;
+  private readonly versionCaches = new Map<string, SharedVersionCache>();
   private readonly lifetime = new AbortController();
   private viewedFileId: string | null = null;
   private visibleFileIds = new Set<string>();
@@ -1266,8 +1272,53 @@ export class CollaborationSessions {
       body,
     );
   }
+  private async versionCache(fileId: string): Promise<SharedVersionCache> {
+    const actor = this.actorId();
+    const entry = this.registry.files[fileId];
+    if (!actor || entry?.actorId !== actor) throw new Error("ACCOUNT_CHANGED");
+    const session = await this.session(fileId);
+    if (session.status === "permission-error") throw new Error("FORBIDDEN");
+    const key = JSON.stringify([this.auth?.config.apiUrl, actor, entry.sharedDocumentId]);
+    let cache = this.versionCaches.get(key);
+    if (!cache) { cache = new SharedVersionCache(this.directory, key); this.versionCaches.set(key, cache); }
+    return cache;
+  }
+  async cachedBackups(fileId: string): Promise<SharedBackup[]> {
+    const actor = this.actorId();
+    const result = await (await this.versionCache(fileId)).list();
+    await this.versionCache(fileId);
+    if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+    return result ?? [];
+  }
+  async backups(fileId: string): Promise<SharedBackup[]> {
+    const actor = this.actorId();
+    const cache = await this.versionCache(fileId);
+    try {
+      const versions = await this.action<SharedBackup[]>(fileId, "backups");
+      if (!Array.isArray(versions) || !versions.every(validBackup)) throw new Error("INVALID_VERSION_LIST");
+      if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+      await cache.saveList(versions).catch(() => {});
+      await this.versionCache(fileId);
+      if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+      return versions;
+    } catch (error) {
+      if (isNetworkUnavailable(error) || (error instanceof CollaborationHttpError && error.status >= 500)) {
+        const cached = await cache.list();
+        await this.versionCache(fileId);
+        if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+        if (cached) return cached;
+      } else {
+        await cache.clear();
+        if (error instanceof CollaborationHttpError && [401, 403].includes(error.status)) this.status(fileId, "permission-error");
+      }
+      throw error;
+    }
+  }
   async signOut(): Promise<void> {
     await this.auth?.signOut();
+    await Promise.all([...this.versionCaches.values()].map(cache => cache.clear()));
+    this.versionCaches.clear();
+    await fs.rm(path.join(this.directory, "version-cache"), { recursive: true, force: true });
     this.profiles.clear();
     this.catalogRoles = null;
     for (const [fileId, session] of this.sessions) {
@@ -1282,7 +1333,18 @@ export class CollaborationSessions {
   }
   /** One past version's content. The server returns it only to participants of the document. */
   async version(fileId: string, backupId: string): Promise<unknown> {
-    const version = await this.action<{ document?: unknown }>(fileId, `backups/${backupId}`);
+    const actor = this.actorId();
+    const cache = await this.versionCache(fileId);
+    let version = await cache.get(backupId);
+    if (!version) {
+      version = await this.action<SharedVersion>(fileId, `backups/${backupId}`);
+      if (!validBackup(version) || version.id !== backupId) throw new Error("INVALID_VERSION_RESPONSE");
+      version = { ...version, document: parseSigmaDocument(version.document) };
+      if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+      await cache.saveBody(version).catch(() => {});
+    }
+    await this.versionCache(fileId);
+    if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
     const session = await this.session(fileId);
     const assets = session.versionAssets ?? new Set<string>();
     for (const assetId of storageAssetIds(version?.document)) {
@@ -2127,8 +2189,8 @@ export class CollaborationSessions {
       signal: AbortSignal.any([AbortSignal.timeout(20_000), accountSignal, this.lifetime.signal, ...(options.signal ? [options.signal] : [])]),
       redirect: "error",
     }).catch(error => {
-      if (accountSignal.aborted) throw new Error("ACCOUNT_CHANGED");
-      throw error;
+      if (accountSignal.aborted || this.lifetime.signal.aborted) throw new Error("ACCOUNT_CHANGED");
+      return transportFailure(error);
     });
     if (accountSignal.aborted || actor !== this.auth.user()?.id) {
       await response.body?.cancel();
@@ -2152,7 +2214,7 @@ export class CollaborationSessions {
     );
     const value = await readResponseJson<T>(response, Math.ceil(MAX_DOCUMENT_BYTES * 4 / 3) + 1024 * 1024).catch(error => {
       if (accountSignal?.aborted) throw new Error("ACCOUNT_CHANGED");
-      throw error;
+      return transportFailure(error);
     });
     if (accountSignal?.aborted || actor !== this.auth?.user()?.id) throw new Error("ACCOUNT_CHANGED");
     return value;

@@ -43,10 +43,12 @@ test("a shared document's server versions are listed, previewed, and restored fo
   /** 戻した後の世代で、この利用者に渡す権限 (閲覧者になった場合の見え方を同じ流れで確かめる)。 */
   let roleAfterRestore: "editor" | "viewer" | null = null;
   let sequence = 0;
+  let offline = false;
   const versions = new Map<string, FixtureVersion>();
   const restoreRequests: { backupId: string; operationId: string; role: string }[] = [];
   const assetRequests: string[] = [];
   const server = createServer(async (request, response) => {
+    if (offline) { request.socket.destroy(); return; }
     const prefix = `/documents/${sharedId}`;
     const json = (value: unknown, status = 200) => response.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(value));
     if (!request.url?.startsWith(prefix)) {
@@ -249,6 +251,24 @@ test("a shared document's server versions are listed, previewed, and restored fo
     await expect(preview.locator(".version-history-preview-note")).toHaveText("版を戻せるのは編集者以上です。");
     expect(restoreRequests).toHaveLength(1);
     await page.screenshot({ path: testInfo.outputPath("shared-version-viewer.png") });
+
+    // Read-only cache survives a real network outage and a complete Electron restart.
+    offline = true;
+    await app!.close(); app = undefined;
+    page = await launch();
+    await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
+    await page.locator(".version-history-button").click();
+    const offlinePanel = page.locator(".version-history-panel");
+    const offlineRows = offlinePanel.locator(".version-history-row:not(.version-history-current-row)");
+    await expect(offlineRows).toHaveCount(3);
+    await expect(offlinePanel).toContainText("このPCに保存した版");
+    await offlineRows.nth(0).click();
+    await expect(page.locator(".version-history-preview")).toContainText("いまの本文");
+    await page.screenshot({ path: testInfo.outputPath("shared-version-offline-restarted.png") });
+    offline = false;
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect(offlinePanel.locator(".version-history-warning")).toHaveCount(0);
+
   } finally {
     await app?.close().catch(() => {});
     sockets.close();

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { OfficialPluginProgress } from "@/lib/plugin-status-contracts";
 
-import { PluginManager, type PluginManagerOptions } from "./manager";
+import { ACCESS_OFFLINE_GRACE_MS, PluginManager, type PluginManagerOptions } from "./manager";
 import { digest, verifyCatalog, type CatalogMenuSection, type CatalogPlugin } from "./manifest";
 
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
@@ -264,8 +264,8 @@ describe("PluginManager", () => {
     const { manager, state } = await setup({ runWorker: async () => { runs += 1; } });
     await manager.check();
     await manager.install(ID);
-    state.code = 503;
-    await expect(manager.run(ID, {})).rejects.toThrow("unavailable");
+    state.code = 403;
+    await expect(manager.run(ID, {})).rejects.toThrow("forbidden");
     expect(manager.status().plugins).toEqual([]);
     state.code = 200;
     state.granted = false;
@@ -435,7 +435,7 @@ describe("PluginManager", () => {
     state.signedIn = false;
     expect(manager.status().plugins).toEqual([]);
     state.signedIn = true;
-    state.code = 503;
+    state.code = 403;
     await expect(manager.refreshAccess()).rejects.toThrow();
     expect(manager.status().plugins).toEqual([]);
     expect(manager.state.installed[ID].version).toBe("1.0.0");
@@ -532,5 +532,112 @@ describe("extension menu", () => {
     state.granted = false;
     await manager.refreshAccess();
     expect(manager.isFontVisible(sha)).toBe(false);
+  });
+});
+
+// Integrity-checking test codec; production uses OS encryption through safeStorage.
+const cacheCodec = {
+  encrypt: (value: string) => `${digest(Buffer.from(value))}:${Buffer.from(value).toString("base64")}`,
+  decrypt: (value: string) => {
+    const [checksum, bytes] = value.split(":");
+    const decoded = Buffer.from(bytes, "base64").toString();
+    if (digest(Buffer.from(decoded)) !== checksum) throw new Error("CORRUPT_CACHE");
+    return decoded;
+  },
+};
+describe("offline access", () => {
+  it("retains verified menus, organization, fonts and execution across an offline restart, then resynchronizes", async () => {
+    let now = 2 * 24 * 60 * 60 * 1000;
+    const f = await setup({ accessCacheCodec: cacheCodec, now: () => now, runWorker: async () => "converted locally" });
+    f.state.organizations = [{ id: ORGANIZATION, name: "テスト組織" }];
+    await f.manager.check(); await f.manager.install(ID);
+    const disconnected = new PluginManager({ ...f.base, fetchImpl: async () => { throw new TypeError("fetch failed"); } });
+    await disconnected.initialize();
+    await disconnected.refreshAccess();
+    expect(disconnected.status()).toMatchObject({ offline: true, requiresRole: false, organizations: [{ name: "テスト組織" }] });
+    expect(disconnected.menuGroups()).toHaveLength(1);
+    expect(disconnected.isFontVisible(f.state.fixture.plugin.files[1].sha256)).toBe(true);
+    expect(await disconnected.run(ID, {})).toBe("converted locally");
+    expect(disconnected.status().error).toBeUndefined();
+    now += 60_001;
+    disconnected.fetchImpl = f.base.fetchImpl!;
+    await disconnected.refreshAccess();
+    expect(disconnected.status().offline).toBe(false);
+    expect(disconnected.menuGroups()).toHaveLength(1);
+  });
+
+  it("accepts a transport failure during token refresh but rejects an explicit authentication failure", async () => {
+    const { NetworkUnavailableError } = await import("../network-unavailable");
+    const f = await setup({ accessCacheCodec: cacheCodec });
+    await f.manager.check(); await f.manager.install(ID);
+    const offline = new PluginManager({ ...f.base, authorization: async () => { throw new NetworkUnavailableError("refresh offline"); } });
+    await offline.initialize(); await offline.refreshAccess();
+    expect(offline.menuGroups()).toHaveLength(1);
+    const denied = new PluginManager({ ...f.base, authorization: async () => { throw new Error("AUTH_FAILED"); } });
+    await denied.initialize();
+    await denied.refreshAccess().catch(() => {});
+    expect(denied.menuGroups()).toEqual([]);
+    await expect(fs.access(path.join(f.directory, "access.enc"))).rejects.toThrow();
+  });
+
+  it.each([401, 403, 200])("never falls back on explicit denial or malformed access (%s)", async code => {
+    const f = await setup({ accessCacheCodec: cacheCodec });
+    await f.manager.check(); await f.manager.install(ID);
+    f.manager.fetchImpl = async () => code === 200 ? Response.json(null) : new Response(null, { status: code });
+    await expect(f.manager.refreshAccess()).rejects.toThrow();
+    expect(f.manager.menuGroups()).toEqual([]);
+    const restarted = new PluginManager({ ...f.base, fetchImpl: async () => { throw new TypeError("offline"); } });
+    await restarted.initialize();
+    expect(restarted.menuGroups()).toEqual([]);
+  });
+
+  it("expires after seven days without extending the deadline on failure and rejects a backwards clock", async () => {
+    let now = 10 * 24 * 60 * 60 * 1000;
+    const f = await setup({ accessCacheCodec: cacheCodec, now: () => now });
+    await f.manager.check(); await f.manager.install(ID);
+    const verified = now;
+    f.manager.fetchImpl = async () => { throw new TypeError("offline"); };
+    now += ACCESS_OFFLINE_GRACE_MS - 1;
+    await f.manager.refreshAccess();
+    expect(f.manager.menuGroups()).toHaveLength(1);
+    now += 1;
+    expect(f.manager.menuGroups()).toEqual([]);
+    await expect(f.manager.run(ID, {})).rejects.toThrow();
+    now = verified - 1;
+    const reopened = new PluginManager({ ...f.base, fetchImpl: f.manager.fetchImpl });
+    await reopened.initialize();
+    expect(reopened.menuGroups()).toEqual([]);
+  });
+
+  it("rejects another actor, another source/key, corrupt grants and tampered bundles", async () => {
+    const f = await setup({ accessCacheCodec: cacheCodec });
+    await f.manager.check(); await f.manager.install(ID);
+    const offline = async () => { throw new TypeError("offline"); };
+    for (const change of [{ userId: () => OTHER_USER }, { catalogUrl: "https://other.test/plugins/catalog" }, { publicKey: "wrong-key" }]) {
+      const reopened = new PluginManager({ ...f.base, ...change, fetchImpl: offline });
+      await reopened.initialize(); expect(reopened.menuGroups()).toEqual([]);
+    }
+    await fs.appendFile(path.join(f.manager.versionDir(f.state.fixture.plugin), "worker.cjs"), "tampered");
+    const tampered = new PluginManager({ ...f.base, fetchImpl: offline });
+    await tampered.initialize();
+    expect(tampered.menuGroups()).toEqual([]);
+    await expect(tampered.run(ID, {})).rejects.toThrow();
+    await fs.writeFile(path.join(f.directory, "access.enc"), "corrupt");
+    const corrupt = new PluginManager({ ...f.base, fetchImpl: offline });
+    await corrupt.initialize(); expect(corrupt.menuGroups()).toEqual([]);
+  });
+
+  it("discards late grants after logout, including the persisted cache", async () => {
+    const f = await setup({ accessCacheCodec: cacheCodec });
+    await f.manager.check(); await f.manager.install(ID);
+    let finish!: (response: Response) => void;
+    f.manager.fetchImpl = () => new Promise(resolve => { finish = resolve; });
+    const refreshing = f.manager.refreshAccess();
+    await Promise.resolve(); await Promise.resolve();
+    f.state.signedIn = false; await f.manager.resetIdentity();
+    finish(Response.json({ userId: USER, plugins: [ID] }));
+    await expect(refreshing).rejects.toThrow();
+    expect(f.manager.menuGroups()).toEqual([]);
+    await expect(fs.access(path.join(f.directory, "access.enc"))).rejects.toThrow();
   });
 });

@@ -166,3 +166,13 @@ describe("PluginHost.runItem", () => {
     expect(await host.runItem("sample-tool", "import-sample", async () => file("a.smp"))).toEqual({ ok: false, error: "import-failed" });
   });
 });
+
+it("waits for the restored local identity before initializing plugins, without waiting for a network request", async () => {
+  const authReady = Promise.withResolvers<void>();
+  const { host } = createHost({ authReady: authReady.promise });
+  const initialize = vi.spyOn(host.manager, "initialize").mockResolvedValue(host.manager.status());
+  await Promise.resolve();
+  expect(initialize).not.toHaveBeenCalled();
+  authReady.resolve(); await host.ready;
+  expect(initialize).toHaveBeenCalledTimes(1);
+});

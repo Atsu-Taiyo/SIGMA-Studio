@@ -184,4 +184,30 @@ describe("VersionHistoryPanel", () => {
     expect(mocks.getDocumentVersion).not.toHaveBeenCalled();
     expect(mocks.onChange).not.toHaveBeenCalled();
   });
+  it("shows cached rows before a pending refresh, previews offline and refreshes on reconnect", async () => {
+    const entries = [{ versionId: "cached", capturedAt: "2026-11-13T00:00:00Z", kind: "auto" as const }];
+    let finish!: (value: typeof entries) => void;
+    let offline = true;
+    const history = { listCached: vi.fn(async () => entries),
+      list: vi.fn(() => new Promise<typeof entries>(resolve => { finish = resolve; })),
+      isOffline: () => offline, get: vi.fn(async () => createBlankDocument("cached preview")),
+      canRestore: () => false, restore: vi.fn() };
+    const onPreviewChange = vi.fn();
+    await act(async () => root.render(<VersionHistoryPanel busy={false} source={{ kind: "shared", fileId: "file_1", history }} onClose={vi.fn()} onPreviewChange={onPreviewChange} selectedVersionId={null} />));
+    await flush();
+    expect(container.querySelectorAll(".version-history-row")).toHaveLength(2);
+    expect(container.textContent).toContain("このPCに保存した版");
+    await act(async () => container.querySelectorAll<HTMLButtonElement>(".version-history-row")[1].click());
+    expect(onPreviewChange).toHaveBeenCalledWith(expect.objectContaining({ versionId: "cached", shared: true }));
+    await act(async () => finish(entries));
+    offline = false;
+    history.list.mockImplementation(async () => entries);
+    await act(async () => window.dispatchEvent(new Event("online")));
+    expect(history.list).toHaveBeenCalledTimes(2);
+    expect(container.querySelector(".version-history-warning")).toBeNull();
+    await act(async () => root.render(null));
+    window.dispatchEvent(new Event("online"));
+    expect(history.list).toHaveBeenCalledTimes(2);
+  });
+
 });

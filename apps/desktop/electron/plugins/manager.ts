@@ -31,6 +31,10 @@ import {
 import { loadOrganizationLogo } from "./organization-logo";
 import { createWorkerRunner, type LocalFontBytes, type RunWorker, type WorkerContext } from "./worker-runner";
 
+import { isNetworkUnavailable, NetworkUnavailableError, transportFailure } from "../network-unavailable";
+import type { SecureCacheCodec } from "../secure-cache-codec";
+
+export const ACCESS_OFFLINE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** ファイルの受信が止まったとみなすまでの時間。大きなファイルでも、データが届き続けていれば待つ。 */
 const STALL_TIMEOUT_MS = 30_000;
@@ -80,6 +84,7 @@ export interface PluginManagerOptions {
   signedIn: () => boolean;
   userId?: () => string | null;
   fetchImpl?: typeof fetch;
+  accessCacheCodec?: SecureCacheCodec;
   allowLoopbackHttp?: boolean;
   /** ダウンロード済みの版を有効にする前後で、同梱のフォントなどを登録する。 */
   registerFonts?: (plugin: CatalogPlugin, directory: string) => Promise<void>;
@@ -114,6 +119,12 @@ export class PluginManager extends EventEmitter {
   private readonly runWorker: RunWorker;
   private readonly now: () => number;
   private readonly stallTimeoutMs: number;
+  private readonly accessCacheCodec?: SecureCacheCodec;
+  private accessVerifiedAt = -Infinity;
+  private offline = false;
+  private accessFailedAt = -Infinity;
+  private identityGeneration = 0;
+  private cacheTail: Promise<void> = Promise.resolve();
   private catalog: Catalog | null = null;
   private envelope: CatalogEnvelope | null = null;
   private phase: "idle" | "checking" | "installing" = "idle";
@@ -134,10 +145,11 @@ export class PluginManager extends EventEmitter {
 
   constructor({ directory, appVersion, catalogUrl, publicKey, authorization, signedIn, fetchImpl = fetch,
     allowLoopbackHttp = false, registerFonts = async () => {}, runWorker, loadLocalFonts, userId = () => null, now = Date.now,
-    stallTimeoutMs = STALL_TIMEOUT_MS }: PluginManagerOptions) {
+    stallTimeoutMs = STALL_TIMEOUT_MS, accessCacheCodec }: PluginManagerOptions) {
     super();
     if (!isVersion(appVersion)) throw new Error("INVALID_APP_VERSION");
     this.directory = directory;
+    this.accessCacheCodec = accessCacheCodec;
     this.appVersion = appVersion;
     this.publicKey = publicKey;
     this.authorization = authorization;
@@ -176,7 +188,9 @@ export class PluginManager extends EventEmitter {
         this.state.sequence = catalog.sequence;
       }
     } catch { /* 検証できなかった情報は有効にしない。 */ }
-    await this.refreshAccess().catch(() => {});
+    await this.loadAccessCache();
+    const cachedAccess = this.validAccess();
+    if (!cachedAccess) await this.refreshAccess().catch(() => {});
     for (const id of Object.keys(this.state.installed)) {
       try {
         const plugin = await this.installedPlugin(id);
@@ -186,7 +200,43 @@ export class PluginManager extends EventEmitter {
         this.error = "verification-failed";
       }
     }
+    if (cachedAccess) void this.refreshAccess().catch(() => {});
     return this.status();
+  }
+
+  private validAccess(): boolean {
+    const age = this.now() - this.accessVerifiedAt;
+    return Boolean(this.signedIn() && this.access?.userId === this.currentUserId()
+      && age >= 0 && age < ACCESS_OFFLINE_GRACE_MS);
+  }
+
+  private cacheIdentity(): string {
+    return digest(Buffer.from(`${this.catalogUrl}\n${this.publicKey}`));
+  }
+
+  private queueCache(write: () => Promise<void>): Promise<void> {
+    const next = this.cacheTail.then(write);
+    this.cacheTail = next.catch(() => {});
+    return next;
+  }
+
+  private clearAccessCache(): Promise<void> {
+    return this.queueCache(() => fs.rm(path.join(this.directory, "access.enc"), { force: true }));
+  }
+
+  private async loadAccessCache(): Promise<void> {
+    if (!this.accessCacheCodec || !this.currentUserId() || !this.signedIn()) return;
+    try {
+      const value = JSON.parse(this.accessCacheCodec.decrypt(await fs.readFile(path.join(this.directory, "access.enc"), "utf8")));
+      if (value.source !== this.cacheIdentity() || !Number.isFinite(value.verifiedAt)
+        || value.access?.userId !== this.currentUserId() || !Array.isArray(value.access.plugins)
+        || value.access.plugins.length > 32 || !value.access.plugins.every(isId)
+        || !Array.isArray(value.access.organizations)) return;
+      this.access = value.access;
+      this.accessVerifiedAt = value.verifiedAt;
+      this.offline = true;
+      if (!this.validAccess()) this.access = null;
+    } catch { /* An absent, corrupt or undecryptable grant cannot authorize anything. */ }
   }
 
   versionDir(plugin: Pick<CatalogPlugin, "id" | "version">): string {
@@ -240,8 +290,10 @@ export class PluginManager extends EventEmitter {
     return {
       available: Boolean(this.catalogUrl && this.publicKey),
       requiresLogin: !signedIn,
-      requiresRole: signedIn && !this.access?.plugins.length,
-      organizations: signedIn && this.access?.userId === this.currentUserId() ? this.access?.organizations ?? [] : [],
+      requiresRole: signedIn && !this.hasAnyAccess(),
+      offline: this.offline,
+      ...(this.offline && this.validAccess() ? { offlineUntil: new Date(this.accessVerifiedAt + ACCESS_OFFLINE_GRACE_MS).toISOString() } : {}),
+      organizations: this.validAccess() ? this.access?.organizations ?? [] : [],
       autoUpdate: this.state.autoUpdate,
       phase: this.phase,
       plugins: [...rows.values()],
@@ -294,10 +346,15 @@ export class PluginManager extends EventEmitter {
   }
 
   /** 本人が変わったとき、前の本人の権限・所属・ロゴを捨てて、表示を更新する。 */
-  resetIdentity(): void {
+  resetIdentity(): Promise<void> {
+    this.identityGeneration++;
     this.access = null;
+    this.accessVerifiedAt = -Infinity;
+    this.offline = false;
+    const cleared = this.clearAccessCache().catch(() => {});
     this.logoCache.clear();
     this.publish();
+    return cleared;
   }
 
   publish(): OfficialPluginStatus {
@@ -312,6 +369,10 @@ export class PluginManager extends EventEmitter {
       await response.body?.cancel();
       throw new PluginError(response.status === 401 ? "unauthorized" : "forbidden");
     }
+    if (response.status >= 500 && response.status <= 599) {
+      await response.body?.cancel();
+      throw new NetworkUnavailableError("PLUGIN_SERVICE_UNAVAILABLE");
+    }
     if (!response.ok || response.redirected || (response.url && new URL(response.url).origin !== new URL(this.catalogUrl as string).origin)
       || Number(response.headers.get("content-length")) > maxBytes || !response.body) {
       await response.body?.cancel();
@@ -321,13 +382,13 @@ export class PluginManager extends EventEmitter {
   }
 
   private async bytes(url: string, maxBytes: number, token: string): Promise<Buffer> {
-    const response = await this.fetchImpl(url, { headers: { Authorization: token }, redirect: "error", signal: AbortSignal.timeout(30_000) });
+    const response = await this.fetchImpl(url, { headers: { Authorization: token }, redirect: "error", signal: AbortSignal.timeout(5000) }).catch(transportFailure);
     const reader = (await this.accept(response, maxBytes)).getReader();
     const chunks: Uint8Array[] = [];
     let size = 0;
     try {
       for (;;) {
-        const { done, value } = await reader.read();
+        const { done, value } = await reader.read().catch(transportFailure);
         if (done) break;
         size += value.length;
         if (size > maxBytes) throw new PluginError("verification-failed");
@@ -345,7 +406,8 @@ export class PluginManager extends EventEmitter {
     let token: string | null | undefined;
     try {
       token = await this.authorization();
-    } catch {
+    } catch (error) {
+      if (isNetworkUnavailable(error)) throw error;
       throw new PluginError("unauthorized");
     }
     if (typeof token !== "string" || !/^Bearer [A-Za-z0-9_.-]+$/.test(token)) throw new PluginError("unauthorized");
@@ -353,15 +415,16 @@ export class PluginManager extends EventEmitter {
   }
 
   hasAccess(id: string): boolean {
-    return Boolean(this.signedIn() && this.access?.userId === this.currentUserId() && this.access?.plugins.includes(id));
+    return Boolean(this.validAccess() && this.access?.plugins.includes(id));
   }
 
   /** 本人にどれかの拡張機能の権限があるか。 */
   private hasAnyAccess(): boolean {
-    return Boolean(this.signedIn() && this.access?.userId === this.currentUserId() && this.access?.plugins.length);
+    return Boolean(this.validAccess() && this.access?.plugins.length);
   }
 
-  async refreshAccess(): Promise<AccessGrant> {
+  async refreshAccess(force = false): Promise<AccessGrant> {
+    if (!force && this.offline && this.validAccess() && this.now() - this.accessFailedAt < 60_000) return this.access!;
     if (this.pendingAccess) return this.pendingAccess;
     this.pendingAccess = this.refreshAccessInner();
     try {
@@ -372,7 +435,8 @@ export class PluginManager extends EventEmitter {
   }
 
   private async refreshAccessInner(): Promise<AccessGrant> {
-    const previous = JSON.stringify({ menu: this.menuGroups(), access: this.access });
+    const previous = JSON.stringify(this.status());
+    const generation = this.identityGeneration;
     const userId = this.currentUserId();
     try {
       if (!this.catalogUrl || !userId) throw new PluginError("unauthorized");
@@ -419,14 +483,41 @@ export class PluginManager extends EventEmitter {
       const visiblePaths = new Set(rawGroups.map((group) => group.logoPath));
       for (const key of this.logoCache.keys()) if (!visiblePaths.has(key)) this.logoCache.delete(key);
       if (this.currentUserId() !== userId || !this.signedIn()) throw new PluginError("forbidden");
+      if (generation !== this.identityGeneration) throw new PluginError("forbidden");
       this.access = { userId, plugins: [...new Set(access.plugins as string[])], organizations };
+      this.accessVerifiedAt = this.now();
+      this.offline = false;
+      const grant = { source: this.cacheIdentity(), verifiedAt: this.accessVerifiedAt, access: this.access };
+      if (this.accessCacheCodec) {
+        const codec = this.accessCacheCodec;
+        // Encryption or disk failure must not turn a live online grant into an offline grant.
+        await this.queueCache(async () => {
+          const encrypted = codec.encrypt(JSON.stringify(grant));
+          await fs.mkdir(this.directory, { recursive: true, mode: 0o700 });
+          const temporary = path.join(this.directory, `access.${randomUUID()}.tmp`);
+          try {
+            await fs.writeFile(temporary, encrypted, { mode: 0o600, flag: "wx" });
+            await fs.rename(temporary, path.join(this.directory, "access.enc"));
+          } finally { await fs.rm(temporary, { force: true }); }
+        }).catch(() => this.clearAccessCache().catch(() => {}));
+      }
+      if (generation !== this.identityGeneration || this.currentUserId() !== userId || !this.signedIn()) throw new PluginError("forbidden");
       if (this.hasAnyAccess() && (this.error === "unauthorized" || this.error === "forbidden")) this.error = undefined;
       return this.access;
     } catch (error) {
-      this.access = null;
+      if (generation === this.identityGeneration && isNetworkUnavailable(error) && this.validAccess()) {
+        this.offline = true;
+        this.accessFailedAt = this.now();
+        return this.access!;
+      }
+      if (generation === this.identityGeneration) {
+        this.access = null;
+        this.offline = isNetworkUnavailable(error);
+        if (!isNetworkUnavailable(error)) await this.clearAccessCache().catch(() => {});
+      }
       throw error instanceof PluginError ? error : new PluginError("unavailable");
     } finally {
-      if (previous !== JSON.stringify({ menu: this.menuGroups(), access: this.access })) this.publish();
+      if (previous !== JSON.stringify(this.status())) this.publish();
     }
   }
 
@@ -436,7 +527,7 @@ export class PluginManager extends EventEmitter {
   }
 
   private async requireAnyAccess(): Promise<void> {
-    await this.refreshAccess();
+    await this.refreshAccess(true);
     if (!this.hasAnyAccess()) throw new PluginError("forbidden");
   }
 
@@ -504,6 +595,7 @@ export class PluginManager extends EventEmitter {
       const plugin = this.catalog?.plugins.find((candidate) => candidate.id === id);
       if (!plugin) throw new PluginError("unavailable");
       await this.requireAccess(id);
+      if (this.offline) throw new PluginError("unavailable");
       if (compareVersions(this.appVersion, plugin.minAppVersion) < 0) throw new PluginError("incompatible");
       const installed = this.state.installed[id];
       if (installed && compareVersions(plugin.version, installed.version) < 0) throw new PluginError("verification-failed");

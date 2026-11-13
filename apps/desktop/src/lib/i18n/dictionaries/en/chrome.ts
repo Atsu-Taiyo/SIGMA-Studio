@@ -605,6 +605,7 @@ export const chrome = {
     showAll: "Show everything",
   },
   versionHistory: {
+    offline: "Showing versions saved on this PC while disconnected. Uncached versions and restoring require a connection.",
     title: "Version history",
     close: "Close version history",
     list: "Saved versions",

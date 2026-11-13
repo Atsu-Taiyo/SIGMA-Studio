@@ -11,6 +11,7 @@ import { SigmaDocumentSchema } from "@/lib/sigma-doc-schema";
 import type { ApplicationFontStore } from "../application-font-store";
 import { readDesktopSettingsSync, writeDesktopSettings, type DesktopCustomFont } from "../desktop-settings";
 import { LocalFontReader } from "./local-fonts";
+import { secureCacheCodec } from "../secure-cache-codec";
 import { PluginManager } from "./manager";
 import type { CatalogFile, CatalogPlugin } from "./manifest";
 import { PluginError } from "./manifest";
@@ -40,6 +41,8 @@ export interface PluginHostOptions {
   isPackaged: boolean;
   config: PluginConfig | null;
   auth: PluginAuth | null;
+  /** Resolve after the persisted local identity has been restored. Does not wait for the network. */
+  authReady?: Promise<void>;
   fontStore: ApplicationFontStore | undefined;
   getMainContents: () => WebContents | null;
   /** 部分的な文字しか持たない書体につける注記。表示言語に合わせた文言を呼び出し側が渡す。 */
@@ -113,6 +116,7 @@ export class PluginHost {
       publicKey: config?.publicKey,
       allowLoopbackHttp,
       fetchImpl: options.fetchImpl,
+      accessCacheCodec: secureCacheCodec,
       authorization: () => options.auth?.authorization(),
       signedIn: () => Boolean(options.auth?.user()),
       userId: readUserId,
@@ -124,7 +128,7 @@ export class PluginHost {
         timeoutMs: 600_000,
       }) } : {}),
     });
-    this.ready = this.manager.initialize().catch(() => undefined);
+    this.ready = (options.authReady ?? Promise.resolve()).then(() => this.manager.initialize()).catch(() => undefined);
   }
 
   /** 同梱フォントを、内容ハッシュの資源として登録し、エディタの書体一覧に載せる。古い版の書体は既存の教材のために残す。 */
