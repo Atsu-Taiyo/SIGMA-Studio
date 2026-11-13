@@ -131,6 +131,7 @@ export class PluginManager extends EventEmitter {
   private progress: OfficialPluginProgress | null = null;
   private progressSentAt = 0;
   private error: OfficialPluginErrorCode | undefined;
+  private lastPublishedStatus: string | undefined;
   private jobs = 0;
   private activating = false;
   private pendingAccess: Promise<AccessGrant> | null = null;
@@ -201,7 +202,7 @@ export class PluginManager extends EventEmitter {
       }
     }
     if (cachedAccess) void this.refreshAccess().catch(() => {});
-    return this.status();
+    return this.publish();
   }
 
   private validAccess(): boolean {
@@ -359,6 +360,7 @@ export class PluginManager extends EventEmitter {
 
   publish(): OfficialPluginStatus {
     const status = this.status();
+    this.lastPublishedStatus = JSON.stringify(status);
     this.emit("change", status);
     return status;
   }
@@ -366,11 +368,15 @@ export class PluginManager extends EventEmitter {
   /** 応答の本文を受け取ってよいか。権限の失敗はその種類で、それ以外は取得できなかったものとして返す。 */
   private async accept(response: Response, maxBytes: number): Promise<ReadableStream<Uint8Array>> {
     if (response.status === 401 || response.status === 403) {
-      await response.body?.cancel();
+      await response.body?.cancel().catch(() => {});
+      this.access = null;
+      this.accessVerifiedAt = -Infinity;
+      this.offline = false;
+      await this.clearAccessCache().catch(() => {});
       throw new PluginError(response.status === 401 ? "unauthorized" : "forbidden");
     }
     if (response.status >= 500 && response.status <= 599) {
-      await response.body?.cancel();
+      await response.body?.cancel().catch(() => {});
       throw new NetworkUnavailableError("PLUGIN_SERVICE_UNAVAILABLE");
     }
     if (!response.ok || response.redirected || (response.url && new URL(response.url).origin !== new URL(this.catalogUrl as string).origin)
@@ -435,7 +441,7 @@ export class PluginManager extends EventEmitter {
   }
 
   private async refreshAccessInner(): Promise<AccessGrant> {
-    const previous = JSON.stringify(this.status());
+    const previous = this.lastPublishedStatus ?? JSON.stringify(this.status());
     const generation = this.identityGeneration;
     const userId = this.currentUserId();
     try {

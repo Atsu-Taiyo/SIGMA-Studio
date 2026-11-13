@@ -130,6 +130,9 @@ it("classifies a dropped token response stream as offline but preserves malforme
   const { NetworkUnavailableError, isNetworkUnavailable } = await import("../network-unavailable");
   await expect(auth.authorization()).rejects.toBeInstanceOf(NetworkUnavailableError);
   expect(auth.user()?.id).toBe("fixture-user");
+  request.mockResolvedValue(new Response(new ReadableStream({ start(controller) { controller.error(new TypeError("terminated")); } }),
+    { status: 503, headers: { "Content-Type": "application/json" } }));
+  await expect(auth.authorization()).rejects.toBeInstanceOf(NetworkUnavailableError);
   request.mockResolvedValue(new Response(new Uint8Array([0xff]), { headers: { "Content-Type": "application/json" } }));
   let failure: unknown;
   try { await auth.authorization(); } catch (error) { failure = error; }

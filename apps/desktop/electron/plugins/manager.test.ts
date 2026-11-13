@@ -641,3 +641,27 @@ describe("offline access", () => {
     await expect(fs.access(path.join(f.directory, "access.enc"))).rejects.toThrow();
   });
 });
+
+it.each([401, 403])("invalidates offline grants when the catalog explicitly refuses access (%s)", async code => {
+  const f = await setup({ accessCacheCodec: cacheCodec });
+  await f.manager.check(); await f.manager.install(ID);
+  f.manager.fetchImpl = (url, init) => String(url).endsWith("/access")
+    ? f.base.fetchImpl!(url, init) : Promise.resolve(new Response(null, { status: code }));
+  expect((await f.manager.check()).error).toBe(code === 401 ? "unauthorized" : "forbidden");
+  expect(f.manager.menuGroups()).toEqual([]);
+  const reopened = new PluginManager({ ...f.base, fetchImpl: async () => { throw new TypeError("offline"); } });
+  await reopened.initialize(); expect(reopened.menuGroups()).toEqual([]);
+});
+
+it("notifies subscribers when a restored offline grant expires while the app remains open", async () => {
+  let now = 2 * 24 * 60 * 60 * 1000;
+  const f = await setup({ now: () => now, accessCacheCodec: cacheCodec });
+  await f.manager.check(); await f.manager.install(ID);
+  const manager = new PluginManager({ ...f.base, fetchImpl: async () => { throw new TypeError("offline"); } });
+  await manager.initialize(); await manager.refreshAccess();
+  const seen: number[] = [];
+  manager.on("change", () => seen.push(manager.menuGroups().length));
+  now += ACCESS_OFFLINE_GRACE_MS;
+  await manager.refreshAccess().catch(() => {});
+  expect(seen).toEqual([0]);
+});

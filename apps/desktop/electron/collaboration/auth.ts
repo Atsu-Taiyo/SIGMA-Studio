@@ -181,7 +181,7 @@ export class CollaborationAuth {
       return transportFailure(error);
     });
     if (response.status >= 500 && response.status <= 599) {
-      await response.body?.cancel();
+      await response.body?.cancel().catch(() => {});
       throw new NetworkUnavailableError("AUTH_SERVICE_UNAVAILABLE");
     }
     if (!response.ok) {
