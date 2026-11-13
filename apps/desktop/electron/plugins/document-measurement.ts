@@ -50,7 +50,14 @@ export function documentMeasurementScript(blockIds: string[]): string {
           fontPx: parseFloat(style.fontSize), lineHeight: parseFloat(style.lineHeight),
           marginTop: parseFloat(style.marginTop), marginBottom: parseFloat(style.marginBottom) };
       });
-      return { rows };
+      // Marker rectangles are ordinary document geometry, never extension-provided selectors.
+      const problemNumbers = ids.length ? [...canvas.querySelectorAll('.problem-number-marker')].map(marker => {
+        const problemId = marker.closest('[data-problem-id]')?.getAttribute('data-problem-id');
+        const rect = marker.getBoundingClientRect();
+        return { problemId, x: (rect.left-origin.left)/zoom, y: (rect.top-origin.top)/zoom,
+          width: rect.width/zoom, height: rect.height/zoom };
+      }).filter(marker => marker.problemId) : [];
+      return ids.length ? { rows, problemNumbers } : { rows };
     })()
   `;
 }

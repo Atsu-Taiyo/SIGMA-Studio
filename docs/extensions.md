@@ -87,3 +87,12 @@
 - `src/lib/extension-contracts.test.ts`、`use-extension-menu.test.tsx`: 描く前の検査と購読。
 - `tests/electron/extensions-menu.spec.ts`: 実アプリで、メニューの位置・内容・取り込み・保存と再読み込み・権限が外れたときの消去。
 - `scripts/extension-build-config.test.mjs`: ビルド設定 (秘密鍵や安全でない URL の拒否)。
+
+## 文書の計測結果
+
+ワーカーの `document-measure-request`（`document` と段落の `blockIds`）には、
+ホスト自身の PageCanvas が測った `rows` と `pageCount` を返す。段落を要求した場合は
+`problemNumbers` も返し、表示された問題番号ごとの `problemId`、`x`、`y`、`width`、
+`height` をキャンバス原点からの CSS px で示す。拡張機能から JavaScript やセレクターは受け取らない。
+古いホストは `problemNumbers` を返さないため、拡張機能はこの項目の有無を確認する。
+番号の自動位置調整を必須とする配布物は、この計測に対応したホストを最小アプリ版に指定する。
