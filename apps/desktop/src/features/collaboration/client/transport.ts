@@ -1,7 +1,7 @@
 import type { SaveState } from "../model/protocol";
 
 /** Bounded reads apply to decoded response bytes, including chunked/compressed bodies. */
-export async function readResponseBytes(response: Response, limit: number): Promise<Uint8Array> {
+export async function readResponseBytes(response: Response, limit: number, onReadError?: (error: unknown) => never): Promise<Uint8Array> {
   const length = Number(response.headers.get("content-length"));
   if (Number.isFinite(length) && length > limit) {
     await response.body?.cancel();
@@ -13,7 +13,10 @@ export async function readResponseBytes(response: Response, limit: number): Prom
   let size = 0;
   try {
     while (true) {
-      const { value, done } = await reader.read();
+      const { value, done } = await reader.read().catch(error => {
+        if (onReadError) return onReadError(error);
+        throw error;
+      });
       if (done) break;
       size += value.byteLength;
       if (size > limit) throw new Error("RESPONSE_LIMIT");
@@ -31,13 +34,14 @@ export async function readResponseBytes(response: Response, limit: number): Prom
   return bytes;
 }
 
-export async function readResponseJson<T>(response: Response, limit: number): Promise<T> {
+export async function readResponseJson<T>(response: Response, limit: number, onReadError?: (error: unknown) => never): Promise<T> {
   const type = response.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
   if (type !== "application/json" && !type?.endsWith("+json")) {
     await response.body?.cancel();
     throw new Error("INVALID_RESPONSE_TYPE");
   }
-  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readResponseBytes(response, limit))) as T;
+  // Only stream reads use the host's transport classifier. Decoding and JSON validation must fail closed.
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readResponseBytes(response, limit, onReadError))) as T;
 }
 
 export function retryAfterMilliseconds(value: string | null, now = Date.now()): number {

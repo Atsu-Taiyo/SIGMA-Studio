@@ -274,3 +274,13 @@ describe("official plugin settings", () => {
     expect(container.textContent).toBe("");
   });
 });
+
+it("keeps installed plugins and organizations visible while showing offline state, then clears the notice on reconnect", async () => {
+  const { push } = await mount({ ...installed, offline: true, offlineUntil: "2026-11-20T00:00:00Z", organizations: [{ id: "org", name: "テスト組織" }] });
+  expect(container.textContent).toContain("オフラインです");
+  expect(container.textContent).toContain("教材変換");
+  expect(container.textContent).toContain("テスト組織");
+  expect(container.querySelector('button[role="switch"]')?.hasAttribute("disabled")).toBe(false);
+  await act(async () => push(installed));
+  expect(container.textContent).not.toContain("オフラインです");
+});

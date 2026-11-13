@@ -232,9 +232,10 @@ const localAiEditChatRoomStore = new LocalAiEditChatRoomStore(USER_DATA_PATH);
 const localAiResourceStore = new LocalAiResourceStore(USER_DATA_PATH);
 const SIGMA_STUDIO_DATA_PATH = localSigmaDocStore.getDataDir();
 const applicationFontStore = new ApplicationFontStore(path.join(SIGMA_STUDIO_DATA_PATH, "font-resources"));
+const pluginAuthReady = Promise.withResolvers<void>();
 const pluginHost = new PluginHost({
   dataDir: SIGMA_STUDIO_DATA_PATH, appVersion: app.getVersion(), isPackaged: app.isPackaged,
-  config: extensionsBuildConfig(), auth: collaborationSessions.auth, fontStore: applicationFontStore,
+  config: extensionsBuildConfig(), auth: collaborationSessions.auth, authReady: pluginAuthReady.promise, fontStore: applicationFontStore,
   getMainContents: () => mainWindow?.webContents ?? null,
   partialFontNote: () => te("electron.plugins.partialFont"),
   measureDocument: measurePluginDocument,
@@ -1831,6 +1832,7 @@ app.whenReady().then(async () => {
 
   try {
     await collaborationSessions.initialize();
+    pluginAuthReady.resolve();
     stopSessionBridge = await startSessionBridge(collaborationSessions, localSigmaDocStore);
   } catch (error) {
     console.error("[desktop] startup failed before the editor could be served", error);

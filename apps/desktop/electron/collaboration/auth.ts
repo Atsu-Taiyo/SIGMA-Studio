@@ -1,3 +1,4 @@
+import { NetworkUnavailableError, transportFailure } from "../network-unavailable";
 import { safeStorage, shell } from "electron";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -165,6 +166,7 @@ export class CollaborationAuth {
       }).catch(() => {});
   }
   private async authRequest(route: string, body: unknown): Promise<unknown> {
+    const accountSignal = this.account.signal;
     const response = await fetch(`${this.config.authUrl}/auth/v1${route}`, {
       method: "POST",
       headers: {
@@ -174,14 +176,24 @@ export class CollaborationAuth {
       body: JSON.stringify(body),
       signal: AbortSignal.any([AbortSignal.timeout(15_000), this.account.signal, ...(this.login ? [this.login.signal] : [])]),
       redirect: "error",
+    }).catch(error => {
+      if (accountSignal.aborted || this.login?.signal.aborted) throw new Error("AUTH_CANCELLED");
+      return transportFailure(error);
     });
+    if (response.status >= 500 && response.status <= 599) {
+      await response.body?.cancel().catch(() => {});
+      throw new NetworkUnavailableError("AUTH_SERVICE_UNAVAILABLE");
+    }
     if (!response.ok) {
       await response.body?.cancel();
       throw new Error(
         response.status === 429 ? "AUTH_RATE_LIMIT" : "AUTH_FAILED",
       );
     }
-    return readResponseJson(response, 256 * 1024);
+    return readResponseJson(response, 256 * 1024, error => {
+      if (accountSignal.aborted || this.login?.signal.aborted) throw new Error("AUTH_CANCELLED");
+      return transportFailure(error);
+    });
   }
   private store(tokens: Tokens, generation: number, signal?: AbortSignal): Promise<void> {
     const next = this.persistence.then(async () => {

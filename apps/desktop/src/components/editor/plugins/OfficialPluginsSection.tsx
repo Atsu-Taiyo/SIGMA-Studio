@@ -168,6 +168,7 @@ export function OfficialPluginsSection({ id, onFontsChanged }: { id?: string; on
         <SettingsRow label={t("plugins.autoUpdate")} description={t("plugins.autoUpdateDescription")}
           control={<Switch label={t("plugins.autoUpdate")} checked={status?.autoUpdate ?? false} disabled={busy || !status}
             onCheckedChange={value => { if (bridge) void run(null, () => bridge.setAutoUpdate(value)); }} />} />
+        {status?.offline && <SettingsStatus>{t(status.offlineUntil ? "plugins.offline" : "plugins.offlineExpired")}</SettingsStatus>}
         {status?.requiresLogin && <SettingsStatus>{t("plugins.login")}</SettingsStatus>}
         {status?.requiresRole && !status.requiresLogin && <SettingsStatus>{t("plugins.roleRequired")}</SettingsStatus>}
         {!status && !error && <SettingsStatus>{t("plugins.loading")}</SettingsStatus>}
@@ -181,7 +182,7 @@ export function OfficialPluginsSection({ id, onFontsChanged }: { id?: string; on
             {plugin.installedVersion && <Switch label={t("plugins.enableNamed", { name: plugin.name })} checked={plugin.enabled && plugin.authorized !== false} disabled={busy || status.requiresLogin || plugin.authorized === false}
               onCheckedChange={value => { if (bridge) void run(value ? { kind: "load", id: plugin.id } : null, () => bridge.setEnabled(plugin.id, value)); }} />}
             {plugin.latestVersion && plugin.latestVersion !== plugin.installedVersion && <Button tone="secondary"
-              disabled={busy || !plugin.compatible || status.requiresLogin || plugin.authorized === false}
+              disabled={busy || status.offline || !plugin.compatible || status.requiresLogin || plugin.authorized === false}
               onClick={() => install(plugin)}>
               <Download size={14} />{t(plugin.installedVersion ? "plugins.update" : "plugins.add")}
             </Button>}

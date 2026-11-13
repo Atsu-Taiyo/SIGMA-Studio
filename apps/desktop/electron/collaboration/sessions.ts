@@ -24,6 +24,8 @@ import {
   type ObjectValue,
 } from "../../src/features/collaboration/model/value";
 import type {
+  SharedBackup,
+  SharedVersion,
   CollaborationEvent,
   CollaborationInfo,
   CollaborationProfile,
@@ -41,6 +43,9 @@ import { documentImageReferences, mergedOperationId, mergeOperationUpdates, MISS
 import { durableWrite, SharedDocumentJournal, type JournalSummary } from "./journal";
 import { logLedgerEvent } from "../ledger-log";
 import { isRemoteId, validateAcknowledgements, validateApproval, validateDocumentIdentity, validateSnapshot, validateSync } from "./response-validation";
+
+import { isNetworkUnavailable, transportFailure } from "../network-unavailable";
+import { SharedVersionCache, validBackup } from "./version-cache";
 
 /** `info()` が自分のプロフィールの初回の取得を待つ上限。 */
 const PROFILE_INFO_WAIT_MS = 1500;
@@ -118,6 +123,9 @@ export class CollaborationSessions {
   private catalogRoles: { actorId: string | null; allowed: Map<string, MemberRole> } | null = null;
   private registryTail: Promise<void> = Promise.resolve();
   private retry?: ReturnType<typeof setInterval>;
+  private readonly versionCaches = new Map<string, SharedVersionCache>();
+  private versionCacheInvalidations: Promise<void> = Promise.resolve();
+  private readonly deniedVersionHistory = new Set<string>();
   private readonly lifetime = new AbortController();
   private viewedFileId: string | null = null;
   private visibleFileIds = new Set<string>();
@@ -313,6 +321,7 @@ export class CollaborationSessions {
       else session.role = role;
     }
     this.sessions.set(fileId, session);
+    if (session.status === "permission-error") this.invalidateCachedVersions(fileId);
     this.dormant.delete(fileId);
     try {
       await this.loadAssets(fileId, false);
@@ -674,6 +683,12 @@ export class CollaborationSessions {
   }
   restrictCatalog(allowed: Map<string, MemberRole>): void {
     this.catalogRoles = { actorId: this.actorId(), allowed };
+    for (const [fileId, entry] of Object.entries(this.registry.files)) {
+      if (entry.actorId === this.actorId() && allowed.has(entry.sharedDocumentId)) this.deniedVersionHistory.delete(fileId);
+      if (!this.sessions.has(fileId) && entry.actorId === this.actorId() && !allowed.has(entry.sharedDocumentId)) {
+        this.invalidateCachedVersions(fileId);
+      }
+    }
     for (const [fileId, session] of this.sessions) {
       const entry = this.registry.files[fileId];
       if (entry.actorId !== this.actorId()) { session.socket?.close(); this.status(fileId, "permission-error"); continue; }
@@ -1266,8 +1281,74 @@ export class CollaborationSessions {
       body,
     );
   }
+  private versionCacheFor(fileId: string): SharedVersionCache {
+    const entry = this.registry.files[fileId];
+    const key = JSON.stringify([this.auth?.config?.apiUrl, entry.actorId, entry.sharedDocumentId]);
+    let cache = this.versionCaches.get(key);
+    if (!cache) { cache = new SharedVersionCache(this.directory, key); this.versionCaches.set(key, cache); }
+    return cache;
+  }
+  /** Every known denial invalidates disk copies, including unopened/dormant documents. */
+  private invalidateCachedVersions(fileId: string): void {
+    if (!this.registry.files[fileId]) return;
+    this.deniedVersionHistory.add(fileId);
+    const cache = this.versionCacheFor(fileId);
+    this.versionCacheInvalidations = this.versionCacheInvalidations.then(() => cache.clear()).catch(error => {
+      console.error("[collaboration] unable to invalidate version cache", error);
+    });
+  }
+  private async versionCache(fileId: string): Promise<SharedVersionCache> {
+    const actor = this.actorId();
+    const entry = this.registry.files[fileId];
+    if (!actor || entry?.actorId !== actor) throw new Error("ACCOUNT_CHANGED");
+    const session = await this.session(fileId);
+    if (session.status === "permission-error" || this.deniedVersionHistory.has(fileId)) {
+      this.invalidateCachedVersions(fileId);
+      await this.versionCacheInvalidations;
+      throw new Error("FORBIDDEN");
+    }
+    return this.versionCacheFor(fileId);
+  }
+  async cachedBackups(fileId: string): Promise<SharedBackup[]> {
+    const actor = this.actorId();
+    const result = await (await this.versionCache(fileId)).list();
+    await this.versionCache(fileId);
+    if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+    return result ?? [];
+  }
+  async backups(fileId: string): Promise<SharedBackup[]> {
+    const actor = this.actorId();
+    const cache = await this.versionCache(fileId);
+    try {
+      const versions = await this.action<SharedBackup[]>(fileId, "backups");
+      if (!Array.isArray(versions) || !versions.every(validBackup)) throw new Error("INVALID_VERSION_LIST");
+      if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+      await this.versionCache(fileId);
+      await cache.saveList(versions).catch(() => {});
+      await this.versionCache(fileId);
+      if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+      return versions;
+    } catch (error) {
+      if (isNetworkUnavailable(error) || (error instanceof CollaborationHttpError && error.status >= 500)) {
+        const cached = await cache.list();
+        await this.versionCache(fileId);
+        if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+        if (cached) return cached;
+      } else {
+        await this.invalidateVersionCache(fileId, cache, error);
+      }
+      throw error;
+    }
+  }
+  private async invalidateVersionCache(fileId: string, cache: SharedVersionCache, error: unknown): Promise<void> {
+    if (error instanceof CollaborationHttpError && [401, 403].includes(error.status)) this.status(fileId, "permission-error");
+    await cache.clear();
+  }
   async signOut(): Promise<void> {
     await this.auth?.signOut();
+    await Promise.all([...this.versionCaches.values()].map(cache => cache.clear()));
+    this.versionCaches.clear();
+    await fs.rm(path.join(this.directory, "version-cache"), { recursive: true, force: true });
     this.profiles.clear();
     this.catalogRoles = null;
     for (const [fileId, session] of this.sessions) {
@@ -1282,7 +1363,26 @@ export class CollaborationSessions {
   }
   /** One past version's content. The server returns it only to participants of the document. */
   async version(fileId: string, backupId: string): Promise<unknown> {
-    const version = await this.action<{ document?: unknown }>(fileId, `backups/${backupId}`);
+    const actor = this.actorId();
+    const cache = await this.versionCache(fileId);
+    let version = await cache.get(backupId);
+    if (!version) {
+      try {
+        version = await this.action<SharedVersion>(fileId, `backups/${backupId}`);
+        if (!validBackup(version) || version.id !== backupId) throw new Error("INVALID_VERSION_RESPONSE");
+        version = { ...version, document: parseSigmaDocument(version.document) };
+        if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+        await this.versionCache(fileId);
+        await cache.saveBody(version).catch(() => {});
+      } catch (error) {
+        if (!isNetworkUnavailable(error) && !(error instanceof CollaborationHttpError && error.status >= 500)) {
+          await this.invalidateVersionCache(fileId, cache, error);
+        }
+        throw error;
+      }
+    }
+    await this.versionCache(fileId);
+    if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
     const session = await this.session(fileId);
     const assets = session.versionAssets ?? new Set<string>();
     for (const assetId of storageAssetIds(version?.document)) {
@@ -2095,6 +2195,7 @@ export class CollaborationSessions {
   private status(fileId: string, status: SaveState): void {
     const session = this.require(fileId);
     session.status = session.failed ? "save-error" : status;
+    if (status === "permission-error") this.invalidateCachedVersions(fileId);
     this.emit({
       type: "status",
       fileId,
@@ -2128,7 +2229,8 @@ export class CollaborationSessions {
       redirect: "error",
     }).catch(error => {
       if (accountSignal.aborted) throw new Error("ACCOUNT_CHANGED");
-      throw error;
+      if (this.lifetime.signal.aborted || options.signal?.aborted) throw error;
+      return transportFailure(error);
     });
     if (accountSignal.aborted || actor !== this.auth.user()?.id) {
       await response.body?.cancel();
@@ -2150,7 +2252,10 @@ export class CollaborationSessions {
             body: JSON.stringify(body),
           },
     );
-    const value = await readResponseJson<T>(response, Math.ceil(MAX_DOCUMENT_BYTES * 4 / 3) + 1024 * 1024).catch(error => {
+    const value = await readResponseJson<T>(response, Math.ceil(MAX_DOCUMENT_BYTES * 4 / 3) + 1024 * 1024, error => {
+      if (this.lifetime.signal.aborted) throw error;
+      return transportFailure(error);
+    }).catch(error => {
       if (accountSignal?.aborted) throw new Error("ACCOUNT_CHANGED");
       throw error;
     });
@@ -2167,6 +2272,7 @@ export class CollaborationSessions {
       await session.tail;
       await session.journal.compact();
     }
+    await this.versionCacheInvalidations;
   }
 }
 
