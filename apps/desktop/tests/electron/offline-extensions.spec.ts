@@ -61,6 +61,10 @@ test("a signed installed extension keeps its organization, menu and real local w
       localStorage.setItem("sigma-studio:github-star-dismissed:v1", "1");
       await window.desktopAPI!.settings!.setUiLocale!("ja");
     });
+    await page.evaluate(async document => {
+      const created = await window.desktopAPI!.storage.createFileFromDocument({ document });
+      await window.desktopAPI!.storage.saveWorkspace({ openFileIds: [created.file.fileId], activeFileId: created.file.fileId });
+    }, createBlankDocument("オフラインの元教材"));
     const encrypt = (expires: number) => app!.evaluate(({ safeStorage }, tokens) => {
       if (!safeStorage.isEncryptionAvailable()) throw new Error("SECURE_STORAGE_REQUIRED");
       return safeStorage.encryptString(JSON.stringify(tokens)).toString("base64");
@@ -93,6 +97,14 @@ test("a signed installed extension keeps its organization, menu and real local w
     const result = await page.evaluate(() => window.sigmaExtensions!.run("offline-sample", "convert"));
     expect(result).toMatchObject({ ok: true });
     expect(JSON.stringify(result)).toContain("切断中に変換した本文");
+    if (!result.ok) throw new Error("CONVERSION_FAILED");
+    const fileId = await page.evaluate(async document => {
+      const created = await window.desktopAPI!.storage.createFileFromDocument({ document });
+      return created.file.fileId;
+    }, result.document);
+    await page.reload();
+    await page.waitForFunction(() => Boolean(window.desktopAPI));
+    expect(JSON.stringify(await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), fileId))).toContain("切断中に変換した本文");
     offline = false;
     expect(await page.evaluate(() => window.sigmaPlugins!.check())).toMatchObject({ offline: false });
   } finally {

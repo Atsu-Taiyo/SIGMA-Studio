@@ -264,6 +264,7 @@ test("a shared document's server versions are listed, previewed, and restored fo
     await expect(offlinePanel).toContainText("このPCに保存した版");
     await offlineRows.nth(0).click();
     await expect(page.locator(".version-history-preview")).toContainText("いまの本文");
+    await expect(page.locator(".version-history-preview .paged-surface[data-paged-surface-state='ready']")).toHaveCount(1);
     await page.screenshot({ path: testInfo.outputPath("shared-version-offline-restarted.png") });
     offline = false;
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
