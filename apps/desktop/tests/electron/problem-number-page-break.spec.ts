@@ -182,7 +182,9 @@ for (const scenario of [
           comparisons.push({ number: box.number, page: index + 1, preview: box, pdf: ink });
         }
       }
-      await testInfo.attach("number-frame-coordinates", { body: JSON.stringify(comparisons, null, 2), contentType: "application/json" });
+      const coordinates = testInfo.outputPath("number-frame-coordinates.json");
+      writeFileSync(coordinates, JSON.stringify(comparisons, null, 2));
+      await testInfo.attach("number-frame-coordinates", { path: coordinates, contentType: "application/json" });
       await testInfo.attach("saved-pdf", { path: output, contentType: "application/pdf" });
     } finally { await loading.destroy(); }
     // Export must clean up its hidden window and leave the editing canvas intact.
