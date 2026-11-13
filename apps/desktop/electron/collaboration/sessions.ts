@@ -125,6 +125,7 @@ export class CollaborationSessions {
   private retry?: ReturnType<typeof setInterval>;
   private readonly versionCaches = new Map<string, SharedVersionCache>();
   private versionCacheInvalidations: Promise<void> = Promise.resolve();
+  private readonly deniedVersionHistory = new Set<string>();
   private readonly lifetime = new AbortController();
   private viewedFileId: string | null = null;
   private visibleFileIds = new Set<string>();
@@ -683,6 +684,7 @@ export class CollaborationSessions {
   restrictCatalog(allowed: Map<string, MemberRole>): void {
     this.catalogRoles = { actorId: this.actorId(), allowed };
     for (const [fileId, entry] of Object.entries(this.registry.files)) {
+      if (entry.actorId === this.actorId() && allowed.has(entry.sharedDocumentId)) this.deniedVersionHistory.delete(fileId);
       if (!this.sessions.has(fileId) && entry.actorId === this.actorId() && !allowed.has(entry.sharedDocumentId)) {
         this.invalidateCachedVersions(fileId);
       }
@@ -1289,6 +1291,7 @@ export class CollaborationSessions {
   /** Every known denial invalidates disk copies, including unopened/dormant documents. */
   private invalidateCachedVersions(fileId: string): void {
     if (!this.registry.files[fileId]) return;
+    this.deniedVersionHistory.add(fileId);
     const cache = this.versionCacheFor(fileId);
     this.versionCacheInvalidations = this.versionCacheInvalidations.then(() => cache.clear()).catch(error => {
       console.error("[collaboration] unable to invalidate version cache", error);
@@ -1299,7 +1302,7 @@ export class CollaborationSessions {
     const entry = this.registry.files[fileId];
     if (!actor || entry?.actorId !== actor) throw new Error("ACCOUNT_CHANGED");
     const session = await this.session(fileId);
-    if (session.status === "permission-error") {
+    if (session.status === "permission-error" || this.deniedVersionHistory.has(fileId)) {
       this.invalidateCachedVersions(fileId);
       await this.versionCacheInvalidations;
       throw new Error("FORBIDDEN");
@@ -2225,7 +2228,8 @@ export class CollaborationSessions {
       signal: AbortSignal.any([AbortSignal.timeout(20_000), accountSignal, this.lifetime.signal, ...(options.signal ? [options.signal] : [])]),
       redirect: "error",
     }).catch(error => {
-      if (accountSignal.aborted || this.lifetime.signal.aborted) throw new Error("ACCOUNT_CHANGED");
+      if (accountSignal.aborted) throw new Error("ACCOUNT_CHANGED");
+      if (this.lifetime.signal.aborted || options.signal?.aborted) throw error;
       return transportFailure(error);
     });
     if (accountSignal.aborted || actor !== this.auth.user()?.id) {
@@ -2248,7 +2252,10 @@ export class CollaborationSessions {
             body: JSON.stringify(body),
           },
     );
-    const value = await readResponseJson<T>(response, Math.ceil(MAX_DOCUMENT_BYTES * 4 / 3) + 1024 * 1024, transportFailure).catch(error => {
+    const value = await readResponseJson<T>(response, Math.ceil(MAX_DOCUMENT_BYTES * 4 / 3) + 1024 * 1024, error => {
+      if (this.lifetime.signal.aborted) throw error;
+      return transportFailure(error);
+    }).catch(error => {
       if (accountSignal?.aborted) throw new Error("ACCOUNT_CHANGED");
       throw error;
     });

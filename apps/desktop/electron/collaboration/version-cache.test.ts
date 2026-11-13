@@ -153,3 +153,14 @@ it.each(["sync-403", "socket-4403", "catalog", "dormant-catalog"])("keeps revoke
   await expect(reopened.sessions.version("file", summary.id)).rejects.toThrow("offline");
   await reopened.sessions.close();
 });
+
+it("keeps a known permission denial in force even when a save failure takes precedence in UI status", async () => {
+  const { sessions } = await sessionsFixture();
+  const request = vi.spyOn(sessions, "request").mockResolvedValue([summary]);
+  await sessions.backups("file"); request.mockResolvedValue(version); await sessions.version("file", summary.id);
+  const internal = sessions as unknown as { sessions: Map<string, { failed: boolean }>; status(fileId: string, status: string): void };
+  internal.sessions.get("file")!.failed = true;
+  internal.status("file", "permission-error");
+  await expect(sessions.version("file", summary.id)).rejects.toThrow("FORBIDDEN");
+  await sessions.close();
+});
