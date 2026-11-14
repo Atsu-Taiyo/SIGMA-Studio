@@ -86,9 +86,22 @@ test("a missing transitive required dependency fails", (t) => {
   }), /Missing required dependency.*csstype/);
 });
 
-// Dependabot can generate this harmless metadata difference for a pinned runtime.
-test("exact manifest pins may have range notation in lock metadata", (t) => {
+// npm ranges remain valid for ordinary dependencies; Electron has a stricter runtime contract.
+test("non-runtime exact pins may have range notation in lock metadata", (t) => {
   assert.equal(withLock(t, (lock) => {
-    lock.packages["apps/desktop"].devDependencies.electron = `^${baseline.packages["apps/desktop"].devDependencies.electron}`;
+    lock.packages["apps/desktop"].dependencies.ws = `^${baseline.packages["apps/desktop"].dependencies.ws}`;
   })(), manifest.workspaces.length);
+});
+
+// These temporary repositories contain no node_modules: detect runtime drift before npm ci.
+test("Electron range metadata cannot pass the pre-install check", (t) => {
+  assert.throws(withLock(t, (lock) => {
+    lock.packages["apps/desktop"].devDependencies.electron = `^${baseline.packages["apps/desktop"].devDependencies.electron}`;
+  }), /Electron lockfile declaration differs from the pinned runtime/);
+});
+
+test("Electron's resolved runtime must match its exact manifest pin before installation", (t) => {
+  assert.throws(withLock(t, (lock) => {
+    lock.packages["node_modules/electron"].version = "0.0.0";
+  }), /Lockfile runtime differs from packaging/);
 });
