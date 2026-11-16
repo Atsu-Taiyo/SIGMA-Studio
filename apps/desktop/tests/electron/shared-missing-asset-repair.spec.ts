@@ -124,6 +124,9 @@ async function fixture(sharedId: string, namesMissing: boolean) {
 async function profileWith(title: string, endpoint: string, sharedId: string, remote: SharedDocument) {
   const root = path.resolve(__dirname, "../..");
   const profile = await mkdtemp(path.join(tmpdir(), "sigma-missing-asset-"));
+  // Seed before launch: first-run OS locale persistence can race a later IPC setter.
+  await mkdir(path.join(profile, "data"), { recursive: true });
+  await writeFile(path.join(profile, "data/settings.json"), JSON.stringify({ uiLocale: "ja" }));
   const directory = path.join(profile, "collaboration-v1");
   const env: Record<string, string> = {
     ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
@@ -151,7 +154,7 @@ async function profileWith(title: string, endpoint: string, sharedId: string, re
   const seeded = await page.evaluate(async (input) => {
     localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
     localStorage.setItem("sigma-studio:github-star-dismissed:v1", "1");
-    await window.desktopAPI!.settings!.setUiLocale!("ja");
+    localStorage.setItem("sigma-studio:usage-guide-dismissed:v1", "1");
     const api = window.desktopAPI!.storage;
     const created = await api.createFileFromDocument({ document: input });
     await api.saveWorkspace({ openFileIds: [created.file.fileId], activeFileId: created.file.fileId });
