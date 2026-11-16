@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PRINT_PREPARATION_TIMEOUT_MS } from "@/lib/print-preparation";
 import type { SigmaDocument } from "@/features/document";
 import { buildPageWindows, readCanvasLayoutSignature, readPagedCanvasMetrics } from "./page-windows";
 
@@ -143,7 +144,7 @@ describe("PagedRenderSurface", () => {
       await Promise.resolve();
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(15_001);
+      await vi.advanceTimersByTimeAsync(PRINT_PREPARATION_TIMEOUT_MS + 1);
       await Promise.resolve();
     });
 
@@ -162,10 +163,77 @@ describe("PagedRenderSurface", () => {
       await Promise.resolve();
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(15_001);
+      await vi.advanceTimersByTimeAsync(PRINT_PREPARATION_TIMEOUT_MS + 1);
       await Promise.resolve();
     });
 
     expect(container.querySelector('.paged-surface[data-paged-surface-state="stalled"]')).not.toBeNull();
   });
+  for (const measurementOnly of [false, true]) {
+    it(`resumes after fonts finish beyond 15 seconds (${measurementOnly ? "measurement" : "PDF preview"})`, async () => {
+      let complete!: () => void;
+      Object.defineProperty(document, "fonts", { configurable: true,
+        value: { ready: new Promise<void>(resolve => { complete = resolve; }) } });
+      vi.mocked(readCanvasLayoutSignature).mockReturnValue("settled");
+      vi.mocked(readPagedCanvasMetrics).mockReturnValue({ pageCount: 51, pageWidthPx: 700, pageHeightPx: 970, pageStridePx: 1006 });
+      vi.mocked(buildPageWindows).mockReturnValue(51);
+      const value = { pageLayout: { paperSize: "a4", orientation: "portrait" }, outputProfiles: {} } as unknown as SigmaDocument;
+      await act(async () => root.render(<PagedRenderSurface document={value} profile="teacher" measurementOnly={measurementOnly} />));
+      await act(async () => { await vi.advanceTimersByTimeAsync(16_000); });
+      expect(container.querySelector(".paged-surface")?.getAttribute("data-paged-surface-state")).toBe("pending");
+      expect(buildPageWindows).not.toHaveBeenCalled();
+      await act(async () => { complete(); await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(container.querySelector(".paged-surface")?.getAttribute("data-paged-surface-page-count")).toBe("51");
+      expect(buildPageWindows).toHaveBeenCalledTimes(measurementOnly ? 0 : 1);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  }
+
+  it("cleans up pending image listeners and timers on cancellation and ignores late fonts", async () => {
+    canvasMockState.showPendingImage = true;
+    let complete!: () => void;
+    Object.defineProperty(document, "fonts", { configurable: true,
+      value: { ready: new Promise<void>(resolve => { complete = resolve; }) } });
+    const value = { pageLayout: { paperSize: "a4", orientation: "portrait" }, outputProfiles: {} } as unknown as SigmaDocument;
+    await act(async () => root.render(<PagedRenderSurface document={value} profile="teacher" />));
+    const image = container.querySelector("img")!;
+    const removed = vi.spyOn(image, "removeEventListener");
+    await act(async () => root.render(null));
+    expect(removed).toHaveBeenCalledWith("load", expect.any(Function));
+    expect(removed).toHaveBeenCalledWith("error", expect.any(Function));
+    await act(async () => { complete(); await vi.advanceTimersByTimeAsync(60_000); });
+    expect(buildPageWindows).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("invalidates a ready revision on late mutations and bounds the new settling attempt", async () => {
+    vi.mocked(readCanvasLayoutSignature).mockReturnValue("settled");
+    vi.mocked(readPagedCanvasMetrics).mockReturnValue({ pageCount: 1, pageWidthPx: 700, pageHeightPx: 970, pageStridePx: 1006 });
+    const value = { pageLayout: { paperSize: "a4", orientation: "portrait" }, outputProfiles: {} } as unknown as SigmaDocument;
+    await act(async () => root.render(<PagedRenderSurface document={value} profile="teacher" measurementOnly />));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(container.querySelector(".paged-surface")?.getAttribute("data-paged-surface-state")).toBe("ready");
+    vi.mocked(readCanvasLayoutSignature).mockReturnValue("");
+    await act(async () => { container.querySelector(".page-canvas")!.setAttribute("data-late-pass", "1"); await vi.advanceTimersByTimeAsync(1); });
+    expect(container.querySelector(".paged-surface")?.getAttribute("data-paged-surface-state")).toBe("pending");
+    expect(container.querySelector(".paged-surface")?.hasAttribute("data-paged-surface-page-count")).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(PRINT_PREPARATION_TIMEOUT_MS); });
+    expect(container.querySelector(".paged-surface")?.getAttribute("data-paged-surface-state")).toBe("stalled");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps the same ready revision for mutations that do not change layout", async () => {
+    vi.mocked(readCanvasLayoutSignature).mockReturnValue("settled");
+    vi.mocked(readPagedCanvasMetrics).mockReturnValue({ pageCount: 51, pageWidthPx: 700, pageHeightPx: 970, pageStridePx: 1006 });
+    vi.mocked(buildPageWindows).mockReturnValue(51);
+    const value = { pageLayout: { paperSize: "a4", orientation: "portrait" }, outputProfiles: {} } as unknown as SigmaDocument;
+    await act(async () => root.render(<PagedRenderSurface document={value} profile="teacher" />));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    await act(async () => { container.querySelector(".page-canvas")!.setAttribute("data-selection", "none"); await vi.advanceTimersByTimeAsync(1000); });
+    expect(container.querySelector(".paged-surface")?.getAttribute("data-paged-surface-state")).toBe("ready");
+    expect(buildPageWindows).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
 });

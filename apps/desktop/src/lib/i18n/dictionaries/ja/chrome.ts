@@ -613,6 +613,7 @@ export const chrome = {
     showAll: "すべて表示に戻す",
   },
   versionHistory: {
+    offline: "接続できないため、このPCに保存した版を表示しています。未取得の版の表示と復元には接続が必要です。",
     title: "過去の版",
     close: "過去の版を閉じる",
     list: "保存された版",

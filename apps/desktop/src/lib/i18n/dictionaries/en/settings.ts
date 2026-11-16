@@ -23,6 +23,8 @@ export const settings = {
 
   organizations: { title: "Your organizations", membership: "Member of {{name}}", more: "{{count}} more organizations" },
   plugins: {
+    offlineExpired: "Unable to connect and the saved access check has expired. Reconnect to verify access.",
+    offline: "Offline. Installed extensions remain available for 7 days after the last access check.",
     addComplete: "{{name}} has been added.",
     updateComplete: "{{name}} has been updated.",
     loadComplete: "{{name}} has been loaded.",

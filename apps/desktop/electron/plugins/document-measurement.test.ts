@@ -39,13 +39,27 @@ describe("extension document measurement probes", () => {
       expect("injected" in globalThis).toBe(false);
       // Resolving more probe IDs must not search the entire canvas once per row.
       expect(lookup.mock.calls.length).toBeLessThanOrEqual(1);
-      expect(scan.mock.calls.length).toBeLessThanOrEqual(1);
+      expect(scan.mock.calls.filter(([selector]) => selector === "p[data-sigma-doc-id]")).toHaveLength(1);
       lookup.mockClear(); scan.mockClear();
       expect(await new Function(`return (${documentMeasurementScript([])})`)()).toEqual({ rows: [] });
       expect(scan).not.toHaveBeenCalled();
     } finally {
       lookup.mockRestore(); scan.mockRestore(); context.mockRestore(); stage.remove();
     }
+  });
+  it("returns numbered marker geometry in canvas coordinates without accepting selectors", async () => {
+    document.body.innerHTML = '<div class="paged-surface-stage"><div class="page-canvas" style="--editor-zoom:2"><div data-problem-id="p"><span class="problem-number-marker"></span></div></div></div>';
+    const canvas = document.querySelector(".page-canvas")!;
+    const marker = canvas.querySelector(".problem-number-marker")!;
+    canvas.getBoundingClientRect = () => ({ left: 10, top: 20 } as DOMRect);
+    marker.getBoundingClientRect = () => ({ left: 50, top: 100, width: 40, height: 30 } as DOMRect);
+    Object.defineProperty(document, "fonts", { configurable: true, value: { ready: Promise.resolve() } });
+    const context = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    try {
+      const result = await new Function(`return (${documentMeasurementScript(["missing"])})`)();
+      expect(result.problemNumbers).toEqual([{ problemId: "p", x: 20, y: 40, width: 20, height: 15 }]);
+      expect(result.rows).toEqual([{ id: "missing", missing: true }]);
+    } finally { context.mockRestore(); document.body.innerHTML = ""; }
   });
   it.each([{ ids: [""] }, { ids: ["x".repeat(257)] }, { ids: Array.from({ length: 25_001 }, () => "p") }])("rejects invalid probe lists", ({ ids }) => {
     expect(() => documentMeasurementScript(ids)).toThrow();

@@ -48,7 +48,7 @@ export function registerPluginIpc({ host, getMainWindow }: RegisterPluginIpcDeps
 
   for (const [channel, action] of [
     ["status", async () => {
-      await manager.refreshAccess().catch(() => {});
+      void manager.refreshAccess().catch(() => {});
       return manager.status();
     }],
     ["check", () => manager.check()],
@@ -68,7 +68,7 @@ export function registerPluginIpc({ host, getMainWindow }: RegisterPluginIpcDeps
 
   ipcMain.handle("extensions:menu", async () => {
     await host.ready;
-    await manager.refreshAccess().catch(() => {});
+    void manager.refreshAccess().catch(() => {});
     return manager.menuGroups() satisfies ExtensionMenuGroup[];
   });
 
@@ -89,13 +89,19 @@ export function registerPluginIpc({ host, getMainWindow }: RegisterPluginIpcDeps
     }));
 
   // 権限は定期的に確かめ直す。本人が変わったときは、前の本人の権限と所属を即座に捨てる。
-  void host.ready.then(() => manager.refreshAutomatically());
+  let identityReady = false;
+  let actor: string | null = null;
+  void host.ready.then(() => {
+    actor = manager.currentActor();
+    identityReady = true;
+    return manager.refreshAutomatically();
+  });
   const timers = [
-    setInterval(() => { void manager.refreshAutomatically(); }, HOUR_MS),
-    setInterval(() => { void manager.refreshAccess().catch(() => {}); }, ACCESS_REFRESH_MS),
+    setInterval(() => { if (identityReady) void manager.refreshAutomatically(); }, HOUR_MS),
+    setInterval(() => { if (identityReady) void manager.refreshAccess().catch(() => {}); }, ACCESS_REFRESH_MS),
   ];
-  let actor = manager.currentActor();
   timers.push(setInterval(() => {
+    if (!identityReady) return;
     const next = manager.currentActor();
     if (next !== actor) {
       actor = next;
