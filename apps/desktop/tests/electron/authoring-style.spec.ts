@@ -41,7 +41,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
 `);
     await chmod(fakeCodex, 0o755);
     const source = createBlankDocument("書き方の自動学習");
-    source.content = [{ type: "paragraph", id: "style_p", children: [{ type: "text", text: "値を求めなさい。" }] }];
+    source.content = [{ type: "paragraph", id: "style_p", children: [{ type: "text", text: "値を求めなさい。" }] },
+      ...["tex1", "tex2"].map((id, i) => ({ type: "paragraph" as const, id, children: [{ type: "mathInline" as const, id: id + "_math", tex: "\\frac{" + (i + 1) + "}{x}", display: "inline" as const }] })),
+    ];
     const sourcePath = path.join(profile, "書き方の自動学習.sigma");
     await writeFile(sourcePath, JSON.stringify(source));
     const env = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined));
@@ -71,6 +73,16 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       const document = await window.desktopAPI!.storage.loadDocument(id);
       return window.desktopAPI!.aiEdit.run({ provider: "codex", fileId: id, document, instruction: "次の問題文を考えて。" }, () => {});
     }, fileId);
+    const selectText = async (page: Page, text: string) => {
+      await page.getByText(text, { exact: true }).first().click();
+      await page.getByText(text, { exact: true }).first().evaluate(element => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
+    };
     let page = await launch(sourcePath);
     await expect(page.getByText("値を求めなさい。", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
     const file = (await page.evaluate(() => window.desktopAPI!.storage.listFiles())).find(f => f.title === "書き方の自動学習")!;
@@ -78,8 +90,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     await runAi(page, file.fileId);
     expect(await readFile(capture, "utf8")).not.toContain("automatic-authoring-style");
 
-    await page.getByText("値を求めなさい。", { exact: true }).first().click();
-    await page.keyboard.press("ControlOrMeta+a");
+    await selectText(page, "値を求めなさい。");
     await page.keyboard.insertText("値を求めよ。");
     await expect.poll(async () => page.evaluate(async id => JSON.stringify((await window.desktopAPI!.storage.loadDocument(id))?.content), file.fileId)).toContain("値を求めよ。");
     await runAi(page, file.fileId);
@@ -90,10 +101,22 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     await page.screenshot({ path: testInfo.outputPath("manual-edit-learned.png") });
 
     // Close without another AI turn flushing the final correction for us.
-    await page.getByText("値を求めよ。", { exact: true }).first().click();
-    await page.keyboard.press("ControlOrMeta+a");
+    await selectText(page, "値を求めよ。");
     await page.keyboard.insertText("値を求めよ。理由も述べよ。");
     await expect.poll(async () => page.evaluate(async id => JSON.stringify((await window.desktopAPI!.storage.loadDocument(id))?.content), file.fileId)).toContain("理由も述べよ。");
+    // Exercise TeX extraction through the real preload/main save path. Two
+    // existing, separate blocks are edited; merely inserting formulas is not evidence.
+    await page.evaluate(async fileId => {
+      const api = window.desktopAPI!.storage;
+      const loaded = await api.loadDocument(fileId);
+      if (!loaded) throw new Error("Missing document");
+      const before = loaded;
+      const current = (await api.listFiles()).find(f => f.fileId === fileId)!;
+      const after = { ...before, content: before.content.map(block => block.type === "paragraph" && block.id.startsWith("tex")
+        ? { ...block, children: block.children.map(run => run.type === "mathInline" ? { ...run, tex: run.tex.replace("\\frac", "\\dfrac") } : run) } : block) };
+      const saved = await api.saveDocument(fileId, after, { expectedRevision: current.revision });
+      if (!saved.ok) throw new Error("Failed notation save");
+    }, file.fileId);
     await app!.close();
     page = await launch();
     const saved = await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), file.fileId);
@@ -103,6 +126,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     expect(restartedPrompt).toContain("automatic-authoring-style");
     expect(restartedPrompt).toContain("値を求めよ。");
     expect(restartedPrompt).toContain("理由も述べよ。");
+    expect(restartedPrompt).toContain("TeX数式の書き方");
+    expect(restartedPrompt).toContain("分数は");
+    expect(restartedPrompt).toContain("dfrac");
 
     await page.getByRole("button", { name: "AI", exact: true }).click();
     await page.getByRole("menuitem", { name: "AI設定", exact: true }).click();

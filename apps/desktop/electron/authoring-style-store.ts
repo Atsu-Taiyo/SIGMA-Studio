@@ -5,7 +5,7 @@ import path from "node:path";
 import { inlineNodesToPlainText, type InlineNode, type SigmaBlock, type SigmaDocument } from "@/features/document";
 import type { AuthoringStyleProfile } from "@/lib/ai/authoring-style";
 import { AuthoringStyleMemory, atomicStyleWrite } from "./authoring-style-memory";
-import { summarizeAuthoringStyle } from "./authoring-style-summary";
+import { AUTHORING_STYLE_SUMMARY_VERSION, summarizeAuthoringStyle } from "./authoring-style-summary";
 import type { LocalDocumentMetadata } from "./local-sigma-doc-store";
 import { createTranslator, type AppLocale } from "@/lib/i18n";
 import type { AiResourceContextItem, AiResourceRunContext } from "./ai-resource-store";
@@ -280,7 +280,7 @@ export class LocalAuthoringStyleStore {
   }
 
   private evidenceRevision(examples: readonly StyleExample[]): string {
-    return createHash("sha256").update(JSON.stringify(examples)).digest("hex");
+    return createHash("sha256").update(JSON.stringify({ version: AUTHORING_STYLE_SUMMARY_VERSION, examples })).digest("hex");
   }
 
   async synthesize(input: { fileId: string; scope: "user" | "workspace"; summary: string; evidenceRevision: string }): Promise<void> {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -49,6 +50,53 @@ describe("automatic authoring style", () => {
       }
     }
     expect((await documents.loadDocument(file.fileId))?.content).toEqual(after.content);
+  });
+
+  it("persists TeX notation notes and injects them after restart with manual notes taking precedence", async () => {
+    const formulaDocument = (command: string): SigmaDocument => ({ ...document(""), content: ["math1", "math2"].map((id, index) => ({
+      id, type: "paragraph", children: [{ type: "mathInline", id: `${id}_inline`, tex: `\\${command}{${index + 1}}{x}`, display: "inline" as const }],
+    })) });
+    store.observe(event(formulaDocument("frac"), formulaDocument("dfrac")));
+    let profile = await store.getProfile("ws1");
+    expect(profile.generatedContent).toContain("## TeX数式の書き方\n- 分数は`\\dfrac`");
+    expect(await fs.readFile(profile.generatedPath, "utf8")).toBe(profile.generatedContent);
+    profile = await store.saveProfile({ workspaceId: "ws1", content: "分数は常に \\frac を優先する。", expectedRevision: profile.revision });
+    const restarted = new LocalAuthoringStyleStore(root);
+    for (const provider of ["codex", "claude", "antigravity"] as const) {
+      const resources = await restarted.augmentRunContext(context(provider), input);
+      for (const isResumedTurn of [false, true]) {
+        const prompt = buildMcpEditPrompt({ provider, fileId: "f1", instruction: "問題を作る", locale: "ja", aiResources: resources, isResumedTurn });
+        expect(prompt).toContain("TeX数式の書き方");
+        expect(prompt).toContain("dfrac");
+        expect(prompt).toContain("分数は常に");
+        expect(prompt).toContain("現在の依頼・既存の明示指示を最優先し、手動メモ、ワークスペース、ユーザー全体の順に適用する");
+      }
+    }
+    const english = await restarted.augmentRunContext(context(), { ...input, locale: "en" });
+    const englishGuidance = english.always.map(r => r.content).join("\n");
+    expect(englishGuidance).toContain("TeX math notation section");
+    expect(englishGuidance).toContain("then manual notes, workspace notes and global notes");
+    expect(englishGuidance).toContain("follow evidenced notation preferences when generating");
+    await store.reset("ws1");
+    expect((await store.getProfile("ws1")).generatedContent).toBe("");
+    expect((await store.getProfile("ws1")).userContent).toContain("frac");
+  });
+
+  it("refreshes untouched pre-TeX summaries from existing examples and preserves edited notes", async () => {
+    const formula = (command: string): SigmaDocument => ({ ...document(""), content: ["a", "b"].map(id => ({
+      type: "paragraph", id, children: [{ type: "mathInline", id: `${id}_math`, tex: `\\${command}{1}{x}`, display: "inline" }],
+    })) });
+    store.observe(event(formula("frac"), formula("dfrac")));
+    const profile = await store.getProfile("ws1");
+    const data = JSON.parse(await fs.readFile(path.join(root, "data/ai-authoring-style/examples.json"), "utf8"));
+    const oldNote = "# 編集から学んだ書き方\n旧バージョンのメモ";
+    await fs.writeFile(profile.generatedPath, oldNote);
+    await fs.writeFile(path.join(path.dirname(profile.generatedPath), "learned.sha256"), createHash("sha256").update(oldNote).digest("hex"));
+    await fs.writeFile(path.join(path.dirname(profile.generatedPath), "learned-evidence.json"), JSON.stringify({ revision: createHash("sha256").update(JSON.stringify(data.examples)).digest("hex"), synthesized: true }));
+    const restarted = new LocalAuthoringStyleStore(root);
+    expect((await restarted.getProfile("ws1")).generatedContent).toContain("## TeX数式の書き方\n- 分数は`\\dfrac`");
+    await fs.writeFile(profile.generatedPath, "# 本人の自動メモへの追記");
+    expect((await restarted.getProfile("ws1")).generatedContent).toBe("# 本人の自動メモへの追記");
   });
 
   it("does not learn AI approval, backup restoration, timestamp changes or failed saves", async () => {
