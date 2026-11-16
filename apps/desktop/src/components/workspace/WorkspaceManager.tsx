@@ -3,7 +3,6 @@
 import {
   AlertTriangle,
   Building2,
-  BookOpen,
   Check,
   LayoutTemplate,
   Loader2,
@@ -16,7 +15,6 @@ import {
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
 
-import { openUsageManual } from "@/lib/usage-manual";
 import { SigmaMark } from "@/components/branding/SigmaMark";
 import { Button, IconButton } from "@/components/ui/Button";
 import { useWorkspaceLibrary } from "./use-workspace-search";
@@ -1342,7 +1340,6 @@ export function WorkspaceManager() {
           onBlur={() => setSearchFocused(false)}
         />
         <div className="workspace-page-actions">
-          <IconButton label={t("manual.title")} tone="ghost" onClick={openUsageManual}><BookOpen size={18} /></IconButton>
           {overview?.catalog && <Button size="sm" tone="ghost" onClick={() => setJoinOpen(true)}><UserRoundPlus size={15} />{tc("collaboration.join")}</Button>}
           <button
             type="button"

@@ -99,8 +99,10 @@ it("does not open in a background window", async () => {
 it("persists opt-out across new sessions and leaves the star invitation available", async () => {
   await mount();
   await advance(30_000);
-  const view = Array.from(dialog()!.querySelectorAll("button")).find(b => b.textContent === "使い方を見る")!;
-  expect(view.dataset.tone).toBe("primary");
+  const link = dialog()!.querySelector("a")!;
+  expect(link.href).toBe("https://chocoschools.com/sigma-studio/manual/");
+  expect(link.rel).toBe("noopener noreferrer");
+  expect(link.dataset.tone).toBe("primary");
   await act(async () => { Array.from(dialog()!.querySelectorAll("button")).find(b => b.textContent === "もう表示しない")!.click(); });
   expect(values.get(component.USAGE_GUIDE_DISMISSED_KEY)).toBe("1");
   await act(async () => root.unmount());
@@ -120,10 +122,9 @@ it("persists opt-out across new sessions and leaves the star invitation availabl
 it("closes for this session only when viewing the guide", async () => {
   await mount();
   await advance(30_000);
-  const opened = vi.fn();
-  window.addEventListener("sigma-studio:open-usage-manual", opened, { once: true });
-  await act(async () => { Array.from(dialog()!.querySelectorAll("button")).find(b => b.textContent === "使い方を見る")!.click(); });
-  expect(opened).toHaveBeenCalledOnce();
+  await act(async () => { const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    dialog()!.querySelector("a")!.addEventListener("click", e => e.preventDefault());
+    dialog()!.querySelector("a")!.dispatchEvent(event); });
   expect(values.get(component.USAGE_GUIDE_DISMISSED_KEY)).toBeUndefined();
   expect(dialog()).toBeNull();
   await act(async () => root.unmount());

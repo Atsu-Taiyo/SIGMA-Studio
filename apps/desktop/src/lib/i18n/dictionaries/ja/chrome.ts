@@ -227,7 +227,6 @@ export const chrome = {
       texReference: "数式コマンド確認",
       texEnvironment: "TeX・TikZ環境設定",
       pageSettings: "ページ設定",
-      manual: "使い方マニュアル",
       appSettings: "アプリ設定",
       extensions: "拡張機能",
       display: "表示",

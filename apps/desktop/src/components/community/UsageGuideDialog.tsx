@@ -6,8 +6,9 @@ import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Stack } from "@/components/ui/layout";
 import { useT } from "@/lib/i18n/react";
-import { openUsageManual } from "@/lib/usage-manual";
+import { USAGE_GUIDE_URL } from "@/lib/project-links";
 import { useIdleInvitation } from "./use-idle-invitation";
+import buttonStyles from "@/components/ui/Button.module.css";
 import styles from "./GitHubStarDialog.module.css";
 
 export const USAGE_GUIDE_DISMISSED_KEY = "sigma-studio:usage-guide-dismissed:v1";
@@ -53,10 +54,10 @@ export function UsageGuideDialog() {
       <ModalHeader title={t("usageGuide.title")} description={t("usageGuide.description")} onClose={dismiss} />
       <ModalBody>
         <Stack gap="sm">
-          <Button tone="primary" size="lg" data-modal-initial-focus onClick={() => { dismiss(); openUsageManual(); }}>
+          <a className={`${buttonStyles.button} ${styles.link}`} data-tone="primary" data-size="lg" data-modal-initial-focus href={USAGE_GUIDE_URL} target="_blank" rel="noopener noreferrer" onClick={dismiss}>
             <BookOpen size={16} aria-hidden="true" />
             {t("usageGuide.view")}
-          </Button>
+          </a>
           <Button tone="ghost" onClick={neverShow}>{t("usageGuide.neverShow")}</Button>
         </Stack>
       </ModalBody>

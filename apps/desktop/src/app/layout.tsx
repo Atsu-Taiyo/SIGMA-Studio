@@ -12,7 +12,6 @@ import "./globals.css";
 
 import type { Metadata } from "next";
 
-import { UsageManual } from "@/components/community/UsageManual";
 import { SharedLinkHandler } from "@/components/workspace/SharedLinkHandler";
 import { AppDocumentLanguage } from "@/components/AppDocumentLanguage";
 import { LinkConfirmationDialog } from "@/components/LinkConfirmationDialog";
@@ -39,7 +38,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <AppDocumentLanguage />
         <SharedLinkHandler />
         <LinkConfirmationDialog />
-        <UsageManual />
         {children}
       </body>
     </html>

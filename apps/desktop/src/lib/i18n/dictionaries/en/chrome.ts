@@ -223,7 +223,6 @@ export const chrome = {
       texReference: "Equation command reference",
       texEnvironment: "TeX / TikZ environment",
       pageSettings: "Page setup",
-      manual: "User manual",
       appSettings: "App settings",
       extensions: "Extensions",
       display: "View",

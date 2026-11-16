@@ -10,7 +10,6 @@
 // つまり「1関数・1 render pass で全部作る」ことが緑の条件で、共有はサブ関数ではなく
 // **ローカル const** で行います。WI-4 のリボンも同じ制約に従ってください。
 
-import { openUsageManual } from "@/lib/usage-manual";
 import { SigmaMark } from "@/components/branding/SigmaMark";
 import { OrganizationMembershipBadge } from "@/components/editor/plugins/OrganizationMembershipBadge";
 import { ColorPalette } from "@/components/editor/ColorPalette";
@@ -421,7 +420,6 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               <span>{t("appMenu.settings.appSettings")}</span>
             </button>
           )}
-          {!isEmbedded && <button type="button" role="menuitem" onClick={() => { setActiveMenu(null); openUsageManual(); }}><BookOpen size={16} /><span>{t("appMenu.settings.manual")}</span></button>}
           {!isEmbedded && isDesktopApp && (
             <button type="button" role="menuitem" onClick={() => { setActiveMenu(null); setExtensionsOpen(true); }}>
               <Puzzle size={16} />
@@ -2914,7 +2912,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                 <span>{t("appMenu.settings.appSettings")}</span>
               </button>
             )}
-          {!isEmbedded && isDesktopApp && (
+            {!isEmbedded && isDesktopApp && (
               <button type="button" className="ribbon-backstage-command" title={t("appMenu.settings.extensions")} aria-label={t("appMenu.settings.extensions")} onClick={() => runBackstageCommand(() => setExtensionsOpen(true))}>
                 <Puzzle size={18} aria-hidden="true" />
                 <span>{t("appMenu.settings.extensions")}</span>
@@ -2949,7 +2947,6 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
 
         {backstage.section === "help" && (
           <div className="ribbon-backstage-group">
-            {!isEmbedded && <button type="button" className="ribbon-backstage-command" onClick={() => runBackstageCommand(openUsageManual)}><BookOpen size={18} /><span>{t("appMenu.settings.manual")}</span></button>}
             <button type="button" className="ribbon-backstage-command" title={t("actions.reportIssueTooltip")} aria-label={t("actions.reportIssue")} onClick={() => runBackstageCommand(reportIssue)}>
               <FileQuestion size={18} aria-hidden="true" />
               <span>{t("actions.reportIssue")}</span>
