@@ -1,3 +1,4 @@
+import { load, dump } from "js-yaml";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,7 +29,7 @@ export async function writeJson(relativePath, value) {
 
 /**
  * Sigma Studio本体（ルート = apps/desktop）のversionを正本として、
- * npmへ公開するpackageとその依存・package-lockを揃える。
+ * npmへ公開するpackageとその依存・pnpm-lockを揃える。
  */
 export async function syncPublicPackageVersions({ checkOnly = false } = {}) {
   const rootPackage = await readJson("package.json");
@@ -41,7 +42,7 @@ export async function syncPublicPackageVersions({ checkOnly = false } = {}) {
   if (desktopPackage.version !== publicVersion) {
     throw new Error([
       `Sigma Studio本体とルートのversionが一致していません: root=${publicVersion}, desktop=${desktopPackage.version}`,
-      "個別に書き換えず `npm run version:set -- <patch|minor|major|x.y.z>` で上げてください。",
+      "個別に書き換えず `pnpm run version:set <patch|minor|major|x.y.z>` で上げてください。",
     ].join("\n"));
   }
 
@@ -49,7 +50,7 @@ export async function syncPublicPackageVersions({ checkOnly = false } = {}) {
   const editorPackage = await readJson("packages/editor/package.json");
   const examplePackage = await readJson("tests/fixtures/editor-react18/package.json");
   const example19Package = await readJson("examples/editor-react19/package.json");
-  const packageLock = await readJson("package-lock.json");
+  const packageLock = load(await readFile(path.join(repositoryRoot, "pnpm-lock.yaml"), "utf8"));
 
   const expected = [
     {
@@ -80,66 +81,29 @@ export async function syncPublicPackageVersions({ checkOnly = false } = {}) {
         examplePackage.dependencies["@sigma-studio/editor"] = publicVersion;
       },
     },
-    {
-      label: "package-lock ルートversion",
-      current: packageLock.version,
-      apply: () => {
-        packageLock.version = publicVersion;
-      },
-    },
-    {
-      label: "package-lock ルートpackage version",
-      current: packageLock.packages?.[""]?.version,
-      apply: () => {
-        packageLock.packages[""].version = publicVersion;
-      },
-    },
-    {
-      label: "package-lock Sigma Studio本体version",
-      current: packageLock.packages?.["apps/desktop"]?.version,
-      apply: () => {
-        packageLock.packages["apps/desktop"].version = publicVersion;
-      },
-    },
-    {
-      label: "package-lock Viewer version",
-      current: packageLock.packages?.["packages/viewer"]?.version,
-      apply: () => {
-        packageLock.packages["packages/viewer"].version = publicVersion;
-      },
-    },
-    {
-      label: "package-lock Editor version",
-      current: packageLock.packages?.["packages/editor"]?.version,
-      apply: () => {
-        packageLock.packages["packages/editor"].version = publicVersion;
-      },
-    },
-    {
-      label: "package-lock EditorからViewerへのdependency",
-      current: packageLock.packages?.["packages/editor"]?.dependencies?.["@sigma-studio/viewer"],
-      apply: () => {
-        packageLock.packages["packages/editor"].dependencies["@sigma-studio/viewer"] = publicVersion;
-      },
-    },
-    {
-      label: "package-lock exampleからEditorへのdependency",
-      current: packageLock.packages?.["tests/fixtures/editor-react18"]?.dependencies?.["@sigma-studio/editor"],
-      apply: () => {
-        packageLock.packages["tests/fixtures/editor-react18"].dependencies["@sigma-studio/editor"] = publicVersion;
-      },
-    },
   ];
 
   expected.push({
     label: "React 19 exampleからEditorへのdependency",
     current: example19Package.dependencies?.["@sigma-studio/editor"],
     apply: () => { example19Package.dependencies["@sigma-studio/editor"] = publicVersion; },
-  }, {
-    label: "package-lock React 19 exampleからEditorへのdependency",
-    current: packageLock.packages?.["examples/editor-react19"]?.dependencies?.["@sigma-studio/editor"],
-    apply: () => { packageLock.packages["examples/editor-react19"].dependencies["@sigma-studio/editor"] = publicVersion; },
   });
+
+  for (const [location, name] of [
+    ["packages/editor", "@sigma-studio/viewer"],
+    ["tests/fixtures/editor-react18", "@sigma-studio/editor"],
+    ["examples/editor-react19", "@sigma-studio/editor"],
+  ]) {
+    const edge = packageLock.importers?.[location]?.dependencies?.[name];
+    if (!edge || !edge.version?.startsWith("link:")) {
+      throw new Error(`Missing workspace link: ${location} -> ${name}`);
+    }
+    expected.push({
+      label: `pnpm-lock ${location} -> ${name}`,
+      current: edge.specifier,
+      apply: () => { edge.specifier = publicVersion; },
+    });
+  }
 
   const mismatches = expected.filter(({ current }) => current !== publicVersion);
 
@@ -150,7 +114,7 @@ export async function syncPublicPackageVersions({ checkOnly = false } = {}) {
         ...mismatches.map(({ label, current }) => (
           `- ${label}: ${String(current)} -> ${publicVersion}`
         )),
-        "`npm run version:sync` で揃えてからcommitしてください。",
+        "`pnpm run version:sync` で揃えてからcommitしてください。",
       ].join("\n"));
     }
     return { publicVersion, changed: false, mismatches };
@@ -166,7 +130,7 @@ export async function syncPublicPackageVersions({ checkOnly = false } = {}) {
       writeJson("packages/editor/package.json", editorPackage),
       writeJson("tests/fixtures/editor-react18/package.json", examplePackage),
       writeJson("examples/editor-react19/package.json", example19Package),
-      writeJson("package-lock.json", packageLock),
+      writeFile(path.join(repositoryRoot, "pnpm-lock.yaml"), dump(packageLock, { lineWidth: -1, noRefs: true })),
     ]);
   }
 

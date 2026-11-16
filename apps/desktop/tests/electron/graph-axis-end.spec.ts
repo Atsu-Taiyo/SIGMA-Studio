@@ -38,7 +38,7 @@ async function drawnAxisEnds(graph: Locator) {
 }
 
 test("the end picked for each axis in the graph settings is drawn on that axis and survives reload", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!process.env.SIGMA_STUDIO_DEV_SERVER_URL && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
   const profile = mkdtempSync(path.join(tmpdir(), "sigma-graph-axis-end-"));
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));

@@ -5,7 +5,7 @@ import { DESKTOP_CONTENT_SECURITY_POLICY, buildContentSecurityPolicyMeta } from 
 /**
  * CSP は **最後の砦**であって、WI-1〜3 の注入面対策の代替ではない。
  *
- * 静的 export の実測 (`npm run electron:prepare` 後の `out/index.html` / `out/print.html`) で、
+ * 静的 export の実測 (`pnpm run electron:prepare` 後の `out/index.html` / `out/print.html`) で、
  * Next 16 は RSC ペイロードを `<script>self.__next_f.push(...)</script>` として **1 ページあたり
  * 5〜6 個のインラインスクリプト**で吐く。したがって `script-src` には `'unsafe-inline'` が必須で、
  * **注入されたインライン `<script>` や `<img onerror>` は CSP では止まらない**。

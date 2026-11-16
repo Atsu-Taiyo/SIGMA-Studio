@@ -46,10 +46,10 @@
   },
   "scripts": {
     "clean": "node ./scripts/clean.mjs",
-    "build": "npm run clean && npm run types:generate && node ./scripts/build.mjs && tsc -p tsconfig.build.json",
-    "typecheck": "npm run types:check && tsc --noEmit -p tsconfig.json",
+    "build": "pnpm run clean && pnpm run types:generate && node ./scripts/build.mjs && tsc -p tsconfig.build.json",
+    "typecheck": "pnpm run types:check && tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "prepack": "npm run build",
+    "prepack": "pnpm run build",
     "types:generate": "node ./scripts/generate-document-types.mjs",
     "types:check": "node ./scripts/generate-document-types.mjs --check"
   },

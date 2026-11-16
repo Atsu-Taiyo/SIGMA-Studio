@@ -760,7 +760,7 @@ function createHighlightedJsonCodeBlockSeedDocument(): SigmaDocument {
   document.comments = [];
   const scripts = Object.fromEntries(Array.from(
     { length: 90 },
-    (_, index) => [`viewer:task:${String(index).padStart(2, "0")}`, `npm run viewer-task-${index}`],
+    (_, index) => [`viewer:task:${String(index).padStart(2, "0")}`, `pnpm run viewer-task-${index}`],
   ));
   document.content = [
     ...Array.from({ length: 8 }, (_, index) => ({

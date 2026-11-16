@@ -6,11 +6,11 @@ import {
 } from "./sync-public-package-versions.mjs";
 
 const USAGE = [
-  "使い方: npm run version:set -- <patch|minor|major|x.y.z>",
+  "使い方: pnpm run version:set <patch|minor|major|x.y.z>",
   "",
   "Sigma Studio本体(ルート + apps/desktop)のversionを上げ、",
   "npmへ公開する @sigma-studio/viewer / @sigma-studio/editor と",
-  "その依存・example・package-lockを同じversionへ揃えます。",
+  "その依存・example・pnpm-lockを同じversionへ揃えます。",
 ].join("\n");
 
 function nextVersion(current, requested) {
@@ -65,7 +65,7 @@ async function main() {
     `Sigma Studio ${currentVersion} -> ${version} へ更新しました。`,
     "  package.json / apps/desktop/package.json",
     "  packages/viewer/package.json / packages/editor/package.json",
-    "  tests/fixtures/editor-react18/package.json / examples/editor-react19/package.json / package-lock.json",
+    "  tests/fixtures/editor-react18/package.json / examples/editor-react19/package.json / pnpm-lock.yaml",
     "",
     "次の手順:",
     `  git commit -am "Bump version to ${version}"`,

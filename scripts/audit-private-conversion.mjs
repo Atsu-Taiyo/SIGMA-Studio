@@ -194,7 +194,7 @@ function main() {
     process.exitCode = 2;
     return;
   }
-  // npm workspace scripts run from apps/desktop. Audit the whole repository,
+  // pnpm workspace scripts run from apps/desktop. Audit the whole repository,
   // so build paths and private-path rules keep the same meaning at any depth.
   const cwd = git(process.cwd(), "rev-parse", "--show-toplevel").toString("utf8").trim();
   const findings = [...new Set(modes.flatMap((mode) => mode === "--build"

@@ -33,13 +33,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.2
+
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: "24.22.1"
-          cache: npm
+          cache: pnpm
 
       # The release tag and all workspace versions must agree.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
       - name: Validate release version
         shell: bash
         run: |
@@ -48,20 +54,17 @@ jobs:
             echo "tag ${GITHUB_REF_NAME} とSigma Studio version v${version}が一致しません。" >&2
             exit 1
           fi
-          npm run version:check
-
-      - name: Install dependencies
-        run: npm ci
+          pnpm run version:check
 
       - name: Verify cross-process file locking
-        run: npm --workspace @sigma-studio/desktop run test -- file-lock
+        run: pnpm --filter @sigma-studio/desktop run test file-lock
 
       - name: Apply upstream macOS keychain fix
         if: matrix.platform == 'mac'
         run: node scripts/patch-electron-builder-keychain.mjs
 
       - name: Build renderer + electron bundle
-        run: npm --workspace @sigma-studio/desktop run electron:prepare
+        run: pnpm --filter @sigma-studio/desktop run electron:prepare
         env:
           # TypeScript validation exceeds Node 20's default ~2 GiB heap on macOS.
           NODE_OPTIONS: --max-old-space-size=4096
@@ -74,7 +77,7 @@ jobs:
 
       - name: Build and publish installer
         working-directory: apps/desktop
-        run: npx --no-install electron-builder --${{ matrix.platform }} --publish always --config electron-builder.config.cjs
+        run: pnpm exec electron-builder --${{ matrix.platform }} --publish always --config electron-builder.config.cjs
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_CONTENT_RULES: ${{ secrets.RELEASE_CONTENT_RULES }}

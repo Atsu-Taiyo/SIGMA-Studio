@@ -22,13 +22,13 @@
     "electron:build": "node scripts/build-electron.mjs && node ../../scripts/audit-private-conversion.mjs --build",
     "icons:generate": "node scripts/generate-app-icons.mjs",
     "electron:brand-dev": "node scripts/brand-dev-electron.mjs",
-    "electron:prepare": "cross-env NEXT_PUBLIC_TARGET=desktop next build && npm run electron:build",
+    "electron:prepare": "cross-env NEXT_PUBLIC_TARGET=desktop next build && pnpm run electron:build",
     "electron:dev": "node scripts/dev-electron.mjs",
-    "electron:preview": "npm run electron:prepare && npm run electron:brand-dev && electron .",
-    "electron:dist": "npm run electron:prepare && electron-builder --config electron-builder.config.cjs --mac --win",
-    "electron:dist:mac": "npm run electron:prepare && electron-builder --config electron-builder.config.cjs --mac",
-    "electron:dist:win": "npm run electron:prepare && electron-builder --config electron-builder.config.cjs --win",
-    "electron:dist:store": "node scripts/validate-windows-store-env.mjs && npm run electron:prepare && cross-env SIGMA_STUDIO_WINDOWS_STORE=true electron-builder --config electron-builder.config.cjs --win appx --x64 --publish never"
+    "electron:preview": "pnpm run electron:prepare && pnpm run electron:brand-dev && electron .",
+    "electron:dist": "pnpm run electron:prepare && electron-builder --config electron-builder.config.cjs --mac --win",
+    "electron:dist:mac": "pnpm run electron:prepare && electron-builder --config electron-builder.config.cjs --mac",
+    "electron:dist:win": "pnpm run electron:prepare && electron-builder --config electron-builder.config.cjs --win",
+    "electron:dist:store": "node scripts/validate-windows-store-env.mjs && pnpm run electron:prepare && cross-env SIGMA_STUDIO_WINDOWS_STORE=true electron-builder --config electron-builder.config.cjs --win appx --x64 --publish never"
   },
   "dependencies": {
     "@fontsource/m-plus-1p": "^5.2.9",
@@ -92,8 +92,5 @@
     "happy-dom": "^21.0.4",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
-  },
-  "overrides": {
-    "postcss": "^8.5.28"
   }
 }

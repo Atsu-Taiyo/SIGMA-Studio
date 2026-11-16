@@ -271,7 +271,7 @@ describe("evaluatePerfBudget", () => {
 });
 
 describe("perf-probe spec gating", () => {
-  it("skips itself unless SIGMA_PERF_PROBE=1 so `npm run test:e2e` stays fast", () => {
+  it("skips itself unless SIGMA_PERF_PROBE=1 so `pnpm run test:e2e` stays fast", () => {
     const source = readFileSync(
       fileURLToPath(new URL("./e2e/perf-probe.spec.ts", import.meta.url)),
       "utf8",

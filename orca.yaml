@@ -1,0 +1,2 @@
+scripts:
+  setup: mise exec -- pnpm install --frozen-lockfile

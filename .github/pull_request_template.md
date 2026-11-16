@@ -7,7 +7,7 @@
 <!--
 以下のどちらかを必ず埋める。
 - 該当なし: 性能に影響しない理由を 1 行で（例: テストのみ / ドキュメントのみ / 実行経路を通らない）
-- 影響あり: `npm run perf:probe` の数値を貼る（before / after）。
+- 影響あり: `pnpm run perf:probe` の数値を貼る（before / after）。
   **貼るのは `perf-reports/<timestamp>/summary.md` の表**（端末出力をそのまま貼ると
   ローカルの絶対パスが混ざる）。summary.md の先頭に予算 assert の有効/無効と
   計測したビルドの revision が入っているので、それも一緒に貼ると「何を測ったか」が伝わる。
@@ -26,6 +26,6 @@
 
 <!-- lint / typecheck / vitest / e2e のうち走らせたもの。落ちたものがあれば base でも落ちるかを書く。 -->
 
-- [ ] `npm run lint` / `npx tsc --noEmit`
+- [ ] `pnpm run lint` / `pnpm exec tsc --noEmit`
 - [ ] vitest
 - [ ] 影響する e2e（spec 名: ）

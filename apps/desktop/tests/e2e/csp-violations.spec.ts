@@ -9,7 +9,7 @@ import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
  * CSP は `<meta http-equiv>` で静的 export に焼き込まれるので、**ビルド成果物 (`out/`) を
  * 配って回さないと存在しない**。既定の e2e は `next dev` を叩くため meta が出ておらず、
  * ここが緑でも何も測れていないことになる。そのため実行系は
- * `npm run test:e2e:export -- tests/e2e/csp-violations.spec.ts`。
+ * `pnpm run test:e2e:export tests/e2e/csp-violations.spec.ts`。
  *
  * 併せて「CSP が実際に載っていること」自体を assert して、dev サーバに向けて走らせたときに
  * 自明に緑にならないようにしてある。
@@ -44,11 +44,11 @@ function appUrl(path: string): string {
     : path;
 }
 
-// CSP は静的 export にしか焼き込まれない。既定の `npm run test:e2e` は `next dev` を叩くので、
+// CSP は静的 export にしか焼き込まれない。既定の `pnpm run test:e2e` は `next dev` を叩くので、
 // この spec はそこでは意味を持たない (そして必ず落ちる)。専用の実行系でだけ走らせる。
 test.skip(
   !process.env.SIGMA_STUDIO_E2E_BASE_URL,
-  "静的 export を配って実行する必要があります (npm run test:e2e:export)",
+  "静的 export を配って実行する必要があります (pnpm run test:e2e:export)",
 );
 
 test.beforeEach(async ({ page }) => {
@@ -61,7 +61,7 @@ test("the built renderer actually carries the policy", async ({ page }) => {
 
   const policy = await page.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute("content");
 
-  expect(policy, "静的 export を配って実行しているか (npm run test:e2e:export)").toBeTruthy();
+  expect(policy, "静的 export を配って実行しているか (pnpm run test:e2e:export)").toBeTruthy();
   expect(policy).toContain("default-src 'self'");
   expect(policy).toContain("img-src 'self' data: blob:");
   // `style-src` は防御ではなく、`default-src` のフォールバックでインライン style が

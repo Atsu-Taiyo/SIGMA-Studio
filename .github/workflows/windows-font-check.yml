@@ -6,12 +6,12 @@ on:
     paths:
       - '.github/workflows/windows-font-check.yml'
       - 'apps/desktop/**'
-      - 'package-lock.json'
+      - 'pnpm-lock.yaml'
   pull_request:
     paths:
       - '.github/workflows/windows-font-check.yml'
       - 'apps/desktop/**'
-      - 'package-lock.json'
+      - 'pnpm-lock.yaml'
 
 permissions:
   contents: read
@@ -28,15 +28,18 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.2
       - uses: actions/setup-node@v7
         with:
           node-version: '24.22.1'
-          cache: npm
-      - run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Build the static desktop application
-        run: npm --workspace @sigma-studio/desktop run electron:prepare
+        run: pnpm --filter @sigma-studio/desktop run electron:prepare
       - name: Verify sizes, native copy/paste, persistence, and app restart
-        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- font-size.spec.ts font-size-copy-pages.spec.ts font-format-roundtrip.spec.ts clipboard-routing.spec.ts problem-display.spec.ts whiteboard-image-save.spec.ts spreadsheet-paste.spec.ts --reporter=list,html
+        run: pnpm --filter @sigma-studio/desktop run test:e2e:electron font-size.spec.ts font-size-copy-pages.spec.ts font-format-roundtrip.spec.ts clipboard-routing.spec.ts problem-display.spec.ts whiteboard-image-save.spec.ts spreadsheet-paste.spec.ts --reporter=list,html
       - uses: actions/upload-artifact@v7
         if: always()
         with:

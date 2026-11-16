@@ -7,7 +7,7 @@ import { _electron as electron, expect, test } from "@playwright/test";
 const APP_ROOT = path.resolve(__dirname, "../..");
 
 test("point names synchronize in both directions and survive reload", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!process.env.SIGMA_STUDIO_DEV_SERVER_URL && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
   const profile = mkdtempSync(path.join(tmpdir(), "sigma-point-label-"));
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));

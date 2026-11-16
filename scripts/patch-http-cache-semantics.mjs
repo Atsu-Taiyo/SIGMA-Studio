@@ -1,7 +1,7 @@
 // GHSA-ch52-4w7c-c8xp still reproduces in 4.3.0. Keep the regression tests
 // passing before removing this patch, even if npm audit reports no advisory.
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { globSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,19 +31,25 @@ export function patchSource(source) {
 }
 
 export function patchInstalledPackages(root) {
-  const lock = JSON.parse(readFileSync(path.join(root, "package-lock.json"), "utf8"));
-  for (const [location, entry] of Object.entries(lock.packages)) {
-    if (!location.endsWith("node_modules/http-cache-semantics")) continue;
-    const packagePath = path.join(root, location, "package.json");
-    if (!existsSync(packagePath)) continue; // npm ci --omit=dev
+  const locations = globSync([
+    "node_modules/http-cache-semantics/package.json",
+    "node_modules/.pnpm/*/node_modules/http-cache-semantics/package.json",
+  ], { cwd: root });
+  for (const location of locations) {
+    const packagePath = path.join(root, location);
     const installed = JSON.parse(readFileSync(packagePath, "utf8"));
-    if (entry.version !== "4.3.0" || installed.version !== "4.3.0") {
+    if (installed.version !== "4.3.0") {
       throw new Error("Review the http-cache-semantics security patch before changing its version");
     }
-    const sourcePath = path.join(root, location, "index.js");
+    const sourcePath = path.join(path.dirname(packagePath), "index.js");
     const source = readFileSync(sourcePath, "utf8");
     const patched = patchSource(source);
-    if (source !== patched) writeFileSync(sourcePath, patched);
+    if (source !== patched) {
+      // Replace the inode instead of modifying the shared pnpm store hardlink.
+      const temporary = `${sourcePath}.sigma-patch-${process.pid}`;
+      writeFileSync(temporary, patched);
+      renameSync(temporary, sourcePath);
+    }
     console.log(`Verified cache reuse security patch: ${location}`);
   }
 }

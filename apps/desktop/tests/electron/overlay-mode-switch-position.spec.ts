@@ -132,7 +132,7 @@ async function settledPreviewPositions(page: Page): Promise<Positions> {
 }
 
 test("図形の編集へ切り替えても本文に付いた図形は動かず、保存して起動し直しても同じ位置にある (#207)", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
   const profile = mkdtempSync(path.join(tmpdir(), "sigma-overlay-mode-switch-"));
   let { app, page } = await launch(profile);
