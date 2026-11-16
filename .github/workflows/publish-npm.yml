@@ -36,14 +36,11 @@ jobs:
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
       - name: Validate release ref and version
         id: release
         shell: bash
         run: |
           set -euo pipefail
-          pnpm run version:check
           version="$(node -p "require('./package.json').version")"
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_REF" != "refs/heads/main" ]]; then
             echo "手動実行はmainを選択してください。" >&2
@@ -54,6 +51,11 @@ jobs:
             exit 1
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Verify workspace versions
+        run: pnpm run version:check
 
       - name: Build packages and verify public contracts
         run: |

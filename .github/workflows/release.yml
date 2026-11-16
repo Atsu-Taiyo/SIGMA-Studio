@@ -44,8 +44,6 @@ jobs:
           cache: pnpm
 
       # The release tag and all workspace versions must agree.
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
       - name: Validate release version
         shell: bash
         run: |
@@ -54,7 +52,11 @@ jobs:
             echo "tag ${GITHUB_REF_NAME} とSigma Studio version v${version}が一致しません。" >&2
             exit 1
           fi
-          pnpm run version:check
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Verify workspace versions
+        run: pnpm run version:check
 
       - name: Verify cross-process file locking
         run: pnpm --filter @sigma-studio/desktop run test file-lock
