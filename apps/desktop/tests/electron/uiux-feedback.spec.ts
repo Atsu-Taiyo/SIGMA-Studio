@@ -44,6 +44,7 @@ test("workspace and editor feedback flows persist through the real desktop bridg
     expect(await toggle.evaluate(el => Boolean(el.closest("#workspace-sidebar")))).toBe(true);
     await toggle.click(); await expect(page.locator("#workspace-sidebar")).toHaveAttribute("data-collapsed", "true");
     await toggle.click();
+    await page.locator(".workspace-page-main").evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)));
     const create = async (name: string) => {
       await page.locator(".workspace-new-button").click();
       await expect(page.getByRole("menu")).toBeVisible();

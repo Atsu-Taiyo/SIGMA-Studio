@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
-import { act } from "react";
+import { act, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { WorkspaceCreateDialog } from "./WorkspaceCreateDialog";
 
 it("offers create-and-open by submit/Enter and create-only without submitting twice", async () => {
   const container = document.createElement("div"); document.body.append(container);
-  const root = createRoot(container); const submit = vi.fn((event: { preventDefault(): void }, _openAfterCreate: boolean) => event.preventDefault());
+  const root = createRoot(container); const submit = vi.fn<(event: FormEvent, openAfterCreate: boolean) => void>((event) => event.preventDefault());
   try {
     const render = (kind: "document" | "folder", saving = false) => act(() => root.render(<WorkspaceCreateDialog dialog={{ kind, name: "教材", folderId: null }} folders={[]} saving={saving} onNameChange={vi.fn()} onSubmit={submit} onClose={vi.fn()} />));
     render("document");
