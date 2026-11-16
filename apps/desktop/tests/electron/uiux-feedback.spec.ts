@@ -125,6 +125,21 @@ test("workspace and editor feedback flows persist through the real desktop bridg
     await expect(manual.locator('nav a[aria-current="location"]')).toHaveText("sigmaファイルを書き出す");
     await manual.locator("[data-manual-viewport]").evaluate(el => { el.scrollTop = 0; });
     await expect(manual.locator('nav a[aria-current="location"]')).toHaveText("ワークスペース");
+    // The dialog is capped by the shared modal. Its scroll region must fit on
+    // both tall and short windows so the last paragraph/link remain reachable.
+    for (const height of [1440, 650]) {
+      await app.evaluate(({ BrowserWindow }, windowHeight) => BrowserWindow.getAllWindows()[0].setContentSize(1440, windowHeight), height);
+      const viewport = manual.locator("[data-manual-viewport]");
+      await expect.poll(async () => {
+        const region = await viewport.boundingBox();
+        const surface = await manual.boundingBox();
+        return region!.y + region!.height <= surface!.y + surface!.height;
+      }).toBe(true);
+      await viewport.evaluate(el => { el.scrollTop = el.scrollHeight; });
+      await expect(manual.getByRole("link", { name: "画面つきの詳しいガイド（外部サイト）" })).toBeInViewport();
+      await expect(manual.locator('nav a[aria-current="location"]')).toHaveText("sigmaファイルを書き出す");
+    }
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 1000));
     await page.keyboard.press("Escape");
     // Verify both saved workspace-created documents survive reload through storage.
     const files = await page.evaluate(async () => window.desktopAPI!.storage.listFiles());

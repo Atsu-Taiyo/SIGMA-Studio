@@ -1,11 +1,12 @@
-.body { min-height: 0; }
-.layout { display: grid; grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); gap: var(--space-xl); min-height: 0; }
-.toc { max-height: 60vh; overflow: auto; }
+.surface { height: 80vh; }
+.body { display: flex; flex: 1; min-height: 0; }
+.layout { display: grid; flex: 1; grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); gap: var(--space-xl); min-height: 0; }
+.toc { min-height: 0; overflow: auto; }
 .toc a { display: block; padding: var(--space-sm) var(--space-md); border-radius: var(--radius-control); color: var(--text-secondary); text-decoration: none; font-size: 13px; }
 .toc a[data-level="3"] { padding-inline-start: var(--space-xl); }
 .toc a:hover, .toc a:focus-visible { background: var(--surface-muted); }
 .toc a[aria-current="location"] { background: var(--surface-strong); color: var(--text-primary); font-weight: 650; }
-.content { height: 60vh; overflow: auto; padding: var(--space-xl) var(--space-lg); scroll-padding-top: var(--space-xl); }
+.content { min-height: 0; overflow: auto; padding: var(--space-xl) var(--space-lg); scroll-padding-top: var(--space-xl); }
 .content h2, .content h3, .content p { margin: 0; }
 .content h2 { font-size: 20px; }
 .content h3 { font-size: 16px; }

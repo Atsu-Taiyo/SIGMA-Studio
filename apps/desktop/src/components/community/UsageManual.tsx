@@ -63,7 +63,7 @@ function ManualContents({ onClose }: { onClose(): void }) {
   }, []);
 
   return (
-    <ModalFrame open onDismiss={onClose} size="xl">
+    <ModalFrame open onDismiss={onClose} size="xl" surfaceClassName={styles.surface}>
       <ModalHeader title={t("manual.title")} onClose={onClose} />
       <ModalBody scroll="hidden" className={styles.body}>
         <div className={styles.layout}>
