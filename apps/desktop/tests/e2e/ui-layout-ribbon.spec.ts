@@ -752,9 +752,9 @@ test("the Backstage takes the title bar and tab row commands away while it cover
   }
   // タブそのものは残る (ファイルタブ再クリック・他タブクリックで閉じる導線)。
   await expect(ribbonTabs(page).getByRole("tab")).toHaveCount(RIBBON_TABS.length);
-  // ワークスペースはタイトル行と Backstage の両方に置いてあるが、同時に可視にはしない
-  // (未スコープの getByRole が strict mode で落ちないための不変条件)。
-  await expect(page.getByRole("button", { name: "ワークスペース", exact: true })).toHaveCount(1);
+  // タイトル行の操作は隠し、Backstage 内のワークスペース操作は1つだけ残す。
+  // 共通のΣもワークスペースへ戻れるため、Backstage 内の操作を明示して検査する。
+  await expect(backstage(page).getByRole("button", { name: "ワークスペース", exact: true })).toHaveCount(1);
 
   await page.keyboard.press("Escape");
   await expect(backstage(page)).toHaveCount(0);
