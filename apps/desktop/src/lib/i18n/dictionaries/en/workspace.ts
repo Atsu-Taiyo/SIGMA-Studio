@@ -9,6 +9,49 @@ import type { TranslationsOf } from "../types";
  * フォールバックし、英語だけにあるキーも検出されなくなる。
  */
 export const workspace = {
+  manual: {
+    "title": "User manual",
+    "toc": "Table of contents",
+    "fullGuide": "Detailed illustrated guide (external website)",
+    "sections": {
+        "workspace": {
+            "title": "Workspace",
+            "body": "Manage materials and folders in the list. Choose a workspace or folder on the left to see its materials. Search by title or body text. Open a material to enter the editor."
+        },
+        "create": {
+            "title": "Create a material",
+            "body": "Choose a material from New and enter a name. Create and open saves it and opens the editor. Create only keeps you in the workspace and selects and reveals the new material. The destination appears above the name field.\nCreating a material in the editor opens a new tab automatically. A short tab animation signals the switch. It is skipped when your operating system requests reduced motion."
+        },
+        "bookmarks": {
+            "title": "Bookmarks",
+            "body": "Hover over a material or folder row to reveal its bookmark button. Keyboard focus within the row also reveals it. Bookmarked items always show their indicator.\nPress again to remove the bookmark. Open Bookmarks on the left to find bookmarked materials and folders together."
+        },
+        "sidebar": {
+            "title": "Show or hide the sidebar",
+            "body": "Use the toggle below the top-left Σ to collapse the sidebar into an icon rail. Press it again to restore the workspace and folder list. New and Bookmarks remain available while the sidebar is collapsed."
+        },
+        "editor": {
+            "title": "Editor",
+            "body": "Edit your material on the central page canvas. Press the top-left Σ to return to the workspace. Changes pass through the existing save process before leaving; a failed save keeps you in the editor. When a previous workspace location is recorded, you return to that location."
+        },
+        "tabs": {
+            "title": "Material tabs and new materials",
+            "body": "Open materials appear as tabs at the top. The editing tab has a distinct background and top line. Press another tab to switch to it.\nNew materials open automatically. They normally use the previous material’s destination, or an available default location if you cannot create there. Check the destination shown after creation."
+        },
+        "tools": {
+            "title": "Available toolbar actions",
+            "body": "Only actions supported by the current text or shape selection are available. Unavailable controls appear faded and do not acquire an enabled hover appearance.\nSelect a shape before changing its border or fill color. For text formatting, check the editing position or selected text."
+        },
+        "files": {
+            "title": "Save and export",
+            "body": "The app manages your materials through its save feature. Use export to send a file elsewhere. For printing or PDF output, check the page preview before proceeding."
+        },
+        "export": {
+            "title": "Export a sigma file",
+            "body": "Choose File → Export → Export sigma file, then choose a destination. The file extension is .sigma. Use this file to share a material for continued editing.\nFor a PDF, choose PDF output. Use Copy as text to transfer the material as text."
+        }
+    }
+},
   sharedItems: "Shared Items",
   usageGuide: {
     title: "Need help getting started?",
@@ -149,6 +192,8 @@ export const workspace = {
     showMore_other: "Show more ({{count}} left)",
   },
   action: {
+    createOnly: "Create only",
+    createAndOpen: "Create and open",
     openTemplateGallery: "Template gallery",
     moveFolder: "Move folder",
     deleteFolder: "Delete folder",

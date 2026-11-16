@@ -37,16 +37,17 @@
   display: grid;
   grid-template-columns: minmax(180px, 260px) minmax(0, 1fr) auto;
   align-items: center;
-  gap: 18px;
+  gap: var(--space-lg);
   min-width: 0;
-  padding: 10px 20px;
+  min-height: 64px;
+  padding: 0 var(--space-md);
   background: var(--background);
 }
 
 .workspace-page-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
   min-width: 0;
 }
 
@@ -2872,8 +2873,19 @@ nav.app-menu-list[inert] *,
 
 /* ── サイドバーの開閉 / コメント一覧 / ブックマーク ─────────────────────────────── */
 
+.workspace-sidebar[data-collapsed="true"] .workspace-sidebar-tools {
+  flex-direction: column;
+}
+
 .workspace-sidebar-toggle {
-  margin-left: -8px;
+  justify-self: start;
+}
+
+.workspace-brand-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 38px;
+  height: 64px;
 }
 
 .workspace-page-main {
@@ -3228,7 +3240,8 @@ nav.app-menu-list[inert] *,
   flex: 0 0 auto;
 }
 
-.workspace-bookmark-button.is-active {
+.workspace-list-cell-actions .workspace-bookmark-button.is-active {
+  opacity: 1;
   color: var(--text-primary);
 }
 

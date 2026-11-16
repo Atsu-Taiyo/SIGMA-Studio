@@ -55,11 +55,14 @@ test("usage guide opens the manual through Electron and remembers opt-out after 
     const viewport = page.viewportSize() ?? await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
     expect(box!.x).toBeGreaterThan(viewport.width / 2);
     expect(box!.y).toBeGreaterThan(viewport.height / 2);
-    const link = guide.getByRole("link", { name: "使い方を見る" });
+    const link = guide.getByRole("button", { name: "使い方を見る" });
     await expect(link).toHaveAttribute("data-tone", "primary");
     await page.screenshot({ path: test.info().outputPath("usage-guide.png") });
     await link.click();
     await expect(guide).toBeHidden();
+    const manual = page.getByRole("dialog", { name: "使い方マニュアル", exact: true });
+    await expect(manual).toBeVisible();
+    await manual.getByRole("link", { name: "画面つきの詳しいガイド（外部サイト）" }).click();
     const confirmation = page.getByRole("dialog", { name: "リンク先を確認" });
     await expect(confirmation).toContainText("https://chocoschools.com/sigma-studio/manual/");
     await confirmation.getByRole("button", { name: "確認して外部アプリで開く" }).click();
