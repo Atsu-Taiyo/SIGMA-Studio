@@ -254,8 +254,12 @@ export class AuthoringStyleMemory {
     }
     // A commit that stopped after memory.json left the previous learned.md behind. That file is not a hand edit:
     // reading it as one would turn what the review just added into deletions, or into the user's own lines.
+    // It is recognized by the mark naming it and by not having been written since the mark was: a file saved
+    // after the mark is somebody's edit, even when it reads the same as the memo that was being replaced.
     const mark = await boundedRead(path.join(dir, COMMIT_MARK), 100);
-    const interrupted = styleHash(content) !== memory.renderedHash && mark === styleHash(content);
+    const written = async (name: string) => (await fs.stat(path.join(dir, name)).catch(() => null))?.mtimeMs ?? 0;
+    const interrupted = Boolean(mark) && styleHash(content) !== memory.renderedHash && mark === styleHash(content)
+      && await written("learned.md") <= await written(COMMIT_MARK);
     // A mark left by a commit that did finish says nothing about a later edit.
     if (mark && !interrupted) await fs.rm(path.join(dir, COMMIT_MARK), { force: true });
     const entries = styleHash(content) === memory.renderedHash || interrupted ? [] : reconcile(memory, content, now.toISOString());
@@ -264,12 +268,13 @@ export class AuthoringStyleMemory {
       for (const item of memory.items) if (item.origin === "auto" && item.key) item.text = itemText(item.key, item.value, locale) ?? item.text;
       memory.locale = locale;
     }
-    if (entries.length || relabel || renderMemo(memory, locale) !== content) await this.commit(workspaceId, memory, entries);
+    // Finishing an interrupted commit keeps its mark until learned.md is in place, so stopping again changes nothing.
+    if (entries.length || relabel || renderMemo(memory, locale) !== content) await this.commit(workspaceId, memory, entries, interrupted);
     return memory;
   }
 
   /** Write the memo and append what changed, and who changed it, to the ledger. */
-  async commit(workspaceId: string, memory: StyleMemory, entries: readonly LedgerDraft[]): Promise<void> {
+  async commit(workspaceId: string, memory: StyleMemory, entries: readonly LedgerDraft[], resuming = false): Promise<void> {
     const dir = this.dir(workspaceId);
     const content = renderMemo(memory, memory.locale);
     const before = memory.renderedHash;
@@ -286,7 +291,7 @@ export class AuthoringStyleMemory {
     // memory.json is the source of truth and is written before the text made from it. The mark lets the next
     // load tell a learned.md left over from an interrupted commit from one its author edited.
     const mark = path.join(dir, COMMIT_MARK);
-    await atomicStyleWrite(mark, before);
+    if (!resuming) await atomicStyleWrite(mark, before);
     memory.renderedHash = after;
     await atomicStyleWrite(path.join(dir, "memory.json"), JSON.stringify(memory));
     await atomicStyleWrite(path.join(dir, "learned.md"), content);

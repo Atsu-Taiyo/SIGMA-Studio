@@ -810,12 +810,23 @@ describe("automatic authoring style", () => {
       expect(before).toBe("");
       await fs.writeFile(path.join(styleDir(), "learned.md"), withoutAi);
       await fs.writeFile(path.join(styleDir(), "learned.pending"), createHash("sha256").update(withoutAi).digest("hex"));
+      // Finishing the save fails once more: the mark stays, and the next start still knows what happened.
+      const rename = vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+        if (String(to).endsWith("learned.md")) throw new Error("disk full");
+        return fs.copyFile(String(from), String(to));
+      });
+      await expect(make(lib.options).getProfile("ws1")).rejects.toThrow("disk full");
+      rename.mockRestore();
+      expect(await fs.readFile(path.join(styleDir(), "learned.pending"), "utf8")).toBe(createHash("sha256").update(withoutAi).digest("hex"));
       const reopened = make(lib.options);
       const profile = await reopened.getProfile("ws1");
       expect(aiAdded(profile)).toEqual([HABIT.text]);
       expect(profile.items.some(i => i.origin === "user")).toBe(false);
       expect(await fs.readFile(path.join(styleDir(), "learned.md"), "utf8")).toContain(HABIT.text);
-      // Without that mark the same file is the author's edit: the line was deleted on purpose.
+      expect(await fs.readdir(styleDir())).not.toContain("learned.pending");
+      // A mark left behind by a save that did finish does not hide a later edit: the line was deleted on purpose.
+      await fs.writeFile(path.join(styleDir(), "learned.pending"), createHash("sha256").update(withoutAi).digest("hex"));
+      await fs.utimes(path.join(styleDir(), "learned.pending"), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
       await fs.writeFile(path.join(styleDir(), "learned.md"), withoutAi);
       expect(aiAdded(await make(lib.options).getProfile("ws1"))).toEqual([]);
     });
