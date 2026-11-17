@@ -36,6 +36,8 @@ describe("workspace repository runtime boundary", () => {
 
     const workspaceId = listed.state === "ready" ? listed.overview.activeWorkspaceId : "";
     const created = await createDocumentInWorkspace(workspaceId, null, "ブラウザ教材");
+    expect(created.createdFileId).toBeTruthy();
+    expect(created.state === "ready" && created.overview.files.some(file => file.fileId === created.createdFileId)).toBe(true);
     expect(created.state === "ready" && created.overview.files.map((file) => file.title))
       .toContain("ブラウザ教材");
   });

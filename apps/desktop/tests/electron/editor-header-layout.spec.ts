@@ -14,7 +14,8 @@ test("desktop header keeps the title, menus and sharing controls inside its two 
   const app = await electron.launch({ args: [appRoot], cwd: appRoot, env });
   try {
     const page = await app.firstWindow({ timeout: 60_000 });
-    await page.locator(".app-shell").waitFor({ state: "visible", timeout: 60_000 });
+    const editorShell = page.locator(".app-shell[data-workspace-editor-file]");
+    await editorShell.waitFor({ state: "visible", timeout: 60_000 });
     await page.addInitScript(() => {
       localStorage.setItem("sigma-studio:github-star-dismissed:v1", "1");
       localStorage.setItem("sigma-studio:ui-locale", "ja");
@@ -24,12 +25,12 @@ test("desktop header keeps the title, menus and sharing controls inside its two 
     await page.reload();
     for (const width of [1400, 900]) {
       await page.setViewportSize({ width, height: 900 });
-      await expect(page.locator('.app-shell[data-ui-layout="docs"]')).toBeVisible();
+      await expect(editorShell).toHaveAttribute("data-ui-layout", "docs");
       await expect(page.locator(".startup-splash")).toBeHidden();
       const header = page.locator(".menubar-row");
       const bounds = await header.boundingBox();
       expect(bounds).not.toBeNull();
-      const controls = [page.getByRole("textbox", { name: "教材タイトル" }), page.getByRole("button", { name: "共有", exact: true }), page.getByRole("button", { name: "ワークスペース", exact: true }), page.locator(".app-menu-list"), page.locator(".document-tabs-row")];
+      const controls = [page.getByRole("textbox", { name: "教材タイトル" }), page.getByRole("button", { name: "共有", exact: true }), page.getByRole("button", { name: "ワークスペース", exact: true }).and(page.locator(".workspace-open-button")), page.locator(".app-menu-list"), page.locator(".document-tabs-row")];
       for (const control of controls) {
         await expect(control).toBeVisible();
         const box = await control.boundingBox();
