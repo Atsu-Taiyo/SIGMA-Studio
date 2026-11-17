@@ -37,6 +37,7 @@ import type {
 } from "../../src/features/collaboration/model/bridge";
 import type { SharedApproval } from "../../src/features/collaboration/model/approval";
 import { CollaborationAuth, collaborationConfig } from "./auth";
+import { PersonalDataClient } from "./personal-data";
 import { CollaborationProfiles } from "./profiles";
 import { ASSET_RECOVERY_REQUIRED, CollaborationHttpError, isAssetRefusal, isAssetUploadRefusal, readResponseBytes, readResponseJson, responseError, retryDelay, syncFailureStatus } from "./transport";
 import { documentImageReferences, mergedOperationId, mergeOperationUpdates, MISSING_IMAGE_PLACEHOLDER, STORAGE_SOURCE, updateAssetReferences } from "./asset-repair";
@@ -110,6 +111,8 @@ export class CollaborationSessions {
   readonly auth: CollaborationAuth | null;
   /** 自分で決めた名前とアイコン、共有している相手の名前とアイコン。 */
   readonly profiles: CollaborationProfiles;
+  /** The account's own small documents (writing-style sync). */
+  readonly personalData: PersonalDataClient;
   private registry: Registry = { version: 1, files: {} };
   private sessions = new Map<string, Session>();
   /**
@@ -143,6 +146,7 @@ export class CollaborationSessions {
       (route, init) => this.requestRaw(route, init),
       () => this.auth?.user()?.id ?? null,
     );
+    this.personalData = new PersonalDataClient((route, init) => this.requestRaw(route, init));
   }
   async initialize(): Promise<void> {
     await fs.mkdir(this.directory, { recursive: true, mode: 0o700 });

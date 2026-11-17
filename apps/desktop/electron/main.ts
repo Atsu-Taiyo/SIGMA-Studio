@@ -199,6 +199,11 @@ let stopAiSettingsWatch: (() => void) | null = null;
 const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH, {
   listFiles: () => localSigmaDocStore.listFiles(),
   loadDocument: fileId => localSigmaDocStore.loadDocument(fileId),
+  listWorkspaces: async () => (await localSigmaDocStore.getLocalLibrarySnapshot()).workspaces
+    .filter(workspace => !workspace.sharing && !workspace.sharingPending).map(({ id, name }) => ({ id, name })),
+  // Keeps the learned habits in step across the account's devices, once the user turns that on.
+  sync: { client: { read: key => collaborationSessions.personalData.read(key), write: (key, content, revision) => collaborationSessions.personalData.write(key, content, revision),
+    removeAll: () => collaborationSessions.personalData.removeAll() }, userId: () => collaborationSessions.actorId(), available: () => Boolean(collaborationSessions.auth) },
   // The same tool-less single call the skill editor uses, to the provider the author already uses.
   summarize: ({ provider, prompt }) => runToollessPrompt(provider, prompt,
     { claude: claudeStreamClient, geminiSkillDraft: geminiSkillDraftClient, codex: codexAppServerClient }, `authoring-style-${crypto.randomUUID()}`, 90_000),
@@ -1765,6 +1770,10 @@ app.whenReady().then(async () => {
 
   try {
     await collaborationSessions.initialize();
+    // Account sync of the writing style: once the saved sign-in is known, then from time to time.
+    // It does nothing unless the user turned it on, and a failure only waits for the next round.
+    localAuthoringStyleStore.sync.soon(3000);
+    setInterval(() => localAuthoringStyleStore.sync.soon(0), 15 * 60_000).unref();
     pluginAuthReady.resolve();
     stopSessionBridge = await startSessionBridge(collaborationSessions, localSigmaDocStore);
   } catch (error) {

@@ -51,5 +51,12 @@ export function registerAuthoringStyleIpc(store: LocalAuthoringStyleStore): void
     if (typeof value.id !== "string" || value.id.length > 200) throw new Error("Invalid style item");
     return store.removeItem({ workspaceId: workspace(value.workspaceId), id: value.id });
   });
+  ipcMain.handle("authoring-style:set-sync", (_event, workspaceId: unknown, enabled: unknown) => {
+    if (typeof enabled !== "boolean") throw new Error("Invalid enabled flag");
+    return store.setSync(scope(workspaceId), enabled);
+  });
+  ipcMain.handle("authoring-style:sync-now", (_event, workspaceId: unknown) => store.syncNow(scope(workspaceId)));
+  ipcMain.handle("authoring-style:relink-sync", (_event, workspaceId: unknown) => store.relinkSync(scope(workspaceId)));
+  ipcMain.handle("authoring-style:delete-synced", (_event, workspaceId: unknown) => store.deleteSynced(scope(workspaceId)));
   ipcMain.handle("authoring-style:undo", (_event, workspaceId: unknown) => store.undo(workspace(workspaceId)));
 }

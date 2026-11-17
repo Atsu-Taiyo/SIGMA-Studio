@@ -104,7 +104,8 @@ export function planReview(memory: StyleMemory, observations: readonly Observati
     if (item.origin !== "auto" || !item.key || observed.has(item.key)) continue;
     const sources = context.eligibleFiles ? item.sources.filter(id => context.eligibleFiles!.has(id)) : item.sources;
     if (context.keptSinceLastReview && sources.length) item.lastConfirmedAt = pass.now;
-    const unconfirmed = !sources.length || context.now.getTime() - Date.parse(item.lastConfirmedAt) > STALE_AFTER_MS;
+    // Documents on another device of the same account still count as evidence.
+    const unconfirmed = (!sources.length && !item.devices?.length) || context.now.getTime() - Date.parse(item.lastConfirmedAt) > STALE_AFTER_MS;
     if (unconfirmed && !memory.dismissed.includes(`remove:${item.key}:${item.value}`)) {
       // The habit stays in the memo, and in use, until its author agrees to drop it.
       pass.stage({ id: `remove:${item.key}`, kind: "remove", reason: "stale", key: item.key, value: item.value, expectedText: item.text,

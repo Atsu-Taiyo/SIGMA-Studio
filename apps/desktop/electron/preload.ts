@@ -396,6 +396,10 @@ const desktopAPI = {
     review: (workspaceId: string) => ipcRenderer.invoke("authoring-style:review", workspaceId),
     resolvePending: (input: unknown) => ipcRenderer.invoke("authoring-style:resolve-pending", input),
     removeItem: (input: unknown) => ipcRenderer.invoke("authoring-style:remove-item", input),
+    setSync: (workspaceId: string | null, enabled: boolean) => ipcRenderer.invoke("authoring-style:set-sync", workspaceId, enabled),
+    syncNow: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:sync-now", workspaceId),
+    relinkSync: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:relink-sync", workspaceId),
+    deleteSynced: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:delete-synced", workspaceId),
     undo: (workspaceId: string) => ipcRenderer.invoke("authoring-style:undo", workspaceId),
   },
   aiResources: {

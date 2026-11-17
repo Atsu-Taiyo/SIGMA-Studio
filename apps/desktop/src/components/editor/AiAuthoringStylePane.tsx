@@ -19,6 +19,7 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const adoptNote = (value: AuthoringStyleProfile) => { setContent(value.userContent); setDraftRevision(value.revision); };
   const adoptLearned = (value: AuthoringStyleProfile) => { setLearned(value.generatedContent); setLearnedRevision(value.generatedRevision); };
   useEffect(() => {
@@ -57,6 +58,20 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
         <SettingsField label={t("authoringStyle.aiSummary")} description={t("authoringStyle.aiSummaryDescription")}>
           <Switch label={t("authoringStyle.aiSummary")} checked={profile.aiSummary} disabled={busy || !profile.enabled} onCheckedChange={enabled => void run(() => api.setAiSummary(workspaceId, enabled))} />
         </SettingsField>
+        {!workspaceId && profile.sync.available && <Stack gap="xs">
+          <SettingsField label={t("authoringStyle.sync")} description={t("authoringStyle.syncDescription")}>
+            <Switch label={t("authoringStyle.sync")} checked={profile.sync.enabled} disabled={busy || (!profile.sync.enabled && !profile.sync.signedIn)} onCheckedChange={enabled => void run(() => api.setSync(workspaceId, enabled), "all")} />
+          </SettingsField>
+          <SettingsStatus tone={["error", "limit", "other-account"].includes(profile.sync.state) ? "error" : undefined}>
+            {t(`authoringStyle.syncState.${profile.sync.state}`)}{profile.sync.enabled && profile.sync.lastSyncedAt ? ` ${t("authoringStyle.syncedAt", { at: new Date(profile.sync.lastSyncedAt).toLocaleString() })}` : ""}
+          </SettingsStatus>
+          {profile.sync.enabled && <div className="ai-settings-actions">
+            {profile.sync.state === "other-account"
+              ? <Button size="sm" disabled={busy || dirty} onClick={() => void run(() => api.relinkSync(workspaceId), "all")}>{t("authoringStyle.syncRelink")}</Button>
+              : <Button tone="ghost" size="sm" disabled={busy || dirty || !profile.sync.signedIn} onClick={() => void run(() => api.syncNow(workspaceId), "all")}>{t("authoringStyle.syncNow")}</Button>}
+            <Button tone="ghost" size="sm" disabled={busy || !profile.sync.signedIn || profile.sync.state === "other-account"} onClick={() => setConfirmDelete(true)}>{t("authoringStyle.syncDelete")}</Button>
+          </div>}
+        </Stack>}
         <SettingsStatus>{t("authoringStyle.count", { count: profile.exampleCount })} / {t("authoringStyle.outcomes", { ...profile.outcomes })}</SettingsStatus>
         {profile.blockedLines > 0 && <SettingsStatus tone="error">{t("authoringStyle.blocked", { count: profile.blockedLines })}</SettingsStatus>}
         <Stack gap="xs">
@@ -114,6 +129,13 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
         </Stack>}
         <Button tone="ghost" size="sm" disabled={busy || dirty || learnedDirty} onClick={() => setConfirmReset(true)}>{t("authoringStyle.reset")}</Button>
       </Stack>}
+      <ModalFrame open={confirmDelete} onDismiss={() => setConfirmDelete(false)} size="sm" ariaLabel={t("authoringStyle.syncDelete")}>
+        <ModalHeader title={t("authoringStyle.syncDelete")} onClose={() => setConfirmDelete(false)} />
+        <ModalBody><Stack gap="lg">
+          <p>{t("authoringStyle.syncDeleteConfirm")}</p>
+          <Button onClick={() => { setConfirmDelete(false); void run(() => api.deleteSynced(workspaceId), "all"); }}>{t("authoringStyle.syncDelete")}</Button>
+        </Stack></ModalBody>
+      </ModalFrame>
       <ModalFrame open={confirmReset} onDismiss={() => setConfirmReset(false)} size="sm" ariaLabel={t("authoringStyle.reset")}>
         <ModalHeader title={t("authoringStyle.reset")} onClose={() => setConfirmReset(false)} />
         <ModalBody><Stack gap="lg">

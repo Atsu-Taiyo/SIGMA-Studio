@@ -7,7 +7,8 @@ import type { AuthoringStyleAPI, AuthoringStyleProfile } from "@/lib/ai/authorin
 
 const base: AuthoringStyleProfile = { workspaceId: null, enabled: true, aiSummary: true, aiSummaryProvider: null, userContent: "画面にあるメモ", userPath: "/user.md", revision: "original",
   generatedContent: "", generatedPath: "", generatedRevision: "", exampleCount: 1, items: [], pending: [], usage: { characters: 0, limit: 3000 },
-  outcomes: { kept: 0, edited: 0, reverted: 0, rejected: 0 }, lastReviewedAt: null, reviewedDocuments: 0, lastUpdate: null, canUndo: false, blockedLines: 0 };
+  outcomes: { kept: 0, edited: 0, reverted: 0, rejected: 0 }, lastReviewedAt: null, reviewedDocuments: 0, lastUpdate: null, canUndo: false, blockedLines: 0,
+  sync: { available: true, signedIn: true, enabled: false, state: "off", lastSyncedAt: null } };
 
 function mount(api: AuthoringStyleAPI, workspaceId: string | null) {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -21,7 +22,7 @@ function mount(api: AuthoringStyleAPI, workspaceId: string | null) {
 
 function fakeApi(overrides: Partial<AuthoringStyleAPI>, profile: AuthoringStyleProfile): AuthoringStyleAPI {
   const resolved = () => vi.fn().mockResolvedValue(profile);
-  return { read: resolved(), save: resolved(), saveLearned: resolved(), setEnabled: resolved(), setAiSummary: resolved(), reset: resolved(), review: resolved(), resolvePending: resolved(), removeItem: resolved(), undo: resolved(), ...overrides };
+  return { read: resolved(), save: resolved(), saveLearned: resolved(), setEnabled: resolved(), setAiSummary: resolved(), reset: resolved(), review: resolved(), resolvePending: resolved(), removeItem: resolved(), undo: resolved(), setSync: resolved(), syncNow: resolved(), relinkSync: resolved(), deleteSynced: resolved(), ...overrides };
 }
 
 it("keeps the displayed note's revision when another action returns a newer external note", async () => {
@@ -90,4 +91,38 @@ it("keeps an unsaved manual note when only the learned memo is saved", async () 
     expect(view.host.querySelector<HTMLTextAreaElement>("#authoring-style-note")!.value).toBe("書きかけのメモ");
     expect(view.host.querySelector<HTMLTextAreaElement>("#authoring-style-learned")!.value).toBe("- 自分の行\n");
   } finally { await view.unmount(); }
+});
+
+it("offers account sync only on the global page, says what state it is in, and asks before deleting the server's copy", async () => {
+  const synced: AuthoringStyleProfile = { ...base, sync: { available: true, signedIn: true, enabled: true, state: "other-account", lastSyncedAt: null } };
+  const relinkSync = vi.fn<AuthoringStyleAPI["relinkSync"]>().mockResolvedValue({ ...synced, sync: { ...synced.sync, state: "ok" } });
+  const deleteSynced = vi.fn<AuthoringStyleAPI["deleteSynced"]>().mockResolvedValue(base);
+  const view = mount(fakeApi({ relinkSync, deleteSynced }, synced), null);
+  try {
+    await view.render();
+    expect(view.host.textContent).toContain("別のアカウントと同期していました");
+    expect(view.button("今すぐ同期")).toBeUndefined();
+    expect(view.button("サーバーのデータを削除").disabled).toBe(true);
+    await act(async () => view.button("このアカウントと同期し直す").click());
+    expect(relinkSync).toHaveBeenCalledWith(null);
+    expect(view.host.textContent).toContain("同期しています。");
+    await act(async () => view.button("サーバーのデータを削除").click());
+    expect(deleteSynced).not.toHaveBeenCalled();
+    const confirm = [...document.body.querySelectorAll("button")].filter(b => b.textContent === "サーバーのデータを削除").at(-1)!;
+    await act(async () => confirm.click());
+    expect(deleteSynced).toHaveBeenCalledWith(null);
+    expect(view.host.textContent).toContain("同期していません。");
+  } finally { await view.unmount(); }
+
+  const workspace = mount(fakeApi({}, { ...synced, workspaceId: "ws1" }), "ws1");
+  try {
+    await workspace.render();
+    expect(workspace.host.textContent).not.toContain("書き方をアカウントで同期する");
+  } finally { await workspace.unmount(); }
+
+  const unavailable = mount(fakeApi({}, { ...base, sync: { ...base.sync, available: false, state: "unavailable" } }), null);
+  try {
+    await unavailable.render();
+    expect(unavailable.host.textContent).not.toContain("書き方をアカウントで同期する");
+  } finally { await unavailable.unmount(); }
 });

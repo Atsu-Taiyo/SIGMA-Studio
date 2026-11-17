@@ -33,6 +33,20 @@ export interface AuthoringStyleOutcomes {
   rejected: number;
 }
 
+/** Whether the learned habits, notes and learning settings are kept in step with the signed-in account's other devices. */
+export interface AuthoringStyleSyncView {
+  /** The app was built with a collaboration server. */
+  available: boolean;
+  signedIn: boolean;
+  enabled: boolean;
+  /**
+   * `other-account`: these files were merged with a different account and wait for the user's decision.
+   * `limit`: merging would exceed the memo limit, so nothing was changed. `unavailable`: the server does not offer it.
+   */
+  state: "off" | "signed-out" | "other-account" | "unavailable" | "limit" | "error" | "ok";
+  lastSyncedAt: string | null;
+}
+
 export interface AuthoringStyleProfile {
   workspaceId: string | null;
   enabled: boolean;
@@ -58,6 +72,7 @@ export interface AuthoringStyleProfile {
   canUndo: boolean;
   /** Lines withheld from the AI because they look like injected instructions. */
   blockedLines: number;
+  sync: AuthoringStyleSyncView;
 }
 
 export interface AuthoringStyleAPI {
@@ -73,6 +88,13 @@ export interface AuthoringStyleAPI {
   /** Remove one automatic item by id. Like deleting its line, it is not learned again. */
   removeItem(input: { workspaceId: string; id: string }): Promise<AuthoringStyleProfile>;
   undo(workspaceId: string): Promise<AuthoringStyleProfile>;
+  /** Turn account sync on or off. Nothing is sent while it is off. */
+  setSync(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile>;
+  syncNow(workspaceId: string | null): Promise<AuthoringStyleProfile>;
+  /** Merge with the account now signed in, after the files were synced with a different one. */
+  relinkSync(workspaceId: string | null): Promise<AuthoringStyleProfile>;
+  /** Delete the account's copy on the server and turn sync off. The files on this device stay. */
+  deleteSynced(workspaceId: string | null): Promise<AuthoringStyleProfile>;
 }
 
 export const AUTHORING_STYLE_NOTE_LIMIT = 3000;

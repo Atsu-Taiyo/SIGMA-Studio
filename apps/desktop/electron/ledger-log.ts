@@ -38,6 +38,7 @@ export type LedgerEvent =
   | "authoring-style-read-failed"
   | "authoring-style-review-failed"
   | "authoring-style-summary-failed"
+  | "authoring-style-sync-failed"
   | "shared-document-save-failed"
   | "shared-asset-save-failed"
   | "shared-asset-repair-attempted"

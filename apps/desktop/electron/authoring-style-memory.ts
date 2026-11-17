@@ -45,6 +45,8 @@ export interface StyleItem {
   sources: string[];
   firstSeenAt: string;
   lastConfirmedAt: string;
+  /** Other devices of the same account that hold evidence for this habit. Set only by account sync. */
+  devices?: string[];
 }
 
 export interface PendingChange {
@@ -84,7 +86,7 @@ export interface StyleMemory {
   lastUpdate: { at: string; added: number; staged: number } | null;
 }
 
-export interface LedgerDraft { actor: "review" | "user"; action: string; key?: string; before?: string; after?: string }
+export interface LedgerDraft { actor: "review" | "user" | "sync"; action: string; key?: string; before?: string; after?: string }
 
 const MAX_UNDO = 5;
 const MAX_DECLINED = 30;
@@ -197,6 +199,27 @@ export class AuthoringStyleMemory {
 
   generatedPath(workspaceId: string): string { return path.join(this.dir(workspaceId), "learned.md"); }
 
+  async settingsOf(workspaceId: string | null): Promise<{ enabled: boolean; aiSummary: boolean }> {
+    const current = await this.settings(workspaceId);
+    return { enabled: current.enabled !== false, aiSummary: current.aiSummary !== false };
+  }
+
+  /** Account sync only: the note as merged with another device. Bounded like a note saved by hand. */
+  async writeNote(workspaceId: string | null, content: string): Promise<void> {
+    if (content.length > AUTHORING_STYLE_NOTE_LIMIT) throw new Error("Style note exceeds 3000 characters");
+    await atomicStyleWrite(path.join(this.dir(workspaceId), workspaceId === null ? "user.md" : "workspace.md"), content);
+  }
+
+  async ledgerLines(workspaceId: string): Promise<string[]> {
+    try { return (await fs.readFile(path.join(this.dir(workspaceId), "ledger.jsonl"), "utf8")).split("\n").filter(Boolean); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+  }
+
+  /** Account sync only: the ledger with another device's lines merged in. */
+  async writeLedger(workspaceId: string, lines: readonly string[]): Promise<void> {
+    await atomicStyleWrite(path.join(this.dir(workspaceId), "ledger.jsonl"), lines.length ? `${lines.slice(-MAX_LEDGER_LINES).join("\n")}\n` : "");
+  }
+
   private async settings(workspaceId: string | null): Promise<{ enabled?: unknown; aiSummary?: unknown }> {
     const text = await boundedRead(path.join(this.dir(workspaceId), "settings.json"), 1000);
     const data = text ? JSON.parse(text) : {};
@@ -220,7 +243,7 @@ export class AuthoringStyleMemory {
     await this.writeSettings(workspaceId, { aiSummary });
   }
 
-  private async writeSettings(workspaceId: string | null, change: { enabled?: boolean; aiSummary?: boolean }): Promise<void> {
+  async writeSettings(workspaceId: string | null, change: { enabled?: boolean; aiSummary?: boolean }): Promise<void> {
     const current = await this.settings(workspaceId);
     await atomicStyleWrite(path.join(this.dir(workspaceId), "settings.json"),
       JSON.stringify({ enabled: current.enabled !== false, aiSummary: current.aiSummary !== false, ...change }));

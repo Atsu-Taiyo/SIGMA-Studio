@@ -14,6 +14,7 @@ import { itemText, memoLabels, SECTION_ORDER } from "./authoring-style-items";
 import { AuthoringStyleMemory, atomicStyleWrite, renderMemo, type StyleMemory } from "./authoring-style-memory";
 import { planReview, planSummary } from "./authoring-style-review";
 import { isSuspicious, scanLines } from "./authoring-style-scan";
+import { AuthoringStyleSync, type SyncAccount } from "./authoring-style-sync";
 import { buildSummaryPrompt, isSummaryText, parseSummaryReply, type SummaryInput } from "./authoring-style-summary";
 import type { AiEditProvider } from "./ai-edit-provider";
 import { acquireFileLock } from "./file-lock";
@@ -92,6 +93,10 @@ export interface AuthoringStyleStoreOptions {
    * Without it the review only counts habits on this device.
    */
   summarize?: (request: { provider: AiEditProvider; prompt: string }) => Promise<string>;
+  /** Personal workspaces, for account sync. */
+  listWorkspaces?: () => Promise<{ id: string; name: string }[]>;
+  /** The signed-in account's store on the collaboration server. Without it nothing is synced. */
+  sync?: SyncAccount;
   now?: () => Date;
   /** Quiet time after the last save before a due review starts. Null never starts one automatically. */
   reviewIdleMs?: number | null;
@@ -125,6 +130,7 @@ export class LocalAuthoringStyleStore {
   /** Bumped by a reset so a review already under way cannot write back what was just erased. */
   private generation = 0;
   private readonly summaryAttempts = new Map<string, number>();
+  readonly sync: AuthoringStyleSync;
 
   constructor(userDataPath: string, options: AuthoringStyleStoreOptions = {}) {
     this.options = options;
@@ -134,6 +140,14 @@ export class LocalAuthoringStyleStore {
     this.outcomesPath = path.join(this.root, "outcomes.json");
     this.providerPath = path.join(this.root, "provider.json");
     this.memory = new AuthoringStyleMemory(this.root);
+    this.sync = new AuthoringStyleSync({
+      root: this.root, memory: this.memory, exclusive: run => this.exclusive(run), now: () => this.now(), locale: () => getAppLocale(),
+      workspaces: async () => await options.listWorkspaces?.() ?? [],
+      provider: () => this.lastProvider(),
+      setProvider: async provider => { this.provider = provider as AiEditProvider; await atomicStyleWrite(this.providerPath, JSON.stringify({ provider })); },
+      forget: workspaceId => this.forget(workspaceId),
+      log: error => logLedgerEvent(this.dataDir, "authoring-style-sync-failed", { error: String(error) }),
+    }, options.sync ?? null);
   }
 
   private now(): Date { return this.options.now?.() ?? new Date(); }
@@ -403,6 +417,7 @@ export class LocalAuthoringStyleStore {
       await this.writeOutcomes(outcomes);
       return this.summaryRequest(workspaceId, memory, authored, examples, eligibleFiles, requested, now);
     });
+    this.sync.soon();
     if (!summary) return;
     // The AI is asked outside the lock: saving and AI requests never wait for it.
     let raw: string;
@@ -422,6 +437,7 @@ export class LocalAuthoringStyleStore {
       memory.summary = { hash: summary.hash, at: now.toISOString() };
       await this.memory.commit(workspaceId, memory, planned.entries);
     });
+    this.sync.soon();
   }
 
   /**
@@ -463,7 +479,7 @@ export class LocalAuthoringStyleStore {
     // As for an ordinary request: a habit whose documents were all shared, moved or deleted is not passed on.
     // Nor is an automatic sentence that no longer passes the check made of it.
     const usable = memory.items.filter(i => i.origin === "user"
-      || ((!eligibleFiles || i.sources.some(id => eligibleFiles.has(id))) && Boolean(i.key) && itemText(i.key!, i.value, memory.locale) === i.text));
+      || ((!eligibleFiles || i.sources.some(id => eligibleFiles.has(id)) || Boolean(i.devices?.length)) && Boolean(i.key) && itemText(i.key!, i.value, memory.locale) === i.text));
     const suggested = usable.filter(i => i.origin === "auto" && i.basis === "summary" && i.key);
     const input: SummaryInput = {
       locale: memory.locale, sample, corrections,
@@ -477,6 +493,7 @@ export class LocalAuthoringStyleStore {
   noteProvider(provider: AiEditProvider): void {
     if (this.provider === provider) return;
     this.provider = provider;
+    this.sync.soon();
     void atomicStyleWrite(this.providerPath, JSON.stringify({ provider })).catch(error => {
       logLedgerEvent(this.dataDir, "authoring-style-write-failed", { error: String(error) });
     });
@@ -494,6 +511,7 @@ export class LocalAuthoringStyleStore {
   dispose(): void {
     for (const timer of this.reviewTimers.values()) clearTimeout(timer);
     this.reviewTimers.clear();
+    this.sync.dispose();
   }
 
   async augmentRunContext(context: AiResourceRunContext, input: {
@@ -555,7 +573,8 @@ export class LocalAuthoringStyleStore {
     for (const section of SECTION_ORDER) {
       const items = memory.items.filter(item => item.section === section).flatMap(item => {
         if (item.origin === "user") return [item.text];
-        if (files && !item.sources.some(id => files.get(id)?.workspaceId === workspaceId)) return [];
+        // A habit learned on another device of the same account has its documents there.
+        if (files && !item.sources.some(id => files.get(id)?.workspaceId === workspaceId) && !item.devices?.length) return [];
         const text = item.key ? itemText(item.key, item.value, locale) : null;
         return text ? [`- ${text}`] : [];
       });
@@ -627,6 +646,7 @@ export class LocalAuthoringStyleStore {
 
   async getProfile(workspaceId: string | null): Promise<AuthoringStyleProfile> {
     await this.flush();
+    this.sync.refresh();
     return this.exclusive(() => this.profile(workspaceId));
   }
 
@@ -671,12 +691,52 @@ export class LocalAuthoringStyleStore {
       // Counted with the lines the scan holds back: an added sentence that no longer passes the check for one.
       blockedLines: scanLines(note.content).blocked + scanLines(generatedContent).blocked
         + (memory?.items ?? []).filter(i => i.origin === "auto" && i.key && !isSuspicious(i.text) && !itemText(i.key, i.value, memory!.locale)).length,
+      sync: await this.sync.view(),
     };
   }
 
   private async change(workspaceId: string | null, run: () => Promise<unknown>): Promise<AuthoringStyleProfile> {
     await this.flush();
-    return this.exclusive(async () => { await run(); return this.profile(workspaceId); });
+    const profile = await this.exclusive(async () => { await run(); return this.profile(workspaceId); });
+    this.sync.soon();
+    return profile;
+  }
+
+  setSync(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile> {
+    return this.afterSync(workspaceId, () => this.exclusive(() => this.sync.setEnabled(enabled)));
+  }
+
+  syncNow(workspaceId: string | null): Promise<AuthoringStyleProfile> {
+    return this.afterSync(workspaceId, async () => {});
+  }
+
+  relinkSync(workspaceId: string | null): Promise<AuthoringStyleProfile> {
+    return this.afterSync(workspaceId, () => this.exclusive(() => this.sync.relink()));
+  }
+
+  async deleteSynced(workspaceId: string | null): Promise<AuthoringStyleProfile> {
+    await this.sync.removeRemote();
+    return this.getProfile(workspaceId);
+  }
+
+  private async afterSync(workspaceId: string | null, prepare: () => Promise<void>): Promise<AuthoringStyleProfile> {
+    await this.flush();
+    await prepare();
+    await this.sync.run();
+    return this.exclusive(() => this.profile(workspaceId));
+  }
+
+  /** Caller holds the lock. Drop collected evidence, keeping which text the AI wrote (hashes only). */
+  private async forget(workspaceId: string | null): Promise<void> {
+    this.generation++;
+    for (const id of [...this.summaryAttempts.keys()]) if (workspaceId === null || id === workspaceId) this.summaryAttempts.delete(id);
+    const keep = <T extends { workspaceId: string }>(list: readonly T[]) => list.filter(e => workspaceId !== null && e.workspaceId !== workspaceId);
+    await this.persist(keep(await this.read()));
+    const outcomes = await this.readOutcomes();
+    // Which text the AI wrote is kept (hashes only), so a reset does not make it the author's writing.
+    const blocks = outcomes.blocks.map(b => workspaceId === null || b.workspaceId === workspaceId ? { ...b, uncounted: true as const } : b);
+    await this.writeOutcomes({ version: 1, blocks, overflow: outcomes.overflow, rejected: keep(outcomes.rejected),
+      counters: Object.fromEntries(Object.entries(outcomes.counters).filter(([id]) => workspaceId !== null && id !== workspaceId)) });
   }
 
   saveProfile(input: { workspaceId: string | null; content: string; expectedRevision: string }): Promise<AuthoringStyleProfile> {
@@ -716,15 +776,8 @@ export class LocalAuthoringStyleStore {
   reset(workspaceId: string | null): Promise<AuthoringStyleProfile> {
     for (const [id, timer] of this.reviewTimers) if (workspaceId === null || id === workspaceId) { clearTimeout(timer); this.reviewTimers.delete(id); }
     return this.change(workspaceId, async () => {
-      this.generation++;
-      for (const id of [...this.summaryAttempts.keys()]) if (workspaceId === null || id === workspaceId) this.summaryAttempts.delete(id);
-      const keep = <T extends { workspaceId: string }>(list: readonly T[]) => list.filter(e => workspaceId !== null && e.workspaceId !== workspaceId);
-      await this.persist(keep(await this.read()));
-      const outcomes = await this.readOutcomes();
-      // Which text the AI wrote is kept (hashes only), so a reset does not make it the author's writing.
-      const blocks = outcomes.blocks.map(b => workspaceId === null || b.workspaceId === workspaceId ? { ...b, uncounted: true as const } : b);
-      await this.writeOutcomes({ version: 1, blocks, overflow: outcomes.overflow, rejected: keep(outcomes.rejected),
-        counters: Object.fromEntries(Object.entries(outcomes.counters).filter(([id]) => workspaceId !== null && id !== workspaceId)) });
+      await this.forget(workspaceId);
+      await this.sync.noteReset(workspaceId);
       if (workspaceId === null) await this.memory.resetAllGenerated();
       else await this.memory.resetGenerated(workspaceId);
     });
