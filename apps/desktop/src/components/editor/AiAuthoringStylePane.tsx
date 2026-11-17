@@ -6,7 +6,7 @@ import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import { Shimmer } from "@/components/ui/Shimmer";
 import { Inline, Stack } from "@/components/ui/layout";
 import { SettingsField, SettingsSection, SettingsStatus, Switch } from "@/components/ui/settings";
-import { AUTHORING_STYLE_NOTE_LIMIT, type AuthoringStyleAPI, type AuthoringStyleProfile } from "@/lib/ai/authoring-style";
+import { AUTHORING_STYLE_NOTE_LIMIT, type AuthoringStyleAPI, type AuthoringStyleItemView, type AuthoringStyleProfile } from "@/lib/ai/authoring-style";
 import { useT } from "@/lib/i18n/react";
 
 export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api: AuthoringStyleAPI; workspaceId: string | null }) {
@@ -14,27 +14,38 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
   const [profile, setProfile] = useState<AuthoringStyleProfile | null>(null);
   const [content, setContent] = useState("");
   const [draftRevision, setDraftRevision] = useState("");
+  const [learned, setLearned] = useState("");
+  const [learnedRevision, setLearnedRevision] = useState("");
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const adoptNote = (value: AuthoringStyleProfile) => { setContent(value.userContent); setDraftRevision(value.revision); };
+  const adoptLearned = (value: AuthoringStyleProfile) => { setLearned(value.generatedContent); setLearnedRevision(value.generatedRevision); };
   useEffect(() => {
     let cancelled = false;
     void api.read(workspaceId).then(value => {
-      if (!cancelled) { setProfile(value); setContent(value.userContent); setDraftRevision(value.revision); }
+      if (!cancelled) { setProfile(value); adoptNote(value); adoptLearned(value); }
     }).catch(() => { if (!cancelled) setError(true); });
     return () => { cancelled = true; };
   }, [api, workspaceId]);
 
-  const run = async (action: () => Promise<AuthoringStyleProfile>, replaceContent = false) => {
+  // A draft the user is typing is never replaced by the result of another action.
+  const run = async (action: () => Promise<AuthoringStyleProfile>, replace: "none" | "note" | "all" = "none") => {
     setBusy(true); setError(false);
     try {
       const value = await action();
+      const learnedUntouched = profile !== null && learned === profile.generatedContent;
       setProfile(value);
-      if (replaceContent) { setContent(value.userContent); setDraftRevision(value.revision); }
+      if (replace !== "none") adoptNote(value);
+      if (replace === "all" || learnedUntouched) adoptLearned(value);
     } catch { setError(true); }
     finally { setBusy(false); }
   };
-  const dirty = profile && content !== profile.userContent;
+  const dirty = profile !== null && content !== profile.userContent;
+  const learnedDirty = profile !== null && learned !== profile.generatedContent;
+  const evidence = (item: AuthoringStyleItemView) => item.origin === "user" ? t("authoringStyle.evidenceUser")
+    : item.status === "stale" ? t("authoringStyle.evidenceStale")
+      : t(item.basis === "corrections" ? "authoringStyle.evidenceCorrections" : "authoringStyle.evidenceWriting", { count: item.support, documents: item.documents });
   return (
     <SettingsSection id={id} className="ai-settings-pane" title={t("authoringStyle.title")} description={t("authoringStyle.description")}>
       {error && <SettingsStatus tone="error">{t("authoringStyle.error")}</SettingsStatus>}
@@ -42,29 +53,56 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
         <SettingsField label={t(workspaceId ? "authoringStyle.workspaceEnabled" : "authoringStyle.enabled")}>
           <Switch label={t(workspaceId ? "authoringStyle.workspaceEnabled" : "authoringStyle.enabled")} checked={profile.enabled} disabled={busy} onCheckedChange={enabled => void run(() => api.setEnabled(workspaceId, enabled))} />
         </SettingsField>
-        <SettingsStatus>{t("authoringStyle.count", { count: profile.exampleCount })}</SettingsStatus>
+        <SettingsStatus>{t("authoringStyle.count", { count: profile.exampleCount })} / {t("authoringStyle.outcomes", { ...profile.outcomes })}</SettingsStatus>
+        {profile.blockedLines > 0 && <SettingsStatus tone="error">{t("authoringStyle.blocked", { count: profile.blockedLines })}</SettingsStatus>}
         <Stack gap="xs">
           <label htmlFor="authoring-style-note">{t("authoringStyle.manual")}</label>
           <textarea id="authoring-style-note" className="ai-settings-textarea" value={content} maxLength={AUTHORING_STYLE_NOTE_LIMIT} disabled={busy} onChange={event => setContent(event.target.value)} />
           <small className="ai-settings-empty-hint" style={{ overflowWrap: "anywhere" }}>{profile.userPath}</small>
           <Inline gap="sm">
-            <Button size="sm" disabled={busy || !dirty} onClick={() => void run(() => api.save({ workspaceId, content, expectedRevision: draftRevision }), true)}>{t("authoringStyle.save")}</Button>
-            <Button tone="ghost" size="sm" disabled={busy} onClick={() => void run(() => api.read(workspaceId), true)}>{t("authoringStyle.reload")}</Button>
+            <Button size="sm" disabled={busy || !dirty} onClick={() => void run(() => api.save({ workspaceId, content, expectedRevision: draftRevision }), "note")}>{t("authoringStyle.save")}</Button>
+            <Button tone="ghost" size="sm" disabled={busy} onClick={() => void run(() => api.read(workspaceId), "all")}>{t("authoringStyle.reload")}</Button>
           </Inline>
         </Stack>
-        <Stack gap="xs">
+        {workspaceId && <Stack gap="xs">
           <label htmlFor="authoring-style-learned">{t("authoringStyle.learned")}</label>
-          <textarea id="authoring-style-learned" className="ai-settings-textarea" readOnly value={profile.generatedContent} placeholder={t("authoringStyle.empty")} />
+          <textarea id="authoring-style-learned" className="ai-settings-textarea" value={learned} maxLength={AUTHORING_STYLE_NOTE_LIMIT} disabled={busy} placeholder={t("authoringStyle.empty")} onChange={event => setLearned(event.target.value)} />
+          <small className="ai-settings-empty-hint">{t("authoringStyle.learnedHint")}</small>
           <small className="ai-settings-empty-hint" style={{ overflowWrap: "anywhere" }}>{profile.generatedPath}</small>
-          {profile.generatedEdited && <SettingsStatus>{t("authoringStyle.protected")}</SettingsStatus>}
-        </Stack>
-        <Button tone="ghost" size="sm" disabled={busy || Boolean(dirty)} onClick={() => setConfirmReset(true)}>{t("authoringStyle.reset")}</Button>
+          <SettingsStatus>
+            {t("authoringStyle.usage", { ...profile.usage })}
+            {profile.lastReviewedAt && ` / ${t("authoringStyle.reviewed", { date: new Date(profile.lastReviewedAt).toLocaleString(), documents: profile.reviewedDocuments })}`}
+            {profile.lastUpdate && ` / ${t("authoringStyle.updated", { ...profile.lastUpdate })}`}
+          </SettingsStatus>
+          <Inline gap="sm">
+            <Button size="sm" disabled={busy || !learnedDirty} onClick={() => void run(() => api.saveLearned({ workspaceId, content: learned, expectedRevision: learnedRevision }), "all")}>{t("authoringStyle.saveLearned")}</Button>
+            <Button tone="ghost" size="sm" disabled={busy || learnedDirty || !profile.enabled} onClick={() => void run(() => api.review(workspaceId))}>{t("authoringStyle.review")}</Button>
+            <Button tone="ghost" size="sm" disabled={busy || learnedDirty || !profile.canUndo} onClick={() => void run(() => api.undo(workspaceId))}>{t("authoringStyle.undo")}</Button>
+          </Inline>
+          {profile.pending.length > 0 && <Stack gap="xs">
+            <strong>{t("authoringStyle.pendingTitle")}</strong>
+            {profile.pending.map(change => (
+              <Stack key={change.id} gap="xs" className="ai-settings-empty-hint">
+                <span>{t(`authoringStyle.pending.${change.kind}`, { current: change.currentText, proposed: change.proposedText, count: change.support })}</span>
+                <Inline gap="sm">
+                  <Button size="sm" disabled={busy || learnedDirty} onClick={() => void run(() => api.resolvePending({ workspaceId, id: change.id, approve: true }))}>{t("authoringStyle.approve")}</Button>
+                  <Button tone="ghost" size="sm" disabled={busy || learnedDirty} onClick={() => void run(() => api.resolvePending({ workspaceId, id: change.id, approve: false }))}>{t("authoringStyle.dismiss")}</Button>
+                </Inline>
+              </Stack>
+            ))}
+          </Stack>}
+          {profile.items.length > 0 && <details>
+            <summary>{t("authoringStyle.evidenceTitle")}</summary>
+            <ul>{profile.items.map(item => <li key={item.id}>{item.text.replace(/^- /, "")} <small className="ai-settings-empty-hint">{evidence(item)}</small></li>)}</ul>
+          </details>}
+        </Stack>}
+        <Button tone="ghost" size="sm" disabled={busy || dirty || learnedDirty} onClick={() => setConfirmReset(true)}>{t("authoringStyle.reset")}</Button>
       </Stack>}
       <ModalFrame open={confirmReset} onDismiss={() => setConfirmReset(false)} size="sm" ariaLabel={t("authoringStyle.reset")}>
         <ModalHeader title={t("authoringStyle.reset")} onClose={() => setConfirmReset(false)} />
         <ModalBody><Stack gap="lg">
           <p>{t(workspaceId ? "authoringStyle.resetWorkspace" : "authoringStyle.resetGlobal")}</p>
-          <Button onClick={() => { setConfirmReset(false); void run(() => api.reset(workspaceId)); }}>{t("authoringStyle.reset")}</Button>
+          <Button onClick={() => { setConfirmReset(false); void run(() => api.reset(workspaceId), "all"); }}>{t("authoringStyle.reset")}</Button>
         </Stack></ModalBody>
       </ModalFrame>
     </SettingsSection>

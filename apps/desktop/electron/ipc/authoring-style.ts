@@ -7,6 +7,17 @@ function scope(value: unknown): string | null {
   return value;
 }
 
+function workspace(value: unknown): string {
+  const id = scope(value);
+  if (id === null) throw new Error("Invalid workspace ID");
+  return id;
+}
+
+function record(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object") throw new Error("Invalid input");
+  return value as Record<string, unknown>;
+}
+
 export function registerAuthoringStyleIpc(store: LocalAuthoringStyleStore): void {
   ipcMain.handle("authoring-style:read", (_event, workspaceId: unknown) => store.getProfile(scope(workspaceId)));
   ipcMain.handle("authoring-style:save", (_event, input: unknown) => {
@@ -20,4 +31,16 @@ export function registerAuthoringStyleIpc(store: LocalAuthoringStyleStore): void
     return store.setEnabled(scope(workspaceId), enabled);
   });
   ipcMain.handle("authoring-style:reset", (_event, workspaceId: unknown) => store.reset(scope(workspaceId)));
+  ipcMain.handle("authoring-style:save-learned", (_event, input: unknown) => {
+    const value = record(input);
+    if (typeof value.content !== "string" || typeof value.expectedRevision !== "string") throw new Error("Invalid style memo");
+    return store.saveLearned({ workspaceId: workspace(value.workspaceId), content: value.content, expectedRevision: value.expectedRevision });
+  });
+  ipcMain.handle("authoring-style:review", (_event, workspaceId: unknown) => store.reviewNow(workspace(workspaceId)));
+  ipcMain.handle("authoring-style:resolve-pending", (_event, input: unknown) => {
+    const value = record(input);
+    if (typeof value.id !== "string" || value.id.length > 200 || typeof value.approve !== "boolean") throw new Error("Invalid staged change");
+    return store.resolvePending({ workspaceId: workspace(value.workspaceId), id: value.id, approve: value.approve });
+  });
+  ipcMain.handle("authoring-style:undo", (_event, workspaceId: unknown) => store.undo(workspace(workspaceId)));
 }

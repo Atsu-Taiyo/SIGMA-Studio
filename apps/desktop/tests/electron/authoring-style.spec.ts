@@ -121,6 +121,11 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     page = await launch();
     const saved = await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), file.fileId);
     expect(JSON.stringify(saved?.content)).toContain("値を求めよ。");
+    // The memo is refined by a review that runs apart from saving and from AI requests.
+    // Start it here instead of waiting for its idle trigger.
+    const reviewed = await page.evaluate(id => window.desktopAPI!.authoringStyle!.review(id), file.workspaceId);
+    expect(reviewed.generatedContent).toContain("分数は`\\dfrac`を使う。");
+    expect(reviewed.items.some(item => item.basis === "corrections")).toBe(true);
     await runAi(page, file.fileId);
     const restartedPrompt = (await readFile(capture, "utf8")).trim().split("\n").at(-1)!;
     expect(restartedPrompt).toContain("automatic-authoring-style");
@@ -129,6 +134,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     expect(restartedPrompt).toContain("TeX数式の書き方");
     expect(restartedPrompt).toContain("分数は");
     expect(restartedPrompt).toContain("dfrac");
+    expect(restartedPrompt).not.toContain("update_authoring_style_memory");
 
     await page.getByRole("button", { name: "AI", exact: true }).click();
     await page.getByRole("menuitem", { name: "AI設定", exact: true }).click();
@@ -146,9 +152,21 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     await settings.getByRole("switch").click();
     await expect(settings.getByRole("switch")).toBeChecked();
     await page.screenshot({ path: testInfo.outputPath("authoring-style-settings.png") });
+    // The workspace pane shows what was learned and lets the author make a line their own.
+    await settings.getByRole("button", { name: "書き方の学習", exact: true }).nth(1).click();
+    const learned = settings.getByLabel("学んだ書き方", { exact: true });
+    await expect(learned).toHaveValue(/分数は`\\dfrac`を使う。/);
+    await learned.fill((await learned.inputValue()).replace("分数は`\\dfrac`を使う。", "分数は必ず`\\dfrac`で書く。"));
+    await settings.getByRole("button", { name: "学んだ書き方を保存", exact: true }).click();
+    await expect(settings.getByText("自分で書いた項目").first()).toBeAttached();
+    await settings.getByRole("button", { name: "今すぐ見直す", exact: true }).click();
+    await expect(learned).toHaveValue(/分数は必ず`\\dfrac`で書く。/);
+    await expect(learned).not.toHaveValue(/を使う。/);
+    await page.screenshot({ path: testInfo.outputPath("authoring-style-workspace.png") });
+    await settings.getByRole("button", { name: "書き方の学習", exact: true }).first().click();
     await settings.getByRole("button", { name: "学習をリセット", exact: true }).click();
     await page.getByRole("dialog", { name: "学習をリセット", exact: true }).getByRole("button", { name: "学習をリセット", exact: true }).click();
-    await expect(settings.getByLabel("自動で学んだ特徴")).toHaveValue("");
+    await expect.poll(async () => (await page.evaluate(id => window.desktopAPI!.authoringStyle!.read(id), file.workspaceId)).generatedContent).toBe("");
     const memory = await page.evaluate(() => window.desktopAPI!.authoringStyle!.read(null));
     expect(memory.exampleCount).toBe(0);
     expect(memory.userContent).toContain("解答は常体");

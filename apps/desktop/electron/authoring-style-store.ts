@@ -2,123 +2,148 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { inlineNodesToPlainText, type InlineNode, type SigmaBlock, type SigmaDocument } from "@/features/document";
-import type { AuthoringStyleProfile } from "@/lib/ai/authoring-style";
-import { AuthoringStyleMemory, atomicStyleWrite } from "./authoring-style-memory";
-import { AUTHORING_STYLE_SUMMARY_VERSION, summarizeAuthoringStyle } from "./authoring-style-summary";
-import type { LocalDocumentMetadata } from "./local-sigma-doc-store";
-import { createTranslator, type AppLocale } from "@/lib/i18n";
+import type { SigmaDocument } from "@/features/document";
+import { AUTHORING_STYLE_NOTE_LIMIT, type AuthoringStyleOutcomes, type AuthoringStyleProfile } from "@/lib/ai/authoring-style";
+import { createTranslator, getAppLocale, type AppLocale } from "@/lib/i18n";
 import type { AiResourceContextItem, AiResourceRunContext } from "./ai-resource-store";
+import {
+  documentEvidence, fragmentHash, mergeObservations, observeCorrections, observeWriting, projectDocument, textSimilarity,
+  MAX_FRAGMENT_LENGTH, type EvidenceUnit, type Fragment, type StyleExample,
+} from "./authoring-style-features";
+import { itemText, memoLabels, SECTION_ORDER } from "./authoring-style-items";
+import { AuthoringStyleMemory, atomicStyleWrite, renderMemo, type StyleMemory } from "./authoring-style-memory";
+import { planReview } from "./authoring-style-review";
+import { isSuspicious, scanLines } from "./authoring-style-scan";
 import { acquireFileLock } from "./file-lock";
 import { logLedgerEvent } from "./ledger-log";
-import type { LocalDocumentSavedEvent } from "./local-sigma-doc-store";
+import type { LocalDocumentMetadata, LocalDocumentSavedEvent } from "./local-sigma-doc-store";
+
+export type { StyleExample } from "./authoring-style-features";
 
 const MAX_EXAMPLES = 160;
 const MAX_EXAMPLE_FILE_BYTES = 2_000_000;
-const MAX_FRAGMENT_LENGTH = 1800;
-const MAX_PROMPT_LENGTH = 9000;
+const MAX_PROMPT_LENGTH = 7000;
+const MAX_PROMPT_EXAMPLES = 6;
+const MAX_PENDING = 400;
+const MAX_AI_BLOCKS = 3000;
+const MAX_REJECTIONS = 300;
 const FLUSH_DELAY_MS = 750;
+/** The review reads a few recently edited documents, never the whole library. */
+export const MAX_REVIEW_DOCUMENTS = 6;
+export const MAX_REVIEW_DOCUMENT_CHARACTERS = 20_000;
+export const MAX_REVIEW_CHARACTERS = 60_000;
+const REVIEW_IDLE_MS = 15_000;
+const REVIEW_MAX_AGE_MS = 30 * 60 * 1000;
+const REVIEW_AFTER = { saves: 5, corrections: 2, rejections: 2 };
+/** Below this similarity a corrected AI block reads as the author's own text again. */
+const REWRITTEN_BELOW = 0.5;
 
-interface Fragment {
-  area: string;
-  text: string;
-  format: string;
-  context: string;
-}
-
-export interface StyleExample {
+/** A block an accepted AI proposal wrote, and what the author later did with it. */
+interface AiBlock {
   workspaceId: string;
   fileId: string;
   blockId: string;
-  title: string;
-  revision: number;
-  before: Fragment | null;
-  after: Fragment | null;
+  hash: string;
+  /** The block before the proposal ("" when the proposal added it). Returning to it is a revert. */
+  previousHash: string;
+  acceptedRevision: number;
+  acceptedAt: string;
+  state: "accepted" | "kept" | "edited" | "rewritten" | "reverted";
+}
+interface Counters { saves: number; corrections: number; rejections: number; kept: number; reviewedAt: string | null }
+interface Outcomes {
+  version: 1;
+  blocks: AiBlock[];
+  rejected: { workspaceId: string; fileId: string; at: string }[];
+  counters: Record<string, Counters>;
 }
 
-// IDs and timestamps are not authoring preferences. Keep actual line breaks,
-// TeX and inline formatting so a notation change survives this projection.
-function fragments(document: SigmaDocument): Map<string, Fragment> {
-  const result = new Map<string, Fragment>();
-  function add(id: string, area: string, children: InlineNode[], context: string, align?: string) {
-    const text = inlineNodesToPlainText(children);
-    const format = JSON.stringify({ align, runs: children.map(node => node.type === "mathInline" ? { ...node, id: undefined } : node) });
-    if (text.trim()) result.set(id, { area, text: format.length <= MAX_FRAGMENT_LENGTH ? text : "", format: format.length <= MAX_FRAGMENT_LENGTH ? format : "", context });
-  }
-  function walk(blocks: readonly SigmaBlock[], area: string, context: string) {
-    for (const block of blocks) {
-      switch (block.type) {
-        case "problem": {
-          const prompt = block.prompt.flatMap(b => "children" in b && Array.isArray(b.children)
-            ? b.children.filter((n): n is InlineNode => n.type === "text" || n.type === "mathInline") : []);
-          const problemContext = inlineNodesToPlainText(prompt).slice(0, 300);
-          for (const name of ["lead", "prompt", "hints", "solution"] as const) walk(block[name], name, problemContext);
-          break;
-        }
-        case "paragraph":
-        case "heading": add(block.id, area, block.children, context, block.align); break;
-        case "section": add(block.id, area, [{ type: "text", text: block.title }], context, block.align); break;
-        case "boxBlock":
-          if (block.title) add(`${block.id}:title`, area, block.title, context);
-          walk(block.blocks, area, context);
-          break;
-        case "quote": walk(block.blocks, area, context); break;
-        case "layoutSection": walk(block.children, area, context); break;
-        case "list":
-          for (const item of block.items) {
-            add(item.id, area, item.children, context, item.align);
-            walk(item.continuations ?? [], area, context);
-            walk(item.nested ?? [], area, context);
-          }
-          break;
-      }
-    }
-  }
-  walk(document.content, "body", "");
-  const structure = JSON.stringify(document.content.slice(0, 80).map(b => b.type === "problem"
-    ? { type: b.type, areas: ["lead", "prompt", "hints", "solution"].filter(key => b[key as "lead"].length > 0) }
-    : { type: b.type }));
-  if (structure.length <= MAX_FRAGMENT_LENGTH) result.set("$structure", { area: "structure", text: structure, format: structure, context: "" });
-  return result;
+type PendingRecord =
+  | { type: "accept"; workspaceId: string; fileId: string; blockId: string; hash: string; previousHash: string; revision: number }
+  | { type: "edit"; example: StyleExample; beforeHash: string; afterHash: string }
+  | { type: "save"; workspaceId: string; fileId: string; revision: number; changed: string[] }
+  | { type: "reject"; fileId: string };
+
+export interface AuthoringStyleStoreOptions {
+  listFiles?: () => Promise<LocalDocumentMetadata[]>;
+  /** Reads a personal document for the review. Without it only corrections are learned. */
+  loadDocument?: (fileId: string) => Promise<SigmaDocument | null>;
+  now?: () => Date;
+  /** Quiet time after the last save before a due review starts. Null never starts one automatically. */
+  reviewIdleMs?: number | null;
 }
 
 function same(a: Fragment | null | undefined, b: Fragment | null | undefined): boolean {
   return a?.area === b?.area && a?.format === b?.format;
 }
 
-/** Derived, bounded examples of manual edits. Never rewrites user skills or documents. */
+const emptyCounters = (): Counters => ({ saves: 0, corrections: 0, rejections: 0, kept: 0, reviewedAt: null });
+
+/**
+ * Learns how the author writes from their own documents and from what they do
+ * with AI proposals. Everything here is derived data: it never rewrites a
+ * document, and its failures never fail a save or an AI request.
+ */
 export class LocalAuthoringStyleStore {
   private readonly dataDir: string;
+  private readonly root: string;
   private readonly filePath: string;
+  private readonly outcomesPath: string;
   private readonly memory: AuthoringStyleMemory;
-  private pending: StyleExample[] = [];
+  private readonly options: AuthoringStyleStoreOptions;
+  private pending: PendingRecord[] = [];
   private timer?: ReturnType<typeof setTimeout>;
   private queue: Promise<void> = Promise.resolve();
+  private readonly reviewTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly reviews = new Map<string, Promise<void>>();
 
-  constructor(userDataPath: string, private readonly listFiles?: () => Promise<LocalDocumentMetadata[]>) {
+  constructor(userDataPath: string, options: AuthoringStyleStoreOptions = {}) {
+    this.options = options;
     this.dataDir = path.join(userDataPath, "data");
-    this.filePath = path.join(this.dataDir, "ai-authoring-style", "examples.json");
-    this.memory = new AuthoringStyleMemory(path.dirname(this.filePath));
+    this.root = path.join(this.dataDir, "ai-authoring-style");
+    this.filePath = path.join(this.root, "examples.json");
+    this.outcomesPath = path.join(this.root, "outcomes.json");
+    this.memory = new AuthoringStyleMemory(this.root);
   }
 
+  private now(): Date { return this.options.now?.() ?? new Date(); }
+
   observe(event: LocalDocumentSavedEvent): void {
-    // Approval (including auto-approval), restoration and shared materialization
-    // provide no evidence of a manually chosen writing preference.
-    if (event.file.sharing || event.file.sharingPending || event.origin === "ai" || event.origin === "restore-backup" || !event.previousDocument) return;
-    const before = fragments(event.previousDocument);
-    const after = fragments(event.document);
+    // Restoration and shared materialization are neither the author's writing nor an AI outcome.
+    if (event.file.sharing || event.file.sharingPending || event.origin === "restore-backup" || !event.previousDocument) return;
+    const before = projectDocument(event.previousDocument).fragments;
+    const after = projectDocument(event.document).fragments;
+    const { workspaceId, fileId, title, revision } = event.file;
+    const changed: string[] = [];
     for (const blockId of new Set([...before.keys(), ...after.keys()])) {
       const oldFragment = before.get(blockId) ?? null;
       const newFragment = after.get(blockId) ?? null;
-      if (oldFragment?.format === "" || newFragment?.format === "") continue;
       if (same(oldFragment, newFragment)) continue;
-      this.pending.push({
-        workspaceId: event.file.workspaceId, fileId: event.file.fileId,
-        title: event.file.title, blockId, revision: event.file.revision,
-        before: oldFragment, after: newFragment,
-      });
+      changed.push(blockId);
+      if (event.origin === "ai") {
+        // Accepting a proposal says nothing about style yet. Remember what the AI wrote so a
+        // later hand edit is recognized as a correction, and untouched AI text is not mistaken
+        // for the author's own.
+        if (blockId !== "$structure" && newFragment) {
+          this.pending.push({ type: "accept", workspaceId, fileId, blockId, hash: fragmentHash(newFragment), previousHash: fragmentHash(oldFragment), revision });
+        }
+        continue;
+      }
+      this.pending.push({ type: "edit", beforeHash: fragmentHash(oldFragment), afterHash: fragmentHash(newFragment),
+        example: { workspaceId, fileId, title, blockId, revision, before: oldFragment, after: newFragment } });
     }
-    this.pending = this.pending.slice(-MAX_EXAMPLES);
+    if (event.origin !== "ai" && changed.length) this.pending.push({ type: "save", workspaceId, fileId, revision, changed });
+    this.schedule();
+  }
+
+  /** The author rejected AI proposals for these documents. No reason is inferred from it. */
+  recordRejected(fileIds: readonly string[]): void {
+    for (const fileId of fileIds) this.pending.push({ type: "reject", fileId });
+    this.schedule();
+  }
+
+  private schedule(): void {
+    this.pending = this.pending.slice(-MAX_PENDING);
     if (!this.pending.length || this.timer) return;
     this.timer = setTimeout(() => { this.timer = undefined; void this.flush(); }, FLUSH_DELAY_MS);
     this.timer.unref();
@@ -129,26 +154,172 @@ export class LocalAuthoringStyleStore {
     this.timer = undefined;
     const pending = this.pending.splice(0);
     if (pending.length) {
-      this.queue = this.queue.then(() => this.withLock(async () => {
-        if (!await this.memory.enabled(null)) return;
-        let examples = await this.eligible(await this.read(), false);
-        for (const edit of await this.eligible(pending)) {
-          const index = examples.findIndex(e => e.workspaceId === edit.workspaceId && e.fileId === edit.fileId && e.blockId === edit.blockId);
-          const previous = index < 0 ? undefined : examples[index];
-          if (previous && previous.revision >= edit.revision) continue;
-          if (index >= 0) examples.splice(index, 1);
-          // Collapse successive autosaves, retaining the original before-state.
-          const merged = previous && same(previous.after, edit.before) ? { ...edit, before: previous.before } : edit;
-          if (!same(merged.before, merged.after)) examples.push(merged);
-          examples = examples.slice(-MAX_EXAMPLES);
-        }
-        examples = await this.persist(examples);
-        await this.updateMemories(await this.eligible(examples));
-      })).catch(error => {
+      this.queue = this.queue.then(() => this.withLock(() => this.apply(pending))).catch(error => {
         logLedgerEvent(this.dataDir, "authoring-style-write-failed", { error: String(error) });
       });
     }
     await this.queue;
+  }
+
+  private async apply(pending: readonly PendingRecord[]): Promise<void> {
+    if (!await this.memory.enabled(null)) return;
+    const files = await this.personalFiles();
+    const enabled = new Map<string, boolean>();
+    const usable = async (workspaceId: string, fileId: string) => {
+      if (!enabled.has(workspaceId)) enabled.set(workspaceId, await this.memory.enabled(workspaceId));
+      return enabled.get(workspaceId)! && (!files || files.get(fileId)?.workspaceId === workspaceId);
+    };
+    let examples = await this.eligible(await this.read(), false);
+    const outcomes = await this.readOutcomes();
+    const counters = (workspaceId: string) => outcomes.counters[workspaceId] ??= emptyCounters();
+    const block = (fileId: string, blockId: string) => outcomes.blocks.find(b => b.fileId === fileId && b.blockId === blockId);
+    const at = this.now().toISOString();
+    for (const record of pending) {
+      if (record.type === "reject") {
+        const file = files?.get(record.fileId);
+        if (!file || !await usable(file.workspaceId, file.fileId)) continue;
+        outcomes.rejected.push({ workspaceId: file.workspaceId, fileId: file.fileId, at });
+        counters(file.workspaceId).rejections++;
+      } else if (record.type === "accept") {
+        if (!await usable(record.workspaceId, record.fileId)) continue;
+        outcomes.blocks = outcomes.blocks.filter(b => b !== block(record.fileId, record.blockId));
+        outcomes.blocks.push({ workspaceId: record.workspaceId, fileId: record.fileId, blockId: record.blockId, hash: record.hash,
+          previousHash: record.previousHash, acceptedRevision: record.revision, acceptedAt: at, state: "accepted" });
+      } else if (record.type === "save") {
+        if (!await usable(record.workspaceId, record.fileId)) continue;
+        counters(record.workspaceId).saves++;
+        // AI text that outlives a later editing session was good enough to keep.
+        for (const tracked of outcomes.blocks) {
+          if (tracked.fileId !== record.fileId || tracked.state !== "accepted" || tracked.acceptedRevision >= record.revision || record.changed.includes(tracked.blockId)) continue;
+          tracked.state = "kept";
+          counters(record.workspaceId).kept++;
+        }
+      } else {
+        const edit = record.example;
+        if (!await usable(edit.workspaceId, edit.fileId)) continue;
+        if (edit.before?.format === "" || edit.after?.format === "") continue;
+        const tracked = block(edit.fileId, edit.blockId);
+        if (tracked && (tracked.state === "accepted" || tracked.state === "kept") && record.beforeHash === tracked.hash) {
+          if (record.afterHash === tracked.previousHash) {
+            // Undoing the proposal restores what was there. That is a rejection, not a way of writing.
+            tracked.state = "reverted";
+            counters(edit.workspaceId).rejections++;
+            continue;
+          }
+          tracked.state = !edit.after || textSimilarity(edit.before?.text ?? "", edit.after.text) >= REWRITTEN_BELOW ? "edited" : "rewritten";
+          counters(edit.workspaceId).corrections++;
+          edit.source = "post-accept";
+        } else if (!tracked || tracked.state === "reverted" || tracked.state === "rewritten") edit.source = "manual";
+        const index = examples.findIndex(e => e.workspaceId === edit.workspaceId && e.fileId === edit.fileId && e.blockId === edit.blockId);
+        const previous = index < 0 ? undefined : examples[index];
+        if (previous && previous.revision >= edit.revision) continue;
+        if (index >= 0) examples.splice(index, 1);
+        // Collapse successive autosaves, retaining the original before-state and where it came from.
+        const merged = previous && same(previous.after, edit.before)
+          ? { ...edit, before: previous.before, source: edit.source ?? previous.source ?? "manual" } : { ...edit, source: edit.source ?? "manual" };
+        if (!same(merged.before, merged.after)) examples.push(merged);
+        examples = examples.slice(-MAX_EXAMPLES);
+      }
+    }
+    await this.persist(examples);
+    await this.writeOutcomes(outcomes);
+    for (const [workspaceId, value] of Object.entries(outcomes.counters)) if (this.due(value)) this.scheduleReview(workspaceId);
+  }
+
+  private due(counters: Counters | undefined): boolean {
+    if (!counters) return false;
+    const activity = counters.saves + counters.corrections + counters.rejections;
+    if (!activity) return false;
+    return counters.corrections >= REVIEW_AFTER.corrections || counters.rejections >= REVIEW_AFTER.rejections || counters.saves >= REVIEW_AFTER.saves
+      || !counters.reviewedAt || this.now().getTime() - Date.parse(counters.reviewedAt) > REVIEW_MAX_AGE_MS;
+  }
+
+  /** Start the review once editing has gone quiet. It runs apart from saving and from AI requests. */
+  private scheduleReview(workspaceId: string): void {
+    const idle = this.options.reviewIdleMs === undefined ? REVIEW_IDLE_MS : this.options.reviewIdleMs;
+    if (idle === null) return;
+    clearTimeout(this.reviewTimers.get(workspaceId));
+    const timer = setTimeout(() => {
+      this.reviewTimers.delete(workspaceId);
+      void this.review(workspaceId);
+    }, idle);
+    timer.unref();
+    this.reviewTimers.set(workspaceId, timer);
+  }
+
+  /**
+   * Background review: read a few recently edited personal documents of the
+   * workspace, combine the habits found in the author's own text with repeated
+   * corrections, and refine the memo. Never throws; a failure is only logged.
+   */
+  review(workspaceId: string): Promise<void> {
+    const running = this.reviews.get(workspaceId);
+    if (running) return running;
+    const run = this.runReview(workspaceId).catch(error => {
+      logLedgerEvent(this.dataDir, "authoring-style-review-failed", { error: String(error) });
+    }).finally(() => { this.reviews.delete(workspaceId); });
+    this.reviews.set(workspaceId, run);
+    return run;
+  }
+
+  private async runReview(workspaceId: string): Promise<void> {
+    await this.flush();
+    const prepared = await this.exclusive(async () => {
+      if (!await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return null;
+      const files = await this.personalFiles();
+      const outcomes = await this.readOutcomes();
+      const recent = files ? [...files.values()].filter(f => f.workspaceId === workspaceId)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, MAX_REVIEW_DOCUMENTS) : [];
+      return { recent, aiBlocks: outcomes.blocks.filter(b => b.workspaceId === workspaceId) };
+    });
+    if (!prepared) return;
+    // Documents are read outside the style lock so a long read never delays a save's bookkeeping.
+    const units: EvidenceUnit[] = [];
+    const reviewed = new Set<string>();
+    let remaining = MAX_REVIEW_CHARACTERS;
+    for (const file of prepared.recent) {
+      // Stop once the budget is all but spent rather than opening documents that cannot be read.
+      if (remaining < MAX_REVIEW_DOCUMENT_CHARACTERS / 10 || !this.options.loadDocument) break;
+      let document: SigmaDocument | null;
+      try { document = await this.options.loadDocument(file.fileId); }
+      catch (error) { logLedgerEvent(this.dataDir, "authoring-style-read-failed", { fileId: file.fileId, error: String(error) }); continue; }
+      if (!document) continue;
+      const tracked = new Map(prepared.aiBlocks.filter(b => b.fileId === file.fileId).map(b => [b.blockId, b]));
+      // Text the AI wrote and the author left alone, or only touched up, is not the author's writing.
+      const isAiText = (blockId: string, fragment: Fragment) => {
+        const ai = tracked.get(blockId);
+        return Boolean(ai) && (ai!.state === "edited" || ((ai!.state === "accepted" || ai!.state === "kept") && fragmentHash(fragment) === ai!.hash));
+      };
+      const evidence = documentEvidence(file.fileId, projectDocument(document), isAiText, { characters: Math.min(remaining, MAX_REVIEW_DOCUMENT_CHARACTERS) });
+      remaining -= evidence.characters;
+      units.push(...evidence.units);
+      reviewed.add(file.fileId);
+    }
+    await this.exclusive(async () => {
+      if (!await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return;
+      const files = await this.personalFiles();
+      const eligibleFiles = files ? new Set([...files.values()].filter(f => f.workspaceId === workspaceId).map(f => f.fileId)) : null;
+      // A document shared, moved or deleted while it was being read is not evidence.
+      const writing = observeWriting(units.filter(unit => !eligibleFiles || eligibleFiles.has(unit.fileId)));
+      const examples = (await this.eligible(await this.read())).filter(e => e.workspaceId === workspaceId);
+      const outcomes = await this.readOutcomes();
+      const counters = outcomes.counters[workspaceId] ??= emptyCounters();
+      const now = this.now();
+      const memory = await this.memory.load(workspaceId, getAppLocale(), now);
+      const planned = planReview(memory, mergeObservations(writing, observeCorrections(examples)),
+        { now, locale: memory.locale, eligibleFiles, keptSinceLastReview: counters.kept > 0 });
+      memory.lastReviewedAt = now.toISOString();
+      memory.reviewedDocuments = reviewed.size;
+      await this.memory.commit(workspaceId, memory, planned.entries);
+      outcomes.counters[workspaceId] = { ...emptyCounters(), reviewedAt: now.toISOString() };
+      await this.writeOutcomes(outcomes);
+    });
+  }
+
+  /** Cancel timers. Pending observations are written by flush(), not here. */
+  dispose(): void {
+    for (const timer of this.reviewTimers.values()) clearTimeout(timer);
+    this.reviewTimers.clear();
   }
 
   async augmentRunContext(context: AiResourceRunContext, input: {
@@ -161,6 +332,10 @@ export class LocalAuthoringStyleStore {
     }
   }
 
+  /**
+   * The memo as it stands when the request starts. Nothing is learned here and
+   * the request is never asked to do learning work: the review runs separately.
+   */
   private async buildRunContext(context: AiResourceRunContext, input: {
     workspaceId: string | null;
     fileId: string;
@@ -169,55 +344,67 @@ export class LocalAuthoringStyleStore {
   }): Promise<AiResourceRunContext> {
     await this.flush();
     return this.exclusive(async () => {
-      if (!input.workspaceId || !input.visibleFileIds.has(input.fileId)) return context;
-      if (!await this.memory.enabled(null) || !await this.memory.enabled(input.workspaceId)) return context;
-      const eligible = await this.eligible(await this.read());
-      const examples = eligible.filter(e => e.workspaceId === input.workspaceId && input.visibleFileIds.has(e.fileId));
-      await this.updateMemories(eligible, input.workspaceId);
-      const selected = this.selectExamples(eligible, input.fileId, input.workspaceId);
-      const representedScopes = new Set(selected.map(e => e.workspaceId));
-      const allScopesRepresented = eligible.every(e => representedScopes.has(e.workspaceId));
-      const profiles = [await this.memory.read(null, eligible.length), await this.memory.read(input.workspaceId, examples.length)];
-      const memory = profiles.map(p => ({ scope: p.workspaceId === null ? "user" : "workspace", workspaceId: p.workspaceId, manual: this.promptText(p.userContent), learned: this.promptText(p.generatedContent), evidenceRevision: p.evidenceRevision, needsSynthesis: p.needsSynthesis && (p.workspaceId === null ? allScopesRepresented : representedScopes.has(p.workspaceId)) }));
-      examples.reverse();
-      examples.sort((a, b) => Number(b.fileId === input.fileId) - Number(a.fileId === input.fileId));
-      const references = [...new Map(examples.map(e => [e.fileId, { fileId: e.fileId, title: e.title.slice(0, 100), ...(e.blockId !== "$structure" ? { blockId: e.blockId } : {}) }])).values()].slice(0, 8);
+      const workspaceId = input.workspaceId;
+      if (!workspaceId || !input.visibleFileIds.has(input.fileId)) return context;
+      if (!await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return context;
+      const examples = (await this.eligible(await this.read())).filter(e => e.workspaceId === workspaceId && input.visibleFileIds.has(e.fileId));
+      const files = await this.personalFiles();
+      const stored = await this.memory.load(workspaceId, getAppLocale(), this.now());
+      const learned = this.promptText(scanLines(this.injectedMemo(stored, input.locale, files, workspaceId)).text);
+      const notes = [await this.memory.readNote(null), await this.memory.readNote(workspaceId)].map(note => this.promptText(scanLines(note.content).text));
+      const selected = this.selectExamples(examples, input.fileId);
+      const recent = [...examples].reverse().sort((a, b) => Number(b.fileId === input.fileId) - Number(a.fileId === input.fileId));
+      const references = [...new Map(recent.map(e => [e.fileId, { fileId: e.fileId, title: isSuspicious(e.title) ? "" : e.title.slice(0, 100), ...(e.blockId !== "$structure" ? { blockId: e.blockId } : {}) }])).values()].slice(0, 8);
       while (JSON.stringify(references).length > 1400) references.pop();
-      if (!selected.length && !profiles.some(p => p.userContent || p.generatedContent)) return context;
+      if (this.due((await this.readOutcomes()).counters[workspaceId])) this.scheduleReview(workspaceId);
+      if (!selected.length && !learned && !notes.some(Boolean)) return context;
       const t = createTranslator(input.locale, "prompt");
       const resource: AiResourceContextItem = {
         id: "automatic-authoring-style", kind: "skill", loadMode: "always",
         title: t("authoringStyle.title"), description: t("authoringStyle.description"), tags: [],
         content: `${t("authoringStyle.guidance")}\n${JSON.stringify(selected)}`,
       };
-      const notes: AiResourceContextItem = {
+      const memory = [{ scope: "user", manual: notes[0] }, { scope: "workspace", workspaceId, manual: notes[1], learned }];
+      const resourceNotes: AiResourceContextItem = {
         id: "authoring-style-memory", kind: "skill", loadMode: "always",
         title: t("authoringStyle.memoryTitle"), description: "", tags: [],
-        content: `${t("authoringStyle.memoryGuidance")}\n${JSON.stringify({ memory, references, evidenceCoverage: { sampledExamples: selected.length, totalExamples: eligible.length, representedWorkspaces: representedScopes.size, totalWorkspaces: new Set(eligible.map(e => e.workspaceId)).size } })}`,
+        content: `${t("authoringStyle.memoryGuidance")}\n${JSON.stringify({ memory, references })}`,
       };
-      while (notes.content!.length > 11_900 && references.length) {
-        references.pop();
-        notes.content = `${t("authoringStyle.memoryGuidance")}\n${JSON.stringify({ memory, references })}`;
-      }
-      return { ...context, always: [...context.always, ...(selected.length ? [resource] : []), notes] };
+      return { ...context, always: [...context.always, ...(selected.length ? [resource] : []), resourceNotes] };
     });
   }
 
-  private selectExamples(examples: readonly StyleExample[], fileId: string, workspaceId: string): StyleExample[] {
-    const recent = [...examples].reverse().sort((a, b) =>
-      Number(b.fileId === fileId) - Number(a.fileId === fileId) || Number(b.workspaceId === workspaceId) - Number(a.workspaceId === workspaceId));
-    // Include a representative from each scope before filling with recent edits.
-    const representatives = [...new Map(recent.map(e => e.workspaceId).map(id => [id, recent.find(e => e.workspaceId === id)!])).values()];
+  /** Active habits only, in the language of the request. A habit whose documents are all gone is left out. */
+  private injectedMemo(memory: StyleMemory, locale: AppLocale, files: Map<string, LocalDocumentMetadata> | null, workspaceId: string): string {
+    const labels = memoLabels(locale);
+    const lines: string[] = [];
+    for (const section of SECTION_ORDER) {
+      const items = memory.items.filter(item => item.section === section && item.status === "active").flatMap(item => {
+        if (item.origin === "user") return [item.text];
+        if (files && !item.sources.some(id => files.get(id)?.workspaceId === workspaceId)) return [];
+        const text = item.key ? itemText(item.key, item.value, locale) : null;
+        return text ? [`- ${text}`] : [];
+      });
+      if (items.length) lines.push(labels.sections[section], ...items);
+    }
+    return lines.join("\n");
+  }
+
+  private selectExamples(examples: readonly StyleExample[], fileId: string): StyleExample[] {
+    // Corrections of accepted AI text first, then the document at hand, then the most recent.
+    const ranked = [...examples].reverse().sort((a, b) =>
+      Number(b.source === "post-accept") - Number(a.source === "post-accept") || Number(b.fileId === fileId) - Number(a.fileId === fileId));
     const selected: StyleExample[] = [];
     const seen = new Set<string>();
     let length = 2;
-    for (const example of [...representatives, ...recent]) {
-      const fingerprint = createHash("sha256").update(JSON.stringify([example.workspaceId, example.before, example.after])).digest("hex");
+    for (const example of ranked) {
+      if (isSuspicious(JSON.stringify([example.title, example.before, example.after]))) continue;
+      const fingerprint = createHash("sha256").update(JSON.stringify([example.before, example.after])).digest("hex");
       if (seen.has(fingerprint)) continue;
       const size = JSON.stringify(example).length + (selected.length ? 1 : 0);
       if (length + size > MAX_PROMPT_LENGTH) continue;
       selected.push(example); seen.add(fingerprint); length += size;
-      if (selected.length === 8) break;
+      if (selected.length === MAX_PROMPT_EXAMPLES) break;
     }
     return selected;
   }
@@ -239,8 +426,12 @@ export class LocalAuthoringStyleStore {
     return result;
   }
 
+  private async personalFiles(): Promise<Map<string, LocalDocumentMetadata> | null> {
+    return this.options.listFiles ? new Map((await this.options.listFiles()).filter(f => !f.sharing && !f.sharingPending).map(f => [f.fileId, f])) : null;
+  }
+
   private async eligible(examples: StyleExample[], respectEnabled = true): Promise<StyleExample[]> {
-    const files = this.listFiles ? new Map((await this.listFiles()).filter(f => !f.sharing && !f.sharingPending).map(f => [f.fileId, f])) : null;
+    const files = await this.personalFiles();
     const enabled = new Map<string, boolean>();
     for (const e of examples) if (!enabled.has(e.workspaceId)) enabled.set(e.workspaceId, !respectEnabled || await this.memory.enabled(e.workspaceId));
     return examples.filter(e => enabled.get(e.workspaceId) && (!files || files.get(e.fileId)?.workspaceId === e.workspaceId));
@@ -259,68 +450,121 @@ export class LocalAuthoringStyleStore {
     return bounded;
   }
 
-  private async updateMemories(examples: StyleExample[], extraScope?: string | null): Promise<void> {
-    await this.memory.update(null, summarizeAuthoringStyle(examples), this.evidenceRevision(examples));
-    const scopes = new Set(examples.map(e => e.workspaceId));
-    if (extraScope && await this.memory.enabled(extraScope)) scopes.add(extraScope);
-    for (const id of scopes) {
-      const scoped = examples.filter(e => e.workspaceId === id);
-      await this.memory.update(id, summarizeAuthoringStyle(scoped), this.evidenceRevision(scoped));
-    }
-  }
-
   async getProfile(workspaceId: string | null): Promise<AuthoringStyleProfile> {
     await this.flush();
-    // Refresh against current library membership. Deleted/shared/moved evidence is not reused.
-    return this.exclusive(async () => {
-      const examples = await this.eligible(await this.read());
-      if (await this.memory.enabled(null)) await this.updateMemories(examples, workspaceId);
-      return this.memory.read(workspaceId, examples.filter(e => workspaceId === null || e.workspaceId === workspaceId).length);
-    });
+    return this.exclusive(() => this.profile(workspaceId));
   }
 
-  private evidenceRevision(examples: readonly StyleExample[]): string {
-    return createHash("sha256").update(JSON.stringify({ version: AUTHORING_STYLE_SUMMARY_VERSION, examples })).digest("hex");
+  /** Caller holds the lock. Evidence from deleted, shared or moved documents is dropped first. */
+  private async profile(workspaceId: string | null): Promise<AuthoringStyleProfile> {
+    const stored = await this.read();
+    const examples = await this.eligible(stored, false);
+    if (examples.length !== stored.length) await this.persist(examples);
+    const files = await this.personalFiles();
+    const outcomes = await this.readOutcomes();
+    if (files) {
+      const blocks = outcomes.blocks.filter(b => files.get(b.fileId)?.workspaceId === b.workspaceId);
+      if (blocks.length !== outcomes.blocks.length) await this.writeOutcomes({ ...outcomes, blocks });
+      outcomes.blocks = blocks;
+    }
+    const inScope = <T extends { workspaceId: string }>(list: readonly T[]) => list.filter(e => workspaceId === null || e.workspaceId === workspaceId);
+    const blocks = inScope(outcomes.blocks);
+    const tally: AuthoringStyleOutcomes = {
+      kept: blocks.filter(b => b.state === "kept").length,
+      edited: blocks.filter(b => b.state === "edited" || b.state === "rewritten").length,
+      reverted: blocks.filter(b => b.state === "reverted").length,
+      rejected: inScope(outcomes.rejected).length,
+    };
+    const note = await this.memory.readNote(workspaceId);
+    const memory = workspaceId === null ? null : await this.memory.load(workspaceId, getAppLocale(), this.now());
+    const generatedContent = memory ? renderMemo(memory, memory.locale) : "";
+    return {
+      workspaceId, enabled: await this.memory.enabled(workspaceId),
+      userContent: note.content, userPath: note.path, revision: note.revision,
+      generatedContent, generatedPath: workspaceId === null ? "" : this.memory.generatedPath(workspaceId), generatedRevision: memory?.renderedHash ?? "",
+      exampleCount: inScope(examples).length,
+      items: (memory?.items ?? []).map(({ id, section, text, origin, basis, support, documents, status, lastConfirmedAt }) =>
+        ({ id, section, text, origin, basis, support, documents, status, lastConfirmedAt })),
+      pending: (memory?.pending ?? []).map(p => ({ id: p.id, kind: p.kind, reason: p.reason, currentText: p.expectedText,
+        proposedText: p.kind === "remove" ? "" : itemText(p.key, p.value, memory!.locale) ?? "", support: p.support })),
+      usage: { characters: generatedContent.length, limit: AUTHORING_STYLE_NOTE_LIMIT },
+      outcomes: tally,
+      lastReviewedAt: memory?.lastReviewedAt ?? null, reviewedDocuments: memory?.reviewedDocuments ?? 0, lastUpdate: memory?.lastUpdate ?? null,
+      canUndo: Boolean(memory?.undo.length),
+      blockedLines: scanLines(note.content).blocked + scanLines(generatedContent).blocked,
+    };
   }
 
-  async synthesize(input: { fileId: string; scope: "user" | "workspace"; summary: string; evidenceRevision: string }): Promise<void> {
+  private async change(workspaceId: string | null, run: () => Promise<unknown>): Promise<AuthoringStyleProfile> {
     await this.flush();
-    await this.exclusive(async () => {
-      const file = (await this.listFiles?.())?.find(f => f.fileId === input.fileId && !f.sharing && !f.sharingPending);
-      if (!file || !await this.memory.enabled(null) || !await this.memory.enabled(file.workspaceId)) throw new Error("Authoring learning unavailable");
-      const workspaceId = input.scope === "user" ? null : file.workspaceId;
-      const eligible = await this.eligible(await this.read());
-      const examples = eligible.filter(e => workspaceId === null || e.workspaceId === workspaceId);
-      if (workspaceId === null) {
-        const represented = new Set(this.selectExamples(eligible, file.fileId, file.workspaceId).map(e => e.workspaceId));
-        if (eligible.some(e => !represented.has(e.workspaceId))) throw new Error("Insufficient global style evidence");
-      }
-      if (!examples.length || this.evidenceRevision(examples) !== input.evidenceRevision) throw new Error("Style evidence changed");
-      await this.memory.synthesize(workspaceId, input.summary, input.evidenceRevision);
-    });
+    return this.exclusive(async () => { await run(); return this.profile(workspaceId); });
   }
 
-  async saveProfile(input: { workspaceId: string | null; content: string; expectedRevision: string }): Promise<AuthoringStyleProfile> {
-    await this.flush();
-    await this.exclusive(() => this.memory.save(input.workspaceId, input.content, input.expectedRevision));
-    return this.getProfile(input.workspaceId);
+  saveProfile(input: { workspaceId: string | null; content: string; expectedRevision: string }): Promise<AuthoringStyleProfile> {
+    return this.change(input.workspaceId, () => this.memory.saveNote(input.workspaceId, input.content, input.expectedRevision));
   }
 
-  async setEnabled(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile> {
-    await this.flush();
-    await this.exclusive(() => this.memory.setEnabled(workspaceId, enabled));
+  /** Hand-edit the learned memo. Changed and added lines become the user's own and are no longer updated automatically. */
+  saveLearned(input: { workspaceId: string; content: string; expectedRevision: string }): Promise<AuthoringStyleProfile> {
+    return this.change(input.workspaceId, () => this.memory.saveLearned(input.workspaceId, input.content, input.expectedRevision, getAppLocale(), this.now()));
+  }
+
+  resolvePending(input: { workspaceId: string; id: string; approve: boolean }): Promise<AuthoringStyleProfile> {
+    return this.change(input.workspaceId, () => this.memory.resolvePending(input.workspaceId, input.id, input.approve, getAppLocale(), this.now()));
+  }
+
+  undo(workspaceId: string): Promise<AuthoringStyleProfile> {
+    return this.change(workspaceId, () => this.memory.undo(workspaceId, getAppLocale(), this.now()));
+  }
+
+  setEnabled(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile> {
+    return this.change(workspaceId, () => this.memory.setEnabled(workspaceId, enabled));
+  }
+
+  async reviewNow(workspaceId: string): Promise<AuthoringStyleProfile> {
+    await this.review(workspaceId);
     return this.getProfile(workspaceId);
   }
 
-  async reset(workspaceId: string | null): Promise<AuthoringStyleProfile> {
-    await this.flush();
-    await this.exclusive(async () => {
-      const examples = await this.read();
-      await this.persist(examples.filter(e => workspaceId !== null && e.workspaceId !== workspaceId));
+  reset(workspaceId: string | null): Promise<AuthoringStyleProfile> {
+    for (const [id, timer] of this.reviewTimers) if (workspaceId === null || id === workspaceId) { clearTimeout(timer); this.reviewTimers.delete(id); }
+    return this.change(workspaceId, async () => {
+      const keep = <T extends { workspaceId: string }>(list: readonly T[]) => list.filter(e => workspaceId !== null && e.workspaceId !== workspaceId);
+      await this.persist(keep(await this.read()));
+      const outcomes = await this.readOutcomes();
+      await this.writeOutcomes({ version: 1, blocks: keep(outcomes.blocks), rejected: keep(outcomes.rejected),
+        counters: Object.fromEntries(Object.entries(outcomes.counters).filter(([id]) => workspaceId !== null && id !== workspaceId)) });
       if (workspaceId === null) await this.memory.resetAllGenerated();
       else await this.memory.resetGenerated(workspaceId);
     });
-    return this.getProfile(workspaceId);
+  }
+
+  private async readOutcomes(): Promise<Outcomes> {
+    try {
+      const stat = await fs.stat(this.outcomesPath);
+      if (stat.size > MAX_EXAMPLE_FILE_BYTES) throw new Error("Authoring outcome data exceeds the size limit");
+      const data = JSON.parse(await fs.readFile(this.outcomesPath, "utf8"));
+      if (data.version !== 1 || !Array.isArray(data.blocks) || !Array.isArray(data.rejected) || !data.counters || typeof data.counters !== "object") throw new Error("Invalid authoring outcome data");
+      const text = (value: unknown, max = 256) => typeof value === "string" && value.length <= max;
+      const count = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : 0;
+      return {
+        version: 1,
+        blocks: data.blocks.filter((b: AiBlock) => text(b?.workspaceId) && text(b.fileId) && text(b.blockId) && text(b.hash, 64) && text(b.previousHash, 64)
+          && Number.isSafeInteger(b.acceptedRevision) && text(b.acceptedAt, 40) && ["accepted", "kept", "edited", "rewritten", "reverted"].includes(b.state)).slice(-MAX_AI_BLOCKS),
+        rejected: data.rejected.filter((r: Outcomes["rejected"][number]) => text(r?.workspaceId) && text(r.fileId) && text(r.at, 40)).slice(-MAX_REJECTIONS),
+        counters: Object.fromEntries(Object.entries(data.counters as Record<string, Partial<Counters>>).slice(0, 500).map(([id, c]) => [id, {
+          saves: count(c?.saves), corrections: count(c?.corrections), rejections: count(c?.rejections), kept: count(c?.kept),
+          reviewedAt: text(c?.reviewedAt, 40) ? c.reviewedAt as string : null,
+        }])),
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") logLedgerEvent(this.dataDir, "authoring-style-read-failed", { error: String(error) });
+      return { version: 1, blocks: [], rejected: [], counters: {} };
+    }
+  }
+
+  private async writeOutcomes(outcomes: Outcomes): Promise<void> {
+    await atomicStyleWrite(this.outcomesPath, JSON.stringify({ ...outcomes, blocks: outcomes.blocks.slice(-MAX_AI_BLOCKS), rejected: outcomes.rejected.slice(-MAX_REJECTIONS) }));
   }
 
   private async read(): Promise<StyleExample[]> {
@@ -331,6 +575,7 @@ export class LocalAuthoringStyleStore {
       if (data.version !== 1 || !Array.isArray(data.examples)) throw new Error("Invalid authoring style data");
       return data.examples.filter((e: StyleExample) => typeof e?.workspaceId === "string" && typeof e.fileId === "string"
         && typeof e.blockId === "string" && e.blockId.length <= 256 && typeof e.title === "string" && e.title.length <= 1000 && Number.isSafeInteger(e.revision)
+        && (e.source === undefined || e.source === "manual" || e.source === "post-accept")
         && [e.before, e.after].every(f => f === null || (typeof f?.area === "string" && typeof f.text === "string" && f.text.length <= MAX_FRAGMENT_LENGTH
           && typeof f.format === "string" && f.format.length <= MAX_FRAGMENT_LENGTH && typeof f.context === "string" && f.context.length <= 300))).slice(-MAX_EXAMPLES);
     } catch (error) {

@@ -195,7 +195,10 @@ let stopLocalStoreWatch: (() => void) | null = null;
 let stopLocalProposalWatch: (() => void) | null = null;
 let stopAiResourceWatch: (() => void) | null = null;
 let stopAiSettingsWatch: (() => void) | null = null;
-const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH, () => localSigmaDocStore.listFiles());
+const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH, {
+  listFiles: () => localSigmaDocStore.listFiles(),
+  loadDocument: fileId => localSigmaDocStore.loadDocument(fileId),
+});
 const localSigmaDocStore = new LocalSigmaDocStore(USER_DATA_PATH, {
   onDocumentSaved: event => localAuthoringStyleStore.observe(event),
 });
@@ -1711,6 +1714,7 @@ function registerIpc() {
     broadcastLocalStoreChange,
     runPostSaveHooks,
     recordRendererSave,
+    onProposalsRejected: fileIds => localAuthoringStyleStore.recordRejected(fileIds),
     readNewDocumentPageSetup: () => readNewDocumentPageSetup(SIGMA_STUDIO_DATA_PATH),
   });
 
@@ -1807,6 +1811,7 @@ app.on("before-quit", (event) => {
   }
   if (!authoringStyleFlushedForQuit) {
     event.preventDefault();
+    localAuthoringStyleStore.dispose();
     authoringStyleQuitFlush ??= localAuthoringStyleStore.flush().finally(() => {
       authoringStyleFlushedForQuit = true;
       app.quit();

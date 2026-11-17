@@ -391,6 +391,10 @@ const desktopAPI = {
     save: (input: unknown) => ipcRenderer.invoke("authoring-style:save", input),
     setEnabled: (workspaceId: string | null, enabled: boolean) => ipcRenderer.invoke("authoring-style:set-enabled", workspaceId, enabled),
     reset: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:reset", workspaceId),
+    saveLearned: (input: unknown) => ipcRenderer.invoke("authoring-style:save-learned", input),
+    review: (workspaceId: string) => ipcRenderer.invoke("authoring-style:review", workspaceId),
+    resolvePending: (input: unknown) => ipcRenderer.invoke("authoring-style:resolve-pending", input),
+    undo: (workspaceId: string) => ipcRenderer.invoke("authoring-style:undo", workspaceId),
   },
   aiResources: {
     getTree(): Promise<unknown> {

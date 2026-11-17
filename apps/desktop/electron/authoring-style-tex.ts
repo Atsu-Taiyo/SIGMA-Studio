@@ -1,4 +1,4 @@
-import type { StyleExample } from "./authoring-style-store";
+import type { StyleExample } from "./authoring-style-features";
 
 interface Formula { tex: string; display: boolean; outside: string }
 const spacing = /\\(?:(?:qquad|quad)(?![a-zA-Z])|[,;:!])/g;
@@ -8,7 +8,7 @@ const units = "(?:cm|mm|km|kg|mg|ms|mol|Hz|Pa|m|g|s|K|N|J|W|V|A)";
 const uprightUnit = new RegExp(String.raw`\\mathrm\{(${units})\}`, "g");
 
 /** Read only the bounded saved projection, including delimiters in text runs. */
-function formulas(fragment: StyleExample["before"]): Formula[] {
+export function formulas(fragment: StyleExample["before"]): Formula[] {
   if (!fragment || fragment.format.length > 1800) return [];
   let runs: unknown;
   try { runs = JSON.parse(fragment.format).runs; } catch { return []; }
