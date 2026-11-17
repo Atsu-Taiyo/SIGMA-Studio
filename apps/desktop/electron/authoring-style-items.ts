@@ -5,7 +5,20 @@ import { summaryText } from "./authoring-style-summary";
 type Loose = (key: string, options?: Record<string, unknown>) => string;
 const translator = (locale: AppLocale) => createTranslator(locale, "prompt") as unknown as Loose;
 
-const TEX_CATEGORIES = new Set(["fraction", "display", "brackets", "multiply", "spacing", "alignment", "vector", "differential", "units", "punctuation", "inequality"]);
+const TEX_CATEGORIES = new Set(["fraction", "display", "brackets", "multiply", "spacing", "alignment", "vector", "differential", "units", "punctuation", "inequality",
+  "ellipsis", "arrow", "implies", "iff", "approx", "overline", "numberSet", "therefore", "inlineSize"]);
+/** Notations with no single command to name: each value has its own fixed sentence. */
+const TEX_SENTENCES: Record<string, readonly string[]> = {
+  derivative: ["leibniz", "operator", "prime"],
+  combination: ["upright", "italic", "binom"],
+  equationNumber: ["tag", "circled", "parenthesized"],
+  longEquation: ["display", "inline"],
+  integralSpacing: ["spaced"],
+  brackets: ["sized"],
+  setBuilder: ["mid", "bar", "colon"],
+  interval: ["brackets", "reversed"],
+  degree: ["circ", "symbol"],
+};
 const TEX_VALUE_LABELS = new Set(["display", "inline", "scalable", "fixed", "none", "upright", "plain", "inside", "outside"]);
 // Command names and delimiters only: a value is never free text from a document.
 const TEX_TOKEN = String.raw`(?:\\[a-zA-Z]{1,20}\*?(?:\{[a-z]{1,10}\*?\})?|\\[,;:!]|[×·d])`;
@@ -36,6 +49,7 @@ export function itemText(key: string, value: string, locale: AppLocale): string 
   const t = translator(locale);
   if (key.startsWith("tex.")) {
     const category = key.slice(4);
+    if (TEX_SENTENCES[category]?.includes(value)) return t(`authoringStyle.memo.texSentence.${category}.${value}`);
     if (!TEX_CATEGORIES.has(category)) return null;
     if (TEX_VALUE_LABELS.has(value)) return t(`authoringStyle.memo.tex.${category}`, { value: t(`authoringStyle.memo.texValues.${value}`) });
     return SAFE_TEX_VALUE.test(value) ? t(`authoringStyle.memo.tex.${category}`, { value: `\`${value}\``, interpolation: { escapeValue: false } }) : null;

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { inlineNodesToPlainText, type InlineNode, type SigmaBlock, type SigmaDocument } from "@/features/document";
-import { changedTexFeatures, formulas } from "./authoring-style-tex";
+import { changedTexFeatures, formulas, notationVotes } from "./authoring-style-tex";
 
 export const MAX_FRAGMENT_LENGTH = 1800;
 
@@ -147,26 +147,11 @@ export function proseVotes(fragment: Fragment): Map<string, string> {
   return votes;
 }
 
-const TEX_HABITS: readonly (readonly [key: string, patterns: readonly (readonly [RegExp, string])[], inlineOnly?: boolean])[] = [
-  ["tex.fraction", [[/\\dfrac(?![a-zA-Z])/, "\\dfrac"], [/\\tfrac(?![a-zA-Z])/, "\\tfrac"], [/\\frac(?![a-zA-Z])/, "\\frac"]], true],
-  ["tex.multiply", [[/\\cdot(?![a-zA-Z])/, "\\cdot"], [/\\times(?![a-zA-Z])/, "\\times"]]],
-  ["tex.vector", [[/\\vec(?![a-zA-Z])/, "\\vec"], [/\\overrightarrow(?![a-zA-Z])/, "\\overrightarrow"], [/\\vv(?![a-zA-Z])/, "\\vv"],
-    [/\\(?:mathbf|boldsymbol|bm)(?![a-zA-Z])/, "\\mathbf / \\bm"]]],
-  ["tex.inequality", [[/\\[lg]eqq(?![a-zA-Z])/, "\\leqq / \\geqq"], [/\\[lg]eqslant(?![a-zA-Z])/, "\\leqslant / \\geqslant"], [/\\[lg]eq?(?![a-zA-Z])/, "\\leq / \\geq"]]],
-  ["tex.differential", [[/\\int[\s\S]*\\mathrm\{d\}\s*[a-zA-Z]/, "\\mathrm{d}"], [/\\int[\s\S]*[^a-zA-Z\\{]d\s*[a-zA-Z](?![a-zA-Z])/, "d"]]],
-];
-
 export function texVotes(fragment: Fragment): Map<string, string> {
   const votes = new Map<string, string>();
-  const found = formulas(fragment);
-  for (const [key, patterns, inlineOnly] of TEX_HABITS) {
-    // A formula mixing two notations says nothing about which one the author prefers.
-    const values = found.filter(f => !inlineOnly || !f.display).flatMap(f => {
-      const used = patterns.filter(([pattern]) => pattern.test(f.tex)).map(([, value]) => value);
-      return used.length === 1 ? used : [];
-    });
+  for (const [key, values] of notationVotes(formulas(fragment))) {
     const value = dominant(values);
-    if (value) votes.set(key, value);
+    if (value) votes.set(`tex.${key}`, value);
   }
   return votes;
 }
@@ -186,7 +171,7 @@ export const MIN_WRITING_BLOCKS = 3;
 export const MIN_WRITING_SHARE = 0.7;
 export const MIN_CORRECTIONS = 2;
 /** "The author leaves this empty" is not a rule worth teaching; only a positive habit is. */
-const NOT_A_RULE = new Set(["procedure.solution:empty", "procedure.hints:empty"]);
+const NOT_A_RULE = new Set(["procedure.solution:empty", "procedure.hints:empty", "tex.inlineSize:none", "tex.integralSpacing:none"]);
 
 /** Habits visible in the author's own text. A value needs several independent blocks and a clear majority. */
 export function observeWriting(units: readonly EvidenceUnit[]): Observation[] {

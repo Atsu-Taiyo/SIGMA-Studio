@@ -46,6 +46,80 @@ describe("habits in the author's own writing", () => {
     expect(texVotes(prose("分数は dfrac と書く")).size).toBe(0);
   });
 
+  it.each([
+    ["derivative", String.raw`\frac{dy}{dx}=2x`, "leibniz", "導関数は \\frac{dy}{dx} の形で書く。"],
+    ["derivative", String.raw`\dfrac{\mathrm{d}^2y}{\mathrm{d}x^2}`, "leibniz", null],
+    ["derivative", String.raw`\frac{d}{dx}\sin x`, "operator", "導関数は \\frac{d}{dx} を式の前に置く形で書く。"],
+    ["derivative", String.raw`f'(x)=2x`, "prime", "導関数は y' や f'(x) の形で書く。"],
+    ["combination", String.raw`{}_n\mathrm{C}_r`, "upright", null],
+    ["combination", String.raw`{}_{10}C_3`, "italic", "組合せは {}_nC_r の形で書く。"],
+    ["combination", String.raw`\binom{n}{r}`, "binom", null],
+    ["equationNumber", String.raw`x+y=3 \tag{1}`, "tag", "式番号は \\tag で付ける。"],
+    ["equationNumber", String.raw`x+y=3 \cdots\cdots ①`, "circled", null],
+    ["equationNumber", String.raw`x+y=3 \quad \text{(2)}`, "parenthesized", null],
+    ["setBuilder", String.raw`A=\{x \mid x>0\}`, "mid", "集合の条件の区切りは \\mid を使う。"],
+    ["setBuilder", String.raw`A=\{x | x>0\}`, "bar", null],
+    ["setBuilder", String.raw`A=\{x : x>0\}`, "colon", null],
+    ["numberSet", String.raw`x\in\mathbb{R}`, String.raw`\mathbb`, "実数全体などの数の集合は`\\mathbb`を使う。"],
+    ["numberSet", String.raw`x\in\mathbf{R}`, String.raw`\mathbf`, null],
+    ["interval", String.raw`x\in[0,1)`, "brackets", null],
+    ["interval", String.raw`x\in\left]0,1\right[`, "reversed", "開区間は ]a, b[ の向きの括弧で書く。"],
+    ["therefore", String.raw`\therefore x=1`, String.raw`\therefore / \because`, null],
+    ["units", String.raw`3\,\mathrm{cm}`, "upright", "単位は直立体を使う。"],
+    ["units", String.raw`3\text{kg}`, String.raw`\text`, "単位は`\\text`を使う。"],
+    ["units", "3cm", "plain", null],
+    ["degree", String.raw`30^\circ`, "circ", "角度の度は ^\\circ で書く。"],
+    ["degree", "30°", "symbol", null],
+    ["brackets", String.raw`\left(\frac{1}{2}\right)^2`, "scalable", null],
+    ["brackets", String.raw`\Bigl(\frac{1}{2}\Bigr)^2`, "sized", "分数などを囲む括弧は \\bigl・\\Bigl などで大きさを指定する。"],
+    ["brackets", String.raw`(\frac{1}{2})^2`, "fixed", null],
+    ["inlineSize", String.raw`\displaystyle\sum_{k=1}^n k`, String.raw`\displaystyle`, "文中の和・積分・極限には`\\displaystyle`を付ける。"],
+    ["integralSpacing", String.raw`\int_0^1 x^2\,dx`, "spaced", "積分の dx の前に \\, などの空きを入れる。"],
+    ["ellipsis", String.raw`1+2+\cdots+n`, String.raw`\cdots`, null],
+    ["arrow", String.raw`\lim_{x\to 0}f(x)`, String.raw`\to`, null],
+    ["implies", String.raw`p\Rightarrow q`, String.raw`\Rightarrow`, null],
+    ["iff", String.raw`p\iff q`, String.raw`\iff`, null],
+    ["approx", String.raw`\pi\fallingdotseq 3.14`, String.raw`\fallingdotseq`, null],
+    ["overline", String.raw`\overline{z}`, String.raw`\overline`, null],
+  ])("reads the notation of %s in %s", (category, tex, value, sentence) => {
+    expect(texVotes(fragment(math(tex))).get(`tex.${category}`)).toBe(value);
+    const text = itemText(`tex.${category}`, value, "ja");
+    expect(text).toBeTruthy();
+    expect(itemText(`tex.${category}`, value, "en")).toMatch(/^[\x20-\x7e°]+$/);
+    expect(isSuspicious(text!)).toBe(false);
+    if (sentence) expect(text).toBe(sentence);
+  });
+
+  it("does not read a notation where the formula does not show a choice", () => {
+    const votes = (tex: string, display = false) => texVotes(fragment(math(tex, display)));
+    // A bold number set is not a vector, and a point named A' is not a derivative.
+    expect(votes(String.raw`x\in\mathbf{R}`).has("tex.vector")).toBe(false);
+    expect(votes("A'B'").has("tex.derivative")).toBe(false);
+    expect(votes(String.raw`\frac{dy}{dx}=f'(x)`).has("tex.derivative")).toBe(false);
+    // 2m is a product, not two metres.
+    expect(votes("2m+1").has("tex.units")).toBe(false);
+    expect(votes("(x+1)(x-1)").has("tex.brackets")).toBe(false);
+    expect(votes("(a,b)").has("tex.interval")).toBe(false);
+    expect(votes("|x|+|y|").has("tex.setBuilder")).toBe(false);
+    expect(votes("x=1").has("tex.longEquation")).toBe(false);
+    expect(votes(String.raw`(x+1)^2-(x-1)^2=x^2+2x+1-x^2+2x-1=4x`).get("tex.longEquation")).toBe("inline");
+    expect(votes(String.raw`(x+1)^2-(x-1)^2=x^2+2x+1-x^2+2x-1=4x`, true).get("tex.longEquation")).toBe("display");
+    // A display formula is already display style.
+    expect(votes(String.raw`\sum_{k=1}^n k`, true).has("tex.inlineSize")).toBe(false);
+  });
+
+  it("makes a notation a habit only from three blocks and a clear majority, and never from the absence of a command", () => {
+    const unit = (blockId: string, tex: string) => ({ fileId: "doc", blockId, votes: texVotes(fragment(math(tex))) });
+    const prime = ["a", "b", "c"].map(id => unit(id, "f'(x)=2x"));
+    expect(observeWriting(prime.slice(0, 2))).toEqual([]);
+    expect(observeWriting(prime)).toMatchObject([{ key: "tex.derivative", value: "prime", support: 3 }]);
+    expect(observeWriting([...prime, unit("d", String.raw`\frac{dy}{dx}`), unit("e", String.raw`\frac{dy}{dx}`)])).toEqual([]);
+    const bare = ["a", "b", "c"].map(id => unit(id, String.raw`\sum_{k=1}^n k`));
+    expect(bare[0].votes.get("tex.inlineSize")).toBe("none");
+    expect(observeWriting(bare)).toEqual([]);
+    expect(observeWriting([...bare, unit("d", String.raw`\displaystyle\sum_{k=1}^n k`)])).toEqual([]);
+  });
+
   it("needs several independent blocks and a clear majority before stating a habit", () => {
     const unit = (blockId: string, value: string, fileId = "f1") => ({ fileId, blockId, votes: new Map([["tone.explanation", value]]) });
     expect(observeWriting([unit("a", "plain"), unit("b", "plain")])).toEqual([]);
@@ -119,6 +193,14 @@ describe("corrections as evidence", () => {
     ["punctuation outside", math("x=1,"), math("x=1", false, ","), "数式の外"],
     ["display delimiters", [{ type: "text", text: "$x+1$" }], [{ type: "text", text: String.raw`\[x+1\]` }], "ディスプレイ数式"],
     ["equation", math("x=1"), [{ type: "text", text: String.raw`\begin{equation}x=1\end{equation}` }], "ディスプレイ数式"],
+    ["double-struck number set", math(String.raw`x\in\mathbf{R}`), math(String.raw`x\in\mathbb{R}`), String.raw`\mathbb`],
+    ["ellipsis", math(String.raw`1+\dots+n`), math(String.raw`1+\cdots+n`), String.raw`\cdots`],
+    ["limit arrow", math(String.raw`x\rightarrow 0`), math(String.raw`x\to 0`), String.raw`\to`],
+    ["implication", math(String.raw`p\implies q`), math(String.raw`p\Rightarrow q`), String.raw`\Rightarrow`],
+    ["equivalence", math(String.raw`p\iff q`), math(String.raw`p\Leftrightarrow q`), String.raw`\Leftrightarrow`],
+    ["approximation", math(String.raw`\pi\approx 3`), math(String.raw`\pi\fallingdotseq 3`), String.raw`\fallingdotseq`],
+    ["overline", math(String.raw`\bar{z}`), math(String.raw`\overline{z}`), String.raw`\overline`],
+    ["arrow vector", math(String.raw`\vec{a}`), math(String.raw`\vv{a}`), String.raw`\vv`],
   ])("requires independent notation-only edits for %s", (_name, before, after, expected) => {
     expect(learned(repeated(before, after))).toContain(expected);
     expect(learned([example(before, after)])).toBe("");
