@@ -29,6 +29,7 @@ const MAX_PROMPT_EXAMPLES = 6;
 const MAX_PENDING = 400;
 const MAX_AI_BLOCKS = 3000;
 const MAX_REJECTIONS = 300;
+const MAX_OVERFLOW_FILES = 2000;
 const FLUSH_DELAY_MS = 750;
 /** The review reads a few recently edited documents, never the whole library. */
 export const DEFAULT_REVIEW_DOCUMENTS = 10;
@@ -70,6 +71,8 @@ interface Outcomes {
   blocks: AiBlock[];
   rejected: { workspaceId: string; fileId: string; at: string }[];
   counters: Record<string, Counters>;
+  /** Documents whose AI blocks no longer all fit in `blocks`. They are not read as the author's writing. */
+  overflow?: string[];
 }
 
 type PendingRecord =
@@ -217,7 +220,8 @@ export class LocalAuthoringStyleStore {
         counters(file.workspaceId).rejections++;
       } else if (record.type === "accept") {
         if (!personal(record.workspaceId, record.fileId)) continue;
-        outcomes.blocks = outcomes.blocks.filter(b => b !== block(record.fileId, record.blockId));
+        const replaced = block(record.fileId, record.blockId);
+        if (replaced) outcomes.blocks.splice(outcomes.blocks.indexOf(replaced), 1);
         outcomes.blocks.push({ workspaceId: record.workspaceId, fileId: record.fileId, blockId: record.blockId, hash: record.hash,
           previousHash: record.previousHash, acceptedRevision: record.revision, acceptedAt: at, state: "accepted",
           ...(await usable(record.workspaceId, record.fileId) ? {} : { uncounted: true as const }) });
@@ -233,16 +237,17 @@ export class LocalAuthoringStyleStore {
       } else {
         const edit = record.example;
         const tracked = block(edit.fileId, edit.blockId);
+        // A block too long to keep has no text to compare or to learn from, but what the AI wrote
+        // in it is still the AI's after a small cut.
+        const oversized = edit.before?.format === "" || edit.after?.format === "";
         if (!await usable(edit.workspaceId, edit.fileId)) {
           // Not learned from, but a touched-up AI block must not look like new writing later.
           if (tracked && (tracked.state === "accepted" || tracked.state === "kept") && record.beforeHash === tracked.hash && personal(edit.workspaceId, edit.fileId)) {
-            tracked.state = record.afterHash === tracked.previousHash ? "reverted"
-              : !edit.after || textSimilarity(edit.before?.text ?? "", edit.after.text) >= REWRITTEN_BELOW ? "edited" : "rewritten";
+            tracked.state = record.afterHash === tracked.previousHash ? "reverted" : oversized || !edit.after || textSimilarity(edit.before?.text ?? "", edit.after.text) >= REWRITTEN_BELOW ? "edited" : "rewritten";
             tracked.uncounted = true;
           }
           continue;
         }
-        if (edit.before?.format === "" || edit.after?.format === "") continue;
         if (tracked && (tracked.state === "accepted" || tracked.state === "kept") && record.beforeHash === tracked.hash) {
           if (record.afterHash === tracked.previousHash) {
             // Undoing the proposal restores what was there. That is a rejection, not a way of writing.
@@ -250,7 +255,8 @@ export class LocalAuthoringStyleStore {
             counters(edit.workspaceId).rejections++;
             continue;
           }
-          tracked.state = !edit.after || textSimilarity(edit.before?.text ?? "", edit.after.text) >= REWRITTEN_BELOW ? "edited" : "rewritten";
+          tracked.state = oversized || !edit.after || textSimilarity(edit.before?.text ?? "", edit.after.text) >= REWRITTEN_BELOW ? "edited" : "rewritten";
+          if (oversized) continue;
           counters(edit.workspaceId).corrections++;
           edit.source = "post-accept";
         } else if (tracked?.state === "edited" && record.afterHash === tracked.previousHash) {
@@ -264,6 +270,7 @@ export class LocalAuthoringStyleStore {
           // not an earlier example of it survives (a reset or the example limit may have dropped it).
           edit.source = !tracked || tracked.state === "reverted" || tracked.state === "rewritten" ? "manual" : "post-accept";
         }
+        if (oversized) continue;
         const index = examples.findIndex(e => e.workspaceId === edit.workspaceId && e.fileId === edit.fileId && e.blockId === edit.blockId);
         const previous = index < 0 ? undefined : examples[index];
         if (previous && previous.revision >= edit.revision) continue;
@@ -359,6 +366,7 @@ export class LocalAuthoringStyleStore {
       for (const { file, projection } of loaded) {
         // A document shared, moved, deleted or saved again while it was being read is not evidence:
         // what was read may no longer match what is recorded about it.
+        if (outcomes.overflow?.includes(file.fileId)) continue;
         const current = files?.get(file.fileId);
         if (files && (current?.workspaceId !== workspaceId || current.revision !== file.revision)) continue;
         const tracked = new Map(outcomes.blocks.filter(b => b.fileId === file.fileId).map(b => [b.blockId, b]));
@@ -698,7 +706,7 @@ export class LocalAuthoringStyleStore {
       const outcomes = await this.readOutcomes();
       // Which text the AI wrote is kept (hashes only), so a reset does not make it the author's writing.
       const blocks = outcomes.blocks.map(b => workspaceId === null || b.workspaceId === workspaceId ? { ...b, uncounted: true as const } : b);
-      await this.writeOutcomes({ version: 1, blocks, rejected: keep(outcomes.rejected),
+      await this.writeOutcomes({ version: 1, blocks, overflow: outcomes.overflow, rejected: keep(outcomes.rejected),
         counters: Object.fromEntries(Object.entries(outcomes.counters).filter(([id]) => workspaceId !== null && id !== workspaceId)) });
       if (workspaceId === null) await this.memory.resetAllGenerated();
       else await this.memory.resetGenerated(workspaceId);
@@ -719,6 +727,7 @@ export class LocalAuthoringStyleStore {
           && Number.isSafeInteger(b.acceptedRevision) && text(b.acceptedAt, 40) && ["accepted", "kept", "edited", "rewritten", "reverted"].includes(b.state))
           .map(({ uncounted, ...b }: AiBlock) => uncounted === true ? { ...b, uncounted } : b).slice(-MAX_AI_BLOCKS),
         rejected: data.rejected.filter((r: Outcomes["rejected"][number]) => text(r?.workspaceId) && text(r.fileId) && text(r.at, 40)).slice(-MAX_REJECTIONS),
+        overflow: Array.isArray(data.overflow) ? data.overflow.filter((id: unknown) => text(id)).slice(-MAX_OVERFLOW_FILES) : [],
         counters: Object.fromEntries(Object.entries(data.counters as Record<string, Partial<Counters>>).slice(0, 500).map(([id, c]) => [id, {
           saves: count(c?.saves), corrections: count(c?.corrections), rejections: count(c?.rejections), kept: count(c?.kept),
           reviewedAt: text(c?.reviewedAt, 40) ? c.reviewedAt as string : null,
@@ -731,7 +740,11 @@ export class LocalAuthoringStyleStore {
   }
 
   private async writeOutcomes(outcomes: Outcomes): Promise<void> {
-    await atomicStyleWrite(this.outcomesPath, JSON.stringify({ ...outcomes, blocks: outcomes.blocks.slice(-MAX_AI_BLOCKS), rejected: outcomes.rejected.slice(-MAX_REJECTIONS) }));
+    // Past the limit the oldest marks go. Their documents may still hold that AI text, so from then
+    // on those documents are left out of what is read as the author's writing.
+    const dropped = outcomes.blocks.slice(0, Math.max(0, outcomes.blocks.length - MAX_AI_BLOCKS)).map(b => b.fileId);
+    const overflow = [...new Set([...(outcomes.overflow ?? []), ...dropped])].slice(-MAX_OVERFLOW_FILES);
+    await atomicStyleWrite(this.outcomesPath, JSON.stringify({ ...outcomes, overflow, blocks: outcomes.blocks.slice(-MAX_AI_BLOCKS), rejected: outcomes.rejected.slice(-MAX_REJECTIONS) }));
   }
 
   private async read(): Promise<StyleExample[]> {

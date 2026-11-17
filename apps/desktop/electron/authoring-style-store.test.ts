@@ -302,12 +302,15 @@ describe("automatic authoring style", () => {
       let profile = await store.reviewNow("ws1");
       expect(profile.generatedContent).toContain("常体");
       expect(profile.generatedContent).not.toContain("丁寧体");
-      expect(profile.pending).toEqual([{ id: "rewrite:tone.explanation", kind: "rewrite", reason: "contradicted", support: 3,
+      expect(profile.pending).toEqual([{ id: expect.stringMatching(/^rewrite:tone\.explanation:[a-f0-9]{8}$/), kind: "rewrite", reason: "contradicted", support: 3,
         currentText: "解説・説明は常体（だ・である）で書く。", proposedText: "解説・説明は丁寧体（です・ます）で書く。" }]);
       expect(profile.lastUpdate).toMatchObject({ added: 0, staged: 1 });
       // A repeated review does not stage the same change twice.
-      expect((await store.reviewNow("ws1")).pending).toHaveLength(1);
-      profile = await store.resolvePending({ workspaceId: "ws1", id: "rewrite:tone.explanation", approve: true });
+      expect((await store.reviewNow("ws1")).pending).toEqual(profile.pending);
+      // The id names the exact proposal: one that has since been replaced cannot be approved by its old id.
+      const proposal = profile.pending[0].id;
+      await expect(store.resolvePending({ workspaceId: "ws1", id: "rewrite:tone.explanation:00000000", approve: true })).rejects.toThrow("not found");
+      profile = await store.resolvePending({ workspaceId: "ws1", id: proposal, approve: true });
       expect(profile.generatedContent).toContain("丁寧体");
       expect(profile.generatedContent).not.toContain("常体");
       expect(profile.pending).toEqual([]);
@@ -328,17 +331,17 @@ describe("automatic authoring style", () => {
       store = make(lib.options);
       let profile = await store.reviewNow("ws1");
       lib.put("f1", written(...POLITE));
-      await store.reviewNow("ws1");
+      const staged = (await store.reviewNow("ws1")).pending[0].id;
       profile = await store.saveLearned({ workspaceId: "ws1", content: profile.generatedContent.replace("常体（だ・である）で書く。", "常体で短く書く。"), expectedRevision: profile.generatedRevision });
       // The sentence became the user's own, so the staged rewrite of it is gone.
       expect(profile.pending).toEqual([]);
-      await expect(store.resolvePending({ workspaceId: "ws1", id: "rewrite:tone.explanation", approve: true })).rejects.toThrow("not found");
+      await expect(store.resolvePending({ workspaceId: "ws1", id: staged, approve: true })).rejects.toThrow("not found");
       await store.reset("ws1");
       lib.put("f1", written(...PLAIN));
       await store.reviewNow("ws1");
       lib.put("f1", written(...POLITE));
-      await store.reviewNow("ws1");
-      profile = await store.resolvePending({ workspaceId: "ws1", id: "rewrite:tone.explanation", approve: false });
+      profile = await store.reviewNow("ws1");
+      profile = await store.resolvePending({ workspaceId: "ws1", id: profile.pending[0].id, approve: false });
       expect(profile.pending).toEqual([]);
       expect((await store.reviewNow("ws1")).pending).toEqual([]);
       expect((await store.getProfile("ws1")).generatedContent).toContain("常体");
@@ -640,6 +643,31 @@ describe("automatic authoring style", () => {
       expect(summarize).toHaveBeenCalledTimes(4);
       expect(sent(summarize, 3).prompt).not.toContain(HABIT.text);
       expect(data(sent(summarize, 3).prompt).candidates).toEqual([]);
+    });
+
+    it("keeps the AI's text out even when a block is too long to track by content or the record of AI blocks is full", async () => {
+      const lib = library();
+      const own = written(...essay("本人"));
+      const long = (mark: string) => `AIが書いた長い段落${mark}` + "とても長い説明が続く。".repeat(170);
+      const withAi = blocks([...own.content, paragraph("ai", long("。"))]);
+      const shortened = blocks([...own.content, paragraph("ai", long("。").slice(0, 1700))]);
+      const summarize = vi.fn(async () => reply([]));
+      store = make({ ...lib.options, summarize });
+      store.noteProvider("claude");
+      lib.put("f1", shortened);
+      store.observe(event(own, withAi, 2, "f1", "ai"));
+      store.observe(event(withAi, shortened, 3));
+      await store.reviewNow("ws1");
+      expect(sent(summarize).prompt).not.toContain("AIが書いた長い段落");
+      // More AI blocks than can be remembered: the documents that lost their marks are no longer read.
+      const base = written("別の教材の本人の文。");
+      const many = blocks([...base.content, ...Array.from({ length: 3000 }, (_, i) => paragraph(`g${i}`, `AIの文${i}。`))]);
+      lib.put("f2", many, { updatedAt: "2026-11-03T00:00:00Z" });
+      store.observe(event(base, many, 2, "f2", "ai"));
+      lib.put("f1", blocks([...shortened.content, paragraph("mine", "本人が後から足した段落で、要約の対象が変わる。")]));
+      const profile = await store.reviewNow("ws1");
+      expect(profile.reviewedDocuments).toBe(1);
+      expect(summarize).toHaveBeenCalledTimes(1);
     });
 
     it("refuses to apply a suggestion when the memo is full, and discards a reply that arrives after a reset", async () => {

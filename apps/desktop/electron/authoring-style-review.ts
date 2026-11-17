@@ -2,7 +2,7 @@ import { AUTHORING_STYLE_NOTE_LIMIT } from "@/lib/ai/authoring-style";
 import type { AppLocale } from "@/lib/i18n";
 import type { Observation } from "./authoring-style-features";
 import { itemText, sectionOf } from "./authoring-style-items";
-import { renderMemo, snapshotForUndo, type LedgerDraft, type PendingChange, type StyleItem, type StyleMemory } from "./authoring-style-memory";
+import { renderMemo, snapshotForUndo, styleHash, type LedgerDraft, type PendingChange, type StyleItem, type StyleMemory } from "./authoring-style-memory";
 import { summaryKey, type SummaryReply } from "./authoring-style-summary";
 
 /** A habit nothing has confirmed for this long is offered for removal. Removing it is always the user's decision. */
@@ -33,7 +33,9 @@ function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "l
   const now = context.now.toISOString();
   const result: ReviewResult = { added: 0, staged: 0, entries: [] };
   let snapshotTaken = false;
-  const stage = (change: PendingChange) => {
+  const stage = (staged: PendingChange) => {
+    // The id names the exact proposal, so approving one the user saw can never apply a later, different one.
+    const change = { ...staged, id: `${staged.id}:${styleHash(`${staged.value}\n${staged.expectedText}`).slice(0, 8)}` };
     const existing = memory.pending.findIndex(p => p.key === change.key);
     if (existing >= 0 && memory.pending[existing].kind === change.kind && memory.pending[existing].value === change.value) {
       memory.pending[existing] = { ...change, createdAt: memory.pending[existing].createdAt };
