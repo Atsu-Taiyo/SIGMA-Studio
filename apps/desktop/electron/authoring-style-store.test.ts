@@ -689,6 +689,24 @@ describe("automatic authoring style", () => {
       expect(summarize).toHaveBeenCalledTimes(2);
     });
 
+    it("treats a proposal that was undone and then redone as the AI's text again", async () => {
+      const lib = library();
+      const own = written(...essay("本人"));
+      const ai = (id: string) => paragraph(id, `AIが書いた${id}の文は、取り消してからやり直しても本人の文章にはならない。`.repeat(4));
+      const withAi = blocks([...own.content, ai("x"), ai("y"), ai("z")]);
+      const summarize = vi.fn(async () => reply([]));
+      store = make({ ...lib.options, summarize });
+      store.noteProvider("claude");
+      lib.put("f1", withAi);
+      store.observe(event(own, withAi, 2, "f1", "ai"));
+      store.observe(event(withAi, own, 3));
+      store.observe(event(own, withAi, 4));
+      const profile = await store.reviewNow("ws1");
+      expect(summarize).toHaveBeenCalledTimes(1);
+      expect(sent(summarize).prompt).not.toContain("AIが書いた");
+      expect(profile).toMatchObject({ exampleCount: 0, outcomes: { reverted: 0 } });
+    });
+
     it("refuses to apply a suggestion when the memo is full, and discards a reply that arrives after a reset", async () => {
       const lib = library();
       lib.put("f1", written(...essay("本人")));

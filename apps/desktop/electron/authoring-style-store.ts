@@ -240,6 +240,14 @@ export class LocalAuthoringStyleStore {
         // A block too long to keep has no text to compare or to learn from, but what the AI wrote
         // in it is still the AI's after a small cut.
         const oversized = edit.before?.format === "" || edit.after?.format === "";
+        if (tracked && tracked.hash && record.afterHash === tracked.hash && tracked.state !== "accepted" && tracked.state !== "kept" && personal(edit.workspaceId, edit.fileId)) {
+          // Redoing an undone proposal (or typing a correction back out) puts the AI's text back as it
+          // was accepted. It is the AI's again, not something the author wrote.
+          tracked.state = "accepted";
+          tracked.acceptedRevision = edit.revision;
+          examples = examples.filter(e => !(e.fileId === edit.fileId && e.blockId === edit.blockId));
+          continue;
+        }
         if (!await usable(edit.workspaceId, edit.fileId)) {
           // Not learned from, but a touched-up AI block must not look like new writing later.
           if (tracked && (tracked.state === "accepted" || tracked.state === "kept") && record.beforeHash === tracked.hash && personal(edit.workspaceId, edit.fileId)) {
