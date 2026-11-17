@@ -761,11 +761,11 @@ export class LocalAuthoringStyleStore {
   }
 
   setEnabled(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile> {
-    return this.change(workspaceId, () => this.memory.setEnabled(workspaceId, enabled));
+    return this.change(workspaceId, async () => { await this.memory.setEnabled(workspaceId, enabled); await this.sync.noteSwitch(workspaceId, "enabled"); });
   }
 
   setAiSummary(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile> {
-    return this.change(workspaceId, () => this.memory.setAiSummary(workspaceId, enabled));
+    return this.change(workspaceId, async () => { await this.memory.setAiSummary(workspaceId, enabled); await this.sync.noteSwitch(workspaceId, "aiSummary"); });
   }
 
   async reviewNow(workspaceId: string): Promise<AuthoringStyleProfile> {

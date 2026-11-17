@@ -14,6 +14,9 @@ const THREATS: readonly RegExp[] = [
   /システム\s*プロンプト/u,
   /(?:api[_ -]?key|secret|password|token|credentials?|認証情報|パスワード|秘密鍵|トークン)[^\n]{0,60}(?:send|post|upload|exfiltrat|reveal|print|送信|送れ|送って|貼り付け|出力|表示|教え)/iu,
   /(?:curl|wget)\s+\S|\|\s*(?:sh|bash|zsh)\b/i,
+  /\brm\s+-[a-z]*[rf]|\b(?:shell|terminal)\s+commands?\b|\bexecute\s+(?:the\s+|this\s+|any\s+)?(?:following\s+)?(?:commands?|code|scripts?)\b/i,
+  /\b(?:every|all|any)\s+(?:subsequent|future|following)\s+(?:requests?|messages?|prompts?|turns?)\b/i,
+  /(?:シェル|ターミナル)(?:の)?コマンド|コマンドを実行|(?:今後|以後|以降)の(?:すべての|全ての)?(?:依頼|指示|要求|リクエスト)/u,
 ];
 
 export function isSuspicious(text: string): boolean {
@@ -24,11 +27,12 @@ export function isSuspicious(text: string): boolean {
 
 /** Drop suspicious lines, keeping the rest of a note usable. */
 export function scanLines(text: string): { text: string; blocked: number } {
-  let blocked = 0;
-  const kept = text.split("\n").filter(line => {
-    if (!isSuspicious(line)) return true;
-    blocked++;
-    return false;
-  });
-  return { text: blocked ? kept.join("\n") : text, blocked };
+  const lines = text.split("\n");
+  const held = lines.map(line => isSuspicious(line));
+  // An instruction broken over two lines reads as one. Both lines go.
+  for (let index = 0; index + 1 < lines.length; index++) {
+    if (!held[index] && !held[index + 1] && isSuspicious(`${lines[index]} ${lines[index + 1]}`)) held[index] = held[index + 1] = true;
+  }
+  const blocked = held.filter(Boolean).length;
+  return { text: blocked ? lines.filter((_, index) => !held[index]).join("\n") : text, blocked };
 }

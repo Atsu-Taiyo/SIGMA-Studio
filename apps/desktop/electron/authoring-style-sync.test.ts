@@ -474,6 +474,57 @@ describe("account sync of the learned writing style", () => {
     await b.store.syncNow(null);
     expect(JSON.stringify(workspaceCopy().content)).not.toMatch(/Ｉｇｎｏｒｅ|from a newer version|図を添える/);
   });
+
+  it("sends an explicit off to the account even for a switch this device had been keeping off", async () => {
+    const a = await device("ws-a");
+    const b = await device("ws-b");
+    await b.store.setAiSummary(null, false);
+    await a.store.saveProfile({ workspaceId: null, content: "Aのメモ。", expectedRevision: (await a.store.getProfile(null)).revision });
+    await a.store.setSync(null, true);
+    // The account has it on. This device joins with it off and stays off, without switching the account off.
+    expect((await b.store.setSync(null, true)).aiSummary).toBe(false);
+    expect((await a.store.syncNow(null)).aiSummary).toBe(true);
+    // On, then off again, before the next sync: the off is the user's decision, for every device.
+    await b.store.setAiSummary(null, true);
+    await b.store.setAiSummary(null, false);
+    await b.store.syncNow(null);
+    expect((await a.store.syncNow(null)).aiSummary).toBe(false);
+  });
+
+  it("lets a reset made before the first merge stand", async () => {
+    const a = await device("ws-a", { documents: { f1: written(...PLAIN) } });
+    await a.store.reviewNow("ws-a");
+    await a.store.setSync(null, true);
+    const b = await device("ws-b", { documents: { g1: written(...PLAIN) } });
+    await b.store.reviewNow("ws-b");
+    cloud.state.offline = true;
+    await b.store.setSync(null, true);
+    await b.store.reset("ws-b");
+    cloud.state.offline = false;
+    await b.store.syncNow(null);
+    expect(await b.memo()).toBe("");
+    expect(JSON.stringify(workspaceCopy().content)).not.toContain(PLAIN_MEMO);
+    await a.store.syncNow(null);
+    expect(await a.memo()).toBe("");
+  });
+
+  it("changes nothing when the records of removals would not fit", async () => {
+    const seed = async (side: { dir: string; workspaceId: string }, prefix: string) => {
+      const dir = path.join(side.dir, "workspaces", createHash("sha256").update(side.workspaceId).digest("hex"));
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(path.join(dir, "memory.json"), JSON.stringify({ version: 2, locale: "ja", items: [], pending: [], suppressed: Array.from({ length: 60 }, (_, i) => `${prefix}.${i}`) }));
+    };
+    const a = await device("ws-a");
+    const b = await device("ws-b");
+    await seed(a, "a");
+    await seed(b, "b");
+    await a.store.saveProfile({ workspaceId: "ws-a", content: "Aのメモ。", expectedRevision: (await a.store.getProfile("ws-a")).revision });
+    await a.store.setSync(null, true);
+    const copy = JSON.stringify(workspaceCopy().content);
+    expect((await b.store.setSync(null, true)).sync.state).toBe("limit");
+    expect((await b.store.getProfile("ws-b")).userContent).toBe("");
+    expect(JSON.stringify(workspaceCopy().content)).toBe(copy);
+  });
 });
 
 describe("merging two devices' copies", () => {
@@ -538,5 +589,11 @@ describe("PersonalDataClient", () => {
     await expect(client.write("me", "style-global", { note: "m" }, "r1")).rejects.toThrow("ACCOUNT_CHANGED");
     await expect(client.removeAll("me")).rejects.toThrow("ACCOUNT_CHANGED");
     expect(calls.length).toBe(sent);
+    // A run that was stopped takes its requests with it.
+    user = "me";
+    const stopped = AbortSignal.abort();
+    await client.read("me", "style-global", stopped);
+    await client.write("me", "style-global", { note: "m" }, "r1", stopped);
+    expect(calls.slice(-2).map(c => c.init?.signal)).toEqual([stopped, stopped]);
   });
 });

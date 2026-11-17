@@ -19,9 +19,9 @@ import { atomicStyleWrite, renderMemo, type AuthoringStyleMemory, type LedgerDra
 /** The server's per-user store, reached with the signed-in account's token. */
 export interface PersonalDataPort {
   /** Every call names the account it is meant for and fails when another one is signed in by then. */
-  read(userId: string, key: string): Promise<{ revision: string | null; content: unknown }>;
+  read(userId: string, key: string, signal?: AbortSignal): Promise<{ revision: string | null; content: unknown }>;
   /** Writes only when the stored revision is still `expectedRevision` (null: nothing stored yet). */
-  write(userId: string, key: string, content: unknown, expectedRevision: string | null): Promise<{ revision: string } | "conflict">;
+  write(userId: string, key: string, content: unknown, expectedRevision: string | null, signal?: AbortSignal): Promise<{ revision: string } | "conflict">;
   removeAll(userId: string): Promise<void>;
 }
 
@@ -30,6 +30,7 @@ export const MAX_SYNCED_LEDGER_LINES = 200;
 export const MAX_BUNDLE_BYTES = 256 * 1024;
 const MAX_LEDGER_LINE = 2000;
 const MAX_OPAQUE_ITEMS = 100;
+const MAX_SUPPRESSED = 100;
 const MAX_USER_LINE = 500;
 /** A ledger line recording that a change arrived by sync. It stays on the device it arrived on: the change itself is on record where it was made. */
 const ARRIVED = '"actor":"sync"';
@@ -94,7 +95,7 @@ export function parseBundle(value: unknown, kind: "workspace" | "global"): Works
       devices: strings(item.devices, 20, 64).sort(),
     }));
   return { ...common, kind, locale: value.locale === "en" ? "en" : "ja", generation: count(value.generation), items,
-    suppressed: strings(value.suppressed, 100, 200), dismissed: strings(value.dismissed, 60, 500), declined: strings(value.declined, 30, 200),
+    suppressed: strings(value.suppressed, MAX_SUPPRESSED, 200), dismissed: strings(value.dismissed, 60, 500), declined: strings(value.declined, 30, 200),
     ledger: strings(value.ledger, MAX_SYNCED_LEDGER_LINES, MAX_LEDGER_LINE), opaque };
 }
 
@@ -123,9 +124,10 @@ const mergeSettings = (base: Settings | undefined, local: Settings, remote: Sett
 });
 
 /** Union of two lists, minus what either side removed since they last agreed. */
-export function mergeList(base: readonly string[] | undefined, local: readonly string[], remote: readonly string[], max: number): string[] {
+export function mergeList(base: readonly string[] | undefined, local: readonly string[], remote: readonly string[], max = Infinity): string[] {
   const removed = new Set((base ?? []).filter(value => !local.includes(value) || !remote.includes(value)));
-  return [...new Set([...local, ...remote])].filter(value => !removed.has(value)).slice(-max);
+  const merged = [...new Set([...local, ...remote])].filter(value => !removed.has(value));
+  return Number.isFinite(max) ? merged.slice(-max) : merged;
 }
 
 export function mergeItems(base: readonly SyncedItem[] | undefined, local: readonly SyncedItem[], remote: readonly SyncedItem[]): SyncedItem[] {
@@ -187,20 +189,27 @@ function mergeLedger(local: readonly string[], remote: readonly string[]): strin
 }
 
 /**
- * A reset counts up the generation. The side that reset last replaces the other's learned habits instead of
- * being merged with them. Files meeting an account for the first time have no resets in common with it, so
- * they are merged as they are.
+ * `merge`: both sides share a history. A reset counts up the generation, and the side that reset last replaces
+ * the other's learned habits instead of being merged with them.
+ * `link`: these files meet the account's copy for the first time. They have no resets in common, so both sides'
+ * habits are kept and the account's count of resets stands.
+ * `reset`: as `link`, but the memo was reset on this device since sync was turned on: the reset stands.
  */
-function mergeLearned(base: Learned | undefined, local: Learned, remote: Learned, first = false): Learned {
-  if (local.generation !== remote.generation && !first) {
+export type MergeMode = "merge" | "link" | "reset";
+
+function mergeLearned(base: Learned | undefined, local: Learned, remote: Learned, mode: MergeMode = "merge"): Learned {
+  if (mode === "reset") return { generation: remote.generation + 1, items: local.items, suppressed: local.suppressed, dismissed: local.dismissed, declined: local.declined, opaque: [] };
+  if (mode === "merge" && local.generation !== remote.generation) {
     const { generation, items, suppressed, dismissed, declined, opaque } = local.generation > remote.generation ? local : remote;
     return { generation, items, suppressed, dismissed, declined, opaque };
   }
-  const was = base && base.generation === local.generation ? base : undefined;
-  const suppressed = mergeList(was?.suppressed, local.suppressed, remote.suppressed, 100);
+  // While linking, the base is the account's copy as it was first merged in: what the account dropped since is dropped here too.
+  const was = base && (mode === "link" || base.generation === local.generation) ? base : undefined;
+  // Not cut short here: dropping a record of a removal would let the habit come back. An overlong list stops the sync instead.
+  const suppressed = mergeList(was?.suppressed, local.suppressed, remote.suppressed);
   const declined = mergeList(was?.declined, local.declined, remote.declined, 30);
   return {
-    generation: Math.max(local.generation, remote.generation), suppressed, declined, dismissed: mergeList(was?.dismissed, local.dismissed, remote.dismissed, 60),
+    generation: remote.generation, suppressed, declined, dismissed: mergeList(was?.dismissed, local.dismissed, remote.dismissed, 60),
     // A removal always wins: no device learns again, or keeps, what its author took out.
     items: mergeItems(was?.items, local.items, remote.items)
       .filter(item => item.origin !== "auto" || !item.key || (!suppressed.includes(item.key) && !(item.basis === "summary" && declined.includes(item.text)))),
@@ -208,14 +217,16 @@ function mergeLearned(base: Learned | undefined, local: Learned, remote: Learned
   };
 }
 
-export function mergeWorkspace(base: WorkspaceBundle | null, local: WorkspaceBundle, remote: WorkspaceBundle | null): WorkspaceBundle {
+export function mergeWorkspace(base: WorkspaceBundle | null, local: WorkspaceBundle, remote: WorkspaceBundle | null, mode: MergeMode = base ? "merge" : "link"): WorkspaceBundle {
   if (!remote) return local;
+  const was = base ?? undefined;
+  const replaced = mode === "merge" && local.generation !== remote.generation;
   return {
-    ...local, ...mergeLearned(base ?? undefined, local, remote, !base),
-    note: mergeNote(base?.note, local.note, remote.note),
-    settings: mergeSettings(base?.settings, local.settings, remote.settings),
+    ...local, ...mergeLearned(was, local, remote, mode),
+    note: mergeNote(was?.note, local.note, remote.note),
+    settings: mergeSettings(was?.settings, local.settings, remote.settings),
     // A reset empties the ledger too.
-    ledger: base && local.generation !== remote.generation ? (local.generation > remote.generation ? local : remote).ledger
+    ledger: mode === "reset" ? local.ledger : replaced ? (local.generation > remote.generation ? local : remote).ledger
       : mergeLedger(local.ledger, remote.ledger).slice(-MAX_SYNCED_LEDGER_LINES),
   };
 }
@@ -245,6 +256,8 @@ interface ScopeState {
   revision: string | null; base: WorkspaceBundle | GlobalBundle | null; syncedAt: string | null;
   /** Switches the account has on and this device keeps off until its user turns them on here. */
   held?: { enabled?: boolean; aiSummary?: boolean };
+  /** The first merge with the account's copy has begun and is not yet agreed. */
+  linking?: boolean;
 }
 interface SyncState {
   version: 1;
@@ -256,6 +269,8 @@ interface SyncState {
   /** The server key each local workspace syncs under. Workspace ids differ from device to device. */
   keys: Record<string, string>;
   generations: Record<string, number>;
+  /** Workspaces reset on this device before their first merge with the account. The reset is to stand. */
+  resets: Record<string, boolean>;
   scopes: Record<string, ScopeState>;
   lastSyncedAt: string | null;
   problem: AuthoringStyleSyncView["state"] | null;
@@ -284,7 +299,7 @@ class SyncProblem extends Error { constructor(readonly state: NonNullable<SyncSt
 class Cancelled extends Error {}
 
 
-interface Run { userId: string; epoch: number }
+interface Run { userId: string; epoch: number; signal: AbortSignal }
 
 export class AuthoringStyleSync {
   private running: Promise<void> | null = null;
@@ -293,6 +308,14 @@ export class AuthoringStyleSync {
   private lastAttempt = 0;
   /** Counts up whenever a run under way must not go on: sync turned off, copy deleted, another account linked. */
   private epoch = 0;
+  /** Aborts the requests of a run that must not go on. */
+  private controller = new AbortController();
+
+  private cancel(): void {
+    this.epoch++;
+    this.controller.abort();
+    this.controller = new AbortController();
+  }
 
   constructor(private readonly host: SyncHost, private readonly account: SyncAccount | null) {}
 
@@ -309,6 +332,7 @@ export class AuthoringStyleSync {
       account: text(value.account, 64) ? value.account : null,
       keys: record(value.keys, (entry): entry is string => text(entry, 80)),
       generations: record(value.generations, (entry): entry is number => Number.isSafeInteger(entry)),
+      resets: record(value.resets, (entry): entry is boolean => entry === true),
       scopes: record(value.scopes, (entry): entry is ScopeState => isRecord(entry) && (entry.revision === null || text(entry.revision, 200))),
       lastSyncedAt: text(value.lastSyncedAt, 40) ? value.lastSyncedAt : null,
       problem: typeof value.problem === "string" ? value.problem as SyncState["problem"] : null,
@@ -329,7 +353,7 @@ export class AuthoringStyleSync {
 
   /** Caller holds the style lock. Turning sync on for the first time links these files to the signed-in account. */
   async setEnabled(enabled: boolean): Promise<void> {
-    if (!enabled) this.epoch++;
+    if (!enabled) this.cancel();
     const state = await this.state();
     const userId = this.account?.userId() ?? null;
     await this.write({ ...state, enabled, problem: null, account: enabled && !state.account && userId ? hash(userId) : state.account });
@@ -340,15 +364,29 @@ export class AuthoringStyleSync {
     const state = await this.state();
     const userId = this.account?.userId() ?? null;
     if (!userId) throw new Error("Sign in to sync");
-    this.epoch++;
-    // What was agreed with the previous account says nothing about this one: start from a plain union.
-    await this.write({ ...state, account: hash(userId), scopes: {}, problem: null });
+    this.cancel();
+    // What was agreed with the previous account, and how often it was reset, says nothing about this one.
+    await this.write({ ...state, account: hash(userId), scopes: {}, resets: {}, problem: null });
   }
 
   /** Caller holds the style lock. A reset must not be undone by another device's older copy. */
   async noteReset(workspaceId: string | null): Promise<void> {
     const state = await this.state();
-    for (const id of workspaceId === null ? Object.keys(state.keys) : [workspaceId]) state.generations[id] = (state.generations[id] ?? 0) + 1;
+    const ids = workspaceId === null ? [...new Set([...Object.keys(state.keys), ...(await this.host.workspaces()).map(w => w.id)])] : [workspaceId];
+    for (const id of ids) {
+      state.generations[id] = (state.generations[id] ?? 0) + 1;
+      // With nothing agreed yet there is no history to compare: remember that the reset is to stand.
+      if (state.enabled && !state.scopes[state.keys[id] ?? ""]?.base) state.resets[id] = true;
+    }
+    await this.write(state);
+  }
+
+  /** Caller holds the style lock. The user set this switch here, so nothing holds it off for the account any more. */
+  async noteSwitch(workspaceId: string | null, name: "enabled" | "aiSummary"): Promise<void> {
+    const state = await this.state();
+    const scope = state.scopes[workspaceId === null ? GLOBAL_KEY : state.keys[workspaceId] ?? ""];
+    if (!scope?.held?.[name]) return;
+    scope.held = { ...scope.held, [name]: false };
     await this.write(state);
   }
 
@@ -359,8 +397,8 @@ export class AuthoringStyleSync {
     await this.host.exclusive(async () => {
       const state = await this.state();
       if (state.account && state.account !== hash(userId)) throw new Error("These files are synced with another account");
-      this.epoch++;
-      await this.write({ ...state, enabled: false, scopes: {}, problem: null });
+      this.cancel();
+      await this.write({ ...state, enabled: false, scopes: {}, resets: {}, problem: null });
     });
     // A run already under way stops at its next step; wait for it so it cannot write after the deletion.
     await this.running;
@@ -384,8 +422,9 @@ export class AuthoringStyleSync {
   run(): Promise<void> {
     if (this.running) { this.again = true; return this.running; }
     this.lastAttempt = Date.now();
+    const signal = this.controller.signal;
     this.running = this.sync().catch(async error => {
-      if (error instanceof Cancelled) return;
+      if (error instanceof Cancelled || signal.aborted) return;
       const problem = error instanceof SyncProblem ? error.state : (error as { status?: number })?.status === 404 ? "unavailable" : "error";
       if (!(error instanceof SyncProblem)) this.host.log(error);
       await this.host.exclusive(async () => this.write({ ...await this.state(), problem })).catch(() => {});
@@ -406,7 +445,7 @@ export class AuthoringStyleSync {
 
   /** Stop a run that was overtaken while it waited for the network or for the lock. */
   private alive(run: Run): void {
-    if (this.epoch !== run.epoch || this.account?.userId() !== run.userId) throw new Cancelled();
+    if (this.epoch !== run.epoch || run.signal.aborted || this.account?.userId() !== run.userId) throw new Cancelled();
   }
 
   /** Caller holds the style lock. The state, if this run may still change the files. */
@@ -420,7 +459,7 @@ export class AuthoringStyleSync {
   private async sync(): Promise<void> {
     const userId = this.account?.userId() ?? null;
     if (!this.account || !userId) return;
-    const run: Run = { userId, epoch: this.epoch };
+    const run: Run = { userId, epoch: this.epoch, signal: this.controller.signal };
     const start = await this.host.exclusive(() => this.state());
     if (!start.enabled || (start.account && start.account !== hash(userId))) return;
     await this.scope(GLOBAL_KEY, null, run);
@@ -556,7 +595,7 @@ export class AuthoringStyleSync {
     const client = this.account!.client;
     for (let attempt = 0; attempt < 3; attempt++) {
       this.alive(run);
-      const remote = await client.read(run.userId, key);
+      const remote = await client.read(run.userId, key, run.signal);
       const kind = workspaceId === null ? "global" : "workspace";
       const theirs = remote.revision === null ? null : kind === "global" ? parseBundle(remote.content, "global") : parseBundle(remote.content, "workspace");
       // A copy this version cannot read was written by a newer one. Leave it alone.
@@ -566,24 +605,26 @@ export class AuthoringStyleSync {
         const known = state.scopes[key];
         if (remote.revision === null && known?.revision) {
           // The account's copy was deleted from another device. Do not put it back: stop syncing here too.
-          this.epoch++;
-          await this.write({ ...state, enabled: false, scopes: {}, problem: null });
+          this.cancel();
+          await this.write({ ...state, enabled: false, scopes: {}, resets: {}, problem: null });
           throw new Cancelled();
         }
+        // Until the first merge with the account's copy is agreed there is no shared history to merge against.
         const base = known?.base?.kind === kind ? known.base : null;
+        const linking = !base || Boolean(known?.linking);
         const held = (local: Settings): Settings => ({ enabled: local.enabled || Boolean(known?.held?.enabled), aiSummary: local.aiSummary || Boolean(known?.held?.aiSummary) });
         // What was merged in is on record before anything else can fail: a retry then tells what came from
         // the server from what was added here, and does not send back something another device has deleted since.
         const journal = async (heldNow: ScopeState["held"], generation?: number) => {
           const latest = await this.state();
           await this.write({ ...latest, generations: generation === undefined ? latest.generations : { ...latest.generations, [workspaceId!]: generation },
-            scopes: { ...latest.scopes, [key]: { revision: remote.revision, base: theirs, syncedAt: known?.syncedAt ?? null, held: heldNow } } });
+            scopes: { ...latest.scopes, [key]: { revision: remote.revision, base: theirs, syncedAt: known?.syncedAt ?? null, held: heldNow, ...(linking ? { linking } : {}) } } });
         };
         if (workspaceId === null) {
           const mine = await this.snapshotGlobal(state);
           const local = { ...mine, settings: held(mine.settings) };
           const result = mergeGlobal(base as GlobalBundle | null, local, theirs as GlobalBundle | null);
-          if (result.note.length > AUTHORING_STYLE_NOTE_LIMIT) throw new SyncProblem("limit");
+          if (result.note.length > AUTHORING_STYLE_NOTE_LIMIT || Buffer.byteLength(JSON.stringify(result)) > MAX_BUNDLE_BYTES) throw new SyncProblem("limit");
           if (result.note !== local.note) await this.host.memory.writeNote(null, result.note);
           const heldNow = await this.switches(null, mine.settings, result.settings);
           if (result.provider && result.provider !== local.provider) await this.host.setProvider(result.provider);
@@ -592,9 +633,14 @@ export class AuthoringStyleSync {
         }
         const mine = await this.snapshot(workspaceId, state, key);
         const local = { ...mine, settings: held(mine.settings) };
-        const result = mergeWorkspace(base as WorkspaceBundle | null, local, theirs as WorkspaceBundle | null);
+        const mode: MergeMode = !linking ? "merge" : state.resets[workspaceId] ? "reset" : "link";
+        const result = mergeWorkspace(base as WorkspaceBundle | null, local, theirs as WorkspaceBundle | null, mode);
+        // The ledger is a tail: when the copy would be too large, its oldest lines go first.
+        while (result.ledger.length && Buffer.byteLength(JSON.stringify(result)) > MAX_BUNDLE_BYTES) result.ledger = result.ledger.slice(Math.ceil(result.ledger.length / 4));
+        // Everything is checked before anything on this device changes: a merge that does not fit changes nothing.
+        if (result.items.length > MAX_SYNCED_ITEMS || result.suppressed.length > MAX_SUPPRESSED || Buffer.byteLength(JSON.stringify(result)) > MAX_BUNDLE_BYTES) throw new SyncProblem("limit");
         // Reset on another device: what this device collected before the reset goes as well.
-        const reset = Boolean(base) && result.generation > local.generation;
+        const reset = mode === "merge" && result.generation > local.generation;
         if (comparable(result) !== comparable(local)) {
           const plan = await this.plan(workspaceId, result, state.device);
           if (reset) await this.host.forget(workspaceId);
@@ -610,14 +656,15 @@ export class AuthoringStyleSync {
       if (changed) {
         if (Buffer.byteLength(JSON.stringify(merged.result)) > MAX_BUNDLE_BYTES) throw new SyncProblem("limit");
         this.alive(run);
-        const written = await client.write(run.userId, key, merged.result, remote.revision);
+        const written = await client.write(run.userId, key, merged.result, remote.revision, run.signal);
         // Another device wrote in between: read its copy and merge again.
         if (written === "conflict") continue;
         revision = written.revision;
       }
       await this.host.exclusive(async () => {
         const state = await this.current(run);
-        await this.write({ ...state, scopes: { ...state.scopes, [key]: { revision, base: revision === null ? null : merged.result, syncedAt: this.host.now().toISOString(), held: merged.held } } });
+        const resets = Object.fromEntries(Object.entries(state.resets).filter(([id]) => id !== workspaceId));
+        await this.write({ ...state, resets, scopes: { ...state.scopes, [key]: { revision, base: revision === null ? null : merged.result, syncedAt: this.host.now().toISOString(), held: merged.held } } });
       });
       return;
     }

@@ -22,20 +22,20 @@ export class PersonalDataClient implements PersonalDataPort {
     if (this.currentUserId() !== userId) throw new Error("ACCOUNT_CHANGED");
   }
 
-  async read(userId: string, key: string): Promise<{ revision: string | null; content: unknown }> {
+  async read(userId: string, key: string, signal?: AbortSignal): Promise<{ revision: string | null; content: unknown }> {
     this.bound(userId);
-    const value = await readResponseJson<unknown>(await this.fetcher(route(key)), MAX_RESPONSE_BYTES);
+    const value = await readResponseJson<unknown>(await this.fetcher(route(key), { signal }), MAX_RESPONSE_BYTES);
     const body = value && typeof value === "object" ? value as Record<string, unknown> : {};
     if (body.revision === null) return { revision: null, content: null };
     if (typeof body.revision !== "string" || !body.revision || body.revision.length > 200) throw new Error("INVALID_PERSONAL_DATA");
     return { revision: body.revision, content: body.content };
   }
 
-  async write(userId: string, key: string, content: unknown, expectedRevision: string | null): Promise<{ revision: string } | "conflict"> {
+  async write(userId: string, key: string, content: unknown, expectedRevision: string | null, signal?: AbortSignal): Promise<{ revision: string } | "conflict"> {
     this.bound(userId);
     let response: Response;
     try {
-      response = await this.fetcher(route(key), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevision, content }) });
+      response = await this.fetcher(route(key), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevision, content }), signal });
     } catch (error) {
       // Another device wrote first. The caller reads that copy and merges again.
       if (error instanceof CollaborationHttpError && error.status === 409) return "conflict";

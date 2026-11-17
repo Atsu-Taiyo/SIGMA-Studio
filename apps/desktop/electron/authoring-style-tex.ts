@@ -122,8 +122,9 @@ export function changedTexFeatures(example: StyleExample): Map<string, Set<strin
 
 const D = String.raw`(?:d|\\mathrm\{d\})`;
 const POWER = String.raw`(?:\^\{?\d\}?)?`;
-const LEIBNIZ = new RegExp(String.raw`\\[dt]?frac\{\s*${D}\s*${POWER}\s*[a-zA-Z]\s*\}\{\s*${D}\s*[a-zA-Z]`);
-const OPERATOR = new RegExp(String.raw`\\[dt]?frac\{\s*${D}\s*${POWER}\s*\}\{\s*${D}\s*[a-zA-Z]`);
+// The whole denominator is one differential: \frac{dx}{dy+1} is a quotient, not a derivative.
+const LEIBNIZ = new RegExp(String.raw`\\[dt]?frac\{\s*${D}\s*${POWER}\s*[a-zA-Z]\s*\}\{\s*${D}\s*[a-zA-Z]\s*${POWER}\s*\}`);
+const OPERATOR = new RegExp(String.raw`\\[dt]?frac\{\s*${D}\s*${POWER}\s*\}\{\s*${D}\s*[a-zA-Z]\s*${POWER}\s*\}`);
 const NUMBER_MARK = String.raw`(?:\\cdots|\\dots|…|\\qquad|\\quad)\s*(?:\\text\{)?\s*`;
 const LONG_UNITS = "(?:cm|mm|km|kg|mg|mol|Hz|Pa)";
 const TALL = String.raw`\\(?:[dt]?frac|sum|int|prod)(?![a-zA-Z])`;
@@ -155,10 +156,13 @@ const WRITING_HABITS: readonly Habit[] = [
     return used[0] && used[1] ? [] : [used[0] ? "\\displaystyle" : used[1] ? "\\limits" : "none"];
   }, true],
   ["integralSpacing", (_, tex) => {
-    // One choice per integral: a formula that spaces one dx and not another shows no preference.
-    const differentials = tex.match(new RegExp(String.raw`(?<![a-zA-Z\\{])${D}\s*[a-zA-Z](?![a-zA-Z])`, "g"))?.length ?? 0;
-    const spaced = tex.match(new RegExp(String.raw`\\[,;:]\s*${D}\s*[a-zA-Z](?![a-zA-Z])`, "g"))?.length ?? 0;
-    return !command("int").test(tex) || !differentials ? [] : spaced === 0 ? ["none"] : spaced === differentials ? ["spaced"] : [];
+    // One choice per integral, read from the differential that closes it. An integral whose end cannot be
+    // told, or a formula that spaces one dx and not another, shows no preference.
+    const closing = new RegExp(String.raw`(\\[,;:]\s*)?${D}\s*[a-zA-Z](?![a-zA-Z])`, "g");
+    const choices = tex.split(/\\int(?![a-zA-Z])/).slice(1).map(integral => [...integral.matchAll(closing)].at(-1));
+    if (!choices.length || choices.some(match => !match)) return [];
+    const spaced = choices.filter(match => match![1]).length;
+    return spaced === 0 ? ["none"] : spaced === choices.length ? ["spaced"] : [];
   }],
   ["brackets", choice([[/\\left\s*(?:[(\[]|\\\{)/, "scalable"], [/\\(?:big|Big|bigg|Bigg)l?\s*(?:[(\[]|\\\{)/, "sized"],
     [new RegExp(String.raw`(?<!\\left\s*)(?<!\\[bB]igg?l?\s*)[(\[]\s*${TALL}`), "fixed"]])],
