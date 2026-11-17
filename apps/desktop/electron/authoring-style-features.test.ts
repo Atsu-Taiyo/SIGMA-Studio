@@ -110,6 +110,8 @@ describe("habits in the author's own writing", () => {
     expect(votes(String.raw`\int x\,dx+\int y\,dy`).get("tex.integralSpacing")).toBe("spaced");
     expect(votes(String.raw`\int f(x)\,dx+\int ydy`).has("tex.integralSpacing")).toBe(false);
     expect(votes(String.raw`\int_0^1 ydy`).get("tex.integralSpacing")).toBe("none");
+    expect(votes(String.raw`\int x dx+\,dy`).has("tex.integralSpacing")).toBe(false);
+    expect(votes(String.raw`\int x\,dx+dy`).has("tex.integralSpacing")).toBe(false);
     // A quotient of differentials is not a derivative.
     expect(votes(String.raw`\frac{dx}{dy+1}`).has("tex.derivative")).toBe(false);
     expect(votes(String.raw`\frac{d^2y}{dx^2}`).get("tex.derivative")).toBe("leibniz");

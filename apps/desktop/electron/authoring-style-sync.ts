@@ -29,6 +29,7 @@ export const MAX_SYNCED_ITEMS = 400;
 export const MAX_SYNCED_LEDGER_LINES = 200;
 export const MAX_BUNDLE_BYTES = 256 * 1024;
 const MAX_LEDGER_LINE = 2000;
+const MAX_LEDGER_BYTES = 96 * 1024;
 const MAX_OPAQUE_ITEMS = 100;
 const MAX_SUPPRESSED = 100;
 const MAX_USER_LINE = 500;
@@ -189,6 +190,17 @@ function mergeLedger(local: readonly string[], remote: readonly string[]): strin
 }
 
 /**
+ * The newest lines that fit. Decided by the lines alone, so every device cuts the same merged ledger at the
+ * same place whatever else its copy holds.
+ */
+export function ledgerTail(lines: readonly string[]): string[] {
+  const tail = lines.slice(-MAX_SYNCED_LEDGER_LINES);
+  let bytes = tail.reduce((sum, line) => sum + Buffer.byteLength(line), 0);
+  while (tail.length && bytes > MAX_LEDGER_BYTES) bytes -= Buffer.byteLength(tail.shift()!);
+  return tail;
+}
+
+/**
  * `merge`: both sides share a history. A reset counts up the generation, and the side that reset last replaces
  * the other's learned habits instead of being merged with them.
  * `link`: these files meet the account's copy for the first time. They have no resets in common, so both sides'
@@ -199,8 +211,10 @@ export type MergeMode = "merge" | "link" | "reset";
 
 function mergeLearned(base: Learned | undefined, local: Learned, remote: Learned, mode: MergeMode = "merge"): Learned {
   if (mode === "reset") return { generation: remote.generation + 1, items: local.items, suppressed: local.suppressed, dismissed: local.dismissed, declined: local.declined, opaque: [] };
-  if (mode === "merge" && local.generation !== remote.generation) {
-    const { generation, items, suppressed, dismissed, declined, opaque } = local.generation > remote.generation ? local : remote;
+  // The account was reset while a first merge was waiting to be sent: as for any later reset, its copy replaces this one.
+  const resetMeanwhile = mode === "link" && Boolean(base) && remote.generation > base!.generation;
+  if (resetMeanwhile || (mode === "merge" && local.generation !== remote.generation)) {
+    const { generation, items, suppressed, dismissed, declined, opaque } = !resetMeanwhile && local.generation > remote.generation ? local : remote;
     return { generation, items, suppressed, dismissed, declined, opaque };
   }
   // While linking, the base is the account's copy as it was first merged in: what the account dropped since is dropped here too.
@@ -220,14 +234,15 @@ function mergeLearned(base: Learned | undefined, local: Learned, remote: Learned
 export function mergeWorkspace(base: WorkspaceBundle | null, local: WorkspaceBundle, remote: WorkspaceBundle | null, mode: MergeMode = base ? "merge" : "link"): WorkspaceBundle {
   if (!remote) return local;
   const was = base ?? undefined;
-  const replaced = mode === "merge" && local.generation !== remote.generation;
+  const resetMeanwhile = mode === "link" && Boolean(base) && remote.generation > base!.generation;
+  const replaced = resetMeanwhile || (mode === "merge" && local.generation !== remote.generation);
   return {
     ...local, ...mergeLearned(was, local, remote, mode),
     note: mergeNote(was?.note, local.note, remote.note),
     settings: mergeSettings(was?.settings, local.settings, remote.settings),
     // A reset empties the ledger too.
-    ledger: mode === "reset" ? local.ledger : replaced ? (local.generation > remote.generation ? local : remote).ledger
-      : mergeLedger(local.ledger, remote.ledger).slice(-MAX_SYNCED_LEDGER_LINES),
+    ledger: ledgerTail(mode === "reset" ? local.ledger : replaced ? (!resetMeanwhile && local.generation > remote.generation ? local : remote).ledger
+      : mergeLedger(local.ledger, remote.ledger)),
   };
 }
 
@@ -376,7 +391,8 @@ export class AuthoringStyleSync {
     for (const id of ids) {
       state.generations[id] = (state.generations[id] ?? 0) + 1;
       // With nothing agreed yet there is no history to compare: remember that the reset is to stand.
-      if (state.enabled && !state.scopes[state.keys[id] ?? ""]?.base) state.resets[id] = true;
+      const scope = state.scopes[state.keys[id] ?? ""];
+      if (state.enabled && (!scope?.base || scope.linking)) state.resets[id] = true;
     }
     await this.write(state);
   }
@@ -510,7 +526,7 @@ export class AuthoringStyleSync {
       items: [...memory.items.map(item => this.synced(item, state.device)), ...carried], opaque: base?.opaque ?? [],
       suppressed: memory.suppressed, dismissed: memory.dismissed, declined: memory.declined,
       note: (await this.host.memory.readNote(workspaceId)).content, settings: await this.host.memory.settingsOf(workspaceId),
-      ledger: (await this.host.memory.ledgerLines(workspaceId)).filter(line => line.length <= MAX_LEDGER_LINE && !line.includes(ARRIVED)).slice(-MAX_SYNCED_LEDGER_LINES),
+      ledger: ledgerTail((await this.host.memory.ledgerLines(workspaceId)).filter(line => line.length <= MAX_LEDGER_LINE && !line.includes(ARRIVED))),
       updatedAt: this.host.now().toISOString(), device: state.device,
     };
   }
@@ -635,12 +651,11 @@ export class AuthoringStyleSync {
         const local = { ...mine, settings: held(mine.settings) };
         const mode: MergeMode = !linking ? "merge" : state.resets[workspaceId] ? "reset" : "link";
         const result = mergeWorkspace(base as WorkspaceBundle | null, local, theirs as WorkspaceBundle | null, mode);
-        // The ledger is a tail: when the copy would be too large, its oldest lines go first.
-        while (result.ledger.length && Buffer.byteLength(JSON.stringify(result)) > MAX_BUNDLE_BYTES) result.ledger = result.ledger.slice(Math.ceil(result.ledger.length / 4));
         // Everything is checked before anything on this device changes: a merge that does not fit changes nothing.
         if (result.items.length > MAX_SYNCED_ITEMS || result.suppressed.length > MAX_SUPPRESSED || Buffer.byteLength(JSON.stringify(result)) > MAX_BUNDLE_BYTES) throw new SyncProblem("limit");
         // Reset on another device: what this device collected before the reset goes as well.
-        const reset = mode === "merge" && result.generation > local.generation;
+        const reset = (mode === "merge" && result.generation > local.generation)
+          || (mode === "link" && Boolean(base && theirs) && (theirs as WorkspaceBundle).generation > (base as WorkspaceBundle).generation);
         if (comparable(result) !== comparable(local)) {
           const plan = await this.plan(workspaceId, result, state.device);
           if (reset) await this.host.forget(workspaceId);

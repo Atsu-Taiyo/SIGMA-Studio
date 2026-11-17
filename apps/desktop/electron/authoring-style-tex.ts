@@ -156,12 +156,13 @@ const WRITING_HABITS: readonly Habit[] = [
     return used[0] && used[1] ? [] : [used[0] ? "\\displaystyle" : used[1] ? "\\limits" : "none"];
   }, true],
   ["integralSpacing", (_, tex) => {
-    // One choice per integral, read from the differential that closes it. An integral whose end cannot be
-    // told, or a formula that spaces one dx and not another, shows no preference.
+    // One choice per integral. An integral whose end cannot be told, or a formula that spaces one dx and not
+    // another, shows no preference.
     const closing = new RegExp(String.raw`(\\[,;:]\s*)?${D}\s*[a-zA-Z](?![a-zA-Z])`, "g");
-    const choices = tex.split(/\\int(?![a-zA-Z])/).slice(1).map(integral => [...integral.matchAll(closing)].at(-1));
-    if (!choices.length || choices.some(match => !match)) return [];
-    const spaced = choices.filter(match => match![1]).length;
+    // Exactly one differential after an integral sign is the one that closes it; with more, which one does is not clear.
+    const choices = tex.split(/\\int(?![a-zA-Z])/).slice(1).map(integral => [...integral.matchAll(closing)]);
+    if (!choices.length || choices.some(found => found.length !== 1)) return [];
+    const spaced = choices.filter(([match]) => match[1]).length;
     return spaced === 0 ? ["none"] : spaced === choices.length ? ["spaced"] : [];
   }],
   ["brackets", choice([[/\\left\s*(?:[(\[]|\\\{)/, "scalable"], [/\\(?:big|Big|bigg|Bigg)l?\s*(?:[(\[]|\\\{)/, "sized"],

@@ -8,7 +8,7 @@ import { createBlankDocument } from "@/lib/blank-document";
 import type { SigmaBlock, SigmaDocument } from "@/features/document";
 import type { AiResourceRunContext } from "./ai-resource-store";
 import { LocalAuthoringStyleStore } from "./authoring-style-store";
-import { mergeItems, mergeList, mergeNote, parseBundle, type PersonalDataPort, type SyncedItem } from "./authoring-style-sync";
+import { ledgerTail, mergeItems, mergeList, mergeNote, parseBundle, type PersonalDataPort, type SyncedItem } from "./authoring-style-sync";
 import { PersonalDataClient } from "./collaboration/personal-data";
 import { CollaborationHttpError } from "./collaboration/transport";
 import type { LocalDocumentMetadata } from "./local-sigma-doc-store";
@@ -525,6 +525,42 @@ describe("account sync of the learned writing style", () => {
     expect((await b.store.getProfile("ws-b")).userContent).toBe("");
     expect(JSON.stringify(workspaceCopy().content)).toBe(copy);
   });
+
+  it("keeps resets made while a first merge was waiting to be sent, on either side", async () => {
+    const edit = async (side: { store: LocalAuthoringStyleStore; workspaceId: string }, content: string) =>
+      side.store.saveLearned({ workspaceId: side.workspaceId, content, expectedRevision: (await side.store.getProfile(side.workspaceId)).generatedRevision });
+    // This device resets before its first merge is sent.
+    const a = await device("ws-a");
+    await edit(a, "## 自分で書いた項目\nサーバーにある行。\n");
+    await a.store.setSync(null, true);
+    const b = await device("ws-b");
+    await edit(b, "## 自分で書いた項目\nBの行。\n");
+    cloud.state.beforeWrite = () => { throw new Error("fetch failed"); };
+    await b.store.setSync(null, true);
+    cloud.state.beforeWrite = null;
+    await edit(a, `${await a.memo()}あとから足した行。\n`);
+    await a.store.syncNow(null);
+    await b.store.reset("ws-b");
+    await b.store.syncNow(null);
+    expect(await b.memo()).toBe("");
+    await a.store.syncNow(null);
+    expect(await a.memo()).toBe("");
+
+    // Another device resets the account while this device's first merge is waiting.
+    const c = await device("ws-c", { user: () => "user-3" });
+    await edit(c, "## 自分で書いた項目\nCの行。\n");
+    await c.store.setSync(null, true);
+    const d = await device("ws-d", { user: () => "user-3" });
+    await edit(d, "## 自分で書いた項目\nDの行。\n");
+    cloud.state.beforeWrite = () => { throw new Error("fetch failed"); };
+    await d.store.setSync(null, true);
+    cloud.state.beforeWrite = null;
+    await c.store.reset("ws-c");
+    await c.store.syncNow(null);
+    await d.store.syncNow(null);
+    expect(await d.memo()).toBe("");
+    expect(JSON.stringify(workspaceCopy("user-3").content)).not.toMatch(/Cの行|Dの行/);
+  });
 });
 
 describe("merging two devices' copies", () => {
@@ -553,6 +589,17 @@ describe("merging two devices' copies", () => {
     expect(mergeNote("a\nb", "a\nb", "a\nc")).toBe("a\nc");
     expect(mergeNote("a\nb", "a\nb\nmine", "a\ntheirs")).toBe("a\nmine\ntheirs");
     expect(mergeNote(undefined, "mine", "theirs")).toBe("mine\ntheirs");
+  });
+
+  it("cuts a ledger at the same place whatever else a copy holds", () => {
+    const lines = Array.from({ length: 300 }, (_, i) => JSON.stringify({ at: `2026-11-01T00:00:${String(i).padStart(3, "0")}`, after: "あ".repeat(600) }));
+    const tail = ledgerTail(lines);
+    expect(tail.length).toBeLessThan(200);
+    expect(tail.at(-1)).toBe(lines.at(-1));
+    expect(tail.reduce((sum, line) => sum + Buffer.byteLength(line), 0)).toBeLessThanOrEqual(96 * 1024);
+    // Cutting what was already cut, or a longer history ending the same way, gives the same lines.
+    expect(ledgerTail(tail)).toEqual(tail);
+    expect(ledgerTail(lines.slice(100))).toEqual(tail);
   });
 
   it("reads only well-formed copies of the version it knows", () => {
