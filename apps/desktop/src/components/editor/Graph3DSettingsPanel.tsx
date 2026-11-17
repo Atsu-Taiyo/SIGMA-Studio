@@ -1534,7 +1534,7 @@ function graph3DModelErrorMessage(error: unknown): string | null {
     const params = error.code === "commonPartObjectHasNoSurfaceOrInterior" && !error.params?.name
       ? { ...error.params, name: tShape("graph3dError.commonPartObjectFallbackName") }
       : error.params;
-    return tShape(`graph3dError.${error.code}` as never, params);
+    return tShape(`graph3dError.${error.code}` as never, params ?? {});
   }
   return error instanceof Error ? error.message : null;
 }

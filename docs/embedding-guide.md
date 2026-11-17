@@ -218,7 +218,7 @@ export function MaterialEditorPage({ initialDocument }: { initialDocument: Sigma
 
 `SigmaDocEditor`は`apps/desktop/src/components/editor/EditorShell.tsx`を正本の編集surfaceとして束ねます。ツールバー、本文・問題・インライン数式、ページ設定、自由配置overlay、図形、グラフ、表、画像、選択、undo/redoはデスクトップ版と同じコンポーネントです。Editor側に別の構造編集フォームやJSON編集タブはありません。AI編集はEditorへ公開せず、AIメニュー、選択時のAIアクション、AI設定、AIプレースホルダーを組み込み時には構成しません。
 
-組み込み時はElectron bridgeを接続しないため、workspace/libraryに属する教材一覧、新規作成、複製、削除、AI/MCP、デスクトップ認証は無効です。JSON/TeXのインポートは現在のcontrolled documentを置き換え、JSON exportはブラウザダウンロードを使います。PDFプレビューの`PDF保存`はデスクトップ固有の`/print?fileId=...`へ遷移せず、表示中の共通PrintPreviewをブラウザ印刷へ渡します。ホストは`onChange` / `onSave`の外側で取得、権限、routing、永続化、共同編集を接続します。HTML、Tiptap JSON、編集用canvas stateを別の正本にせず、常に完全なSigmaDocを往復させます。
+組み込み時はElectron bridgeを接続しないため、workspace/libraryに属する教材一覧、新規作成、複製、削除、AI/MCP、デスクトップ認証は無効です。JSON/TeXのインポートは現在のcontrolled documentを置き換え、sigmaファイルのエクスポートはブラウザダウンロードを使います。PDFプレビューの`PDF保存`はデスクトップ固有の`/print?fileId=...`へ遷移せず、表示中の共通PrintPreviewをブラウザ印刷へ渡します。ホストは`onChange` / `onSave`の外側で取得、権限、routing、永続化、共同編集を接続します。HTML、Tiptap JSON、編集用canvas stateを別の正本にせず、常に完全なSigmaDocを往復させます。
 
 `onChange`の`change.path`は常に`"$"`、`change.source`は通常編集で`"desktop-editor"`、`editorRef.reset()`で`"reset"`です。デスクトップ編集surface内の複数操作を公開API側で不完全なfield patchへ変換しないため、ホストは第1引数の完全なSigmaDocumentを正本として扱います。
 

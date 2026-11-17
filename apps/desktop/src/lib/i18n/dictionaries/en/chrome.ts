@@ -192,7 +192,7 @@ export const chrome = {
       importOther: "Import PowerPoint",
       importText: "Import from text",
       export: "Export",
-      exportJson: "Export JSON",
+      exportJson: "Export sigma file",
       exportPdf: "Export PDF",
       copyText: "Copy as text",
     },

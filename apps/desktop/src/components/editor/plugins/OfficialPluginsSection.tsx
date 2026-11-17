@@ -192,7 +192,7 @@ export function OfficialPluginsSection({ id, onFontsChanged }: { id?: string; on
             <p>{plugin.fonts.join("、")}</p></details>}
         </Stack>)}
         {busy && !progressShown && <SettingsStatus>{t(status?.phase === "checking" ? "plugins.checking" : "plugins.working")}</SettingsStatus>}
-        {notice && <SettingsStatus tone="success"><Check size={14} aria-hidden="true" />{t(notice.key, notice.params)}</SettingsStatus>}
+        {notice && <SettingsStatus tone="success"><Check size={14} aria-hidden="true" />{t(notice.key, notice.params ?? {})}</SettingsStatus>}
       </Stack>}
       {error && <SettingsStatus tone="error">{t(`plugins.errors.${error}`)}</SettingsStatus>}
     </SettingsSection>

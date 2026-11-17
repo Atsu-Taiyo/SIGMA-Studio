@@ -113,4 +113,22 @@ describe("Graph3DPreview rendering adapter", () => {
     expect(html).toContain("surface");
     expect(html).not.toContain("ドラッグ: 回転");
   });
+
+  it("localizes model diagnostics without interpolation parameters after the i18next upgrade", () => {
+    const invalidSpec: Graph3DSpec = {
+      ...spec,
+      objects: [{
+        id: "invalid-box",
+        kind: "primitive",
+        primitive: "box",
+        center: { x: "0", y: "0", z: "0" },
+        size: { x: "0", y: "1", z: "1" },
+      }],
+    };
+    const before = structuredClone(invalidSpec);
+    const html = renderToStaticMarkup(<Graph3DPreview spec={invalidSpec} interactive={false} />);
+    expect(html).toContain("invalid-box: 立体の大きさは0より大きくしてください");
+    expect(html).not.toContain("graph3dError.");
+    expect(invalidSpec).toEqual(before);
+  });
 });

@@ -460,6 +460,7 @@ export function WorkspaceManager() {
   });
 
   const selection = useWorkspaceSelection();
+  const [pendingCreatedFileId, setPendingCreatedFileId] = useState<string | null>(null);
 
   // Unified row order for keyboard navigation and Shift-click range math.
   // WorkspaceItemList independently rebuilds the same array from the same
@@ -536,6 +537,22 @@ export function WorkspaceManager() {
     // three inputs below should retrigger this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveFolderFilter, searchQuery, activeWorkspaceId]);
+
+  const selectCreatedOnly = selection.selectOnly;
+  useEffect(() => {
+    if (!pendingCreatedFileId || listQuery) return;
+    // Wait until navigation/pruning effects and the new list DOM have settled.
+    const frame = requestAnimationFrame(() => {
+      const key = `file:${pendingCreatedFileId}`;
+      const row = Array.from(document.querySelectorAll<HTMLElement>("[data-item-key]")).find(item => item.dataset.itemKey === key);
+      if (!row) return;
+      selectCreatedOnly(key);
+      row.scrollIntoView({ block: "nearest" });
+      row.focus({ preventScroll: true });
+      setPendingCreatedFileId(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingCreatedFileId, overview, folderFilter, listQuery, selectCreatedOnly]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -757,7 +774,7 @@ export function WorkspaceManager() {
     }
   }, [t, activeWorkspace, selectedFolder, currentFolderContextId, overview]);
 
-  const submitCreateDialog = async (event: FormEvent) => {
+  const submitCreateDialog = async (event: FormEvent, openAfterCreate: boolean) => {
     event.preventDefault();
     if (!createDialog) {
       return;
@@ -781,16 +798,28 @@ export function WorkspaceManager() {
     }
 
     if (!canCreateAt(dialog.folderId)) return;
+    if (status === "saving") return;
+    let createdFileId: string | undefined;
     const created = await runWorkspaceAction(
-      () => dialog.kind === "folder"
-        ? createFolder(activeWorkspace.id, dialog.name, dialog.folderId)
-        : createDocumentInWorkspace(activeWorkspace.id, dialog.folderId, dialog.name),
+      async () => {
+        if (dialog.kind === "folder") return createFolder(activeWorkspace.id, dialog.name, dialog.folderId);
+        const result = await createDocumentInWorkspace(activeWorkspace.id, dialog.folderId, dialog.name);
+        createdFileId = result.createdFileId;
+        return result;
+      },
       dialog.kind === "folder" ? t("status.folderCreated") : t("status.materialCreated"),
     );
     if (created) {
       setCreateDialog(null);
-      if (dialog.kind === "document" && dialog.folderId) {
-        setFolderFilter(dialog.folderId);
+      if (dialog.kind === "document" && createdFileId) {
+        if (openAfterCreate) {
+          openFile(createdFileId);
+        } else {
+          setPanel("files");
+          setSearchQuery("");
+          setFolderFilter(dialog.folderId ?? ALL_FOLDERS);
+          setPendingCreatedFileId(createdFileId);
+        }
       }
     }
   };
@@ -1295,16 +1324,7 @@ export function WorkspaceManager() {
     <div className="workspace-page-shell">
       <header className="workspace-page-header">
         <div className="workspace-page-brand">
-          <IconButton
-            className="workspace-sidebar-toggle"
-            label={t(sidebarCollapsed ? "nav.sidebarExpand" : "nav.sidebarCollapse")}
-            size="md"
-            tone="ghost"
-            aria-expanded={!sidebarCollapsed}
-            aria-controls="workspace-sidebar"
-            onClick={() => setViewPreference({ sidebarCollapsed: !sidebarCollapsed })}
-          >{sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</IconButton>
-          <SigmaMark size={34} />
+          <span className="workspace-brand-icon"><SigmaMark size={32} /></span>
           <h1>Sigma Studio</h1>
         </div>
         <SearchField
@@ -1392,6 +1412,17 @@ export function WorkspaceManager() {
       ) : (
         <main className="workspace-page-main" data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}>
           <WorkspaceSidebar
+            toggleControl={
+                <IconButton
+                  className="workspace-sidebar-toggle"
+                  label={t(sidebarCollapsed ? "nav.sidebarExpand" : "nav.sidebarCollapse")}
+                  size="md"
+                  tone="ghost"
+                  aria-expanded={!sidebarCollapsed}
+                  aria-controls="workspace-sidebar"
+                  onClick={() => setViewPreference({ sidebarCollapsed: !sidebarCollapsed })}
+                >{sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</IconButton>
+            }
             collapsed={sidebarCollapsed}
             panel={panel}
             commentsAvailable={Boolean(overview.catalog)}
@@ -1677,7 +1708,7 @@ export function WorkspaceManager() {
           folders={folders}
           saving={status === "saving"}
           onNameChange={(name) => setCreateDialog({ ...createDialog, name })}
-          onSubmit={(event) => void submitCreateDialog(event)}
+          onSubmit={(event, openAfterCreate) => void submitCreateDialog(event, openAfterCreate)}
           onClose={() => setCreateDialog(null)}
         />
       )}

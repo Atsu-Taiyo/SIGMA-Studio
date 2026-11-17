@@ -114,8 +114,10 @@ export function EditorToolbarIconButton({
     <button
       ref={buttonRef}
       type={type}
-      className={joinClassNames("icon-button", withText && "with-text", large && "large", danger && "danger", active && "active", className)}
+      className={joinClassNames("icon-button", withText && "with-text", large && "large", danger && "danger", active && !buttonProps.disabled && "active", className)}
       onMouseDown={(event) => callToolbarMouseDown(event, preserveFocus, onMouseDown)}
+      data-editor-toolbar-control=""
+      aria-disabled={buttonProps.disabled || undefined}
       {...buttonProps}
     >
       {children}
@@ -159,11 +161,13 @@ export function EditorToolbarMenuButton({
       className={joinClassNames(
         "shape-menu-button icon-only",
         variant ? MENU_BUTTON_VARIANT_CLASS[variant] : undefined,
-        active && "active",
-        activeFormat && "active-format",
+        active && !buttonProps.disabled && "active",
+        activeFormat && !buttonProps.disabled && "active-format",
         className,
       )}
       onMouseDown={(event) => callToolbarMouseDown(event, preserveFocus, onMouseDown)}
+      data-editor-toolbar-control=""
+      aria-disabled={buttonProps.disabled || undefined}
       {...buttonProps}
     >
       {children}
@@ -211,8 +215,10 @@ export function EditorToolbarColorButton({
     <button
       ref={buttonRef}
       type={type}
-      className={joinClassNames("toolbar-icon-color", text && "toolbar-icon-color-text", active && "active", className)}
+      className={joinClassNames("toolbar-icon-color", text && "toolbar-icon-color-text", active && !buttonProps.disabled && "active", className)}
       onMouseDown={(event) => callToolbarMouseDown(event, preserveFocus, onMouseDown)}
+      data-editor-toolbar-control=""
+      aria-disabled={buttonProps.disabled || undefined}
       {...buttonProps}
     >
       {children}
