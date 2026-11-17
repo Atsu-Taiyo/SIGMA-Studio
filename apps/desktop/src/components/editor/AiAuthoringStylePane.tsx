@@ -46,6 +46,9 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
   const evidence = (item: AuthoringStyleItemView) => item.origin === "user" ? t("authoringStyle.evidenceUser")
     : item.basis === "summary" ? t("authoringStyle.evidenceSummary", { documents: item.documents })
       : t(item.basis === "corrections" ? "authoringStyle.evidenceCorrections" : "authoringStyle.evidenceWriting", { count: item.support, documents: item.documents });
+  const aiAdded = (profile?.items ?? []).filter(item => item.origin === "auto" && item.basis === "summary");
+  /** Deleting the line is the same as deleting it in the memo: the item is not added again. */
+  const withoutLine = (text: string) => profile!.generatedContent.split("\n").filter(line => line !== `- ${text}`).join("\n");
   return (
     <SettingsSection id={id} className="ai-settings-pane" title={t("authoringStyle.title")} description={t("authoringStyle.description")}>
       {error && <SettingsStatus tone="error">{t("authoringStyle.error")}</SettingsStatus>}
@@ -86,7 +89,7 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
             <strong>{t("authoringStyle.pendingTitle")}</strong>
             {profile.pending.map(change => (
               <Stack key={change.id} gap="xs" className="ai-settings-empty-hint">
-                <span>{t(change.reason === "summary" ? "authoringStyle.pending.summary" : `authoringStyle.pending.${change.kind}`, { current: change.currentText, proposed: change.proposedText, count: change.support })}</span>
+                <span>{t(`authoringStyle.pending.${change.kind}`, { current: change.currentText, proposed: change.proposedText, count: change.support })}</span>
                 <Inline gap="sm">
                   <Button size="sm" disabled={busy || learnedDirty} onClick={() => void run(() => api.resolvePending({ workspaceId, id: change.id, approve: true }))}>{t("authoringStyle.approve")}</Button>
                   <Button tone="ghost" size="sm" disabled={busy || learnedDirty} onClick={() => void run(() => api.resolvePending({ workspaceId, id: change.id, approve: false }))}>{t("authoringStyle.dismiss")}</Button>
@@ -94,9 +97,21 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
               </Stack>
             ))}
           </Stack>}
+          {aiAdded.length > 0 && <Stack gap="xs">
+            <strong>{t("authoringStyle.aiAddedTitle")}</strong>
+            <small className="ai-settings-empty-hint">{t("authoringStyle.aiAddedHint")}</small>
+            <ul>{aiAdded.map(item => <li key={item.id}>
+              <Inline gap="sm">
+                <span>{item.text}</span>
+                <small className="ai-settings-empty-hint"><strong>{t("authoringStyle.aiAddedBadge")}</strong> {t("authoringStyle.aiAddedOn", { date: new Date(item.firstSeenAt).toLocaleDateString(), documents: item.documents })}</small>
+                <Button tone="ghost" size="sm" aria-label={t("authoringStyle.aiAddedRemoveLabel", { text: item.text })} disabled={busy || learnedDirty}
+                  onClick={() => void run(() => api.saveLearned({ workspaceId, content: withoutLine(item.text), expectedRevision: profile.generatedRevision }), "learned")}>{t("authoringStyle.aiAddedRemove")}</Button>
+              </Inline>
+            </li>)}</ul>
+          </Stack>}
           {profile.items.length > 0 && <details>
             <summary>{t("authoringStyle.evidenceTitle")}</summary>
-            <ul>{profile.items.map(item => <li key={item.id}>{item.text.replace(/^- /, "")} <small className="ai-settings-empty-hint">{evidence(item)}</small></li>)}</ul>
+            <ul>{profile.items.map(item => <li key={item.id}>{item.text.replace(/^- /, "")} <small className="ai-settings-empty-hint">{item.basis === "summary" && item.origin === "auto" && <strong>{t("authoringStyle.aiAddedBadge")} </strong>}{evidence(item)}</small></li>)}</ul>
           </details>}
         </Stack>}
         <Button tone="ghost" size="sm" disabled={busy || dirty || learnedDirty} onClick={() => setConfirmReset(true)}>{t("authoringStyle.reset")}</Button>

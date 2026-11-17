@@ -658,15 +658,17 @@ export class LocalAuthoringStyleStore {
       userContent: note.content, userPath: note.path, revision: note.revision,
       generatedContent, generatedPath: workspaceId === null ? "" : this.memory.generatedPath(workspaceId), generatedRevision: memory?.renderedHash ?? "",
       exampleCount: inScope(examples).length,
-      items: (memory?.items ?? []).map(({ id, section, text, origin, basis, support, documents, lastConfirmedAt }) =>
-        ({ id, section, text, origin, basis, support, documents, lastConfirmedAt })),
+      items: (memory?.items ?? []).map(({ id, section, text, origin, basis, support, documents, firstSeenAt, lastConfirmedAt }) =>
+        ({ id, section, text, origin, basis, support, documents, firstSeenAt, lastConfirmedAt })),
       pending: (memory?.pending ?? []).map(p => ({ id: p.id, kind: p.kind, reason: p.reason, currentText: p.expectedText,
         proposedText: p.kind === "remove" ? "" : itemText(p.key, p.value, memory!.locale) ?? "", support: p.support })),
       usage: { characters: generatedContent.length, limit: AUTHORING_STYLE_NOTE_LIMIT },
       outcomes: tally,
       lastReviewedAt: memory?.lastReviewedAt ?? null, reviewedDocuments: memory?.reviewedDocuments ?? 0, lastUpdate: memory?.lastUpdate ?? null,
       canUndo: Boolean(memory?.undo.length),
-      blockedLines: scanLines(note.content).blocked + scanLines(generatedContent).blocked,
+      // Counted with the lines the scan holds back: an added sentence that no longer passes the check for one.
+      blockedLines: scanLines(note.content).blocked + scanLines(generatedContent).blocked
+        + (memory?.items ?? []).filter(i => i.origin === "auto" && i.key && !isSuspicious(i.text) && !itemText(i.key, i.value, memory!.locale)).length,
     };
   }
 

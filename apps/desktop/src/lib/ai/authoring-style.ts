@@ -7,10 +7,11 @@ export interface AuthoringStyleItemView {
   section: AuthoringStyleSection;
   text: string;
   origin: "auto" | "user";
-  /** `summary`: suggested by the AI the user already uses. The others were counted on the device. */
+  /** `summary`: added by the AI the user already uses. The others were counted on the device. */
   basis: "writing" | "corrections" | "summary" | null;
   support: number;
   documents: number;
+  firstSeenAt: string;
   lastConfirmedAt: string;
 }
 
@@ -18,8 +19,7 @@ export interface AuthoringStyleItemView {
 export interface AuthoringStylePendingView {
   id: string;
   kind: "add" | "rewrite" | "remove";
-  /** `summary`: a sentence the AI suggested, which is never added without being read. */
-  reason: "contradicted" | "stale" | "limit" | "summary";
+  reason: "contradicted" | "stale" | "limit";
   currentText: string;
   proposedText: string;
   support: number;

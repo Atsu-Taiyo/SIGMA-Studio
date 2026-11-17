@@ -50,8 +50,7 @@ export interface StyleItem {
 export interface PendingChange {
   id: string;
   kind: "add" | "rewrite" | "remove";
-  /** `summary`: a sentence the AI suggested, which is never added without being read. */
-  reason: "contradicted" | "stale" | "limit" | "summary";
+  reason: "contradicted" | "stale" | "limit";
   key: string;
   value: string;
   /** The sentence this change was staged against. Approval is refused once it differs. */
@@ -330,6 +329,11 @@ export class AuthoringStyleMemory {
     const previous = memory.undo.pop();
     if (!previous) throw new Error("Nothing to undo");
     const current = structuredClone({ at: now.toISOString(), reason: "rollback", items: memory.items, suppressed: memory.suppressed, pending: memory.pending, dismissed: memory.dismissed });
+    // Taking back what the AI added tells it not to suggest the sentence again; redoing lifts that.
+    const texts = (items: readonly StyleItem[]) => items.filter(i => i.origin === "auto" && i.basis === "summary").map(i => i.text);
+    const restored = new Set(texts(previous.items));
+    const withdrawn = texts(memory.items).filter(text => !restored.has(text));
+    memory.declined = [...memory.declined.filter(text => !restored.has(text) && !withdrawn.includes(text)), ...withdrawn].slice(-MAX_DECLINED);
     Object.assign(memory, { items: previous.items, suppressed: previous.suppressed, pending: previous.pending, dismissed: previous.dismissed });
     memory.undo.push(current);
     await this.commit(workspaceId, memory, [{ actor: "user", action: "rollback", before: previous.reason }]);

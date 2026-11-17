@@ -40,18 +40,18 @@ it("keeps the displayed note's revision when another action returns a newer exte
 });
 
 it("shows the learned memo with its evidence and lets the user decide staged changes", async () => {
-  const profile: AuthoringStyleProfile = { ...base, workspaceId: "ws1", generatedContent: "# 学んだ書き方\n- 解説・説明は常体（だ・である）で書く。\n", generatedRevision: "memo1", generatedPath: "/learned.md",
-    items: [{ id: "auto:tone.explanation", section: "style", text: "解説・説明は常体（だ・である）で書く。", origin: "auto", basis: "writing", support: 4, documents: 2, lastConfirmedAt: "" },
-      { id: "auto:summary.style:1", section: "style", text: "要点を先に述べる。", origin: "auto", basis: "summary", support: 3, documents: 3, lastConfirmedAt: "" }],
+  const profile: AuthoringStyleProfile = { ...base, workspaceId: "ws1", generatedContent: "# 学んだ書き方\n- 解説・説明は常体（だ・である）で書く。\n- 要点を先に述べる。\n", generatedRevision: "memo1", generatedPath: "/learned.md",
+    items: [{ id: "auto:tone.explanation", section: "style", text: "解説・説明は常体（だ・である）で書く。", origin: "auto", basis: "writing", support: 4, documents: 2, firstSeenAt: "", lastConfirmedAt: "" },
+      { id: "auto:summary.style:1", section: "style", text: "要点を先に述べる。", origin: "auto", basis: "summary", support: 3, documents: 3, firstSeenAt: "2026-11-17T00:00:00Z", lastConfirmedAt: "" }],
     pending: [{ id: "rewrite:tone.explanation", kind: "rewrite", reason: "contradicted", currentText: "常体で書く。", proposedText: "丁寧体で書く。", support: 3 },
-      { id: "add:summary.style:2", kind: "add", reason: "summary", currentText: "", proposedText: "結論を先に書く。", support: 2 }],
+      { id: "add:summary.style:2", kind: "add", reason: "limit", currentText: "", proposedText: "結論を先に書く。", support: 2 }],
     outcomes: { kept: 5, edited: 2, reverted: 1, rejected: 3 }, canUndo: true, lastUpdate: { at: "", added: 1, staged: 1 }, blockedLines: 2 };
   const api = fakeApi({}, profile);
   const view = mount(api, "ws1");
   try {
     await view.render();
     expect(view.host.querySelector<HTMLTextAreaElement>("#authoring-style-learned")!.value).toBe(profile.generatedContent);
-    for (const text of ["そのまま 5・手直し 2・取り消し 1 / 却下した提案 3", "自分の文章 4箇所・教材2件", "AIによる要約・教材3件", "書き換え: 「常体で書く。」→「丁寧体で書く。」（根拠3箇所）", "追加: 「結論を先に書く。」（AIによる要約。教材2件から）", "1項目を追加、1件が確認待ち", "2行あり、AIへは渡していません"]) {
+    for (const text of ["そのまま 5・手直し 2・取り消し 1 / 却下した提案 3", "自分の文章 4箇所・教材2件", "AIによる要約・教材3件", "書き換え: 「常体で書く。」→「丁寧体で書く。」（根拠3箇所）", "追加: 「結論を先に書く。」（メモが上限に達しているため保留。根拠2箇所）", "AIが追加した項目", "1項目を追加、1件が確認待ち", "2行あり、AIへは渡していません"]) {
       expect(view.host.textContent).toContain(text);
     }
     await act(async () => view.button("反映する").click());
@@ -60,6 +60,10 @@ it("shows the learned memo with its evidence and lets the user decide staged cha
     expect(api.resolvePending).toHaveBeenLastCalledWith({ workspaceId: "ws1", id: "rewrite:tone.explanation", approve: false });
     await act(async () => view.host.querySelectorAll<HTMLButtonElement>('[role="switch"]')[1].click());
     expect(api.setAiSummary).toHaveBeenCalledWith("ws1", false);
+    // An item the AI added is marked as such and can be removed on the spot, which deletes its line from the memo.
+    expect([...view.host.querySelectorAll("li")].filter(li => li.textContent!.includes("AIが追加")).map(li => li.textContent!.includes("要点を先に述べる。"))).toEqual([true, true]);
+    await act(async () => view.host.querySelector<HTMLButtonElement>('[aria-label="「要点を先に述べる。」を削除"]')!.click());
+    expect(api.saveLearned).toHaveBeenCalledWith({ workspaceId: "ws1", content: "# 学んだ書き方\n- 解説・説明は常体（だ・である）で書く。\n", expectedRevision: "memo1" });
     await act(async () => view.button("今すぐ見直す").click());
     expect(api.review).toHaveBeenCalledWith("ws1");
     await act(async () => view.button("1つ前に戻す").click());

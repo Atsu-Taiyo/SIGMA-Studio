@@ -53,7 +53,7 @@ function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "l
     result.entries.push({ actor: "review", action: "unstage", key });
   };
   /** Add a habit the memo does not have yet, or stage it when the memo is full. */
-  const add = (key: string, value: string, text: string, evidence: Evidence) => {
+  const add = (key: string, value: string, text: string, evidence: Evidence, action: "add" | "add-summary" = "add") => {
     if (memory.dismissed.includes(`add:${key}:${value}`)) return;
     const candidate: StyleItem = { id: `auto:${key}`, key, value, section: sectionOf(key), text, origin: "auto", ...evidence, firstSeenAt: now, lastConfirmedAt: now };
     if (renderMemo({ ...memory, items: [...memory.items, candidate] }, context.locale).length > AUTHORING_STYLE_NOTE_LIMIT) {
@@ -66,7 +66,7 @@ function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "l
     memory.items.push(candidate);
     unstage(key);
     result.added++;
-    result.entries.push({ actor: "review", action: "add", key, after: text });
+    result.entries.push({ actor: "review", action, key, after: text });
   };
   const confirm = (item: StyleItem, evidence?: Evidence) => {
     Object.assign(item, evidence ?? {}, { lastConfirmedAt: now });
@@ -115,10 +115,11 @@ export function planReview(memory: StyleMemory, observations: readonly Observati
 }
 
 /**
- * What the configured AI read out of the author's writing. Its sentences are
- * free text that would be kept and placed in later AI requests, so none enters
- * the memo unread: each is staged for the author to accept or decline. Besides
- * that it can confirm a habit it suggested before; it never rewrites or removes.
+ * What the configured AI read out of the author's writing. Like any unattended
+ * pass it only adds and confirms; it never rewrites or removes. Its sentences
+ * are free text, so each was checked before it got here, is checked again every
+ * time it is placed in an AI request, is recorded in the ledger as the AI's
+ * addition, and can be taken back with the memo's undo.
  */
 export function planSummary(memory: StyleMemory, reply: SummaryReply, candidates: readonly string[],
   context: Pick<ReviewContext, "now" | "locale"> & { sources: readonly string[] }): ReviewResult {
@@ -136,7 +137,7 @@ export function planSummary(memory: StyleMemory, reply: SummaryReply, candidates
     if (held >= MAX_SUMMARY_ITEMS || taken.has(text) || memory.declined.includes(text) || memory.suppressed.includes(key)
       || memory.items.some(i => i.key === key) || memory.pending.some(p => p.key === key)
       || memory.dismissed.includes(`add:${key}:${text}`) || itemText(key, text, context.locale) !== text) continue;
-    pass.stage({ id: `add:${key}`, kind: "add", reason: "summary", key, value: text, expectedText: "", ...evidence, createdAt: pass.now });
+    pass.add(key, text, text, evidence, "add-summary");
     held++;
     taken.add(text);
   }
