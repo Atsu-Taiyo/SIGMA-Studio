@@ -97,6 +97,33 @@ describe("overlay image browser decoding", () => {
     expect(identifiers.asset).not.toHaveBeenCalled();
   });
 
+  it("bounds the total directory values even when each individual entry fits", async () => {
+    const encoded = encodeImage(new Uint8Array(8), 2, 1);
+    const values = 600_000;
+    const buffer = new ArrayBuffer(encoded.byteLength + 2 * values * 4);
+    new Uint8Array(buffer).set(new Uint8Array(encoded));
+    const view = new DataView(buffer);
+    const offset = view.getUint32(4);
+    const entries = view.getUint16(offset);
+    let added = 0;
+    for (let index = 0; index < entries; index++) {
+      const entry = offset + 2 + index * 12;
+      if (![282, 283].includes(view.getUint16(entry))) continue;
+      view.setUint16(entry, 40000 + added);
+      view.setUint16(entry + 2, 4);
+      view.setUint32(entry + 4, values);
+      view.setUint32(entry + 8, encoded.byteLength + added++ * values * 4);
+    }
+    expect(added).toBe(2);
+    const createElement = vi.fn(() => { throw new Error("must reject before canvas allocation"); });
+    vi.stubGlobal("document", { createElement });
+    await expect(createOverlayImageAsset(new File([buffer], "large-metadata.tif")))
+      .rejects.toThrow("TIFF directory exceeds metadata limit");
+    expect(createElement).not.toHaveBeenCalled();
+    expect(identifiers.asset).not.toHaveBeenCalled();
+    expect(FileReaderStub.instances).toHaveLength(0);
+  });
+
   it.each(["plain", "cyclic page", "cyclic metadata"])("decodes first TIFF page safely into PNG: %s", async variant => {
     const pixels = new Uint8Array([255, 0, 0, 255, 0, 0, 255, 255]);
     const canvas = { width: 0, height: 0, getContext: vi.fn(), toBlob: vi.fn() };

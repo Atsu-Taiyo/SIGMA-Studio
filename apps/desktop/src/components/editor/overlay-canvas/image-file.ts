@@ -131,6 +131,7 @@ function firstTiffPage(source: ArrayBuffer): ArrayBuffer {
   // The product imports only page one; do not traverse subsequent IFDs.
   view.setUint32(end, 0, little);
   const typeBytes = [0, 1, 1, 2, 4, 8, 1, 1, 2, 4, 8, 4, 8];
+  let metadataValues = 0;
   for (let entry = offset + 2; entry < end; entry += 12) {
     const tag = view.getUint16(entry, little);
     if ([330, 34665, 50740, 37500].includes(tag)) {
@@ -147,6 +148,10 @@ function firstTiffPage(source: ArrayBuffer): ArrayBuffer {
     if (!typeBytes[type] || values > 1_000_000 || start + bytes > buffer.byteLength) {
       throw new Error("Invalid TIFF directory value");
     }
+    // UTIF materializes every entry separately.
+    // Per-entry bounds alone do not bound the decoder's total work or memory.
+    metadataValues += values;
+    if (metadataValues > 1_000_000) throw new Error("TIFF directory exceeds metadata limit");
   }
   return buffer;
 }
