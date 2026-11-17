@@ -3,7 +3,7 @@ import type { StyleExample } from "./authoring-style-features";
 export interface Formula { tex: string; display: boolean; outside: string }
 type Patterns = readonly (readonly [RegExp, string])[];
 const command = (name: string) => new RegExp(String.raw`\\${name}(?![a-zA-Z])`);
-const NUMBER_SET = /\\(mathbb|mathbf|bm|boldsymbol)\{([NZQRC])\}/g;
+const NUMBER_SET = /\\(mathbb|mathbf|bm|boldsymbol)\s*\{\s*([NZQRC])\s*\}/g;
 
 /**
  * Notations that are a plain choice between commands. The same table reads the
@@ -16,7 +16,7 @@ export const TOKEN_HABITS: readonly (readonly [category: string, patterns: Patte
   ["iff", [[command("Leftrightarrow"), "\\Leftrightarrow"], [command("Longleftrightarrow"), "\\Longleftrightarrow"], [command("iff"), "\\iff"]]],
   ["approx", [[/\\fallingdotseq(?![a-zA-Z])|≒/, "\\fallingdotseq"], [command("approx"), "\\approx"], [command("simeq"), "\\simeq"]]],
   ["overline", [[command("overline"), "\\overline"], [command("bar"), "\\bar"]]],
-  ["numberSet", [[/\\mathbb\{[NZQRC]\}/, "\\mathbb"], [/\\(?:mathbf|bm|boldsymbol)\{[NZQRC]\}/, "\\mathbf"]]],
+  ["numberSet", [[/\\mathbb\s*\{\s*[NZQRC]\s*\}/, "\\mathbb"], [/\\(?:mathbf|bm|boldsymbol)\s*\{\s*[NZQRC]\s*\}/, "\\mathbf"]]],
 ];
 const TOKEN_NEUTRAL = TOKEN_HABITS.filter(([category]) => category !== "numberSet")
   .map(([category, patterns]) => [new RegExp(patterns.map(([pattern]) => pattern.source).join("|"), "g"), `\\${category}`] as const);
@@ -149,9 +149,17 @@ const WRITING_HABITS: readonly Habit[] = [
     [new RegExp(String.raw`${NUMBER_MARK}[(（]\d+[)）]\s*\}?\s*$`), "parenthesized"]])],
   // Where a long equation goes. Short formulas sit in the sentence for everyone.
   ["longEquation", (formula, tex) => tex.includes("=") && tex.replace(/\s+/g, "").length >= 30 ? [formula.display ? "display" : "inline"] : []],
-  ["inlineSize", (_, tex) => !/\\(?:sum|int|lim|prod)(?![a-zA-Z])/.test(tex) ? [] : [command("displaystyle").test(tex) ? "\\displaystyle" : command("limits").test(tex) ? "\\limits" : "none"], true],
-  ["integralSpacing", (_, tex) => !/\\int[\s\S]*[^a-zA-Z\\{]\s*(?:d|\\mathrm\{d\})\s*[a-zA-Z](?![a-zA-Z])/.test(tex) ? []
-    : [new RegExp(String.raw`\\[,;:]\s*${D}\s*[a-zA-Z](?![a-zA-Z])`).test(tex) ? "spaced" : "none"]],
+  ["inlineSize", (_, tex) => {
+    if (!/\\(?:sum|int|lim|prod)(?![a-zA-Z])/.test(tex)) return [];
+    const used = [command("displaystyle"), command("limits")].map(pattern => pattern.test(tex));
+    return used[0] && used[1] ? [] : [used[0] ? "\\displaystyle" : used[1] ? "\\limits" : "none"];
+  }, true],
+  ["integralSpacing", (_, tex) => {
+    // One choice per integral: a formula that spaces one dx and not another shows no preference.
+    const differentials = tex.match(new RegExp(String.raw`(?<![a-zA-Z\\{])${D}\s*[a-zA-Z](?![a-zA-Z])`, "g"))?.length ?? 0;
+    const spaced = tex.match(new RegExp(String.raw`\\[,;:]\s*${D}\s*[a-zA-Z](?![a-zA-Z])`, "g"))?.length ?? 0;
+    return !command("int").test(tex) || !differentials ? [] : spaced === 0 ? ["none"] : spaced === differentials ? ["spaced"] : [];
+  }],
   ["brackets", choice([[/\\left\s*(?:[(\[]|\\\{)/, "scalable"], [/\\(?:big|Big|bigg|Bigg)l?\s*(?:[(\[]|\\\{)/, "sized"],
     [new RegExp(String.raw`(?<!\\left\s*)(?<!\\[bB]igg?l?\s*)[(\[]\s*${TALL}`), "fixed"]])],
   ["setBuilder", (_, tex) => {

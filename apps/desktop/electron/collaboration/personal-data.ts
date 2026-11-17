@@ -15,9 +15,15 @@ const KEY = /^[a-z0-9][a-z0-9-]{0,79}$/;
 const MAX_RESPONSE_BYTES = 512 * 1024;
 
 export class PersonalDataClient implements PersonalDataPort {
-  constructor(private readonly fetcher: Fetcher) {}
+  constructor(private readonly fetcher: Fetcher, private readonly currentUserId: () => string | null) {}
 
-  async read(key: string): Promise<{ revision: string | null; content: unknown }> {
+  /** The request goes out with whoever is signed in at that moment. Refuse it when that is no longer the account it was meant for. */
+  private bound(userId: string): void {
+    if (this.currentUserId() !== userId) throw new Error("ACCOUNT_CHANGED");
+  }
+
+  async read(userId: string, key: string): Promise<{ revision: string | null; content: unknown }> {
+    this.bound(userId);
     const value = await readResponseJson<unknown>(await this.fetcher(route(key)), MAX_RESPONSE_BYTES);
     const body = value && typeof value === "object" ? value as Record<string, unknown> : {};
     if (body.revision === null) return { revision: null, content: null };
@@ -25,7 +31,8 @@ export class PersonalDataClient implements PersonalDataPort {
     return { revision: body.revision, content: body.content };
   }
 
-  async write(key: string, content: unknown, expectedRevision: string | null): Promise<{ revision: string } | "conflict"> {
+  async write(userId: string, key: string, content: unknown, expectedRevision: string | null): Promise<{ revision: string } | "conflict"> {
+    this.bound(userId);
     let response: Response;
     try {
       response = await this.fetcher(route(key), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevision, content }) });
@@ -40,7 +47,8 @@ export class PersonalDataClient implements PersonalDataPort {
     return { revision };
   }
 
-  async removeAll(): Promise<void> {
+  async removeAll(userId: string): Promise<void> {
+    this.bound(userId);
     await this.fetcher("/profile/data", { method: "DELETE" });
   }
 }

@@ -5,6 +5,7 @@ import path from "node:path";
 import { AUTHORING_STYLE_NOTE_LIMIT, type AuthoringStyleSection, type AuthoringStyleSyncView } from "@/lib/ai/authoring-style";
 import type { AppLocale } from "@/lib/i18n";
 import { itemText, SECTION_ORDER, sectionOf } from "./authoring-style-items";
+import { isSuspicious } from "./authoring-style-scan";
 import { atomicStyleWrite, renderMemo, type AuthoringStyleMemory, type LedgerDraft, type StyleItem, type StyleMemory } from "./authoring-style-memory";
 
 /**
@@ -17,16 +18,22 @@ import { atomicStyleWrite, renderMemo, type AuthoringStyleMemory, type LedgerDra
 
 /** The server's per-user store, reached with the signed-in account's token. */
 export interface PersonalDataPort {
-  read(key: string): Promise<{ revision: string | null; content: unknown }>;
+  /** Every call names the account it is meant for and fails when another one is signed in by then. */
+  read(userId: string, key: string): Promise<{ revision: string | null; content: unknown }>;
   /** Writes only when the stored revision is still `expectedRevision` (null: nothing stored yet). */
-  write(key: string, content: unknown, expectedRevision: string | null): Promise<{ revision: string } | "conflict">;
-  removeAll(): Promise<void>;
+  write(userId: string, key: string, content: unknown, expectedRevision: string | null): Promise<{ revision: string } | "conflict">;
+  removeAll(userId: string): Promise<void>;
 }
 
 export const MAX_SYNCED_ITEMS = 400;
 export const MAX_SYNCED_LEDGER_LINES = 200;
 export const MAX_BUNDLE_BYTES = 256 * 1024;
 const MAX_LEDGER_LINE = 2000;
+const MAX_OPAQUE_ITEMS = 100;
+const MAX_USER_LINE = 500;
+/** A ledger line recording that a change arrived by sync. It stays on the device it arrived on: the change itself is on record where it was made. */
+const ARRIVED = '"actor":"sync"';
+const LINE_BREAK = new RegExp("[\\p{Cc}\\u2028\\u2029]", "u");
 const GLOBAL_KEY = "style-global";
 const PROVIDERS = ["claude", "chatgpt", "antigravity"];
 
@@ -47,7 +54,11 @@ export interface SyncedItem {
 }
 
 interface Settings { enabled: boolean; aiSummary: boolean }
-interface Learned { generation: number; items: SyncedItem[]; suppressed: string[]; dismissed: string[]; declined: string[] }
+interface Learned {
+  generation: number; items: SyncedItem[]; suppressed: string[]; dismissed: string[]; declined: string[];
+  /** Entries a newer version wrote in a shape this one does not know. Kept as they are, never read. */
+  opaque: unknown[];
+}
 export interface WorkspaceBundle extends Learned {
   version: 1; kind: "workspace"; locale: AppLocale; note: string; settings: Settings; ledger: string[]; updatedAt: string; device: string;
 }
@@ -69,18 +80,22 @@ export function parseBundle(value: unknown, kind: "workspace" | "global"): Works
     updatedAt: text(value.updatedAt, 40) ? value.updatedAt : "", device: text(value.device, 64) ? value.device : "" };
   if (kind === "global") return { ...common, kind, provider: PROVIDERS.includes(value.provider as string) ? value.provider as string : null };
   if (!Array.isArray(value.items)) return null;
-  const items = value.items.filter((item): item is SyncedItem => isRecord(item) && text(item.id, 200) && (item.key === null || text(item.key, 200))
+  const known = (item: unknown): item is SyncedItem => isRecord(item) && text(item.id, 200) && (item.key === null || text(item.key, 200))
     && text(item.value, 200) && text(item.text, AUTHORING_STYLE_NOTE_LIMIT) && (item.origin === "auto" || item.origin === "user")
-    && SECTION_ORDER.includes(item.section as AuthoringStyleSection) && text(item.firstSeenAt, 40) && text(item.lastConfirmedAt, 40))
-    .slice(0, MAX_SYNCED_ITEMS).map(item => ({
+    && SECTION_ORDER.includes(item.section as AuthoringStyleSection) && text(item.firstSeenAt, 40) && text(item.lastConfirmedAt, 40);
+  const extra = Array.isArray(value.opaque) ? value.opaque : [];
+  const opaque = [...value.items.filter(item => !known(item)), ...extra];
+  // Reading only part of a copy would later send it back with the rest missing.
+  if (value.items.length - (opaque.length - extra.length) > MAX_SYNCED_ITEMS || opaque.length > MAX_OPAQUE_ITEMS || opaque.some(item => JSON.stringify(item).length > MAX_LEDGER_LINE)) return null;
+  const items = value.items.filter(known).map(item => ({
       id: item.id, key: item.key, value: item.value, section: item.section, text: item.text, origin: item.origin,
       basis: item.basis === "writing" || item.basis === "corrections" || item.basis === "summary" ? item.basis : null,
       support: count(item.support), documents: count(item.documents), firstSeenAt: item.firstSeenAt, lastConfirmedAt: item.lastConfirmedAt,
-      devices: strings(item.devices, 20, 64),
+      devices: strings(item.devices, 20, 64).sort(),
     }));
   return { ...common, kind, locale: value.locale === "en" ? "en" : "ja", generation: count(value.generation), items,
     suppressed: strings(value.suppressed, 100, 200), dismissed: strings(value.dismissed, 60, 500), declined: strings(value.declined, 30, 200),
-    ledger: strings(value.ledger, MAX_SYNCED_LEDGER_LINES, MAX_LEDGER_LINE) };
+    ledger: strings(value.ledger, MAX_SYNCED_LEDGER_LINES, MAX_LEDGER_LINE), opaque };
 }
 
 /** One habit per key; a line the user wrote is the line itself. */
@@ -96,9 +111,12 @@ function pick<T>(base: T | undefined, local: T, remote: T): T {
   return same(local, remote) ? local : base !== undefined && same(base, remote) ? local : remote;
 }
 
-/** A switch both sides set differently stays off: sync never turns learning, or sending text to an AI, on by itself. */
+/**
+ * What the account's copy should say about a switch. With nothing agreed before, the server's copy stands.
+ * Whether a device turns the switch on is decided separately: sync only ever turns one off.
+ */
 function pickSwitch(base: boolean | undefined, local: boolean, remote: boolean): boolean {
-  return local === remote ? local : base !== undefined && base === remote ? local : base !== undefined && base === local ? remote : false;
+  return local === remote ? local : base === undefined ? remote : base === remote ? local : base === local ? remote : false;
 }
 const mergeSettings = (base: Settings | undefined, local: Settings, remote: Settings): Settings => ({
   enabled: pickSwitch(base?.enabled, local.enabled, remote.enabled), aiSummary: pickSwitch(base?.aiSummary, local.aiSummary, remote.aiSummary),
@@ -128,10 +146,12 @@ export function mergeItems(base: readonly SyncedItem[] | undefined, local: reado
       continue;
     }
     const winner = statement(mine) === statement(other) || (was && statement(was) === statement(other)) ? mine : other;
-    const fresher = other.lastConfirmedAt > mine.lastConfirmedAt ? other : mine;
-    result.push({ ...winner, id: mine.id, basis: winner === mine ? mine.basis : other.basis, support: fresher.support, documents: fresher.documents,
+    // The same on whichever device merges: otherwise two devices would keep sending each other their own version.
+    const rank = (item: SyncedItem) => `${item.lastConfirmedAt}\n${String(item.support).padStart(9, "0")}\n${String(item.documents).padStart(9, "0")}\n${item.basis}`;
+    const fresher = statement(mine) !== statement(other) ? winner : rank(other) > rank(mine) ? other : mine;
+    result.push({ ...winner, id: mine.id, basis: fresher.basis, support: fresher.support, documents: fresher.documents,
       firstSeenAt: other.firstSeenAt < mine.firstSeenAt ? other.firstSeenAt : mine.firstSeenAt, lastConfirmedAt: fresher.lastConfirmedAt,
-      devices: [...new Set([...mine.devices, ...other.devices])].slice(0, 20) });
+      devices: [...new Set([...mine.devices, ...other.devices])].sort().slice(0, 20) });
   }
   for (const other of remote) {
     const id = identity(other);
@@ -162,35 +182,40 @@ export function mergeNote(base: string | undefined, local: string, remote: strin
 
 function mergeLedger(local: readonly string[], remote: readonly string[]): string[] {
   const at = (line: string) => { try { const value = JSON.parse(line).at; return typeof value === "string" ? value : ""; } catch { return ""; } };
-  return [...new Set([...local, ...remote])].map((line, index) => ({ line, at: at(line), index }))
-    .sort((a, b) => a.at.localeCompare(b.at) || a.index - b.index).map(entry => entry.line);
+  return [...new Set([...local, ...remote])].map(line => ({ line, at: at(line) }))
+    .sort((a, b) => a.at.localeCompare(b.at) || a.line.localeCompare(b.line)).map(entry => entry.line);
 }
 
-/** A reset counts up the generation. The side that reset last replaces the other's learned habits instead of being merged with them. */
-function mergeLearned(base: Learned | undefined, local: Learned, remote: Learned): Learned {
-  if (local.generation !== remote.generation) {
-    const { generation, items, suppressed, dismissed, declined } = local.generation > remote.generation ? local : remote;
-    return { generation, items, suppressed, dismissed, declined };
+/**
+ * A reset counts up the generation. The side that reset last replaces the other's learned habits instead of
+ * being merged with them. Files meeting an account for the first time have no resets in common with it, so
+ * they are merged as they are.
+ */
+function mergeLearned(base: Learned | undefined, local: Learned, remote: Learned, first = false): Learned {
+  if (local.generation !== remote.generation && !first) {
+    const { generation, items, suppressed, dismissed, declined, opaque } = local.generation > remote.generation ? local : remote;
+    return { generation, items, suppressed, dismissed, declined, opaque };
   }
   const was = base && base.generation === local.generation ? base : undefined;
   const suppressed = mergeList(was?.suppressed, local.suppressed, remote.suppressed, 100);
   const declined = mergeList(was?.declined, local.declined, remote.declined, 30);
   return {
-    generation: local.generation, suppressed, declined, dismissed: mergeList(was?.dismissed, local.dismissed, remote.dismissed, 60),
+    generation: Math.max(local.generation, remote.generation), suppressed, declined, dismissed: mergeList(was?.dismissed, local.dismissed, remote.dismissed, 60),
     // A removal always wins: no device learns again, or keeps, what its author took out.
     items: mergeItems(was?.items, local.items, remote.items)
       .filter(item => item.origin !== "auto" || !item.key || (!suppressed.includes(item.key) && !(item.basis === "summary" && declined.includes(item.text)))),
+    opaque: remote.opaque,
   };
 }
 
 export function mergeWorkspace(base: WorkspaceBundle | null, local: WorkspaceBundle, remote: WorkspaceBundle | null): WorkspaceBundle {
   if (!remote) return local;
   return {
-    ...local, ...mergeLearned(base ?? undefined, local, remote),
+    ...local, ...mergeLearned(base ?? undefined, local, remote, !base),
     note: mergeNote(base?.note, local.note, remote.note),
     settings: mergeSettings(base?.settings, local.settings, remote.settings),
     // A reset empties the ledger too.
-    ledger: local.generation !== remote.generation ? (local.generation > remote.generation ? local : remote).ledger
+    ledger: base && local.generation !== remote.generation ? (local.generation > remote.generation ? local : remote).ledger
       : mergeLedger(local.ledger, remote.ledger).slice(-MAX_SYNCED_LEDGER_LINES),
   };
 }
@@ -205,9 +230,22 @@ export function mergeGlobal(base: GlobalBundle | null, local: GlobalBundle, remo
 }
 
 /** Equal as far as other devices are concerned: who wrote the copy, and when, is not content. */
-const comparable = (bundle: WorkspaceBundle | GlobalBundle) => JSON.stringify({ ...bundle, updatedAt: "", device: "" });
+function comparable(bundle: WorkspaceBundle | GlobalBundle): string {
+  // Spelled out field by field: the order in which an object happened to be built is not content either.
+  const switches = [bundle.settings.enabled, bundle.settings.aiSummary];
+  if (bundle.kind === "global") return JSON.stringify([bundle.kind, bundle.note, switches, bundle.provider]);
+  // Neither the order of a list nor the language an automatic sentence is shown in is content.
+  const items = bundle.items.map(item => [identity(item), statement(item), item.basis, item.support, item.documents, item.firstSeenAt, item.lastConfirmedAt, item.devices.join(",")].join("\n")).sort();
+  const sorted = (list: readonly string[]) => [...list].sort();
+  return JSON.stringify([bundle.kind, bundle.generation, bundle.note, switches, items, sorted(bundle.suppressed), sorted(bundle.dismissed),
+    sorted(bundle.declined), sorted(bundle.ledger), bundle.opaque.map(entry => JSON.stringify(entry)).sort()]);
+}
 
-interface ScopeState { revision: string | null; base: WorkspaceBundle | GlobalBundle | null; syncedAt: string | null }
+interface ScopeState {
+  revision: string | null; base: WorkspaceBundle | GlobalBundle | null; syncedAt: string | null;
+  /** Switches the account has on and this device keeps off until its user turns them on here. */
+  held?: { enabled?: boolean; aiSummary?: boolean };
+}
 interface SyncState {
   version: 1;
   enabled: boolean;
@@ -242,12 +280,19 @@ export interface SyncHost {
 export interface SyncAccount { client: PersonalDataPort; userId(): string | null; /** False when the app was built without a server. */ available?(): boolean }
 
 class SyncProblem extends Error { constructor(readonly state: NonNullable<SyncState["problem"]>) { super(state); } }
+/** The run was overtaken: sync was turned off, the copy was deleted, or another account signed in. */
+class Cancelled extends Error {}
+
+
+interface Run { userId: string; epoch: number }
 
 export class AuthoringStyleSync {
   private running: Promise<void> | null = null;
   private again = false;
   private timer?: ReturnType<typeof setTimeout>;
   private lastAttempt = 0;
+  /** Counts up whenever a run under way must not go on: sync turned off, copy deleted, another account linked. */
+  private epoch = 0;
 
   constructor(private readonly host: SyncHost, private readonly account: SyncAccount | null) {}
 
@@ -284,6 +329,7 @@ export class AuthoringStyleSync {
 
   /** Caller holds the style lock. Turning sync on for the first time links these files to the signed-in account. */
   async setEnabled(enabled: boolean): Promise<void> {
+    if (!enabled) this.epoch++;
     const state = await this.state();
     const userId = this.account?.userId() ?? null;
     await this.write({ ...state, enabled, problem: null, account: enabled && !state.account && userId ? hash(userId) : state.account });
@@ -294,6 +340,7 @@ export class AuthoringStyleSync {
     const state = await this.state();
     const userId = this.account?.userId() ?? null;
     if (!userId) throw new Error("Sign in to sync");
+    this.epoch++;
     // What was agreed with the previous account says nothing about this one: start from a plain union.
     await this.write({ ...state, account: hash(userId), scopes: {}, problem: null });
   }
@@ -307,9 +354,17 @@ export class AuthoringStyleSync {
 
   /** Remove this account's copy from the server and stop syncing. The files on this device stay. */
   async removeRemote(): Promise<void> {
-    if (!this.account?.userId()) throw new Error("Sign in to sync");
-    await this.account.client.removeAll();
-    await this.host.exclusive(async () => this.write({ ...await this.state(), enabled: false, scopes: {}, problem: null }));
+    const userId = this.account?.userId() ?? null;
+    if (!this.account || !userId) throw new Error("Sign in to sync");
+    await this.host.exclusive(async () => {
+      const state = await this.state();
+      if (state.account && state.account !== hash(userId)) throw new Error("These files are synced with another account");
+      this.epoch++;
+      await this.write({ ...state, enabled: false, scopes: {}, problem: null });
+    });
+    // A run already under way stops at its next step; wait for it so it cannot write after the deletion.
+    await this.running;
+    await this.account.client.removeAll(userId);
   }
 
   /** Sync shortly, once changes have stopped arriving. */
@@ -330,6 +385,7 @@ export class AuthoringStyleSync {
     if (this.running) { this.again = true; return this.running; }
     this.lastAttempt = Date.now();
     this.running = this.sync().catch(async error => {
+      if (error instanceof Cancelled) return;
       const problem = error instanceof SyncProblem ? error.state : (error as { status?: number })?.status === 404 ? "unavailable" : "error";
       if (!(error instanceof SyncProblem)) this.host.log(error);
       await this.host.exclusive(async () => this.write({ ...await this.state(), problem })).catch(() => {});
@@ -340,16 +396,37 @@ export class AuthoringStyleSync {
     return this.running;
   }
 
+  /** A whole run that starts now: one already under way may have read the files before the latest change. */
+  async fresh(): Promise<void> {
+    clearTimeout(this.timer);
+    while (this.running) await this.running;
+    this.again = false;
+    await this.run();
+  }
+
+  /** Stop a run that was overtaken while it waited for the network or for the lock. */
+  private alive(run: Run): void {
+    if (this.epoch !== run.epoch || this.account?.userId() !== run.userId) throw new Cancelled();
+  }
+
+  /** Caller holds the style lock. The state, if this run may still change the files. */
+  private async current(run: Run): Promise<SyncState> {
+    this.alive(run);
+    const state = await this.state();
+    if (!state.enabled || (state.account !== null && state.account !== hash(run.userId))) throw new Cancelled();
+    return state;
+  }
+
   private async sync(): Promise<void> {
     const userId = this.account?.userId() ?? null;
     if (!this.account || !userId) return;
+    const run: Run = { userId, epoch: this.epoch };
     const start = await this.host.exclusive(() => this.state());
     if (!start.enabled || (start.account && start.account !== hash(userId))) return;
-    const stillSame = () => { if (this.account?.userId() !== userId) throw new Error("ACCOUNT_CHANGED"); };
-    await this.scope(GLOBAL_KEY, null, stillSame);
+    await this.scope(GLOBAL_KEY, null, run);
     const workspaces = await this.host.workspaces();
     const keys = await this.host.exclusive(async () => {
-      const state = await this.state();
+      const state = await this.current(run);
       const taken = new Set(Object.entries(state.keys).filter(([id]) => workspaces.some(w => w.id === id)).map(([, key]) => key));
       for (const workspace of workspaces) {
         if (state.keys[workspace.id]) continue;
@@ -364,29 +441,37 @@ export class AuthoringStyleSync {
     });
     let limited = false;
     for (const workspace of workspaces) {
-      try { await this.scope(keys[workspace.id], workspace.id, stillSame); }
+      try { await this.scope(keys[workspace.id], workspace.id, run); }
       catch (error) { if (error instanceof SyncProblem && error.state === "limit") limited = true; else throw error; }
     }
-    await this.host.exclusive(async () => this.write({ ...await this.state(), problem: limited ? "limit" : null, lastSyncedAt: this.host.now().toISOString() }));
+    await this.host.exclusive(async () => this.write({ ...await this.current(run), problem: limited ? "limit" : null, lastSyncedAt: this.host.now().toISOString() }));
   }
 
-  private valid(item: SyncedItem, locale: AppLocale): boolean {
-    return item.origin === "user" || (Boolean(item.key) && itemText(item.key!, item.value, locale) !== null);
+  /**
+   * Whether a habit from the server may be used on this device. Its sentence is not taken on trust: an
+   * automatic one must be a sentence this version makes itself, a hand-written one a plain single line.
+   */
+  private usable(item: SyncedItem, locale: AppLocale): boolean {
+    if (item.origin === "auto") return Boolean(item.key) && itemText(item.key!, item.value, locale) !== null;
+    return item.text.length <= MAX_USER_LINE && !LINE_BREAK.test(item.text) && !isSuspicious(item.text);
   }
 
   private async snapshot(workspaceId: string, state: SyncState, key: string): Promise<WorkspaceBundle> {
     const memory = await this.host.memory.load(workspaceId, this.host.locale(), this.host.now());
     // Sending only part of a memo would read, on the other side, as the rest having been deleted.
     if (memory.items.length > MAX_SYNCED_ITEMS) throw new SyncProblem("limit");
-    const base = state.scopes[key]?.base;
-    // Habits this version cannot read came from a newer one. They are carried along untouched, never used here.
-    const carried = base?.kind === "workspace" ? base.items.filter(item => !this.valid(item, memory.locale) && !memory.suppressed.includes(item.key ?? "")) : [];
+    const generation = state.generations[workspaceId] ?? 0;
+    const known = state.scopes[key]?.base;
+    // What this device could not use came from another one. It is carried along untouched, unless a reset erased it.
+    const base = known?.kind === "workspace" && known.generation === generation ? known : null;
+    const mine = new Set(memory.items.map(identity));
+    const carried = (base?.items ?? []).filter(item => !mine.has(identity(item)) && !this.usable(item, memory.locale) && !memory.suppressed.includes(item.key ?? ""));
     return {
-      version: 1, kind: "workspace", locale: memory.locale, generation: state.generations[workspaceId] ?? 0,
-      items: [...memory.items.map(item => this.synced(item, state.device)), ...carried],
+      version: 1, kind: "workspace", locale: memory.locale, generation,
+      items: [...memory.items.map(item => this.synced(item, state.device)), ...carried], opaque: base?.opaque ?? [],
       suppressed: memory.suppressed, dismissed: memory.dismissed, declined: memory.declined,
       note: (await this.host.memory.readNote(workspaceId)).content, settings: await this.host.memory.settingsOf(workspaceId),
-      ledger: (await this.host.memory.ledgerLines(workspaceId)).filter(line => line.length <= MAX_LEDGER_LINE).slice(-MAX_SYNCED_LEDGER_LINES),
+      ledger: (await this.host.memory.ledgerLines(workspaceId)).filter(line => line.length <= MAX_LEDGER_LINE && !line.includes(ARRIVED)).slice(-MAX_SYNCED_LEDGER_LINES),
       updatedAt: this.host.now().toISOString(), device: state.device,
     };
   }
@@ -394,7 +479,7 @@ export class AuthoringStyleSync {
   private synced(item: StyleItem, device: string): SyncedItem {
     const { id, key, value, section, text: sentence, origin, basis, support, documents, firstSeenAt, lastConfirmedAt } = item;
     return { id, key, value, section, text: sentence, origin, basis, support, documents, firstSeenAt, lastConfirmedAt,
-      devices: [...(item.devices ?? []).filter(d => d !== device), ...(item.sources.length ? [device] : [])] };
+      devices: [...new Set([...(item.devices ?? []).filter(d => d !== device), ...(item.sources.length ? [device] : [])])].sort() };
   }
 
   /** Turn merged habits back into this device's items, keeping the evidence it holds itself. */
@@ -402,9 +487,10 @@ export class AuthoringStyleSync {
     const known = new Map<string, StyleItem>();
     for (const pool of pools) for (const item of pool) if (!known.has(identity(item))) known.set(identity(item), item);
     return items.flatMap(item => {
+      const mine = known.get(identity(item));
+      if (!mine && !this.usable(item, locale)) return [];
       const sentence = item.origin === "user" ? item.text : item.key ? itemText(item.key, item.value, locale) : null;
       if (sentence === null) return [];
-      const mine = known.get(identity(item));
       return [{ id: mine?.id ?? item.id, key: item.origin === "auto" ? item.key : null, value: item.value,
         section: item.origin === "auto" && item.key ? sectionOf(item.key) : item.section, text: sentence, origin: item.origin, basis: item.basis,
         support: item.support, documents: item.documents, sources: mine?.sources ?? [], firstSeenAt: item.firstSeenAt, lastConfirmedAt: item.lastConfirmedAt,
@@ -412,13 +498,18 @@ export class AuthoringStyleSync {
     });
   }
 
-  /** Caller holds the style lock. Bring the merged habits into the memo on this device. */
-  private async adopt(workspaceId: string, local: WorkspaceBundle, merged: WorkspaceBundle, device: string): Promise<void> {
-    const { memory: files } = this.host;
-    const memory = await files.load(workspaceId, this.host.locale(), this.host.now());
+  /** Caller holds the style lock. Check that the merged result fits before anything on this device is changed. */
+  private async plan(workspaceId: string, merged: WorkspaceBundle, device: string): Promise<{ memory: StyleMemory; items: StyleItem[] }> {
+    const memory = await this.host.memory.load(workspaceId, this.host.locale(), this.host.now());
     const items = this.restore(merged.items, [memory.items], memory.locale, device);
-    if (renderMemo({ items }, memory.locale).length > AUTHORING_STYLE_NOTE_LIMIT) throw new SyncProblem("limit");
-    if (merged.note.length > AUTHORING_STYLE_NOTE_LIMIT) throw new SyncProblem("limit");
+    if (renderMemo({ items }, memory.locale).length > AUTHORING_STYLE_NOTE_LIMIT || merged.note.length > AUTHORING_STYLE_NOTE_LIMIT) throw new SyncProblem("limit");
+    return { memory, items };
+  }
+
+  /** Caller holds the style lock. Bring the merged habits into the memo on this device. */
+  private async adopt(workspaceId: string, local: WorkspaceBundle, merged: WorkspaceBundle, device: string, reset: boolean,
+    { memory, items }: { memory: StyleMemory; items: StyleItem[] }): Promise<void> {
+    const { memory: files } = this.host;
     const before = new Map(memory.items.map(item => [identity(item), item]));
     const after = new Map(items.map(item => [identity(item), item]));
     const entries: LedgerDraft[] = [
@@ -428,22 +519,31 @@ export class AuthoringStyleSync {
       ...memory.items.filter(item => !after.has(identity(item))).map(item => ({ actor: "sync" as const, action: "sync-remove", ...(item.key ? { key: item.key } : {}), before: item.text })),
     ];
     // Undo steps back over what was done on this device. What another device changed is applied to each
-    // step too, so stepping back does not take it out again.
-    const was: Learned = { generation: 0, items: local.items, suppressed: local.suppressed, dismissed: local.dismissed, declined: local.declined };
+    // step too, so stepping back does not take it out again. Nothing from before a reset can be stepped back to.
+    const was: Learned = { generation: 0, items: local.items, suppressed: local.suppressed, dismissed: local.dismissed, declined: local.declined, opaque: [] };
     const now: Learned = { ...merged, generation: 0 };
-    memory.undo = merged.generation !== local.generation ? [] : memory.undo.map(step => {
+    memory.undo = reset ? [] : memory.undo.map(step => {
       const rebased = mergeLearned(was, { generation: 0, items: step.items.map(item => this.synced(item, device)), suppressed: step.suppressed,
-        dismissed: step.dismissed, declined: step.declined ?? local.declined }, now);
+        dismissed: step.dismissed, declined: step.declined ?? local.declined, opaque: [] }, now);
       return { ...step, items: this.restore(rebased.items, [step.items, items], memory.locale, device), suppressed: rebased.suppressed,
         dismissed: rebased.dismissed, declined: rebased.declined, pending: step.pending.filter(p => !rebased.suppressed.includes(p.key)) };
     });
     Object.assign(memory, { items, suppressed: merged.suppressed, dismissed: merged.dismissed, declined: merged.declined } satisfies Partial<StyleMemory>);
-    // A staged change whose habit is gone, or already there, has nothing left to decide.
-    memory.pending = memory.pending.filter(p => !merged.suppressed.includes(p.key) && (p.kind !== "add" || !items.some(item => item.key === p.key)));
-    await files.writeLedger(workspaceId, merged.generation !== local.generation ? merged.ledger : mergeLedger(await files.ledgerLines(workspaceId), merged.ledger));
+    // A staged change whose habit is gone, or already there, has nothing left to decide. Nor has one staged before a reset.
+    memory.pending = reset ? [] : memory.pending.filter(p => !merged.suppressed.includes(p.key) && (p.kind !== "add" || !items.some(item => item.key === p.key)));
+    await files.writeLedger(workspaceId, reset ? merged.ledger : mergeLedger(await files.ledgerLines(workspaceId), merged.ledger));
     await files.commit(workspaceId, memory, entries);
     if (merged.note !== local.note) await files.writeNote(workspaceId, merged.note);
-    if (JSON.stringify(merged.settings) !== JSON.stringify(local.settings)) await files.writeSettings(workspaceId, merged.settings);
+  }
+
+  /**
+   * Caller holds the style lock. A switch the account has off goes off here. One it has on is not turned on:
+   * that is its user's to do on this device. Returns the switches held off that way.
+   */
+  private async switches(workspaceId: string | null, local: Settings, merged: Settings): Promise<NonNullable<ScopeState["held"]>> {
+    const next = { enabled: local.enabled && merged.enabled, aiSummary: local.aiSummary && merged.aiSummary };
+    if (JSON.stringify(next) !== JSON.stringify(local)) await this.host.memory.writeSettings(workspaceId, next);
+    return { enabled: merged.enabled && !local.enabled, aiSummary: merged.aiSummary && !local.aiSummary };
   }
 
   private async snapshotGlobal(state: SyncState): Promise<GlobalBundle> {
@@ -452,49 +552,72 @@ export class AuthoringStyleSync {
   }
 
   /** One key: read the server's copy, merge it into this device under the lock, send the result, remember what was agreed. */
-  private async scope(key: string, workspaceId: string | null, stillSame: () => void): Promise<void> {
+  private async scope(key: string, workspaceId: string | null, run: Run): Promise<void> {
     const client = this.account!.client;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const remote = await client.read(key);
-      stillSame();
+      this.alive(run);
+      const remote = await client.read(run.userId, key);
       const kind = workspaceId === null ? "global" : "workspace";
       const theirs = remote.revision === null ? null : kind === "global" ? parseBundle(remote.content, "global") : parseBundle(remote.content, "workspace");
       // A copy this version cannot read was written by a newer one. Leave it alone.
       if (remote.revision !== null && !theirs) return;
       const merged = await this.host.exclusive(async () => {
-        const state = await this.state();
+        const state = await this.current(run);
         const known = state.scopes[key];
+        if (remote.revision === null && known?.revision) {
+          // The account's copy was deleted from another device. Do not put it back: stop syncing here too.
+          this.epoch++;
+          await this.write({ ...state, enabled: false, scopes: {}, problem: null });
+          throw new Cancelled();
+        }
         const base = known?.base?.kind === kind ? known.base : null;
+        const held = (local: Settings): Settings => ({ enabled: local.enabled || Boolean(known?.held?.enabled), aiSummary: local.aiSummary || Boolean(known?.held?.aiSummary) });
+        // What was merged in is on record before anything else can fail: a retry then tells what came from
+        // the server from what was added here, and does not send back something another device has deleted since.
+        const journal = async (heldNow: ScopeState["held"], generation?: number) => {
+          const latest = await this.state();
+          await this.write({ ...latest, generations: generation === undefined ? latest.generations : { ...latest.generations, [workspaceId!]: generation },
+            scopes: { ...latest.scopes, [key]: { revision: remote.revision, base: theirs, syncedAt: known?.syncedAt ?? null, held: heldNow } } });
+        };
         if (workspaceId === null) {
-          const local = await this.snapshotGlobal(state);
+          const mine = await this.snapshotGlobal(state);
+          const local = { ...mine, settings: held(mine.settings) };
           const result = mergeGlobal(base as GlobalBundle | null, local, theirs as GlobalBundle | null);
           if (result.note.length > AUTHORING_STYLE_NOTE_LIMIT) throw new SyncProblem("limit");
           if (result.note !== local.note) await this.host.memory.writeNote(null, result.note);
-          if (JSON.stringify(result.settings) !== JSON.stringify(local.settings)) await this.host.memory.writeSettings(null, result.settings);
+          const heldNow = await this.switches(null, mine.settings, result.settings);
           if (result.provider && result.provider !== local.provider) await this.host.setProvider(result.provider);
-          return { result, empty: !result.note && result.settings.enabled && result.settings.aiSummary && !result.provider };
+          await journal(heldNow);
+          return { result, held: heldNow, empty: !result.note && result.settings.enabled && result.settings.aiSummary && !result.provider };
         }
-        const local = await this.snapshot(workspaceId, state, key);
+        const mine = await this.snapshot(workspaceId, state, key);
+        const local = { ...mine, settings: held(mine.settings) };
         const result = mergeWorkspace(base as WorkspaceBundle | null, local, theirs as WorkspaceBundle | null);
         // Reset on another device: what this device collected before the reset goes as well.
-        if (result.generation > local.generation) await this.host.forget(workspaceId);
-        if (comparable(result) !== comparable(local)) await this.adopt(workspaceId, local, result, state.device);
-        if (result.generation !== local.generation) await this.write({ ...await this.state(), generations: { ...state.generations, [workspaceId]: result.generation } });
-        return { result, empty: !result.items.length && !result.note && !result.ledger.length && !result.suppressed.length && result.settings.enabled && result.settings.aiSummary };
+        const reset = Boolean(base) && result.generation > local.generation;
+        if (comparable(result) !== comparable(local)) {
+          const plan = await this.plan(workspaceId, result, state.device);
+          if (reset) await this.host.forget(workspaceId);
+          await this.adopt(workspaceId, local, result, state.device, reset, plan);
+        }
+        const heldNow = await this.switches(workspaceId, mine.settings, result.settings);
+        await journal(heldNow, result.generation);
+        return { result, held: heldNow, empty: !result.items.length && !result.opaque.length && !result.note && !result.ledger.length && !result.suppressed.length
+          && result.settings.enabled && result.settings.aiSummary };
       });
       let revision = remote.revision;
       const changed = theirs ? comparable(merged.result) !== comparable(theirs) : !merged.empty;
       if (changed) {
         if (Buffer.byteLength(JSON.stringify(merged.result)) > MAX_BUNDLE_BYTES) throw new SyncProblem("limit");
-        const written = await client.write(key, merged.result, remote.revision);
-        stillSame();
+        this.alive(run);
+        const written = await client.write(run.userId, key, merged.result, remote.revision);
         // Another device wrote in between: read its copy and merge again.
         if (written === "conflict") continue;
         revision = written.revision;
       }
       await this.host.exclusive(async () => {
-        const state = await this.state();
-        await this.write({ ...state, scopes: { ...state.scopes, [key]: { revision, base: revision === null ? null : merged.result, syncedAt: this.host.now().toISOString() } } });
+        const state = await this.current(run);
+        await this.write({ ...state, scopes: { ...state.scopes, [key]: { revision, base: revision === null ? null : merged.result, syncedAt: this.host.now().toISOString(), held: merged.held } } });
       });
       return;
     }

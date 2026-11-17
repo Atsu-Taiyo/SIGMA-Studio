@@ -202,8 +202,9 @@ const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH, {
   listWorkspaces: async () => (await localSigmaDocStore.getLocalLibrarySnapshot()).workspaces
     .filter(workspace => !workspace.sharing && !workspace.sharingPending).map(({ id, name }) => ({ id, name })),
   // Keeps the learned habits in step across the account's devices, once the user turns that on.
-  sync: { client: { read: key => collaborationSessions.personalData.read(key), write: (key, content, revision) => collaborationSessions.personalData.write(key, content, revision),
-    removeAll: () => collaborationSessions.personalData.removeAll() }, userId: () => collaborationSessions.actorId(), available: () => Boolean(collaborationSessions.auth) },
+  sync: { client: { read: (userId, key) => collaborationSessions.personalData.read(userId, key),
+    write: (userId, key, content, revision) => collaborationSessions.personalData.write(userId, key, content, revision),
+    removeAll: userId => collaborationSessions.personalData.removeAll(userId) }, userId: () => collaborationSessions.actorId(), available: () => Boolean(collaborationSessions.auth) },
   // The same tool-less single call the skill editor uses, to the provider the author already uses.
   summarize: ({ provider, prompt }) => runToollessPrompt(provider, prompt,
     { claude: claudeStreamClient, geminiSkillDraft: geminiSkillDraftClient, codex: codexAppServerClient }, `authoring-style-${crypto.randomUUID()}`, 90_000),

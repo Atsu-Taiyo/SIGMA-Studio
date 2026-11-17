@@ -722,7 +722,7 @@ export class LocalAuthoringStyleStore {
   private async afterSync(workspaceId: string | null, prepare: () => Promise<void>): Promise<AuthoringStyleProfile> {
     await this.flush();
     await prepare();
-    await this.sync.run();
+    await this.sync.fresh();
     return this.exclusive(() => this.profile(workspaceId));
   }
 

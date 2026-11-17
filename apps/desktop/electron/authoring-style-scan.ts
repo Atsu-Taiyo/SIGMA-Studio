@@ -17,7 +17,9 @@ const THREATS: readonly RegExp[] = [
 ];
 
 export function isSuspicious(text: string): boolean {
-  return INVISIBLE.test(text) || THREATS.some(pattern => pattern.test(text));
+  // Full-width and other compatibility forms are read as the plain characters they stand for.
+  const plain = text.normalize("NFKC");
+  return INVISIBLE.test(text) || THREATS.some(pattern => pattern.test(text) || pattern.test(plain));
 }
 
 /** Drop suspicious lines, keeping the rest of a note usable. */

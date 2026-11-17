@@ -146,7 +146,7 @@ export class CollaborationSessions {
       (route, init) => this.requestRaw(route, init),
       () => this.auth?.user()?.id ?? null,
     );
-    this.personalData = new PersonalDataClient((route, init) => this.requestRaw(route, init));
+    this.personalData = new PersonalDataClient((route, init) => this.requestRaw(route, init), () => this.auth?.user()?.id ?? null);
   }
   async initialize(): Promise<void> {
     await fs.mkdir(this.directory, { recursive: true, mode: 0o700 });
