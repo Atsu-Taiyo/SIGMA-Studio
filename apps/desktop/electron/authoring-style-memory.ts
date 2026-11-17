@@ -50,7 +50,8 @@ export interface StyleItem {
 export interface PendingChange {
   id: string;
   kind: "add" | "rewrite" | "remove";
-  reason: "contradicted" | "stale" | "limit";
+  /** `summary`: a sentence the AI suggested, which is never added without being read. */
+  reason: "contradicted" | "stale" | "limit" | "summary";
   key: string;
   value: string;
   /** The sentence this change was staged against. Approval is refused once it differs. */

@@ -462,8 +462,13 @@ describe("automatic authoring style", () => {
     const HABIT = { section: "style", text: "要点を先に述べてから理由を書く。" };
     const sent = (summarize: ReturnType<typeof vi.fn>, call = 0) => summarize.mock.calls[call][0] as { provider: string; prompt: string };
     const data = (prompt: string) => JSON.parse(prompt.slice(prompt.indexOf("\n") + 1));
+    /** The author reads the AI's suggestions and accepts them all. */
+    const accept = async (target: LocalAuthoringStyleStore, profile: Awaited<ReturnType<LocalAuthoringStyleStore["getProfile"]>>) => {
+      for (const change of profile.pending.filter(p => p.reason === "summary")) profile = await target.resolvePending({ workspaceId: "ws1", id: change.id, approve: true });
+      return profile;
+    };
 
-    it("sends only excerpts of the author's own text to that provider, and only adds what comes back as a short habit", async () => {
+    it("sends only excerpts of the author's own text to that provider, and stages what comes back for the author to read", async () => {
       const lib = library();
       const base = written(...essay("本人"));
       const accepted = blocks([...base.content, paragraph("ai", "AIが書いたこの文は本人の文章ではない。")]);
@@ -490,13 +495,18 @@ describe("automatic authoring style", () => {
       expect(summarize).not.toHaveBeenCalled();
       store.noteProvider("claude");
       lib.put("f1", accepted, { updatedAt: "2026-11-02T00:00:00Z" });
-      const profile = await store.reviewNow("ws1");
+      let profile = await store.reviewNow("ws1");
       expect(summarize).toHaveBeenCalledTimes(1);
       expect(sent(summarize).provider).toBe("claude");
       const prompt = sent(summarize).prompt;
       expect(prompt).toContain("本人の第0段落");
       for (const absent of ["AIが書いたこの文", "共有の第", "別の場所の第"]) expect(prompt).not.toContain(absent);
       expect(data(prompt).sample.join("").length).toBeLessThanOrEqual(6000);
+      // What the AI wrote is never in the memo, or in a later request, before its author has read it.
+      expect(profile.pending.map(p => [p.kind, p.reason, p.proposedText])).toEqual([HABIT.text, "ベクトルは太字で書く。", "小問ごとに方針を一言添える。"].map(text => ["add", "summary", text]));
+      expect(profile.items.some(i => i.basis === "summary")).toBe(false);
+      expect(await learnedFor(store)).not.toContain(HABIT.text);
+      profile = await accept(store, profile);
       expect(profile.items.filter(i => i.basis === "summary").map(i => i.text)).toEqual([HABIT.text, "ベクトルは太字で書く。", "小問ごとに方針を一言添える。"]);
       expect(profile.generatedContent).toMatch(new RegExp(`## 語尾・文体\n(?:- .+\n)*- ${HABIT.text}`));
       expect(profile).toMatchObject({ aiSummary: true, aiSummaryProvider: "claude" });
@@ -557,7 +567,7 @@ describe("automatic authoring style", () => {
       const summarize = vi.fn(async () => reply([HABIT]));
       store = make({ ...lib.options, summarize, now: () => new Date(now) });
       store.noteProvider("claude");
-      let profile = await store.reviewNow("ws1");
+      let profile = await accept(store, await store.reviewNow("ws1"));
       expect(profile.items.filter(i => i.basis === "summary").map(i => i.text)).toEqual([HABIT.text]);
       // A later summary confirms its earlier suggestion; it cannot change or drop the sentence.
       now += 50 * 24 * HOUR;
@@ -565,7 +575,8 @@ describe("automatic authoring style", () => {
       summarize.mockImplementation(async () => reply([{ section: "style", text: "要点を先に述べてから理由を丁寧に書く。" }], [1]));
       profile = await store.reviewNow("ws1");
       expect(data(sent(summarize, 1).prompt).candidates).toEqual([{ number: 1, text: HABIT.text }]);
-      expect(profile.pending).toEqual([]);
+      expect(profile.pending).toMatchObject([{ kind: "add", reason: "summary" }]);
+      profile = await accept(store, profile);
       expect(profile.items.filter(i => i.basis === "summary").map(i => i.text)).toEqual([HABIT.text, "要点を先に述べてから理由を丁寧に書く。"]);
       // The author deletes one: it is declined, told to the AI, and not added again even if suggested.
       profile = await store.saveLearned({ workspaceId: "ws1", content: profile.generatedContent.replace(`- ${HABIT.text}\n`, ""), expectedRevision: profile.generatedRevision });
@@ -573,6 +584,7 @@ describe("automatic authoring style", () => {
       summarize.mockImplementation(async () => reply([HABIT]));
       profile = await store.reviewNow("ws1");
       expect(data(sent(summarize, 2).prompt).declined).toEqual([HABIT.text]);
+      expect(profile.pending).toEqual([]);
       expect(profile.generatedContent).not.toContain(HABIT.text);
       // A hand-edited line is the author's and is passed as existing, never as a candidate.
       expect(data(sent(summarize, 2).prompt).candidates).toHaveLength(1);
@@ -595,27 +607,42 @@ describe("automatic authoring style", () => {
       let profile = await store.reviewNow("ws1");
       expect(sent(summarize).prompt).not.toContain("AIが書いたこの文");
       expect(profile.outcomes).toEqual({ kept: 0, edited: 0, reverted: 0, rejected: 0 });
+      // Touched up while learning is off: still the AI's sentence when learning comes back.
+      const touched = blocks([...own.content, paragraph("ai", "AIが書いたこの文は本人の文章ではないので送らない？")]);
+      await store.setEnabled(null, false);
+      store.observe(event(withAi, touched, 3));
+      await store.flush();
+      await store.setEnabled(null, true);
+      lib.put("f1", touched);
+      profile = await store.reviewNow("ws1");
+      expect(summarize).toHaveBeenCalledTimes(1);
+      expect(profile.exampleCount).toBe(0);
+      lib.put("f1", blocks([...touched.content, paragraph("mine", "本人が後から足した段落で、要約の対象が変わる。")]));
+      await store.reviewNow("ws1");
+      expect(sent(summarize, 1).prompt).not.toContain("AIが書いたこの文");
       // A reset forgets what was learned, not which text the AI wrote.
       await store.reset("ws1");
       // Correcting that text is a correction of the AI's sentence: it is not sent as the author's writing either.
-      store.observe(event(withAi, corrected, 3));
+      store.observe(event(touched, corrected, 4));
       lib.put("f1", corrected);
       profile = await store.reviewNow("ws1");
       expect(profile.exampleCount).toBe(1);
-      expect(summarize).toHaveBeenCalledTimes(2);
-      expect(sent(summarize, 1).prompt).not.toContain("AIが書いたこの文");
+      expect(summarize).toHaveBeenCalledTimes(3);
+      expect(sent(summarize, 2).prompt).not.toContain("AIが書いたこの文");
+      expect(data(sent(summarize, 2).prompt).corrections).toEqual([]);
+      profile = await accept(store, profile);
       expect(profile.items.some(i => i.text === HABIT.text)).toBe(true);
       // The document the habit came from is shared: the habit is not passed to the AI as an existing item.
       lib.put("f1", corrected, { sharing: {} as LocalDocumentMetadata["sharing"] });
       lib.put("f2", written(...essay("別の教材")));
       summarize.mockImplementation(async () => reply([]));
       await store.reviewNow("ws1");
-      expect(summarize).toHaveBeenCalledTimes(3);
-      expect(sent(summarize, 2).prompt).not.toContain(HABIT.text);
-      expect(data(sent(summarize, 2).prompt).candidates).toEqual([]);
+      expect(summarize).toHaveBeenCalledTimes(4);
+      expect(sent(summarize, 3).prompt).not.toContain(HABIT.text);
+      expect(data(sent(summarize, 3).prompt).candidates).toEqual([]);
     });
 
-    it("stages a suggestion when the memo is full, and discards a reply that arrives after a reset", async () => {
+    it("refuses to apply a suggestion when the memo is full, and discards a reply that arrives after a reset", async () => {
       const lib = library();
       lib.put("f1", written(...essay("本人")));
       let release!: (value: string) => void;
@@ -633,7 +660,14 @@ describe("automatic authoring style", () => {
       profile = await store.saveLearned({ workspaceId: "ws1", content: own, expectedRevision: profile.generatedRevision });
       summarize.mockImplementation(async () => reply([HABIT]));
       profile = await store.reviewNow("ws1");
-      expect(profile.pending.some(p => p.kind === "add" && p.reason === "limit" && p.proposedText === HABIT.text)).toBe(true);
+      const suggestion = profile.pending.find(p => p.reason === "summary" && p.proposedText === HABIT.text)!;
+      await expect(store.resolvePending({ workspaceId: "ws1", id: suggestion.id, approve: true })).rejects.toThrow("full");
+      // Declined suggestions are not offered again.
+      profile = await store.resolvePending({ workspaceId: "ws1", id: suggestion.id, approve: false });
+      store.observe(event(written(...essay("本人")), written(...essay("本人4")), 5));
+      lib.put("f1", written(...essay("本人4")));
+      profile = await store.reviewNow("ws1");
+      expect(profile.pending.some(p => p.reason === "summary")).toBe(false);
       expect(profile.generatedContent).not.toContain(HABIT.text);
     });
   });

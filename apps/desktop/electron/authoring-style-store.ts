@@ -194,9 +194,9 @@ export class LocalAuthoringStyleStore {
 
   private async apply(pending: readonly PendingRecord[]): Promise<void> {
     const globallyEnabled = await this.memory.enabled(null);
-    // While learning is off nothing is collected, except which blocks the AI wrote (hashes only):
-    // without that, turning learning back on would take AI text for the author's own.
-    if (!globallyEnabled && !pending.some(record => record.type === "accept")) return;
+    // While learning is off nothing is collected, except which blocks the AI wrote and whether they
+    // were touched since (hashes only): without that, turning learning back on would take AI text
+    // for the author's own.
     const files = await this.personalFiles();
     const enabled = new Map<string, boolean>();
     const personal = (workspaceId: string, fileId: string) => !files || files.get(fileId)?.workspaceId === workspaceId;
@@ -232,9 +232,17 @@ export class LocalAuthoringStyleStore {
         }
       } else {
         const edit = record.example;
-        if (!await usable(edit.workspaceId, edit.fileId)) continue;
-        if (edit.before?.format === "" || edit.after?.format === "") continue;
         const tracked = block(edit.fileId, edit.blockId);
+        if (!await usable(edit.workspaceId, edit.fileId)) {
+          // Not learned from, but a touched-up AI block must not look like new writing later.
+          if (tracked && (tracked.state === "accepted" || tracked.state === "kept") && record.beforeHash === tracked.hash && personal(edit.workspaceId, edit.fileId)) {
+            tracked.state = record.afterHash === tracked.previousHash ? "reverted"
+              : !edit.after || textSimilarity(edit.before?.text ?? "", edit.after.text) >= REWRITTEN_BELOW ? "edited" : "rewritten";
+            tracked.uncounted = true;
+          }
+          continue;
+        }
+        if (edit.before?.format === "" || edit.after?.format === "") continue;
         if (tracked && (tracked.state === "accepted" || tracked.state === "kept") && record.beforeHash === tracked.hash) {
           if (record.afterHash === tracked.previousHash) {
             // Undoing the proposal restores what was there. That is a rejection, not a way of writing.
@@ -251,14 +259,18 @@ export class LocalAuthoringStyleStore {
           counters(edit.workspaceId).rejections++;
           examples = examples.filter(e => !(e.fileId === edit.fileId && e.blockId === edit.blockId));
           continue;
-        } else if (!tracked || tracked.state === "reverted" || tracked.state === "rewritten") edit.source = "manual";
+        } else {
+          // Any other edit of a block still attributed to the AI is a correction of AI text, whether or
+          // not an earlier example of it survives (a reset or the example limit may have dropped it).
+          edit.source = !tracked || tracked.state === "reverted" || tracked.state === "rewritten" ? "manual" : "post-accept";
+        }
         const index = examples.findIndex(e => e.workspaceId === edit.workspaceId && e.fileId === edit.fileId && e.blockId === edit.blockId);
         const previous = index < 0 ? undefined : examples[index];
         if (previous && previous.revision >= edit.revision) continue;
         if (index >= 0) examples.splice(index, 1);
         // Collapse successive autosaves, retaining the original before-state and where it came from.
         const merged = previous && same(previous.after, edit.before)
-          ? { ...edit, before: previous.before, source: edit.source ?? previous.source ?? "manual" } : { ...edit, source: edit.source ?? "manual" };
+          ? { ...edit, before: previous.before, source: previous.source === "post-accept" ? "post-accept" as const : edit.source } : edit;
         if (!same(merged.before, merged.after)) examples.push(merged);
         // Further edits can leave so little of the AI's sentence that the block is the author's own again.
         if (tracked?.state === "edited" && merged.source === "post-accept" && merged.before && merged.after

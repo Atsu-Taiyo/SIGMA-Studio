@@ -43,14 +43,15 @@ it("shows the learned memo with its evidence and lets the user decide staged cha
   const profile: AuthoringStyleProfile = { ...base, workspaceId: "ws1", generatedContent: "# 学んだ書き方\n- 解説・説明は常体（だ・である）で書く。\n", generatedRevision: "memo1", generatedPath: "/learned.md",
     items: [{ id: "auto:tone.explanation", section: "style", text: "解説・説明は常体（だ・である）で書く。", origin: "auto", basis: "writing", support: 4, documents: 2, lastConfirmedAt: "" },
       { id: "auto:summary.style:1", section: "style", text: "要点を先に述べる。", origin: "auto", basis: "summary", support: 3, documents: 3, lastConfirmedAt: "" }],
-    pending: [{ id: "rewrite:tone.explanation", kind: "rewrite", reason: "contradicted", currentText: "常体で書く。", proposedText: "丁寧体で書く。", support: 3 }],
+    pending: [{ id: "rewrite:tone.explanation", kind: "rewrite", reason: "contradicted", currentText: "常体で書く。", proposedText: "丁寧体で書く。", support: 3 },
+      { id: "add:summary.style:2", kind: "add", reason: "summary", currentText: "", proposedText: "結論を先に書く。", support: 2 }],
     outcomes: { kept: 5, edited: 2, reverted: 1, rejected: 3 }, canUndo: true, lastUpdate: { at: "", added: 1, staged: 1 }, blockedLines: 2 };
   const api = fakeApi({}, profile);
   const view = mount(api, "ws1");
   try {
     await view.render();
     expect(view.host.querySelector<HTMLTextAreaElement>("#authoring-style-learned")!.value).toBe(profile.generatedContent);
-    for (const text of ["そのまま 5・手直し 2・取り消し 1 / 却下した提案 3", "自分の文章 4箇所・教材2件", "AIによる要約・教材3件", "書き換え: 「常体で書く。」→「丁寧体で書く。」（根拠3箇所）", "1項目を追加、1件が確認待ち", "2行あり、AIへは渡していません"]) {
+    for (const text of ["そのまま 5・手直し 2・取り消し 1 / 却下した提案 3", "自分の文章 4箇所・教材2件", "AIによる要約・教材3件", "書き換え: 「常体で書く。」→「丁寧体で書く。」（根拠3箇所）", "追加: 「結論を先に書く。」（AIによる要約。教材2件から）", "1項目を追加、1件が確認待ち", "2行あり、AIへは渡していません"]) {
       expect(view.host.textContent).toContain(text);
     }
     await act(async () => view.button("反映する").click());

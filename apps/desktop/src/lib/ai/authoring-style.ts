@@ -18,7 +18,8 @@ export interface AuthoringStyleItemView {
 export interface AuthoringStylePendingView {
   id: string;
   kind: "add" | "rewrite" | "remove";
-  reason: "contradicted" | "stale" | "limit";
+  /** `summary`: a sentence the AI suggested, which is never added without being read. */
+  reason: "contradicted" | "stale" | "limit" | "summary";
   currentText: string;
   proposedText: string;
   support: number;

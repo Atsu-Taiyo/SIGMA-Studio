@@ -86,7 +86,7 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
             <strong>{t("authoringStyle.pendingTitle")}</strong>
             {profile.pending.map(change => (
               <Stack key={change.id} gap="xs" className="ai-settings-empty-hint">
-                <span>{t(`authoringStyle.pending.${change.kind}`, { current: change.currentText, proposed: change.proposedText, count: change.support })}</span>
+                <span>{t(change.reason === "summary" ? "authoringStyle.pending.summary" : `authoringStyle.pending.${change.kind}`, { current: change.currentText, proposed: change.proposedText, count: change.support })}</span>
                 <Inline gap="sm">
                   <Button size="sm" disabled={busy || learnedDirty} onClick={() => void run(() => api.resolvePending({ workspaceId, id: change.id, approve: true }))}>{t("authoringStyle.approve")}</Button>
                   <Button tone="ghost" size="sm" disabled={busy || learnedDirty} onClick={() => void run(() => api.resolvePending({ workspaceId, id: change.id, approve: false }))}>{t("authoringStyle.dismiss")}</Button>

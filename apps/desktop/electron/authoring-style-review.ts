@@ -113,8 +113,10 @@ export function planReview(memory: StyleMemory, observations: readonly Observati
 }
 
 /**
- * What the configured AI read out of the author's writing. It can only add
- * habits and confirm ones it suggested before; it never rewrites or removes.
+ * What the configured AI read out of the author's writing. Its sentences are
+ * free text that would be kept and placed in later AI requests, so none enters
+ * the memo unread: each is staged for the author to accept or decline. Besides
+ * that it can confirm a habit it suggested before; it never rewrites or removes.
  */
 export function planSummary(memory: StyleMemory, reply: SummaryReply, candidates: readonly string[],
   context: Pick<ReviewContext, "now" | "locale"> & { sources: readonly string[] }): ReviewResult {
@@ -125,14 +127,15 @@ export function planSummary(memory: StyleMemory, reply: SummaryReply, candidates
     if (item) pass.confirm(item, evidence);
   }
   const taken = new Set(memory.items.map(i => i.text.replace(/^- /, "")));
-  let held = memory.items.filter(i => i.origin === "auto" && i.basis === "summary").length;
+  let held = memory.items.filter(i => i.origin === "auto" && i.basis === "summary").length
+    + memory.pending.filter(p => p.kind === "add" && p.basis === "summary").length;
   for (const { section, text } of reply.add) {
     const key = summaryKey(section, text);
     if (held >= MAX_SUMMARY_ITEMS || taken.has(text) || memory.declined.includes(text) || memory.suppressed.includes(key)
-      || memory.items.some(i => i.key === key) || itemText(key, text, context.locale) !== text) continue;
-    const before = memory.items.length;
-    pass.add(key, text, text, evidence);
-    if (memory.items.length > before) held++;
+      || memory.items.some(i => i.key === key) || memory.pending.some(p => p.key === key)
+      || memory.dismissed.includes(`add:${key}:${text}`) || itemText(key, text, context.locale) !== text) continue;
+    pass.stage({ id: `add:${key}`, kind: "add", reason: "summary", key, value: text, expectedText: "", ...evidence, createdAt: pass.now });
+    held++;
     taken.add(text);
   }
   return pass.finish();
