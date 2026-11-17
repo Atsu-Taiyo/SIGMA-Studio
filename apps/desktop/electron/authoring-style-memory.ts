@@ -311,7 +311,12 @@ export class AuthoringStyleMemory {
     snapshotForUndo(memory, "approve", at);
     memory.pending.splice(index, 1);
     const evidence = { basis: change.basis, support: change.support, documents: change.documents, sources: change.sources, lastConfirmedAt: at };
-    if (change.kind === "remove") memory.items = memory.items.filter(i => i !== item);
+    if (change.kind === "remove") {
+      memory.items = memory.items.filter(i => i !== item);
+      // Removed with its author's agreement: like a line deleted by hand, it is not learned again.
+      if (!memory.suppressed.includes(change.key)) memory.suppressed.push(change.key);
+      if (item!.basis === "summary") memory.declined = [...memory.declined, item!.text].slice(-MAX_DECLINED);
+    }
     else if (change.kind === "rewrite") Object.assign(item!, evidence, { value: change.value, text });
     else memory.items.push({ id: `auto:${change.key}`, key: change.key, value: change.value, section: sectionOf(change.key), text: text!, origin: "auto", ...evidence, firstSeenAt: at });
     await this.commit(workspaceId, memory, [{ actor: "user", action: `approve-${change.kind}`, key: change.key, before: change.expectedText, after: change.kind === "remove" ? "" : text! }]);

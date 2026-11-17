@@ -58,6 +58,11 @@ interface AiBlock {
   acceptedRevision: number;
   acceptedAt: string;
   state: "accepted" | "kept" | "edited" | "rewritten" | "reverted";
+  /**
+   * Accepted while learning was off, or before a reset. Still known to be AI text,
+   * but left out of the outcome counts.
+   */
+  uncounted?: true;
 }
 interface Counters { saves: number; corrections: number; rejections: number; kept: number; reviewedAt: string | null }
 interface Outcomes {
@@ -188,12 +193,16 @@ export class LocalAuthoringStyleStore {
   }
 
   private async apply(pending: readonly PendingRecord[]): Promise<void> {
-    if (!await this.memory.enabled(null)) return;
+    const globallyEnabled = await this.memory.enabled(null);
+    // While learning is off nothing is collected, except which blocks the AI wrote (hashes only):
+    // without that, turning learning back on would take AI text for the author's own.
+    if (!globallyEnabled && !pending.some(record => record.type === "accept")) return;
     const files = await this.personalFiles();
     const enabled = new Map<string, boolean>();
+    const personal = (workspaceId: string, fileId: string) => !files || files.get(fileId)?.workspaceId === workspaceId;
     const usable = async (workspaceId: string, fileId: string) => {
-      if (!enabled.has(workspaceId)) enabled.set(workspaceId, await this.memory.enabled(workspaceId));
-      return enabled.get(workspaceId)! && (!files || files.get(fileId)?.workspaceId === workspaceId);
+      if (!enabled.has(workspaceId)) enabled.set(workspaceId, globallyEnabled && await this.memory.enabled(workspaceId));
+      return enabled.get(workspaceId)! && personal(workspaceId, fileId);
     };
     let examples = await this.eligible(await this.read(), false);
     const outcomes = await this.readOutcomes();
@@ -207,16 +216,17 @@ export class LocalAuthoringStyleStore {
         outcomes.rejected.push({ workspaceId: file.workspaceId, fileId: file.fileId, at });
         counters(file.workspaceId).rejections++;
       } else if (record.type === "accept") {
-        if (!await usable(record.workspaceId, record.fileId)) continue;
+        if (!personal(record.workspaceId, record.fileId)) continue;
         outcomes.blocks = outcomes.blocks.filter(b => b !== block(record.fileId, record.blockId));
         outcomes.blocks.push({ workspaceId: record.workspaceId, fileId: record.fileId, blockId: record.blockId, hash: record.hash,
-          previousHash: record.previousHash, acceptedRevision: record.revision, acceptedAt: at, state: "accepted" });
+          previousHash: record.previousHash, acceptedRevision: record.revision, acceptedAt: at, state: "accepted",
+          ...(await usable(record.workspaceId, record.fileId) ? {} : { uncounted: true as const }) });
       } else if (record.type === "save") {
         if (!await usable(record.workspaceId, record.fileId)) continue;
         counters(record.workspaceId).saves++;
         // AI text that outlives a later editing session was good enough to keep.
         for (const tracked of outcomes.blocks) {
-          if (tracked.fileId !== record.fileId || tracked.state !== "accepted" || tracked.acceptedRevision >= record.revision || record.changed.includes(tracked.blockId)) continue;
+          if (tracked.fileId !== record.fileId || tracked.uncounted || tracked.state !== "accepted" || tracked.acceptedRevision >= record.revision || record.changed.includes(tracked.blockId)) continue;
           tracked.state = "kept";
           counters(record.workspaceId).kept++;
         }
@@ -362,7 +372,7 @@ export class LocalAuthoringStyleStore {
       await this.memory.commit(workspaceId, memory, planned.entries);
       outcomes.counters[workspaceId] = { ...emptyCounters(), reviewedAt: now.toISOString() };
       await this.writeOutcomes(outcomes);
-      return this.summaryRequest(workspaceId, memory, authored, examples, requested, now);
+      return this.summaryRequest(workspaceId, memory, authored, examples, eligibleFiles, requested, now);
     });
     if (!summary) return;
     // The AI is asked outside the lock: saving and AI requests never wait for it.
@@ -391,7 +401,7 @@ export class LocalAuthoringStyleStore {
    * and only to the provider the author last used.
    */
   private async summaryRequest(workspaceId: string, memory: StyleMemory, authored: readonly { fileId: string; texts: string[] }[],
-    examples: readonly StyleExample[], requested: boolean, now: Date) {
+    examples: readonly StyleExample[], eligibleFiles: ReadonlySet<string> | null, requested: boolean, now: Date) {
     if (!this.options.summarize || !await this.memory.aiSummary(null) || !await this.memory.aiSummary(workspaceId)) return null;
     const provider = await this.lastProvider();
     if (!provider) return null;
@@ -411,7 +421,8 @@ export class LocalAuthoringStyleStore {
       if (used) sources.push(fileId);
     }
     if (sample.join("").length < MIN_SUMMARY_SAMPLE_CHARACTERS) return null;
-    const corrections = this.selectExamples(examples, "").flatMap(e => e.before?.text && e.after?.text
+    // A correction of accepted AI text is mostly the AI's sentence, so only edits of the author's own text are sent.
+    const corrections = this.selectExamples(examples.filter(e => e.source !== "post-accept"), "").flatMap(e => e.before?.text && e.after?.text
       ? [{ before: e.before.text.slice(0, MAX_SUMMARY_EXCERPT), after: e.after.text.slice(0, MAX_SUMMARY_EXCERPT) }] : []).slice(0, MAX_SUMMARY_CORRECTIONS);
     const hash = createHash("sha256").update(JSON.stringify([sample, corrections])).digest("hex");
     if (memory.summary?.hash === hash) return null;
@@ -420,10 +431,12 @@ export class LocalAuthoringStyleStore {
       if (now.getTime() - last < SUMMARY_MIN_INTERVAL_MS) return null;
     }
     this.summaryAttempts.set(workspaceId, now.getTime());
-    const suggested = memory.items.filter(i => i.origin === "auto" && i.basis === "summary" && i.key);
+    // As for an ordinary request: a habit whose documents were all shared, moved or deleted is not passed on.
+    const usable = memory.items.filter(i => i.origin === "user" || !eligibleFiles || i.sources.some(id => eligibleFiles.has(id)));
+    const suggested = usable.filter(i => i.origin === "auto" && i.basis === "summary" && i.key);
     const input: SummaryInput = {
       locale: memory.locale, sample, corrections,
-      existing: scanLines(memory.items.map(i => i.text.replace(/^- /, "")).join("\n")).text.split("\n").filter(Boolean),
+      existing: scanLines(usable.map(i => i.text.replace(/^- /, "")).join("\n")).text.split("\n").filter(Boolean),
       candidates: suggested.map(i => i.text), declined: memory.declined.filter(text => !isSuspicious(text)),
     };
     return { provider, input, hash, sources, candidates: suggested.map(i => i.key!) };
@@ -600,7 +613,7 @@ export class LocalAuthoringStyleStore {
       outcomes.blocks = blocks;
     }
     const inScope = <T extends { workspaceId: string }>(list: readonly T[]) => list.filter(e => workspaceId === null || e.workspaceId === workspaceId);
-    const blocks = inScope(outcomes.blocks);
+    const blocks = inScope(outcomes.blocks).filter(b => !b.uncounted);
     const tally: AuthoringStyleOutcomes = {
       kept: blocks.filter(b => b.state === "kept").length,
       edited: blocks.filter(b => b.state === "edited" || b.state === "rewritten").length,
@@ -671,7 +684,9 @@ export class LocalAuthoringStyleStore {
       const keep = <T extends { workspaceId: string }>(list: readonly T[]) => list.filter(e => workspaceId !== null && e.workspaceId !== workspaceId);
       await this.persist(keep(await this.read()));
       const outcomes = await this.readOutcomes();
-      await this.writeOutcomes({ version: 1, blocks: keep(outcomes.blocks), rejected: keep(outcomes.rejected),
+      // Which text the AI wrote is kept (hashes only), so a reset does not make it the author's writing.
+      const blocks = outcomes.blocks.map(b => workspaceId === null || b.workspaceId === workspaceId ? { ...b, uncounted: true as const } : b);
+      await this.writeOutcomes({ version: 1, blocks, rejected: keep(outcomes.rejected),
         counters: Object.fromEntries(Object.entries(outcomes.counters).filter(([id]) => workspaceId !== null && id !== workspaceId)) });
       if (workspaceId === null) await this.memory.resetAllGenerated();
       else await this.memory.resetGenerated(workspaceId);
@@ -689,7 +704,8 @@ export class LocalAuthoringStyleStore {
       return {
         version: 1,
         blocks: data.blocks.filter((b: AiBlock) => text(b?.workspaceId) && text(b.fileId) && text(b.blockId) && text(b.hash, 64) && text(b.previousHash, 64)
-          && Number.isSafeInteger(b.acceptedRevision) && text(b.acceptedAt, 40) && ["accepted", "kept", "edited", "rewritten", "reverted"].includes(b.state)).slice(-MAX_AI_BLOCKS),
+          && Number.isSafeInteger(b.acceptedRevision) && text(b.acceptedAt, 40) && ["accepted", "kept", "edited", "rewritten", "reverted"].includes(b.state))
+          .map(({ uncounted, ...b }: AiBlock) => uncounted === true ? { ...b, uncounted } : b).slice(-MAX_AI_BLOCKS),
         rejected: data.rejected.filter((r: Outcomes["rejected"][number]) => text(r?.workspaceId) && text(r.fileId) && text(r.at, 40)).slice(-MAX_REJECTIONS),
         counters: Object.fromEntries(Object.entries(data.counters as Record<string, Partial<Counters>>).slice(0, 500).map(([id, c]) => [id, {
           saves: count(c?.saves), corrections: count(c?.corrections), rejections: count(c?.rejections), kept: count(c?.kept),

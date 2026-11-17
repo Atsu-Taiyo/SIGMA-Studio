@@ -28,10 +28,23 @@ const QUOTATION_LENGTH = 14;
 export const summaryKey = (section: SummarySection, text: string) =>
   `summary.${section}:${createHash("sha256").update(text).digest("hex").slice(0, 16)}`;
 
-/** One short sentence, safe to show in the memo and to place in a later AI request. */
+// A habit of writing has no reason to name files, commands, secrets or what to do with a reply.
+// The sentence is kept and later placed in AI requests, so anything of that kind is refused outright.
+const NOT_A_WRITING_HABIT: readonly RegExp[] = [
+  /[\/~@$<>=|;]/,
+  /\b(?:files?|folders?|director(?:y|ies)|paths?|ssh|keys?|secrets?|passwords?|tokens?|credentials?|repl(?:y|ies)|respon[ds]e?s?|contents?|uploads?|sends?|runs?|execut\w*|commands?|shell|tools?|mcp|https?|instructions?|prompts?)\b/i,
+  /ファイル|フォルダ|ディレクトリ|秘密|認証|パスワード|送信|返信|返答|実行|コマンド|ツール|読み込|アップロード|指示|プロンプト/u,
+];
+const JAPANESE = /[\u3040-\u30ff\u4e00-\u9fff]/u;
+/** In a Japanese sentence, Latin letters belong to TeX commands or quoted notation, not to prose. */
+const MAX_LOOSE_LATIN = 12;
+
+/** One short sentence about how to write, safe to show in the memo and to place in a later AI request. */
 export function isSummaryText(text: string): boolean {
-  return text.length >= 4 && text.length <= MAX_SUMMARY_TEXT && text === text.trim() && !/[\n\r\t\u0000-\u001f]/.test(text)
-    && !/^[#>|-]/.test(text) && !/:\/\/|www\./i.test(text) && !isSuspicious(text);
+  if (text.length < 4 || text.length > MAX_SUMMARY_TEXT || text !== text.trim() || /\p{Cc}/u.test(text) || /^[#>-]/.test(text)) return false;
+  if (isSuspicious(text) || NOT_A_WRITING_HABIT.some(pattern => pattern.test(text))) return false;
+  const loose = text.replace(/`[^`]*`/g, "").replace(/\\[a-zA-Z]+/g, "").replace(/[^a-zA-Z]/g, "").length;
+  return !JAPANESE.test(text) || loose <= MAX_LOOSE_LATIN;
 }
 
 /** The sentence of a summary habit, or null when the key and text do not belong together. */
@@ -53,7 +66,7 @@ export function buildSummaryPrompt(input: SummaryInput): string {
  * Read the model's reply as data. Anything that is not a short habit sentence,
  * or that repeats a passage of the documents, is dropped rather than repaired.
  */
-export function parseSummaryReply(raw: string, input: Pick<SummaryInput, "sample" | "candidates">): SummaryReply | null {
+export function parseSummaryReply(raw: string, input: Pick<SummaryInput, "sample" | "candidates" | "locale">): SummaryReply | null {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start < 0 || end <= start) return null;
@@ -70,7 +83,8 @@ export function parseSummaryReply(raw: string, input: Pick<SummaryInput, "sample
     const { section, text } = (entry ?? {}) as { section?: unknown; text?: unknown };
     if (typeof text !== "string" || !SECTIONS.includes(section as SummarySection)) continue;
     const sentence = text.trim();
-    if (!isSummaryText(sentence) || quotes(sentence) || add.some(a => a.text === sentence)) continue;
+    // A memo kept in Japanese takes Japanese sentences: an English one is not how this author writes.
+    if (!isSummaryText(sentence) || (input.locale === "ja" && !JAPANESE.test(sentence)) || quotes(sentence) || add.some(a => a.text === sentence)) continue;
     add.push({ section: section as SummarySection, text: sentence });
     if (add.length === MAX_SUMMARY_ADDITIONS) break;
   }
