@@ -152,6 +152,8 @@ export const workspace = {
     showMore_other: "さらに表示（残り {{count}} 件）",
   },
   action: {
+    createOnly: "作成のみ",
+    createAndOpen: "作成して開く",
     openTemplateGallery: "テンプレートギャラリー",
     moveFolder: "フォルダを移動",
     deleteFolder: "フォルダを削除",

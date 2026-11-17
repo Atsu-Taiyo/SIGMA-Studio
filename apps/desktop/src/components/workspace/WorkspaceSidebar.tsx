@@ -1,9 +1,10 @@
 "use client";
 
 import { Bookmark, Building2, ChevronRight, FileText, Folder, MessageSquare, Plus, Share2 } from "lucide-react";
-import type { CSSProperties, Dispatch, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, SetStateAction } from "react";
+import type { CSSProperties, ReactNode, Dispatch, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, SetStateAction } from "react";
 import { useMemo } from "react";
 
+import { Inline } from "@/components/ui/layout";
 import { SHARED_ITEMS_WORKSPACE_ID } from "@/lib/runtime/shared-catalog";
 import { WorkspaceItemMenuButton } from "./WorkspaceItemMenuButton";
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
@@ -18,6 +19,7 @@ import type { WorkspaceInlineRenameTarget } from "./use-inline-rename";
 import { useT } from "@/lib/i18n/react";
 
 interface WorkspaceSidebarProps {
+  toggleControl?: ReactNode;
   /** 細いアイコン列へ畳む。ワークスペースの一覧とツリーは畳んでいる間は出さない。 */
   collapsed: boolean;
   panel: WorkspacePanel;
@@ -59,6 +61,7 @@ interface WorkspaceSidebarProps {
 }
 
 export function WorkspaceSidebar({
+  toggleControl,
   collapsed,
   panel,
   commentsAvailable,
@@ -185,16 +188,19 @@ export function WorkspaceSidebar({
 
   return (
     <aside id="workspace-sidebar" className="workspace-sidebar" data-collapsed={collapsed} aria-label={t("nav.workspace")}>
-      <button
-        type="button"
-        className="workspace-new-button"
-        aria-label={t("action.new")}
-        title={collapsed ? t("action.new") : undefined}
-        onClick={onNewButtonClick}
-      >
-        <Plus size={18} />
-        <span>{t("action.new")}</span>
-      </button>
+      <Inline gap="sm" className="workspace-sidebar-tools">
+        {toggleControl}
+        <button
+          type="button"
+          className="workspace-new-button"
+          aria-label={t("action.new")}
+          title={collapsed ? t("action.new") : undefined}
+          onClick={onNewButtonClick}
+        >
+          <Plus size={18} />
+          <span>{t("action.new")}</span>
+        </button>
+      </Inline>
       <nav className="workspace-nav workspace-nav-panels" aria-label={t("nav.panels")}>
         {commentsAvailable && (
           <button

@@ -149,6 +149,8 @@ export const workspace = {
     showMore_other: "Show more ({{count}} left)",
   },
   action: {
+    createOnly: "Create only",
+    createAndOpen: "Create and open",
     openTemplateGallery: "Template gallery",
     moveFolder: "Move folder",
     deleteFolder: "Delete folder",
