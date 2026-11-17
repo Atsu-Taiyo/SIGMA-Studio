@@ -145,12 +145,21 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     await expect(settings.getByRole("button", { name: "メモを保存", exact: true })).toBeDisabled();
     await settings.getByRole("button", { name: "読み直す", exact: true }).click();
     await expect(settings.getByLabel("優先するメモ（Markdown）")).toHaveValue("# 書き方\n解答は常体で短く書く。");
-    await settings.getByRole("switch", { name: "書き方を学習してAIに使う" }).click();
-    await expect(settings.getByRole("switch")).not.toBeChecked();
+    const learning = settings.getByRole("switch", { name: "書き方を学習してAIに使う" });
+    await learning.click();
+    await expect(learning).not.toBeChecked();
     await runAi(page, file.fileId);
     expect((await readFile(capture, "utf8")).trim().split("\n").at(-1)).not.toContain("authoring-style-memory");
-    await settings.getByRole("switch").click();
-    await expect(settings.getByRole("switch")).toBeChecked();
+    await learning.click();
+    await expect(learning).toBeChecked();
+    // Summarizing with the AI already in use can be turned off on its own.
+    const summary = settings.getByRole("switch", { name: "AIで書き方を要約する" });
+    await expect(summary).toBeChecked();
+    await summary.click();
+    await expect(summary).not.toBeChecked();
+    expect((await page.evaluate(() => window.desktopAPI!.authoringStyle!.read(null))).aiSummary).toBe(false);
+    await summary.click();
+    await expect(summary).toBeChecked();
     await page.screenshot({ path: testInfo.outputPath("authoring-style-settings.png") });
     // The workspace pane shows what was learned and lets the author make a line their own.
     await settings.getByRole("button", { name: "書き方の学習", exact: true }).nth(1).click();
