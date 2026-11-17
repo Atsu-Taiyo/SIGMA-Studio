@@ -273,7 +273,7 @@ export async function collectDocsCommands(page: Page): Promise<CommandIndex> {
       // 落ちない** ようにするため。
       await menu.getByRole("menuitem", { name: "エクスポート", exact: true }).hover();
       const submenu = page.getByRole("menu", { name: "エクスポート" });
-      await expect(submenu.getByRole("menuitem", { name: "JSONをエクスポート", exact: true })).toBeVisible();
+      await expect(submenu.getByRole("menuitem", { name: "sigmaファイルをエクスポート", exact: true })).toBeVisible();
       for (const item of await collectMenuItems(page, '[role="menu"][aria-label="エクスポート"]')) {
         addCommand(commands, commandName(item.label), item.enabled);
       }

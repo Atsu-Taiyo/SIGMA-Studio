@@ -3738,6 +3738,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     createDocumentTabInWorkspace,
     createWhiteboardDocumentTab,
     createDocumentTabFromTemplate,
+    newlyCreatedFileId,
     duplicateActiveDocument,
     openDocumentListDialog,
     closeDocumentTab,
@@ -4396,6 +4397,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const aiRoomTitles = useAiWorkspaceTabTitles();
   const workspaceTabsRow = isEmbedded ? null : (
     <WorkspaceTabStrip
+      newlyCreatedFileId={newlyCreatedFileId}
       aiRoomTitles={aiRoomTitles}
       layout={workspaceLayout}
       metadata={documentMetadatas}

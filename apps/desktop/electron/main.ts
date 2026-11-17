@@ -74,6 +74,8 @@ import { registerFileIpc } from "./ipc/file";
 import { ApplicationFontStore } from "./application-font-store";
 import { extensionsBuildConfig } from "./plugins/config";
 import { PluginHost } from "./plugins/host";
+import { printPreviewReadyScript } from "./print-preview-ready";
+import { DOCUMENT_MEASUREMENT_TIMEOUT_MS, PRINT_PREVIEW_TIMEOUT_MS } from "@/lib/print-preparation";
 import { documentMeasurementScript } from "./plugins/document-measurement";
 import { registerPluginIpc } from "./ipc/plugins";
 import { documentPathsFromArgv, ExternalDocumentOpenQueue } from "./external-document-open";
@@ -772,12 +774,12 @@ export async function measurePluginDocument(document: unknown, blockIds: string[
     window.webContents.on("will-redirect", event => event.preventDefault());
     const task = async () => {
       await window!.loadURL(previewUrl.href);
-      const ready = await waitForPrintPreviewReady(window!, 90_000, false);
+      const ready = await waitForPrintPreviewReady(window!, PRINT_PREVIEW_TIMEOUT_MS, false);
       const measurement = await window!.webContents.executeJavaScript(script, true) as Record<string, unknown>;
       return { ...measurement, pageCount: ready.pageCount };
     };
     return await Promise.race([task(), new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("Document measurement timed out")), 105_000);
+      timer = setTimeout(() => reject(new Error("Document measurement timed out (stage: load/measure)")), DOCUMENT_MEASUREMENT_TIMEOUT_MS);
     })]);
   } finally {
     if (timer) clearTimeout(timer);
@@ -1101,98 +1103,13 @@ function createRenderId(): string {
   return `ai_render_${crypto.randomUUID()}`;
 }
 
-async function waitForPrintPreviewReady(win: BrowserWindow, timeoutMs = 15_000, requirePageWindows = true): Promise<PrintPreviewReadyState> {
-  const documentLoadFailed = te("electron.preview.documentLoadFailed");
-  const preparationTimedOut = te("electron.preview.preparationTimedOut");
-  return win.webContents.executeJavaScript(`
-    new Promise((resolve, reject) => {
-      const timeoutMs = ${timeoutMs};
-      const stableFramesRequired = 8;
-      const startedAt = Date.now();
-      let lastSignature = "";
-      let stableFrames = 0;
-      let resolved = false;
-
-      const finish = (value) => {
-        if (!resolved) {
-          resolved = true;
-          resolve(value);
-        }
-      };
-
-      const fail = (error) => {
-        if (!resolved) {
-          resolved = true;
-          reject(error);
-        }
-      };
-
-      const waitForAssets = () => {
-        const fontReady = document.fonts?.ready ?? Promise.resolve();
-        const imageReady = Promise.all(Array.from(document.images).map((image) => {
-          if (image.complete) {
-            return Promise.resolve();
-          }
-          return new Promise((resolveImage) => {
-            image.addEventListener("load", () => resolveImage(undefined), { once: true });
-            image.addEventListener("error", () => resolveImage(undefined), { once: true });
-          });
-        }));
-        return Promise.all([fontReady, imageReady]);
-      };
-
-      const tick = () => {
-        const errorElement = document.querySelector('[data-print-load-state="error"]');
-        if (errorElement) {
-          fail(new Error(errorElement.textContent?.trim() || ${JSON.stringify(documentLoadFailed)}));
-          return;
-        }
-
-        const stack = document.querySelector(".paged-surface");
-        const renderedPageCount = document.querySelectorAll(".paged-surface-page").length;
-        const pageCount = Number(stack?.getAttribute("data-paged-surface-page-count") ?? "0");
-        const surfaceReady = ${requirePageWindows} ? renderedPageCount > 0 : stack?.getAttribute("data-paged-surface-state") === "ready";
-        if (stack && pageCount > 0 && surfaceReady) {
-          const signature = [
-            pageCount,
-            renderedPageCount,
-            // A late decorating pass rebuilds the windows without changing their count or
-            // size, so the revision is what makes this wait for the final surface.
-            stack.getAttribute("data-paged-surface-revision") ?? "",
-            stack.scrollWidth,
-            stack.scrollHeight,
-            document.body.scrollHeight,
-          ].join(":");
-          if (signature === lastSignature) {
-            stableFrames += 1;
-          } else {
-            lastSignature = signature;
-            stableFrames = 0;
-          }
-
-          if (stableFrames >= stableFramesRequired) {
-            // The paper size travels with the surface so the PDF is never cut to a
-            // hardcoded default (docs/pdf-parity-architecture.md, invariant 6).
-            const pageWidthMm = Number(stack.getAttribute("data-paged-surface-page-width-mm") ?? "0");
-            const pageHeightMm = Number(stack.getAttribute("data-paged-surface-page-height-mm") ?? "0");
-            waitForAssets()
-              .then(() => finish({ pageCount, renderedPageCount, pageWidthMm, pageHeightMm }))
-              .catch(fail);
-            return;
-          }
-        }
-
-        if (Date.now() - startedAt > timeoutMs) {
-          fail(new Error(${JSON.stringify(preparationTimedOut)}));
-          return;
-        }
-
-        window.requestAnimationFrame(tick);
-      };
-
-      window.requestAnimationFrame(tick);
-    });
-  `, true);
+async function waitForPrintPreviewReady(win: BrowserWindow, timeoutMs = PRINT_PREVIEW_TIMEOUT_MS, requirePageWindows = true): Promise<PrintPreviewReadyState> {
+  return win.webContents.executeJavaScript(printPreviewReadyScript({
+    timeoutMs,
+    requirePageWindows,
+    documentLoadFailed: te("electron.preview.documentLoadFailed"),
+    preparationTimedOut: te("electron.preview.preparationTimedOut"),
+  }), true);
 }
 
 function buildMenu() {

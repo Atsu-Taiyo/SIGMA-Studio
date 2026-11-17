@@ -142,7 +142,7 @@ test("Viewer display settings preserve SigmaDoc; edits survive host save and rel
     await page.getByRole("button", { name: "エクスポート", exact: true }).click();
   }
   const downloadReady = page.waitForEvent("download");
-  await page.getByText("JSONをエクスポート", { exact: true }).click();
+  await page.getByText("sigmaファイルをエクスポート", { exact: true }).click();
   const download = await downloadReady;
   expect(download.suggestedFilename()).toBe(`${resavedTitle}.sigma`);
   expect(await download.failure()).toBeNull();

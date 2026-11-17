@@ -12,7 +12,7 @@ test("opens the workspace screen with a single click from the editor menubar", a
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page.locator(".startup-splash")).toBeHidden();
 
-  const workspaceButton = page.getByRole("button", { name: "ワークスペース", exact: true });
+  const workspaceButton = page.getByRole("button", { name: "ワークスペース", exact: true }).and(page.locator(".workspace-open-button"));
   await expect(workspaceButton).toBeVisible();
 
   // サインイン導線は残っていない。
