@@ -38,14 +38,13 @@ export interface StyleItem {
   section: AuthoringStyleSection;
   text: string;
   origin: "auto" | "user";
-  basis: "writing" | "corrections" | null;
+  /** `summary` habits were suggested by the configured AI; the others were counted on this device. */
+  basis: "writing" | "corrections" | "summary" | null;
   support: number;
   documents: number;
   sources: string[];
   firstSeenAt: string;
   lastConfirmedAt: string;
-  status: "active" | "stale";
-  staleSince?: string;
 }
 
 export interface PendingChange {
@@ -56,7 +55,7 @@ export interface PendingChange {
   value: string;
   /** The sentence this change was staged against. Approval is refused once it differs. */
   expectedText: string;
-  basis: "writing" | "corrections";
+  basis: "writing" | "corrections" | "summary";
   support: number;
   documents: number;
   sources: string[];
@@ -74,6 +73,10 @@ export interface StyleMemory {
   pending: PendingChange[];
   /** Staged changes the user declined; the same change is not offered twice. */
   dismissed: string[];
+  /** AI-suggested sentences the user removed or declined, so a rephrasing is not suggested again. */
+  declined: string[];
+  /** The writing the AI summary last read, so unchanged writing is not sent twice. */
+  summary: { hash: string; at: string } | null;
   undo: UndoSnapshot[];
   renderedHash: string;
   lastReviewedAt: string | null;
@@ -84,6 +87,7 @@ export interface StyleMemory {
 export interface LedgerDraft { actor: "review" | "user"; action: string; key?: string; before?: string; after?: string }
 
 const MAX_UNDO = 5;
+const MAX_DECLINED = 30;
 // Every line of a memo within the read limit is kept: nothing the user wrote is cut off on reload.
 const MAX_ITEMS = AUTHORING_STYLE_NOTE_LIMIT + 1000;
 const MAX_LEDGER_LINES = 400;
@@ -93,7 +97,7 @@ const MEMO_READ_LIMIT = AUTHORING_STYLE_NOTE_LIMIT + 1000;
 const GENERATED_FILES = ["learned.md", "learned.sha256", "learned-evidence.json", "memory.json", "ledger.jsonl"];
 
 const emptyMemory = (locale: AppLocale): StyleMemory => ({
-  version: 2, locale, items: [], suppressed: [], pending: [], dismissed: [], undo: [],
+  version: 2, locale, items: [], suppressed: [], pending: [], dismissed: [], declined: [], summary: null, undo: [],
   renderedHash: styleHash(""), lastReviewedAt: null, reviewedDocuments: 0, lastUpdate: null,
 });
 
@@ -105,11 +109,9 @@ export function renderMemo(memory: Pick<StyleMemory, "items">, locale: AppLocale
   const labels = memoLabels(locale);
   const lines = [labels.title, "", labels.policy];
   for (const section of SECTION_ORDER) {
-    const items = memory.items.filter(i => i.section === section && i.status === "active");
+    const items = memory.items.filter(i => i.section === section);
     if (items.length) lines.push("", labels.sections[section], ...items.map(line));
   }
-  const stale = memory.items.filter(i => i.status === "stale");
-  if (stale.length) lines.push("", labels.stale, ...stale.map(line));
   return `${lines.join("\n")}\n`;
 }
 
@@ -125,7 +127,7 @@ export function snapshotForUndo(memory: StyleMemory, reason: string, at: string)
  */
 function reconcile(memory: StyleMemory, content: string, now: string): LedgerDraft[] {
   const labels = memoLabels(memory.locale);
-  const headings = new Map<string, AuthoringStyleSection | "stale">([...SECTION_ORDER.map(s => [labels.sections[s], s] as const), [labels.stale, "stale"]]);
+  const headings = new Map<string, AuthoringStyleSection>(SECTION_ORDER.map(s => [labels.sections[s], s] as const));
   const unclaimed = [...memory.items];
   const items: StyleItem[] = [];
   const entries: LedgerDraft[] = [];
@@ -134,15 +136,16 @@ function reconcile(memory: StyleMemory, content: string, now: string): LedgerDra
     const text = raw.trimEnd();
     if (!text.trim() || text === labels.title || text === labels.policy) continue;
     const heading = headings.get(text);
-    if (heading) { section = heading === "stale" ? "custom" : heading; continue; }
+    if (heading) { section = heading; continue; }
     const index = unclaimed.findIndex(item => line(item) === text);
     if (index >= 0) { items.push(...unclaimed.splice(index, 1)); continue; }
     items.push({ id: `user:${styleHash(`${text}\n${items.length}`).slice(0, 16)}`, key: null, value: "", section, text, origin: "user",
-      basis: null, support: 0, documents: 0, sources: [], firstSeenAt: now, lastConfirmedAt: now, status: "active" });
+      basis: null, support: 0, documents: 0, sources: [], firstSeenAt: now, lastConfirmedAt: now });
     entries.push({ actor: "user", action: "user-edit", after: text });
   }
   for (const item of unclaimed) {
     if (item.key && !memory.suppressed.includes(item.key)) memory.suppressed.push(item.key);
+    if (item.basis === "summary") memory.declined = [...memory.declined, item.text].slice(-MAX_DECLINED);
     entries.push({ actor: "user", action: "user-remove", ...(item.key ? { key: item.key } : {}), before: item.text });
   }
   if (!entries.length) return entries;
@@ -159,7 +162,7 @@ function parseMemory(text: string, locale: AppLocale): StyleMemory {
   const items = (list: unknown[]): StyleItem[] => list.filter((i): i is StyleItem => Boolean(i) && typeof i === "object"
     && typeof (i as StyleItem).id === "string" && typeof (i as StyleItem).text === "string" && (i as StyleItem).text.length <= AUTHORING_STYLE_NOTE_LIMIT
     && ((i as StyleItem).origin === "auto" || (i as StyleItem).origin === "user") && SECTION_ORDER.includes((i as StyleItem).section)
-    && ((i as StyleItem).status === "active" || (i as StyleItem).status === "stale") && Array.isArray((i as StyleItem).sources)).slice(0, MAX_ITEMS);
+    && Array.isArray((i as StyleItem).sources)).slice(0, MAX_ITEMS);
   const pending = (list: unknown[]): PendingChange[] => list.filter((p): p is PendingChange => Boolean(p) && typeof p === "object"
     && typeof (p as PendingChange).id === "string" && typeof (p as PendingChange).key === "string" && typeof (p as PendingChange).value === "string"
     && ["add", "rewrite", "remove"].includes((p as PendingChange).kind)).slice(0, 60);
@@ -167,6 +170,8 @@ function parseMemory(text: string, locale: AppLocale): StyleMemory {
     ...emptyMemory(locale),
     locale: data.locale === "en" || data.locale === "ja" ? data.locale : locale,
     items: items(data.items), suppressed: strings(data.suppressed, 100), pending: pending(data.pending), dismissed: strings(data.dismissed, 60),
+    declined: strings(data.declined, MAX_DECLINED).filter(text => text.length <= 200),
+    summary: data.summary && typeof data.summary.hash === "string" && typeof data.summary.at === "string" ? { hash: data.summary.hash, at: data.summary.at } : null,
     undo: (Array.isArray(data.undo) ? data.undo : []).slice(-MAX_UNDO).map((u: UndoSnapshot) => ({
       at: String(u?.at ?? ""), reason: String(u?.reason ?? ""), items: items(Array.isArray(u?.items) ? u.items : []),
       suppressed: strings(u?.suppressed, 100), pending: pending(Array.isArray(u?.pending) ? u.pending : []), dismissed: strings(u?.dismissed, 60),
@@ -189,13 +194,33 @@ export class AuthoringStyleMemory {
 
   generatedPath(workspaceId: string): string { return path.join(this.dir(workspaceId), "learned.md"); }
 
-  async enabled(workspaceId: string | null): Promise<boolean> {
+  private async settings(workspaceId: string | null): Promise<{ enabled?: unknown; aiSummary?: unknown }> {
     const text = await boundedRead(path.join(this.dir(workspaceId), "settings.json"), 1000);
-    return !text || JSON.parse(text).enabled !== false;
+    const data = text ? JSON.parse(text) : {};
+    return data && typeof data === "object" ? data : {};
+  }
+
+  async enabled(workspaceId: string | null): Promise<boolean> {
+    return (await this.settings(workspaceId)).enabled !== false;
+  }
+
+  /** Whether the review may ask the configured AI to summarize the author's writing. */
+  async aiSummary(workspaceId: string | null): Promise<boolean> {
+    return (await this.settings(workspaceId)).aiSummary !== false;
   }
 
   async setEnabled(workspaceId: string | null, enabled: boolean): Promise<void> {
-    await atomicStyleWrite(path.join(this.dir(workspaceId), "settings.json"), JSON.stringify({ enabled }));
+    await this.writeSettings(workspaceId, { enabled });
+  }
+
+  async setAiSummary(workspaceId: string | null, aiSummary: boolean): Promise<void> {
+    await this.writeSettings(workspaceId, { aiSummary });
+  }
+
+  private async writeSettings(workspaceId: string | null, change: { enabled?: boolean; aiSummary?: boolean }): Promise<void> {
+    const current = await this.settings(workspaceId);
+    await atomicStyleWrite(path.join(this.dir(workspaceId), "settings.json"),
+      JSON.stringify({ enabled: current.enabled !== false, aiSummary: current.aiSummary !== false, ...change }));
   }
 
   async readNote(workspaceId: string | null): Promise<{ content: string; path: string; revision: string }> {
@@ -270,6 +295,7 @@ export class AuthoringStyleMemory {
       snapshotForUndo(memory, "dismiss", at);
       memory.pending.splice(index, 1);
       memory.dismissed = [...memory.dismissed, `${change.kind}:${change.key}:${change.value}`].slice(-60);
+      if (change.kind === "add" && change.basis === "summary") memory.declined = [...memory.declined, change.value].slice(-MAX_DECLINED);
       await this.commit(workspaceId, memory, [{ actor: "user", action: "dismiss", key: change.key }]);
       return memory;
     }
@@ -279,15 +305,15 @@ export class AuthoringStyleMemory {
       throw new Error("Style memo changed. The staged change no longer applies.");
     }
     if (change.kind !== "remove") {
-      const next = change.kind === "add" ? [...memory.items, { section: sectionOf(change.key), status: "active", origin: "auto", text }] : memory.items.map(i => i === item ? { ...i, text } : i);
+      const next = change.kind === "add" ? [...memory.items, { section: sectionOf(change.key), origin: "auto", text }] : memory.items.map(i => i === item ? { ...i, text } : i);
       if (renderMemo({ items: next as StyleItem[] }, locale).length > AUTHORING_STYLE_NOTE_LIMIT) throw new Error("Style memo is full. Remove an item before adding another.");
     }
     snapshotForUndo(memory, "approve", at);
     memory.pending.splice(index, 1);
     const evidence = { basis: change.basis, support: change.support, documents: change.documents, sources: change.sources, lastConfirmedAt: at };
     if (change.kind === "remove") memory.items = memory.items.filter(i => i !== item);
-    else if (change.kind === "rewrite") Object.assign(item!, evidence, { value: change.value, text, status: "active" });
-    else memory.items.push({ id: `auto:${change.key}`, key: change.key, value: change.value, section: sectionOf(change.key), text: text!, origin: "auto", ...evidence, firstSeenAt: at, status: "active" });
+    else if (change.kind === "rewrite") Object.assign(item!, evidence, { value: change.value, text });
+    else memory.items.push({ id: `auto:${change.key}`, key: change.key, value: change.value, section: sectionOf(change.key), text: text!, origin: "auto", ...evidence, firstSeenAt: at });
     await this.commit(workspaceId, memory, [{ actor: "user", action: `approve-${change.kind}`, key: change.key, before: change.expectedText, after: change.kind === "remove" ? "" : text! }]);
     return memory;
   }

@@ -5,7 +5,7 @@ import { expect, it, vi } from "vitest";
 import { AiAuthoringStylePane } from "./AiAuthoringStylePane";
 import type { AuthoringStyleAPI, AuthoringStyleProfile } from "@/lib/ai/authoring-style";
 
-const base: AuthoringStyleProfile = { workspaceId: null, enabled: true, userContent: "画面にあるメモ", userPath: "/user.md", revision: "original",
+const base: AuthoringStyleProfile = { workspaceId: null, enabled: true, aiSummary: true, aiSummaryProvider: null, userContent: "画面にあるメモ", userPath: "/user.md", revision: "original",
   generatedContent: "", generatedPath: "", generatedRevision: "", exampleCount: 1, items: [], pending: [], usage: { characters: 0, limit: 3000 },
   outcomes: { kept: 0, edited: 0, reverted: 0, rejected: 0 }, lastReviewedAt: null, reviewedDocuments: 0, lastUpdate: null, canUndo: false, blockedLines: 0 };
 
@@ -21,7 +21,7 @@ function mount(api: AuthoringStyleAPI, workspaceId: string | null) {
 
 function fakeApi(overrides: Partial<AuthoringStyleAPI>, profile: AuthoringStyleProfile): AuthoringStyleAPI {
   const resolved = () => vi.fn().mockResolvedValue(profile);
-  return { read: resolved(), save: resolved(), saveLearned: resolved(), setEnabled: resolved(), reset: resolved(), review: resolved(), resolvePending: resolved(), undo: resolved(), ...overrides };
+  return { read: resolved(), save: resolved(), saveLearned: resolved(), setEnabled: resolved(), setAiSummary: resolved(), reset: resolved(), review: resolved(), resolvePending: resolved(), undo: resolved(), ...overrides };
 }
 
 it("keeps the displayed note's revision when another action returns a newer external note", async () => {
@@ -41,7 +41,8 @@ it("keeps the displayed note's revision when another action returns a newer exte
 
 it("shows the learned memo with its evidence and lets the user decide staged changes", async () => {
   const profile: AuthoringStyleProfile = { ...base, workspaceId: "ws1", generatedContent: "# 学んだ書き方\n- 解説・説明は常体（だ・である）で書く。\n", generatedRevision: "memo1", generatedPath: "/learned.md",
-    items: [{ id: "auto:tone.explanation", section: "style", text: "解説・説明は常体（だ・である）で書く。", origin: "auto", basis: "writing", support: 4, documents: 2, status: "active", lastConfirmedAt: "" }],
+    items: [{ id: "auto:tone.explanation", section: "style", text: "解説・説明は常体（だ・である）で書く。", origin: "auto", basis: "writing", support: 4, documents: 2, lastConfirmedAt: "" },
+      { id: "auto:summary.style:1", section: "style", text: "要点を先に述べる。", origin: "auto", basis: "summary", support: 3, documents: 3, lastConfirmedAt: "" }],
     pending: [{ id: "rewrite:tone.explanation", kind: "rewrite", reason: "contradicted", currentText: "常体で書く。", proposedText: "丁寧体で書く。", support: 3 }],
     outcomes: { kept: 5, edited: 2, reverted: 1, rejected: 3 }, canUndo: true, lastUpdate: { at: "", added: 1, staged: 1 }, blockedLines: 2 };
   const api = fakeApi({}, profile);
@@ -49,13 +50,15 @@ it("shows the learned memo with its evidence and lets the user decide staged cha
   try {
     await view.render();
     expect(view.host.querySelector<HTMLTextAreaElement>("#authoring-style-learned")!.value).toBe(profile.generatedContent);
-    for (const text of ["そのまま 5・手直し 2・取り消し 1 / 却下した提案 3", "自分の文章 4箇所・教材2件", "書き換え: 「常体で書く。」→「丁寧体で書く。」（根拠3箇所）", "1項目を追加、1件が確認待ち", "2行あり、AIへは渡していません"]) {
+    for (const text of ["そのまま 5・手直し 2・取り消し 1 / 却下した提案 3", "自分の文章 4箇所・教材2件", "AIによる要約・教材3件", "書き換え: 「常体で書く。」→「丁寧体で書く。」（根拠3箇所）", "1項目を追加、1件が確認待ち", "2行あり、AIへは渡していません"]) {
       expect(view.host.textContent).toContain(text);
     }
     await act(async () => view.button("反映する").click());
     expect(api.resolvePending).toHaveBeenCalledWith({ workspaceId: "ws1", id: "rewrite:tone.explanation", approve: true });
     await act(async () => view.button("見送る").click());
     expect(api.resolvePending).toHaveBeenLastCalledWith({ workspaceId: "ws1", id: "rewrite:tone.explanation", approve: false });
+    await act(async () => view.host.querySelectorAll<HTMLButtonElement>('[role="switch"]')[1].click());
+    expect(api.setAiSummary).toHaveBeenCalledWith("ws1", false);
     await act(async () => view.button("今すぐ見直す").click());
     expect(api.review).toHaveBeenCalledWith("ws1");
     await act(async () => view.button("1つ前に戻す").click());

@@ -30,6 +30,10 @@ export function registerAuthoringStyleIpc(store: LocalAuthoringStyleStore): void
     if (typeof enabled !== "boolean") throw new Error("Invalid enabled flag");
     return store.setEnabled(scope(workspaceId), enabled);
   });
+  ipcMain.handle("authoring-style:set-ai-summary", (_event, workspaceId: unknown, enabled: unknown) => {
+    if (typeof enabled !== "boolean") throw new Error("Invalid enabled flag");
+    return store.setAiSummary(scope(workspaceId), enabled);
+  });
   ipcMain.handle("authoring-style:reset", (_event, workspaceId: unknown) => store.reset(scope(workspaceId)));
   ipcMain.handle("authoring-style:save-learned", (_event, input: unknown) => {
     const value = record(input);

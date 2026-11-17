@@ -71,6 +71,7 @@ import { assertUsableCliBinPath } from "./cli-spawn";
 import { registerCodexIpc } from "./ipc/codex";
 import { registerAiEditIpc } from "./ipc/ai-edit";
 import { registerAuthoringStyleIpc } from "./ipc/authoring-style";
+import { runToollessPrompt } from "./ai-skill-draft";
 import { registerAiResourcesIpc } from "./ipc/ai-resources";
 import { registerFileIpc } from "./ipc/file";
 import { ApplicationFontStore } from "./application-font-store";
@@ -198,6 +199,9 @@ let stopAiSettingsWatch: (() => void) | null = null;
 const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH, {
   listFiles: () => localSigmaDocStore.listFiles(),
   loadDocument: fileId => localSigmaDocStore.loadDocument(fileId),
+  // The same tool-less single call the skill editor uses, to the provider the author already uses.
+  summarize: ({ provider, prompt }) => runToollessPrompt(provider, prompt,
+    { claude: claudeStreamClient, geminiSkillDraft: geminiSkillDraftClient, codex: codexAppServerClient }, `authoring-style-${crypto.randomUUID()}`, 90_000),
 });
 const localSigmaDocStore = new LocalSigmaDocStore(USER_DATA_PATH, {
   onDocumentSaved: event => localAuthoringStyleStore.observe(event),

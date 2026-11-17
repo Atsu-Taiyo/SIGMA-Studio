@@ -44,7 +44,7 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
   const dirty = profile !== null && content !== profile.userContent;
   const learnedDirty = profile !== null && learned !== profile.generatedContent;
   const evidence = (item: AuthoringStyleItemView) => item.origin === "user" ? t("authoringStyle.evidenceUser")
-    : item.status === "stale" ? t("authoringStyle.evidenceStale")
+    : item.basis === "summary" ? t("authoringStyle.evidenceSummary", { documents: item.documents })
       : t(item.basis === "corrections" ? "authoringStyle.evidenceCorrections" : "authoringStyle.evidenceWriting", { count: item.support, documents: item.documents });
   return (
     <SettingsSection id={id} className="ai-settings-pane" title={t("authoringStyle.title")} description={t("authoringStyle.description")}>
@@ -52,6 +52,9 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
       {!profile ? <Shimmer>{t("ai.loading")}</Shimmer> : <Stack gap="lg">
         <SettingsField label={t(workspaceId ? "authoringStyle.workspaceEnabled" : "authoringStyle.enabled")}>
           <Switch label={t(workspaceId ? "authoringStyle.workspaceEnabled" : "authoringStyle.enabled")} checked={profile.enabled} disabled={busy} onCheckedChange={enabled => void run(() => api.setEnabled(workspaceId, enabled))} />
+        </SettingsField>
+        <SettingsField label={t("authoringStyle.aiSummary")} description={t("authoringStyle.aiSummaryDescription")}>
+          <Switch label={t("authoringStyle.aiSummary")} checked={profile.aiSummary} disabled={busy || !profile.enabled} onCheckedChange={enabled => void run(() => api.setAiSummary(workspaceId, enabled))} />
         </SettingsField>
         <SettingsStatus>{t("authoringStyle.count", { count: profile.exampleCount })} / {t("authoringStyle.outcomes", { ...profile.outcomes })}</SettingsStatus>
         {profile.blockedLines > 0 && <SettingsStatus tone="error">{t("authoringStyle.blocked", { count: profile.blockedLines })}</SettingsStatus>}

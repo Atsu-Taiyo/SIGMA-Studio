@@ -145,11 +145,7 @@ export async function generateAiSkillDraft(
   };
 
   try {
-    const rawText = await (request.provider === "claude"
-      ? generateWithClaude(deps.claude, fullPrompt, runId, options)
-      : request.provider === "antigravity"
-      ? generateWithGemini(deps.geminiSkillDraft, fullPrompt, runId, options)
-      : generateWithCodex(deps.codex, fullPrompt, runId, options));
+    const rawText = await runProvider(request.provider, deps, fullPrompt, runId, options);
     const text = isFrameDrawing ? sanitizeFrameDrawing(rawText) : sanitizeSkillDraftText(rawText);
     const message = isFrameDrawing ? extractFrameReplyMessage(rawText) : "";
     if (!text) {
@@ -163,6 +159,22 @@ export async function generateAiSkillDraft(
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : ta("desktop.skillDraft.failed") };
   }
+}
+
+function runProvider(provider: AiProvider, deps: AiSkillDraftDeps, fullPrompt: string, runId: string, options: AiSkillDraftRunOptions): Promise<string> {
+  return provider === "claude"
+    ? generateWithClaude(deps.claude, fullPrompt, runId, options)
+    : provider === "antigravity"
+    ? generateWithGemini(deps.geminiSkillDraft, fullPrompt, runId, options)
+    : generateWithCodex(deps.codex, fullPrompt, runId, options);
+}
+
+/**
+ * The same tool-less single call, for background work that only needs the reply text
+ * (the authoring style review). Rejects on failure, timeout or an empty reply.
+ */
+export function runToollessPrompt(provider: AiProvider, prompt: string, deps: AiSkillDraftDeps, runId: string, timeoutMs: number): Promise<string> {
+  return runProvider(provider, deps, prompt, runId, { timeoutMs });
 }
 
 export function buildSkillDraftPrompt(userPrompt: string, context: AiSkillDraftContext): string {

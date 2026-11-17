@@ -7,10 +7,10 @@ export interface AuthoringStyleItemView {
   section: AuthoringStyleSection;
   text: string;
   origin: "auto" | "user";
-  basis: "writing" | "corrections" | null;
+  /** `summary`: suggested by the AI the user already uses. The others were counted on the device. */
+  basis: "writing" | "corrections" | "summary" | null;
   support: number;
   documents: number;
-  status: "active" | "stale";
   lastConfirmedAt: string;
 }
 
@@ -35,6 +35,10 @@ export interface AuthoringStyleOutcomes {
 export interface AuthoringStyleProfile {
   workspaceId: string | null;
   enabled: boolean;
+  /** The review may send excerpts of the author's writing to the AI they already use. */
+  aiSummary: boolean;
+  /** The provider such a summary would be asked of; null until an AI request has been made. */
+  aiSummaryProvider: "chatgpt" | "claude" | "antigravity" | null;
   userContent: string;
   userPath: string;
   revision: string;
@@ -60,6 +64,7 @@ export interface AuthoringStyleAPI {
   save(input: { workspaceId: string | null; content: string; expectedRevision: string }): Promise<AuthoringStyleProfile>;
   saveLearned(input: { workspaceId: string; content: string; expectedRevision: string }): Promise<AuthoringStyleProfile>;
   setEnabled(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile>;
+  setAiSummary(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile>;
   reset(workspaceId: string | null): Promise<AuthoringStyleProfile>;
   /** Run the background review now instead of waiting for its trigger. */
   review(workspaceId: string): Promise<AuthoringStyleProfile>;

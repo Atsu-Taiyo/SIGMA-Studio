@@ -2,12 +2,13 @@ import { AUTHORING_STYLE_NOTE_LIMIT } from "@/lib/ai/authoring-style";
 import type { AppLocale } from "@/lib/i18n";
 import type { Observation } from "./authoring-style-features";
 import { itemText, sectionOf } from "./authoring-style-items";
-import { renderMemo, snapshotForUndo, type LedgerDraft, type PendingChange, type StyleMemory } from "./authoring-style-memory";
+import { renderMemo, snapshotForUndo, type LedgerDraft, type PendingChange, type StyleItem, type StyleMemory } from "./authoring-style-memory";
+import { summaryKey, type SummaryReply } from "./authoring-style-summary";
 
-/** A habit nothing has confirmed for this long stops being sent to the AI. It is kept, not deleted. */
+/** A habit nothing has confirmed for this long is offered for removal. Removing it is always the user's decision. */
 export const STALE_AFTER_MS = 45 * 24 * 60 * 60 * 1000;
-/** A stale habit is then offered for removal. Removing it is always the user's decision. */
-export const SUGGEST_REMOVAL_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+/** Habits the AI summary may hold at once, so it cannot fill the memo by itself. */
+export const MAX_SUMMARY_ITEMS = 10;
 
 export interface ReviewContext {
   now: Date;
@@ -20,21 +21,18 @@ export interface ReviewContext {
 
 export interface ReviewResult { added: number; staged: number; entries: LedgerDraft[] }
 
+type Evidence = Pick<StyleItem, "support" | "documents" | "sources"> & { basis: NonNullable<StyleItem["basis"]> };
+
 /**
- * The unattended pass. It may add a grounded habit and refresh evidence. Anything
- * destructive (rewriting or removing an existing habit, or adding past the size
- * limit) is staged for the user instead. User-written items are never touched.
+ * What an unattended pass is allowed to do: add a grounded habit and refresh
+ * evidence. Rewriting or removing an existing habit, however strong the
+ * evidence against it, and adding past the size limit, are only staged for the
+ * user. User-written items are never touched.
  */
-export function planReview(memory: StyleMemory, observations: readonly Observation[], context: ReviewContext): ReviewResult {
+function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "locale">) {
   const now = context.now.toISOString();
-  const entries: LedgerDraft[] = [];
-  let added = 0;
-  let staged = 0;
+  const result: ReviewResult = { added: 0, staged: 0, entries: [] };
   let snapshotTaken = false;
-  const beforeContentChange = () => {
-    if (!snapshotTaken) snapshotForUndo(memory, "review", now);
-    snapshotTaken = true;
-  };
   const stage = (change: PendingChange) => {
     const existing = memory.pending.findIndex(p => p.key === change.key);
     if (existing >= 0 && memory.pending[existing].kind === change.kind && memory.pending[existing].value === change.value) {
@@ -43,16 +41,45 @@ export function planReview(memory: StyleMemory, observations: readonly Observati
     }
     if (existing >= 0) memory.pending.splice(existing, 1);
     memory.pending.push(change);
-    staged++;
-    entries.push({ actor: "review", action: "stage", key: change.key, before: change.expectedText, after: change.kind === "remove" ? "" : itemText(change.key, change.value, context.locale) ?? "" });
+    result.staged++;
+    result.entries.push({ actor: "review", action: "stage", key: change.key, before: change.expectedText, after: change.kind === "remove" ? "" : itemText(change.key, change.value, context.locale) ?? "" });
   };
   const unstage = (key: string) => {
     const index = memory.pending.findIndex(p => p.key === key);
     if (index < 0) return;
     memory.pending.splice(index, 1);
-    entries.push({ actor: "review", action: "unstage", key });
+    result.entries.push({ actor: "review", action: "unstage", key });
   };
+  /** Add a habit the memo does not have yet, or stage it when the memo is full. */
+  const add = (key: string, value: string, text: string, evidence: Evidence) => {
+    if (memory.dismissed.includes(`add:${key}:${value}`)) return;
+    const candidate: StyleItem = { id: `auto:${key}`, key, value, section: sectionOf(key), text, origin: "auto", ...evidence, firstSeenAt: now, lastConfirmedAt: now };
+    if (renderMemo({ ...memory, items: [...memory.items, candidate] }, context.locale).length > AUTHORING_STYLE_NOTE_LIMIT) {
+      // Never make room by dropping something silently: the user decides what goes.
+      stage({ id: `add:${key}`, kind: "add", reason: "limit", key, value, expectedText: "", ...evidence, createdAt: now });
+      return;
+    }
+    if (!snapshotTaken) snapshotForUndo(memory, "review", now);
+    snapshotTaken = true;
+    memory.items.push(candidate);
+    unstage(key);
+    result.added++;
+    result.entries.push({ actor: "review", action: "add", key, after: text });
+  };
+  const confirm = (item: StyleItem, evidence?: Evidence) => {
+    Object.assign(item, evidence ?? {}, { lastConfirmedAt: now });
+    unstage(item.key!);
+  };
+  const finish = () => {
+    if (result.added || result.staged) memory.lastUpdate = { at: now, added: result.added, staged: result.staged };
+    return result;
+  };
+  return { now, stage, add, confirm, finish };
+}
 
+/** The local pass over what the author wrote and corrected. */
+export function planReview(memory: StyleMemory, observations: readonly Observation[], context: ReviewContext): ReviewResult {
+  const pass = unattended(memory, context);
   const observed = new Set<string>();
   for (const observation of observations) {
     const { key, value } = observation;
@@ -60,55 +87,53 @@ export function planReview(memory: StyleMemory, observations: readonly Observati
     const text = itemText(key, value, context.locale);
     if (!text) continue;
     observed.add(key);
-    const evidence = { basis: observation.basis, support: observation.support, documents: observation.documents, sources: observation.sources.slice(0, 8) };
+    const evidence: Evidence = { basis: observation.basis, support: observation.support, documents: observation.documents, sources: observation.sources.slice(0, 8) };
     const item = memory.items.find(i => i.key === key);
-    if (!item) {
-      if (memory.dismissed.includes(`add:${key}:${value}`)) continue;
-      const candidate = { id: `auto:${key}`, key, value, section: sectionOf(key), text, origin: "auto" as const, ...evidence, firstSeenAt: now, lastConfirmedAt: now, status: "active" as const };
-      if (renderMemo({ ...memory, items: [...memory.items, candidate] }, context.locale).length > AUTHORING_STYLE_NOTE_LIMIT) {
-        // Never make room by dropping something silently: the user decides what goes.
-        stage({ id: `add:${key}`, kind: "add", reason: "limit", key, value, expectedText: "", ...evidence, createdAt: now });
-        continue;
-      }
-      beforeContentChange();
-      memory.items.push(candidate);
-      unstage(key);
-      added++;
-      entries.push({ actor: "review", action: "add", key, after: text });
-    } else if (item.origin !== "auto") {
-      continue;
-    } else if (item.value === value) {
-      Object.assign(item, evidence, { lastConfirmedAt: now });
-      if (item.status === "stale") {
-        beforeContentChange();
-        item.status = "active";
-        delete item.staleSince;
-        entries.push({ actor: "review", action: "revive", key, after: item.text });
-      }
-      unstage(key);
-    } else if (!memory.dismissed.includes(`rewrite:${key}:${value}`)) {
-      // New evidence contradicts the habit. Replace the sentence, do not append a second one.
-      stage({ id: `rewrite:${key}`, kind: "rewrite", reason: "contradicted", key, value, expectedText: item.text, ...evidence, createdAt: now });
+    if (!item) pass.add(key, value, text, evidence);
+    else if (item.origin !== "auto") continue;
+    else if (item.value === value) pass.confirm(item, evidence);
+    else if (!memory.dismissed.includes(`rewrite:${key}:${value}`)) {
+      // New evidence contradicts the habit. Propose replacing the sentence; do not append a second one.
+      pass.stage({ id: `rewrite:${key}`, kind: "rewrite", reason: "contradicted", key, value, expectedText: item.text, ...evidence, createdAt: pass.now });
     }
   }
 
   for (const item of memory.items) {
     if (item.origin !== "auto" || !item.key || observed.has(item.key)) continue;
     const sources = context.eligibleFiles ? item.sources.filter(id => context.eligibleFiles!.has(id)) : item.sources;
-    if (item.status === "active") {
-      if (context.keptSinceLastReview && sources.length) item.lastConfirmedAt = now;
-      if (!sources.length || context.now.getTime() - Date.parse(item.lastConfirmedAt) > STALE_AFTER_MS) {
-        beforeContentChange();
-        item.status = "stale";
-        item.staleSince = now;
-        entries.push({ actor: "review", action: "stale", key: item.key, before: item.text });
-      }
-    } else if (context.now.getTime() - Date.parse(item.staleSince ?? now) > SUGGEST_REMOVAL_AFTER_MS
-      && !memory.dismissed.includes(`remove:${item.key}:${item.value}`)) {
-      stage({ id: `remove:${item.key}`, kind: "remove", reason: "stale", key: item.key, value: item.value, expectedText: item.text,
-        basis: item.basis ?? "writing", support: item.support, documents: item.documents, sources: item.sources, createdAt: now });
+    if (context.keptSinceLastReview && sources.length) item.lastConfirmedAt = pass.now;
+    const unconfirmed = !sources.length || context.now.getTime() - Date.parse(item.lastConfirmedAt) > STALE_AFTER_MS;
+    if (unconfirmed && !memory.dismissed.includes(`remove:${item.key}:${item.value}`)) {
+      // The habit stays in the memo, and in use, until its author agrees to drop it.
+      pass.stage({ id: `remove:${item.key}`, kind: "remove", reason: "stale", key: item.key, value: item.value, expectedText: item.text,
+        basis: item.basis ?? "writing", support: item.support, documents: item.documents, sources: item.sources, createdAt: pass.now });
     }
   }
-  if (added || staged) memory.lastUpdate = { at: now, added, staged };
-  return { added, staged, entries };
+  return pass.finish();
+}
+
+/**
+ * What the configured AI read out of the author's writing. It can only add
+ * habits and confirm ones it suggested before; it never rewrites or removes.
+ */
+export function planSummary(memory: StyleMemory, reply: SummaryReply, candidates: readonly string[],
+  context: Pick<ReviewContext, "now" | "locale"> & { sources: readonly string[] }): ReviewResult {
+  const pass = unattended(memory, context);
+  const evidence: Evidence = { basis: "summary", support: context.sources.length, documents: context.sources.length, sources: context.sources.slice(0, 8) };
+  for (const number of reply.confirm) {
+    const item = memory.items.find(i => i.origin === "auto" && i.key === candidates[number - 1]);
+    if (item) pass.confirm(item, evidence);
+  }
+  const taken = new Set(memory.items.map(i => i.text.replace(/^- /, "")));
+  let held = memory.items.filter(i => i.origin === "auto" && i.basis === "summary").length;
+  for (const { section, text } of reply.add) {
+    const key = summaryKey(section, text);
+    if (held >= MAX_SUMMARY_ITEMS || taken.has(text) || memory.declined.includes(text) || memory.suppressed.includes(key)
+      || memory.items.some(i => i.key === key) || itemText(key, text, context.locale) !== text) continue;
+    const before = memory.items.length;
+    pass.add(key, text, text, evidence);
+    if (memory.items.length > before) held++;
+    taken.add(text);
+  }
+  return pass.finish();
 }

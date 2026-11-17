@@ -253,8 +253,9 @@ export function mergeObservations(writing: readonly Observation[], corrections: 
 }
 
 /** Votes of one personal document, leaving out blocks the predicate attributes to the AI. */
-export function documentEvidence(fileId: string, projection: DocumentProjection, isAiText: (blockId: string, fragment: Fragment) => boolean, budget: { characters: number }): { units: EvidenceUnit[]; skippedAi: number; characters: number } {
+export function documentEvidence(fileId: string, projection: DocumentProjection, isAiText: (blockId: string, fragment: Fragment) => boolean, budget: { characters: number }): { units: EvidenceUnit[]; skippedAi: number; characters: number; texts: string[] } {
   const units: EvidenceUnit[] = [];
+  const texts: string[] = [];
   const authored = new Set<string>();
   let skippedAi = 0;
   let characters = 0;
@@ -264,6 +265,7 @@ export function documentEvidence(fileId: string, projection: DocumentProjection,
     if (characters + fragment.text.length > budget.characters) break;
     characters += fragment.text.length;
     authored.add(blockId);
+    texts.push(fragment.text);
     const votes = new Map([...proseVotes(fragment), ...texVotes(fragment)]);
     if (votes.size) units.push({ fileId, blockId, votes });
   }
@@ -275,5 +277,5 @@ export function documentEvidence(fileId: string, projection: DocumentProjection,
       ["procedure.hints", problem.areas.hints.length ? "filled" : "empty"],
     ]) });
   }
-  return { units, skippedAi, characters };
+  return { units, skippedAi, characters, texts };
 }

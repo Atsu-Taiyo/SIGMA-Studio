@@ -5,9 +5,11 @@ import type { TranslationsOf } from "../types";
 export const settings = {
   authoringStyle: {
     title: "Writing style",
-    description: "Learns how you write from the text of personal materials you recently edited in this workspace, and from your corrections of AI drafts, and uses it for future AI proposals. Text the AI wrote and you left untouched is not counted as your writing. Shared materials and restorations are excluded; reading and counting happen on this device.",
+    description: "Learns how you write from the text of the ten personal materials you most recently edited in this workspace, and from your corrections of AI drafts, and uses it for future AI proposals. Text the AI wrote and you left untouched is not counted as your writing. Shared materials and restorations are excluded. Only additions are made automatically; rewriting or removing an item waits for your decision.",
     enabled: "Learn and use my writing style",
     workspaceEnabled: "Learn and use style in this workspace",
+    aiSummary: "Summarize my style with AI",
+    aiSummaryDescription: "During a review, excerpts of text you wrote (up to 6,000 characters) and examples of your corrections are sent to the AI you last used (ChatGPT, Claude or Antigravity), which suggests items. No new destination is added. When off, learning only counts habits on this device.",
     count: "{{count}} corrections",
     outcomes: "Accepted AI text: kept {{kept}}, corrected {{edited}}, undone {{reverted}} / rejected proposals {{rejected}}",
     blocked: "{{count}} lines look like attempts to rewrite the AI's instructions and are not sent to the AI.",
@@ -26,7 +28,7 @@ export const settings = {
     pendingTitle: "Changes awaiting your decision",
     pending: {
       rewrite: "Rewrite: \"{{current}}\" → \"{{proposed}}\" ({{count}} places)",
-      remove: "Remove: \"{{current}}\" (not confirmed recently)",
+      remove: "Remove: \"{{current}}\" (not confirmed recently; still sent to the AI until you apply this)",
       add: "Add: \"{{proposed}}\" (held because the memo is full; {{count}} places)",
     },
     approve: "Apply",
@@ -35,7 +37,7 @@ export const settings = {
     evidenceWriting: "your writing: {{count}} places in {{documents}} materials",
     evidenceCorrections: "corrections: {{count}} places in {{documents}} materials",
     evidenceUser: "written by you",
-    evidenceStale: "not confirmed recently (not sent to the AI)",
+    evidenceSummary: "AI summary of {{documents}} materials",
     reset: "Reset learning",
     resetGlobal: "Delete all examples, learned style and AI proposal records. Keep manual notes.",
     resetWorkspace: "Delete examples, learned style and AI proposal records in this workspace. Keep manual notes.",

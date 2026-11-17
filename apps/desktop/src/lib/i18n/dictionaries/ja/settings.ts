@@ -2,9 +2,11 @@
 export const settings = {
   authoringStyle: {
     title: "書き方の学習",
-    description: "このワークスペースで最近編集した個人教材の文章と、AI案への手直しから書き方を学び、次のAI提案に使います。AIが書いたまま手を入れていない部分は、あなたの書き方として数えません。共有教材と復元は対象外で、読み取りと集計はこの端末の中で行います。",
+    description: "このワークスペースで最近編集した個人教材（直近10件）の文章と、AI案への手直しから書き方を学び、次のAI提案に使います。AIが書いたまま手を入れていない部分は、あなたの書き方として数えません。共有教材と復元は対象外です。自動で行うのは項目の追加だけで、書き換えと削除は確認してから反映します。",
     enabled: "書き方を学習してAIに使う",
     workspaceEnabled: "このワークスペースで学習してAIに使う",
+    aiSummary: "AIで書き方を要約する",
+    aiSummaryDescription: "見直しのとき、あなたが書いた文章の抜粋（最大6,000字）と手直しの例を、最後に使ったAI（ChatGPT・Claude・Antigravity のいずれか）へ送り、書き方の項目を挙げてもらいます。送信先は増えません。オフにすると、この端末の中の集計だけで学びます。",
     count: "手直しの実例 {{count}}件",
     outcomes: "採用したAI案: そのまま {{kept}}・手直し {{edited}}・取り消し {{reverted}} / 却下した提案 {{rejected}}",
     blocked: "AIへの指示の書き換えを狙った文に見える行が{{count}}行あり、AIへは渡していません。",
@@ -23,7 +25,7 @@ export const settings = {
     pendingTitle: "確認待ちの変更",
     pending: {
       rewrite: "書き換え: 「{{current}}」→「{{proposed}}」（根拠{{count}}箇所）",
-      remove: "削除: 「{{current}}」（最近は確認できていません）",
+      remove: "削除: 「{{current}}」（最近は確認できていません。反映するまでAIに渡し続けます）",
       add: "追加: 「{{proposed}}」（メモが上限に達しているため保留。根拠{{count}}箇所）",
     },
     approve: "反映する",
@@ -32,7 +34,7 @@ export const settings = {
     evidenceWriting: "自分の文章 {{count}}箇所・教材{{documents}}件",
     evidenceCorrections: "手直し {{count}}箇所・教材{{documents}}件",
     evidenceUser: "自分で書いた項目",
-    evidenceStale: "最近は確認できていない（AIへは渡していません）",
+    evidenceSummary: "AIによる要約・教材{{documents}}件",
     reset: "学習をリセット",
     resetGlobal: "すべての実例・学んだ書き方・AI案の記録を消します。手動メモは残します。",
     resetWorkspace: "このワークスペースの実例・学んだ書き方・AI案の記録を消します。手動メモは残します。",

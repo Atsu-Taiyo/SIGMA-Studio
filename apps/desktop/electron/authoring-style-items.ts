@@ -1,5 +1,6 @@
 import type { AuthoringStyleSection } from "@/lib/ai/authoring-style";
 import { createTranslator, type AppLocale } from "@/lib/i18n";
+import { summaryText } from "./authoring-style-summary";
 
 type Loose = (key: string, options?: Record<string, unknown>) => string;
 const translator = (locale: AppLocale) => createTranslator(locale, "prompt") as unknown as Loose;
@@ -20,15 +21,18 @@ const ENUMERATED: Record<string, readonly string[]> = {
 };
 
 export function sectionOf(key: string): AuthoringStyleSection {
+  if (key.startsWith("summary.")) return key.startsWith("summary.tex:") ? "tex" : key.startsWith("summary.procedure:") ? "procedure" : "style";
   return key.startsWith("tex.") ? "tex" : key.startsWith("procedure.") || key.startsWith("numbering.") ? "procedure" : "style";
 }
 
 /**
- * The sentence shown for a learned habit, built only from fixed templates and
- * whitelisted values. Returns null for anything else, so document text can
- * never reach the memo (or the AI) through an observation.
+ * The sentence shown for a learned habit. Habits counted on this device are
+ * built only from fixed templates and whitelisted values, so document text
+ * cannot reach the memo through an observation. A habit the AI summary
+ * suggested is its own validated sentence. Returns null for anything else.
  */
 export function itemText(key: string, value: string, locale: AppLocale): string | null {
+  if (key.startsWith("summary.")) return summaryText(key, value);
   const t = translator(locale);
   if (key.startsWith("tex.")) {
     const category = key.slice(4);
@@ -56,7 +60,6 @@ export function memoLabels(locale: AppLocale) {
   return {
     title: t("authoringStyle.memo.title"),
     policy: t("authoringStyle.memo.policy"),
-    stale: t("authoringStyle.memo.sections.stale"),
     sections: Object.fromEntries(SECTION_ORDER.map(section => [section, t(`authoringStyle.memo.sections.${section}`)])) as Record<AuthoringStyleSection, string>,
   };
 }

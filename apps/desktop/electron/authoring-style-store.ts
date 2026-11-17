@@ -12,8 +12,10 @@ import {
 } from "./authoring-style-features";
 import { itemText, memoLabels, SECTION_ORDER } from "./authoring-style-items";
 import { AuthoringStyleMemory, atomicStyleWrite, renderMemo, type StyleMemory } from "./authoring-style-memory";
-import { planReview } from "./authoring-style-review";
+import { planReview, planSummary } from "./authoring-style-review";
 import { isSuspicious, scanLines } from "./authoring-style-scan";
+import { buildSummaryPrompt, parseSummaryReply, type SummaryInput } from "./authoring-style-summary";
+import type { AiEditProvider } from "./ai-edit-provider";
 import { acquireFileLock } from "./file-lock";
 import { logLedgerEvent } from "./ledger-log";
 import type { LocalDocumentMetadata, LocalDocumentSavedEvent } from "./local-sigma-doc-store";
@@ -29,9 +31,16 @@ const MAX_AI_BLOCKS = 3000;
 const MAX_REJECTIONS = 300;
 const FLUSH_DELAY_MS = 750;
 /** The review reads a few recently edited documents, never the whole library. */
-export const MAX_REVIEW_DOCUMENTS = 6;
+export const DEFAULT_REVIEW_DOCUMENTS = 10;
 export const MAX_REVIEW_DOCUMENT_CHARACTERS = 20_000;
-export const MAX_REVIEW_CHARACTERS = 60_000;
+export const MAX_REVIEW_CHARACTERS = 100_000;
+/** What one AI summary may read: excerpts of the author's own text, never whole documents. */
+export const MAX_SUMMARY_SAMPLE_CHARACTERS = 6000;
+const MAX_SUMMARY_EXCERPT = 300;
+const MIN_SUMMARY_SAMPLE_CHARACTERS = 400;
+const MAX_SUMMARY_CORRECTIONS = 6;
+/** An unattended summary is asked for at most this often per workspace. */
+const SUMMARY_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const REVIEW_IDLE_MS = 15_000;
 const REVIEW_MAX_AGE_MS = 30 * 60 * 1000;
 const REVIEW_AFTER = { saves: 5, corrections: 2, rejections: 2 };
@@ -68,6 +77,13 @@ export interface AuthoringStyleStoreOptions {
   listFiles?: () => Promise<LocalDocumentMetadata[]>;
   /** Reads a personal document for the review. Without it only corrections are learned. */
   loadDocument?: (fileId: string) => Promise<SigmaDocument | null>;
+  /** How many recently edited documents of the workspace a review reads. */
+  reviewDocuments?: number;
+  /**
+   * Ask the AI provider the user already uses for a plain-text reply, without tools.
+   * Without it the review only counts habits on this device.
+   */
+  summarize?: (request: { provider: AiEditProvider; prompt: string }) => Promise<string>;
   now?: () => Date;
   /** Quiet time after the last save before a due review starts. Null never starts one automatically. */
   reviewIdleMs?: number | null;
@@ -89,6 +105,8 @@ export class LocalAuthoringStyleStore {
   private readonly root: string;
   private readonly filePath: string;
   private readonly outcomesPath: string;
+  private readonly providerPath: string;
+  private provider: AiEditProvider | null = null;
   private readonly memory: AuthoringStyleMemory;
   private readonly options: AuthoringStyleStoreOptions;
   private pending: PendingRecord[] = [];
@@ -98,6 +116,7 @@ export class LocalAuthoringStyleStore {
   private readonly reviews = new Map<string, Promise<void>>();
   /** Bumped by a reset so a review already under way cannot write back what was just erased. */
   private generation = 0;
+  private readonly summaryAttempts = new Map<string, number>();
 
   constructor(userDataPath: string, options: AuthoringStyleStoreOptions = {}) {
     this.options = options;
@@ -105,6 +124,7 @@ export class LocalAuthoringStyleStore {
     this.root = path.join(this.dataDir, "ai-authoring-style");
     this.filePath = path.join(this.root, "examples.json");
     this.outcomesPath = path.join(this.root, "outcomes.json");
+    this.providerPath = path.join(this.root, "provider.json");
     this.memory = new AuthoringStyleMemory(this.root);
   }
 
@@ -267,24 +287,24 @@ export class LocalAuthoringStyleStore {
    * workspace, combine the habits found in the author's own text with repeated
    * corrections, and refine the memo. Never throws; a failure is only logged.
    */
-  review(workspaceId: string): Promise<void> {
+  review(workspaceId: string, requested = false): Promise<void> {
     const running = this.reviews.get(workspaceId);
     if (running) return running;
-    const run = this.runReview(workspaceId).catch(error => {
+    const run = this.runReview(workspaceId, requested).catch(error => {
       logLedgerEvent(this.dataDir, "authoring-style-review-failed", { error: String(error) });
     }).finally(() => { this.reviews.delete(workspaceId); });
     this.reviews.set(workspaceId, run);
     return run;
   }
 
-  private async runReview(workspaceId: string): Promise<void> {
+  private async runReview(workspaceId: string, requested: boolean): Promise<void> {
     await this.flush();
     const generation = this.generation;
     const recent = await this.exclusive(async () => {
       if (!await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return null;
       const files = await this.personalFiles();
       return files ? [...files.values()].filter(f => f.workspaceId === workspaceId)
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, MAX_REVIEW_DOCUMENTS) : [];
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, this.options.reviewDocuments ?? DEFAULT_REVIEW_DOCUMENTS) : [];
     });
     if (!recent) return;
     // Documents are read outside the style lock so a long read never delays a save's bookkeeping.
@@ -305,12 +325,13 @@ export class LocalAuthoringStyleStore {
     }
     // Bring in acceptances saved while reading, so their text is attributed to the AI below.
     await this.flush();
-    await this.exclusive(async () => {
-      if (generation !== this.generation || !await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return;
+    const summary = await this.exclusive(async () => {
+      if (generation !== this.generation || !await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return null;
       const files = await this.personalFiles();
       const eligibleFiles = files ? new Set([...files.values()].filter(f => f.workspaceId === workspaceId).map(f => f.fileId)) : null;
       const outcomes = await this.readOutcomes();
       const units: EvidenceUnit[] = [];
+      const authored: { fileId: string; texts: string[] }[] = [];
       let remaining = MAX_REVIEW_CHARACTERS;
       let reviewed = 0;
       for (const { file, projection } of loaded) {
@@ -327,6 +348,7 @@ export class LocalAuthoringStyleStore {
         const evidence = documentEvidence(file.fileId, projection, isAiText, { characters: Math.min(remaining, MAX_REVIEW_DOCUMENT_CHARACTERS) });
         remaining -= evidence.characters;
         units.push(...evidence.units);
+        authored.push({ fileId: file.fileId, texts: evidence.texts });
         reviewed++;
       }
       const examples = (await this.eligible(await this.read())).filter(e => e.workspaceId === workspaceId);
@@ -340,7 +362,88 @@ export class LocalAuthoringStyleStore {
       await this.memory.commit(workspaceId, memory, planned.entries);
       outcomes.counters[workspaceId] = { ...emptyCounters(), reviewedAt: now.toISOString() };
       await this.writeOutcomes(outcomes);
+      return this.summaryRequest(workspaceId, memory, authored, examples, requested, now);
     });
+    if (!summary) return;
+    // The AI is asked outside the lock: saving and AI requests never wait for it.
+    let raw: string;
+    try { raw = await this.options.summarize!({ provider: summary.provider, prompt: buildSummaryPrompt(summary.input) }); }
+    catch (error) { logLedgerEvent(this.dataDir, "authoring-style-summary-failed", { error: String(error) }); return; }
+    const reply = parseSummaryReply(raw, summary.input);
+    if (!reply) { logLedgerEvent(this.dataDir, "authoring-style-summary-failed", { error: "Unreadable summary reply" }); return; }
+    await this.exclusive(async () => {
+      if (generation !== this.generation || !await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)
+        || !await this.memory.aiSummary(null) || !await this.memory.aiSummary(workspaceId)) return;
+      const files = await this.personalFiles();
+      const sources = summary.sources.filter(id => !files || files.get(id)?.workspaceId === workspaceId);
+      if (!sources.length) return;
+      const now = this.now();
+      const memory = await this.memory.load(workspaceId, getAppLocale(), now);
+      const planned = planSummary(memory, reply, summary.candidates, { now, locale: memory.locale, sources });
+      memory.summary = { hash: summary.hash, at: now.toISOString() };
+      await this.memory.commit(workspaceId, memory, planned.entries);
+    });
+  }
+
+  /**
+   * What to ask the AI, or null when there is nothing new to ask about. Only
+   * excerpts of the author's own text and a few corrections leave the device,
+   * and only to the provider the author last used.
+   */
+  private async summaryRequest(workspaceId: string, memory: StyleMemory, authored: readonly { fileId: string; texts: string[] }[],
+    examples: readonly StyleExample[], requested: boolean, now: Date) {
+    if (!this.options.summarize || !await this.memory.aiSummary(null) || !await this.memory.aiSummary(workspaceId)) return null;
+    const provider = await this.lastProvider();
+    if (!provider) return null;
+    const sample: string[] = [];
+    const sources: string[] = [];
+    const share = Math.floor(MAX_SUMMARY_SAMPLE_CHARACTERS / Math.max(1, authored.filter(a => a.texts.length).length));
+    for (const { fileId, texts } of authored) {
+      let used = 0;
+      for (const text of texts) {
+        const excerpt = text.slice(0, MAX_SUMMARY_EXCERPT);
+        if (used + excerpt.length > share) break;
+        // Text that reads like an instruction to a model is not handed to one.
+        if (!excerpt.trim() || isSuspicious(excerpt)) continue;
+        sample.push(excerpt);
+        used += excerpt.length;
+      }
+      if (used) sources.push(fileId);
+    }
+    if (sample.join("").length < MIN_SUMMARY_SAMPLE_CHARACTERS) return null;
+    const corrections = this.selectExamples(examples, "").flatMap(e => e.before?.text && e.after?.text
+      ? [{ before: e.before.text.slice(0, MAX_SUMMARY_EXCERPT), after: e.after.text.slice(0, MAX_SUMMARY_EXCERPT) }] : []).slice(0, MAX_SUMMARY_CORRECTIONS);
+    const hash = createHash("sha256").update(JSON.stringify([sample, corrections])).digest("hex");
+    if (memory.summary?.hash === hash) return null;
+    if (!requested) {
+      const last = Math.max(this.summaryAttempts.get(workspaceId) ?? 0, memory.summary ? Date.parse(memory.summary.at) : 0);
+      if (now.getTime() - last < SUMMARY_MIN_INTERVAL_MS) return null;
+    }
+    this.summaryAttempts.set(workspaceId, now.getTime());
+    const suggested = memory.items.filter(i => i.origin === "auto" && i.basis === "summary" && i.key);
+    const input: SummaryInput = {
+      locale: memory.locale, sample, corrections,
+      existing: scanLines(memory.items.map(i => i.text.replace(/^- /, "")).join("\n")).text.split("\n").filter(Boolean),
+      candidates: suggested.map(i => i.text), declined: memory.declined.filter(text => !isSuspicious(text)),
+    };
+    return { provider, input, hash, sources, candidates: suggested.map(i => i.key!) };
+  }
+
+  /** Remember which AI the author uses, so the review asks that one and no other. */
+  noteProvider(provider: AiEditProvider): void {
+    if (this.provider === provider) return;
+    this.provider = provider;
+    void atomicStyleWrite(this.providerPath, JSON.stringify({ provider })).catch(error => {
+      logLedgerEvent(this.dataDir, "authoring-style-write-failed", { error: String(error) });
+    });
+  }
+
+  private async lastProvider(): Promise<AiEditProvider | null> {
+    if (this.provider) return this.provider;
+    try {
+      const { provider } = JSON.parse(await fs.readFile(this.providerPath, "utf8"));
+      return provider === "claude" || provider === "chatgpt" || provider === "antigravity" ? provider : null;
+    } catch { return null; }
   }
 
   /** Cancel timers. Pending observations are written by flush(), not here. */
@@ -401,12 +504,12 @@ export class LocalAuthoringStyleStore {
     });
   }
 
-  /** Active habits only, in the language of the request. A habit whose documents are all gone is left out. */
+  /** The memo in the language of the request. A habit whose documents were all shared, moved or deleted is left out. */
   private injectedMemo(memory: StyleMemory, locale: AppLocale, files: Map<string, LocalDocumentMetadata> | null, workspaceId: string): string {
     const labels = memoLabels(locale);
     const lines: string[] = [];
     for (const section of SECTION_ORDER) {
-      const items = memory.items.filter(item => item.section === section && item.status === "active").flatMap(item => {
+      const items = memory.items.filter(item => item.section === section).flatMap(item => {
         if (item.origin === "user") return [item.text];
         if (files && !item.sources.some(id => files.get(id)?.workspaceId === workspaceId)) return [];
         const text = item.key ? itemText(item.key, item.value, locale) : null;
@@ -509,11 +612,12 @@ export class LocalAuthoringStyleStore {
     const generatedContent = memory ? renderMemo(memory, memory.locale) : "";
     return {
       workspaceId, enabled: await this.memory.enabled(workspaceId),
+      aiSummary: await this.memory.aiSummary(workspaceId), aiSummaryProvider: this.options.summarize ? await this.lastProvider() : null,
       userContent: note.content, userPath: note.path, revision: note.revision,
       generatedContent, generatedPath: workspaceId === null ? "" : this.memory.generatedPath(workspaceId), generatedRevision: memory?.renderedHash ?? "",
       exampleCount: inScope(examples).length,
-      items: (memory?.items ?? []).map(({ id, section, text, origin, basis, support, documents, status, lastConfirmedAt }) =>
-        ({ id, section, text, origin, basis, support, documents, status, lastConfirmedAt })),
+      items: (memory?.items ?? []).map(({ id, section, text, origin, basis, support, documents, lastConfirmedAt }) =>
+        ({ id, section, text, origin, basis, support, documents, lastConfirmedAt })),
       pending: (memory?.pending ?? []).map(p => ({ id: p.id, kind: p.kind, reason: p.reason, currentText: p.expectedText,
         proposedText: p.kind === "remove" ? "" : itemText(p.key, p.value, memory!.locale) ?? "", support: p.support })),
       usage: { characters: generatedContent.length, limit: AUTHORING_STYLE_NOTE_LIMIT },
@@ -550,8 +654,12 @@ export class LocalAuthoringStyleStore {
     return this.change(workspaceId, () => this.memory.setEnabled(workspaceId, enabled));
   }
 
+  setAiSummary(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile> {
+    return this.change(workspaceId, () => this.memory.setAiSummary(workspaceId, enabled));
+  }
+
   async reviewNow(workspaceId: string): Promise<AuthoringStyleProfile> {
-    await this.review(workspaceId);
+    await this.review(workspaceId, true);
     return this.getProfile(workspaceId);
   }
 
@@ -559,6 +667,7 @@ export class LocalAuthoringStyleStore {
     for (const [id, timer] of this.reviewTimers) if (workspaceId === null || id === workspaceId) { clearTimeout(timer); this.reviewTimers.delete(id); }
     return this.change(workspaceId, async () => {
       this.generation++;
+      for (const id of [...this.summaryAttempts.keys()]) if (workspaceId === null || id === workspaceId) this.summaryAttempts.delete(id);
       const keep = <T extends { workspaceId: string }>(list: readonly T[]) => list.filter(e => workspaceId !== null && e.workspaceId !== workspaceId);
       await this.persist(keep(await this.read()));
       const outcomes = await this.readOutcomes();

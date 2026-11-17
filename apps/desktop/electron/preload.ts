@@ -390,6 +390,7 @@ const desktopAPI = {
     read: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:read", workspaceId),
     save: (input: unknown) => ipcRenderer.invoke("authoring-style:save", input),
     setEnabled: (workspaceId: string | null, enabled: boolean) => ipcRenderer.invoke("authoring-style:set-enabled", workspaceId, enabled),
+    setAiSummary: (workspaceId: string | null, enabled: boolean) => ipcRenderer.invoke("authoring-style:set-ai-summary", workspaceId, enabled),
     reset: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:reset", workspaceId),
     saveLearned: (input: unknown) => ipcRenderer.invoke("authoring-style:save-learned", input),
     review: (workspaceId: string) => ipcRenderer.invoke("authoring-style:review", workspaceId),

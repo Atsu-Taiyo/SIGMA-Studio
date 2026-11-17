@@ -182,6 +182,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
     };
 
     const provider = resolveAiEditProvider(payload);
+    localAuthoringStyleStore?.noteProvider(provider);
     const proposalRoomId = getRoomIdForProposalLifecycle(payload);
     const proposalFileId = getFileIdForAiResources(payload);
     let proposalSnapshotId: string | null = null;
