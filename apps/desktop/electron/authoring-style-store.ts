@@ -98,7 +98,7 @@ export interface AuthoringStyleStoreOptions {
 }
 
 function same(a: Fragment | null | undefined, b: Fragment | null | undefined): boolean {
-  return a?.area === b?.area && a?.format === b?.format;
+  return a?.area === b?.area && a?.format === b?.format && a?.digest === b?.digest;
 }
 
 const emptyCounters = (): Counters => ({ saves: 0, corrections: 0, rejections: 0, kept: 0, reviewedAt: null });
@@ -268,7 +268,8 @@ export class LocalAuthoringStyleStore {
         } else {
           // Any other edit of a block still attributed to the AI is a correction of AI text, whether or
           // not an earlier example of it survives (a reset or the example limit may have dropped it).
-          edit.source = !tracked || tracked.state === "reverted" || tracked.state === "rewritten" ? "manual" : "post-accept";
+          // So is an edit in a document whose AI marks no longer all fit in the record.
+          edit.source = (!tracked && !outcomes.overflow?.includes(edit.fileId)) || tracked?.state === "reverted" || tracked?.state === "rewritten" ? "manual" : "post-accept";
         }
         if (oversized) continue;
         const index = examples.findIndex(e => e.workspaceId === edit.workspaceId && e.fileId === edit.fileId && e.blockId === edit.blockId);

@@ -10,6 +10,8 @@ export interface Fragment {
   text: string;
   format: string;
   context: string;
+  /** Only for a block too long to keep (`text` and `format` are empty): a hash that tells its versions apart. */
+  digest?: string;
 }
 
 /** A committed manual edit. `post-accept` marks a hand correction of text an accepted AI proposal wrote. */
@@ -29,7 +31,7 @@ export interface ProblemShape { id: string; areas: Record<(typeof PROBLEM_AREAS)
 export interface DocumentProjection { fragments: Map<string, Fragment>; problems: ProblemShape[] }
 
 export const fragmentHash = (fragment: Fragment | null | undefined): string =>
-  fragment ? createHash("sha256").update(`${fragment.area}\n${fragment.format}`).digest("hex").slice(0, 32) : "";
+  fragment ? createHash("sha256").update(`${fragment.area}\n${fragment.format || (fragment.digest ?? "")}`).digest("hex").slice(0, 32) : "";
 
 // IDs and timestamps are not authoring preferences. Keep actual line breaks,
 // TeX and inline formatting so a notation change survives this projection.
@@ -40,7 +42,8 @@ export function projectDocument(document: SigmaDocument): DocumentProjection {
     const text = inlineNodesToPlainText(children);
     const format = JSON.stringify({ align, runs: children.map(node => node.type === "mathInline" ? { ...node, id: undefined } : node) });
     if (!text.trim()) return;
-    fragments.set(id, { area, text: format.length <= MAX_FRAGMENT_LENGTH ? text : "", format: format.length <= MAX_FRAGMENT_LENGTH ? format : "", context });
+    fragments.set(id, format.length <= MAX_FRAGMENT_LENGTH ? { area, text, format, context }
+      : { area, text: "", format: "", context, digest: createHash("sha256").update(format).digest("hex").slice(0, 32) });
     sink?.push(id);
   }
   function walk(blocks: readonly SigmaBlock[], area: string, context: string, sink: string[] | null) {

@@ -665,9 +665,28 @@ describe("automatic authoring style", () => {
       lib.put("f2", many, { updatedAt: "2026-11-03T00:00:00Z" });
       store.observe(event(base, many, 2, "f2", "ai"));
       lib.put("f1", blocks([...shortened.content, paragraph("mine", "本人が後から足した段落で、要約の対象が変わる。")]));
-      const profile = await store.reviewNow("ws1");
+      let profile = await store.reviewNow("ws1");
       expect(profile.reviewedDocuments).toBe(1);
       expect(summarize).toHaveBeenCalledTimes(1);
+      // Nor is a later touch-up in such a document passed on as a correction of the author's own text.
+      const before = blocks([...own.content, paragraph("old", "記録から外れたAIの文をここに書く。")]);
+      const after = blocks([...own.content, paragraph("old", "記録から外れたAIの文をここに書く！")]);
+      store.observe(event(before, after, 9));
+      lib.put("f3", written(...essay("三つ目")), { updatedAt: "2026-11-04T00:00:00Z" });
+      profile = await store.reviewNow("ws1");
+      expect(summarize).toHaveBeenCalledTimes(2);
+      expect(sent(summarize, 1).prompt).not.toContain("記録から外れたAIの文");
+      // An AI rewrite of one overlong paragraph into another is still recorded as the AI's.
+      const fresh = make({ ...lib.options, summarize, reviewDocuments: 1 });
+      const ids = ["big0", "big1", "big2"];
+      const longOwn = blocks(ids.map(id => paragraph(id, `本人の長い段落${id}。` + "説明が続く。".repeat(350))));
+      const longAi = blocks(ids.map(id => paragraph(id, long(id))));
+      const cut = blocks(ids.map(id => paragraph(id, long(id).slice(0, 600))));
+      lib.put("f4", cut, { updatedAt: "2026-11-05T00:00:00Z" });
+      fresh.observe(event(longOwn, longAi, 2, "f4", "ai"));
+      fresh.observe(event(longAi, cut, 3, "f4"));
+      await fresh.reviewNow("ws1");
+      expect(summarize).toHaveBeenCalledTimes(2);
     });
 
     it("refuses to apply a suggestion when the memo is full, and discards a reply that arrives after a reset", async () => {
