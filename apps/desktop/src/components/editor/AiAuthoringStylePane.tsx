@@ -47,8 +47,6 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
     : item.basis === "summary" ? t("authoringStyle.evidenceSummary", { documents: item.documents })
       : t(item.basis === "corrections" ? "authoringStyle.evidenceCorrections" : "authoringStyle.evidenceWriting", { count: item.support, documents: item.documents });
   const aiAdded = (profile?.items ?? []).filter(item => item.origin === "auto" && item.basis === "summary");
-  /** Deleting the line is the same as deleting it in the memo: the item is not added again. */
-  const withoutLine = (text: string) => profile!.generatedContent.split("\n").filter(line => line !== `- ${text}`).join("\n");
   return (
     <SettingsSection id={id} className="ai-settings-pane" title={t("authoringStyle.title")} description={t("authoringStyle.description")}>
       {error && <SettingsStatus tone="error">{t("authoringStyle.error")}</SettingsStatus>}
@@ -105,7 +103,7 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
                 <span>{item.text}</span>
                 <small className="ai-settings-empty-hint"><strong>{t("authoringStyle.aiAddedBadge")}</strong> {t("authoringStyle.aiAddedOn", { date: new Date(item.firstSeenAt).toLocaleDateString(), documents: item.documents })}</small>
                 <Button tone="ghost" size="sm" aria-label={t("authoringStyle.aiAddedRemoveLabel", { text: item.text })} disabled={busy || learnedDirty}
-                  onClick={() => void run(() => api.saveLearned({ workspaceId, content: withoutLine(item.text), expectedRevision: profile.generatedRevision }), "learned")}>{t("authoringStyle.aiAddedRemove")}</Button>
+                  onClick={() => void run(() => api.removeItem({ workspaceId, id: item.id }), "learned")}>{t("authoringStyle.aiAddedRemove")}</Button>
               </Inline>
             </li>)}</ul>
           </Stack>}

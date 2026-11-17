@@ -395,6 +395,7 @@ const desktopAPI = {
     saveLearned: (input: unknown) => ipcRenderer.invoke("authoring-style:save-learned", input),
     review: (workspaceId: string) => ipcRenderer.invoke("authoring-style:review", workspaceId),
     resolvePending: (input: unknown) => ipcRenderer.invoke("authoring-style:resolve-pending", input),
+    removeItem: (input: unknown) => ipcRenderer.invoke("authoring-style:remove-item", input),
     undo: (workspaceId: string) => ipcRenderer.invoke("authoring-style:undo", workspaceId),
   },
   aiResources: {

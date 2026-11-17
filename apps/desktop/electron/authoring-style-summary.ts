@@ -38,9 +38,18 @@ const NOT_A_WRITING_HABIT: readonly RegExp[] = [
   /\b(?:ignor\w*|disregard\w*|overrid\w*|bypass\w*|forget|obey|follow\w*|priorit\w*|system|developer|assistant|model|ai|llm|you|your|outputs?|reveal\w*|disclos\w*|delet\w*|remov\w*|sav(?:e|es|ing)|memo|memory|notes?|rules?|settings?|permissions?)\b/i,
   /ファイル|フォルダ|ディレクトリ|秘密|認証|パスワード|送信|返信|返答|実行|コマンド|ツール|読み込|アップロード|指示|プロンプト|リンク|メール|外部/u,
   /無視|従[うっいえわ]|忘れ(?!ず)|あなた|君は|システム|アシスタント|モデル|出力|開示|漏|削除|消去|書き込|権限|メモ|ルール|優先|以降|以後|今後/u,
+  // What to do, what is allowed, or what may be made up is conduct, not a way of writing.
+  /安全|危険|架空|虚偽|捏造|嘘|偽|操作|完遂|遂行|禁止|許可|拒否|断定|不明|検証|確認を省|要求|依頼|求められ|ユーザー|利用者|必ず|絶対/u,
+  /\b(?:safe\w*|danger\w*|fabricat\w*|invent\w*|fake\w*|false\w*|lie|lies|pretend\w*|refus\w*|allow\w*|forbid\w*|permit\w*|request\w*|users?|verif\w*|checks?|never|must|whatever|anything|everything)\b/i,
 ];
-/** One sentence: nothing may follow the first full stop. */
-const SECOND_SENTENCE = /[。．.!?！？][^」』）)]/u;
+// Besides naming nothing of the above, the sentence has to be about writing: it says how something is written, worded or laid out.
+const ABOUT_WRITING: readonly RegExp[] = [
+  /書[くきかいけ]|記[すしさ]|述べ|結[ぶびん]|表記|表[すしさ]|用い|使[うっいわ]|添え|示[すしさ]|並べ|置[くきかい]|始め|終え|まとめ|分け|[揃そろ]え|付け|つけ|入れ|挟[むみん]|改行|空け|区切|語尾|文体|文末|口調|言い回し|数式|記号|記法|見出し|番号|箇条書き|句読点|読点|句点|括弧|かっこ|敬体|常体|丁寧体/u,
+  /\b(?:writ\w*|wrote|word\w*|phras\w*|sentences?|paragraphs?|headings?|number\w*|label\w*|notation|symbols?|punctuat\w*|commas?|tone|style|format\w*|layout|spac\w*|indent\w*|abbreviat\w*|capitali\w*|states?|stating|begins?|starts?|ends?|uses?|using|puts?|places?|lists?)\b/i,
+];
+/** One sentence: once quoted wording is set aside, nothing may follow the first full stop. */
+const QUOTED = /「[^「」]*」|『[^『』]*』|"[^"]*"|“[^“”]*”/gu;
+const SECOND_SENTENCE = /[。．.!?！？]./u;
 const JAPANESE = /[\u3040-\u30ff\u4e00-\u9fff]/u;
 /** In a Japanese sentence, Latin letters belong to TeX commands or quoted notation, not to prose. */
 const MAX_LOOSE_LATIN = 12;
@@ -50,7 +59,10 @@ export function isSummaryText(text: string): boolean {
   if (text.length < 4 || text.length > MAX_SUMMARY_TEXT || text !== text.trim() || /\p{Cc}/u.test(text) || /^[#>-]/.test(text)) return false;
   // Full-width and other compatibility forms are read as the plain characters they stand for.
   const plain = text.normalize("NFKC");
-  if (isSuspicious(text) || isSuspicious(plain) || SECOND_SENTENCE.test(plain) || NOT_A_WRITING_HABIT.some(pattern => pattern.test(plain))) return false;
+  // Quoted wording is an example of the habit; what the sentence itself says is what is left without it.
+  const statement = plain.replace(QUOTED, "");
+  if (isSuspicious(text) || isSuspicious(plain) || SECOND_SENTENCE.test(statement) || NOT_A_WRITING_HABIT.some(pattern => pattern.test(plain))) return false;
+  if (!ABOUT_WRITING.some(pattern => pattern.test(statement))) return false;
   const loose = text.replace(/`[^`]*`/g, "").replace(/\\[a-zA-Z]+/g, "").replace(/[^a-zA-Z]/g, "").length;
   return !JAPANESE.test(text) || loose <= MAX_LOOSE_LATIN;
 }

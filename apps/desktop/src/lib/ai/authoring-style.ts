@@ -70,6 +70,8 @@ export interface AuthoringStyleAPI {
   /** Run the background review now instead of waiting for its trigger. */
   review(workspaceId: string): Promise<AuthoringStyleProfile>;
   resolvePending(input: { workspaceId: string; id: string; approve: boolean }): Promise<AuthoringStyleProfile>;
+  /** Remove one automatic item by id. Like deleting its line, it is not learned again. */
+  removeItem(input: { workspaceId: string; id: string }): Promise<AuthoringStyleProfile>;
   undo(workspaceId: string): Promise<AuthoringStyleProfile>;
 }
 

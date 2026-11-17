@@ -46,5 +46,10 @@ export function registerAuthoringStyleIpc(store: LocalAuthoringStyleStore): void
     if (typeof value.id !== "string" || value.id.length > 200 || typeof value.approve !== "boolean") throw new Error("Invalid staged change");
     return store.resolvePending({ workspaceId: workspace(value.workspaceId), id: value.id, approve: value.approve });
   });
+  ipcMain.handle("authoring-style:remove-item", (_event, input: unknown) => {
+    const value = record(input);
+    if (typeof value.id !== "string" || value.id.length > 200) throw new Error("Invalid style item");
+    return store.removeItem({ workspaceId: workspace(value.workspaceId), id: value.id });
+  });
   ipcMain.handle("authoring-style:undo", (_event, workspaceId: unknown) => store.undo(workspace(workspaceId)));
 }

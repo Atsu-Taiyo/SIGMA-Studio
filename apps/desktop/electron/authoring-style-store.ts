@@ -14,7 +14,7 @@ import { itemText, memoLabels, SECTION_ORDER } from "./authoring-style-items";
 import { AuthoringStyleMemory, atomicStyleWrite, renderMemo, type StyleMemory } from "./authoring-style-memory";
 import { planReview, planSummary } from "./authoring-style-review";
 import { isSuspicious, scanLines } from "./authoring-style-scan";
-import { buildSummaryPrompt, parseSummaryReply, type SummaryInput } from "./authoring-style-summary";
+import { buildSummaryPrompt, isSummaryText, parseSummaryReply, type SummaryInput } from "./authoring-style-summary";
 import type { AiEditProvider } from "./ai-edit-provider";
 import { acquireFileLock } from "./file-lock";
 import { logLedgerEvent } from "./ledger-log";
@@ -461,12 +461,14 @@ export class LocalAuthoringStyleStore {
     }
     this.summaryAttempts.set(workspaceId, now.getTime());
     // As for an ordinary request: a habit whose documents were all shared, moved or deleted is not passed on.
-    const usable = memory.items.filter(i => i.origin === "user" || !eligibleFiles || i.sources.some(id => eligibleFiles.has(id)));
+    // Nor is an automatic sentence that no longer passes the check made of it.
+    const usable = memory.items.filter(i => i.origin === "user"
+      || ((!eligibleFiles || i.sources.some(id => eligibleFiles.has(id))) && Boolean(i.key) && itemText(i.key!, i.value, memory.locale) === i.text));
     const suggested = usable.filter(i => i.origin === "auto" && i.basis === "summary" && i.key);
     const input: SummaryInput = {
       locale: memory.locale, sample, corrections,
       existing: scanLines(usable.map(i => i.text.replace(/^- /, "")).join("\n")).text.split("\n").filter(Boolean),
-      candidates: suggested.map(i => i.text), declined: memory.declined.filter(text => !isSuspicious(text)),
+      candidates: suggested.map(i => i.text), declined: memory.declined.filter(isSummaryText),
     };
     return { provider, input, hash, sources, candidates: suggested.map(i => i.key!) };
   }
@@ -684,6 +686,10 @@ export class LocalAuthoringStyleStore {
   /** Hand-edit the learned memo. Changed and added lines become the user's own and are no longer updated automatically. */
   saveLearned(input: { workspaceId: string; content: string; expectedRevision: string }): Promise<AuthoringStyleProfile> {
     return this.change(input.workspaceId, () => this.memory.saveLearned(input.workspaceId, input.content, input.expectedRevision, getAppLocale(), this.now()));
+  }
+
+  removeItem(input: { workspaceId: string; id: string }): Promise<AuthoringStyleProfile> {
+    return this.change(input.workspaceId, () => this.memory.removeItem(input.workspaceId, input.id, getAppLocale(), this.now()));
   }
 
   resolvePending(input: { workspaceId: string; id: string; approve: boolean }): Promise<AuthoringStyleProfile> {

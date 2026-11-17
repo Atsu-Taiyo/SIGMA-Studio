@@ -62,7 +62,7 @@ export interface PendingChange {
   createdAt: string;
 }
 
-interface UndoSnapshot { at: string; reason: string; items: StyleItem[]; suppressed: string[]; pending: PendingChange[]; dismissed: string[] }
+interface UndoSnapshot { at: string; reason: string; items: StyleItem[]; suppressed: string[]; pending: PendingChange[]; dismissed: string[]; declined?: string[] }
 
 export interface StyleMemory {
   version: 2;
@@ -94,7 +94,9 @@ const MAX_LEDGER_LINES = 400;
 const MEMORY_FILE_LIMIT = 4_000_000;
 // Adopting a hand edit adds headings, so the stored text may run slightly past the editing limit.
 const MEMO_READ_LIMIT = AUTHORING_STYLE_NOTE_LIMIT + 1000;
-const GENERATED_FILES = ["learned.md", "learned.sha256", "learned-evidence.json", "memory.json", "ledger.jsonl"];
+/** Holds the hash of the memo being replaced while a commit is under way. */
+const COMMIT_MARK = "learned.pending";
+const GENERATED_FILES = ["learned.md", "learned.sha256", "learned-evidence.json", "memory.json", "ledger.jsonl", COMMIT_MARK];
 
 const emptyMemory = (locale: AppLocale): StyleMemory => ({
   version: 2, locale, items: [], suppressed: [], pending: [], dismissed: [], declined: [], summary: null, undo: [],
@@ -116,7 +118,7 @@ export function renderMemo(memory: Pick<StyleMemory, "items">, locale: AppLocale
 }
 
 export function snapshotForUndo(memory: StyleMemory, reason: string, at: string): void {
-  memory.undo.push(structuredClone({ at, reason, items: memory.items, suppressed: memory.suppressed, pending: memory.pending, dismissed: memory.dismissed }));
+  memory.undo.push(structuredClone({ at, reason, items: memory.items, suppressed: memory.suppressed, pending: memory.pending, dismissed: memory.dismissed, declined: memory.declined }));
   memory.undo = memory.undo.slice(-MAX_UNDO);
 }
 
@@ -175,6 +177,7 @@ function parseMemory(text: string, locale: AppLocale): StyleMemory {
     undo: (Array.isArray(data.undo) ? data.undo : []).slice(-MAX_UNDO).map((u: UndoSnapshot) => ({
       at: String(u?.at ?? ""), reason: String(u?.reason ?? ""), items: items(Array.isArray(u?.items) ? u.items : []),
       suppressed: strings(u?.suppressed, 100), pending: pending(Array.isArray(u?.pending) ? u.pending : []), dismissed: strings(u?.dismissed, 60),
+      ...(Array.isArray(u?.declined) ? { declined: strings(u.declined, MAX_DECLINED).filter(text => text.length <= 200) } : {}),
     })),
     renderedHash: typeof data.renderedHash === "string" ? data.renderedHash : styleHash(""),
     lastReviewedAt: typeof data.lastReviewedAt === "string" ? data.lastReviewedAt : null,
@@ -249,7 +252,13 @@ export class AuthoringStyleMemory {
       const baseline = await boundedRead(path.join(dir, "learned.sha256"), 100);
       if (content && baseline === styleHash(content)) memory.renderedHash = styleHash(content);
     }
-    const entries = styleHash(content) === memory.renderedHash ? [] : reconcile(memory, content, now.toISOString());
+    // A commit that stopped after memory.json left the previous learned.md behind. That file is not a hand edit:
+    // reading it as one would turn what the review just added into deletions, or into the user's own lines.
+    const mark = await boundedRead(path.join(dir, COMMIT_MARK), 100);
+    const interrupted = styleHash(content) !== memory.renderedHash && mark === styleHash(content);
+    // A mark left by a commit that did finish says nothing about a later edit.
+    if (mark && !interrupted) await fs.rm(path.join(dir, COMMIT_MARK), { force: true });
+    const entries = styleHash(content) === memory.renderedHash || interrupted ? [] : reconcile(memory, content, now.toISOString());
     const relabel = memory.locale !== locale;
     if (relabel) {
       for (const item of memory.items) if (item.origin === "auto" && item.key) item.text = itemText(item.key, item.value, locale) ?? item.text;
@@ -264,15 +273,24 @@ export class AuthoringStyleMemory {
     const dir = this.dir(workspaceId);
     const content = renderMemo(memory, memory.locale);
     const before = memory.renderedHash;
-    memory.renderedHash = styleHash(content);
-    await atomicStyleWrite(path.join(dir, "learned.md"), content);
+    const after = styleHash(content);
+    // The record comes first: a change may be on record without having happened, never the other way round.
+    if (entries.length) {
+      await fs.mkdir(dir, { recursive: true });
+      const ledger = path.join(dir, "ledger.jsonl");
+      const at = new Date().toISOString();
+      await fs.appendFile(ledger, entries.map(entry => `${JSON.stringify({ at, ...entry, beforeHash: before, afterHash: after })}\n`).join(""), { mode: 0o600 });
+      const lines = (await fs.readFile(ledger, "utf8")).split("\n").filter(Boolean);
+      if (lines.length > MAX_LEDGER_LINES) await atomicStyleWrite(ledger, `${lines.slice(-Math.floor(MAX_LEDGER_LINES * 0.75)).join("\n")}\n`);
+    }
+    // memory.json is the source of truth and is written before the text made from it. The mark lets the next
+    // load tell a learned.md left over from an interrupted commit from one its author edited.
+    const mark = path.join(dir, COMMIT_MARK);
+    await atomicStyleWrite(mark, before);
+    memory.renderedHash = after;
     await atomicStyleWrite(path.join(dir, "memory.json"), JSON.stringify(memory));
-    if (!entries.length) return;
-    const ledger = path.join(dir, "ledger.jsonl");
-    const at = new Date().toISOString();
-    await fs.appendFile(ledger, entries.map(entry => `${JSON.stringify({ at, ...entry, beforeHash: before, afterHash: memory.renderedHash })}\n`).join(""), { mode: 0o600 });
-    const lines = (await fs.readFile(ledger, "utf8")).split("\n").filter(Boolean);
-    if (lines.length > MAX_LEDGER_LINES) await atomicStyleWrite(ledger, `${lines.slice(-Math.floor(MAX_LEDGER_LINES * 0.75)).join("\n")}\n`);
+    await atomicStyleWrite(path.join(dir, "learned.md"), content);
+    await fs.rm(mark, { force: true });
   }
 
   /** Save the memo edited in the settings pane. Goes through the same adoption as an external edit. */
@@ -323,17 +341,31 @@ export class AuthoringStyleMemory {
     return memory;
   }
 
+  /** Remove one automatic item, as if its line had been deleted from the memo: it is not learned again. */
+  async removeItem(workspaceId: string, id: string, locale: AppLocale, now: Date): Promise<StyleMemory> {
+    const memory = await this.load(workspaceId, locale, now);
+    const item = memory.items.find(i => i.id === id && i.origin === "auto");
+    if (!item) throw new Error("Style item not found");
+    snapshotForUndo(memory, "user-remove", now.toISOString());
+    memory.items = memory.items.filter(i => i !== item);
+    if (item.key && !memory.suppressed.includes(item.key)) memory.suppressed.push(item.key);
+    if (item.basis === "summary") memory.declined = [...memory.declined.filter(text => text !== item.text), item.text].slice(-MAX_DECLINED);
+    memory.pending = memory.pending.filter(p => p.key !== item.key);
+    await this.commit(workspaceId, memory, [{ actor: "user", action: "user-remove", ...(item.key ? { key: item.key } : {}), before: item.text }]);
+    return memory;
+  }
+
   /** Step back to the memo before its last change. Undoing again returns to where you were. */
   async undo(workspaceId: string, locale: AppLocale, now: Date): Promise<StyleMemory> {
     const memory = await this.load(workspaceId, locale, now);
     const previous = memory.undo.pop();
     if (!previous) throw new Error("Nothing to undo");
-    const current = structuredClone({ at: now.toISOString(), reason: "rollback", items: memory.items, suppressed: memory.suppressed, pending: memory.pending, dismissed: memory.dismissed });
+    const current = structuredClone({ at: now.toISOString(), reason: "rollback", items: memory.items, suppressed: memory.suppressed, pending: memory.pending, dismissed: memory.dismissed, declined: memory.declined });
     // Taking back what the AI added tells it not to suggest the sentence again; redoing lifts that.
     const texts = (items: readonly StyleItem[]) => items.filter(i => i.origin === "auto" && i.basis === "summary").map(i => i.text);
     const restored = new Set(texts(previous.items));
     const withdrawn = texts(memory.items).filter(text => !restored.has(text));
-    memory.declined = [...memory.declined.filter(text => !restored.has(text) && !withdrawn.includes(text)), ...withdrawn].slice(-MAX_DECLINED);
+    memory.declined = [...(previous.declined ?? memory.declined).filter(text => !restored.has(text) && !withdrawn.includes(text)), ...withdrawn].slice(-MAX_DECLINED);
     Object.assign(memory, { items: previous.items, suppressed: previous.suppressed, pending: previous.pending, dismissed: previous.dismissed });
     memory.undo.push(current);
     await this.commit(workspaceId, memory, [{ actor: "user", action: "rollback", before: previous.reason }]);

@@ -21,7 +21,7 @@ function mount(api: AuthoringStyleAPI, workspaceId: string | null) {
 
 function fakeApi(overrides: Partial<AuthoringStyleAPI>, profile: AuthoringStyleProfile): AuthoringStyleAPI {
   const resolved = () => vi.fn().mockResolvedValue(profile);
-  return { read: resolved(), save: resolved(), saveLearned: resolved(), setEnabled: resolved(), setAiSummary: resolved(), reset: resolved(), review: resolved(), resolvePending: resolved(), undo: resolved(), ...overrides };
+  return { read: resolved(), save: resolved(), saveLearned: resolved(), setEnabled: resolved(), setAiSummary: resolved(), reset: resolved(), review: resolved(), resolvePending: resolved(), removeItem: resolved(), undo: resolved(), ...overrides };
 }
 
 it("keeps the displayed note's revision when another action returns a newer external note", async () => {
@@ -60,10 +60,10 @@ it("shows the learned memo with its evidence and lets the user decide staged cha
     expect(api.resolvePending).toHaveBeenLastCalledWith({ workspaceId: "ws1", id: "rewrite:tone.explanation", approve: false });
     await act(async () => view.host.querySelectorAll<HTMLButtonElement>('[role="switch"]')[1].click());
     expect(api.setAiSummary).toHaveBeenCalledWith("ws1", false);
-    // An item the AI added is marked as such and can be removed on the spot, which deletes its line from the memo.
+    // An item the AI added is marked as such and can be removed on the spot, by its id.
     expect([...view.host.querySelectorAll("li")].filter(li => li.textContent!.includes("AIが追加")).map(li => li.textContent!.includes("要点を先に述べる。"))).toEqual([true, true]);
     await act(async () => view.host.querySelector<HTMLButtonElement>('[aria-label="「要点を先に述べる。」を削除"]')!.click());
-    expect(api.saveLearned).toHaveBeenCalledWith({ workspaceId: "ws1", content: "# 学んだ書き方\n- 解説・説明は常体（だ・である）で書く。\n", expectedRevision: "memo1" });
+    expect(api.removeItem).toHaveBeenCalledWith({ workspaceId: "ws1", id: "auto:summary.style:1" });
     await act(async () => view.button("今すぐ見直す").click());
     expect(api.review).toHaveBeenCalledWith("ws1");
     await act(async () => view.button("1つ前に戻す").click());
