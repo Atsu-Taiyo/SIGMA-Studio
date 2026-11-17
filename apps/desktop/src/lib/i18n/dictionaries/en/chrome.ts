@@ -192,7 +192,7 @@ export const chrome = {
       importOther: "Import PowerPoint",
       importText: "Import from text",
       export: "Export",
-      exportJson: "Export JSON",
+      exportJson: "Export sigma file",
       exportPdf: "Export PDF",
       copyText: "Copy as text",
     },
@@ -605,6 +605,7 @@ export const chrome = {
     showAll: "Show everything",
   },
   versionHistory: {
+    offline: "Showing versions saved on this PC while disconnected. Uncached versions and restoring require a connection.",
     title: "Version history",
     close: "Close version history",
     list: "Saved versions",

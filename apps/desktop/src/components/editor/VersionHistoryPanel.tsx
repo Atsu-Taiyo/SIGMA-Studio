@@ -58,6 +58,7 @@ export function VersionHistoryPanel({
   const t = useT("chrome");
   const locale = useAppLocale();
   const [versions, setVersions] = useState<VersionHistoryRow[]>([]);
+  const [offline, setOffline] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingVersionId, setPendingVersionId] = useState<string | null>(null);
@@ -72,6 +73,14 @@ export function VersionHistoryPanel({
     refreshRequestRef.current = requestId;
     setLoading(true);
     try {
+      if (shared?.listCached) {
+        const cached = await shared.listCached();
+        if (refreshRequestRef.current !== requestId) return;
+        if (cached.length) {
+          setVersions(cached.map(version => ({ versionId: version.versionId, capturedAt: version.capturedAt, label: t(`versionHistory.kind.${version.kind}`) })));
+          setOffline(true);
+        }
+      }
       const nextVersions: VersionHistoryRow[] = shared
         ? (await shared.list()).map((version) => ({
           versionId: version.versionId,
@@ -85,10 +94,12 @@ export function VersionHistoryPanel({
         }));
       if (refreshRequestRef.current !== requestId) return;
       setVersions(nextVersions);
+      setOffline(shared?.isOffline?.() ?? false);
       setError(null);
       setFailedSelection(null);
     } catch {
       if (refreshRequestRef.current !== requestId) return;
+      if (shared) { setVersions([]); setOffline(false); }
       setError(t("versionHistory.loadFailed"));
     } finally {
       if (refreshRequestRef.current === requestId) setLoading(false);
@@ -96,6 +107,8 @@ export function VersionHistoryPanel({
   }, [fileId, shared, t]);
 
   useEffect(() => {
+    const online = () => void refresh();
+    window.addEventListener("online", online);
     const timeoutId = window.setTimeout(() => void refresh(), 0);
     // ローカルの版は保存のたびに知らせが来る。共有サーバーの版は知らせが無いので、開いている間だけ読み直す。
     const unsubscribe = shared
@@ -111,6 +124,7 @@ export function VersionHistoryPanel({
       selectionRequestRef.current += 1;
       window.clearTimeout(timeoutId);
       unsubscribe();
+      window.removeEventListener("online", online);
     };
   }, [fileId, refresh, shared]);
 
@@ -163,6 +177,7 @@ export function VersionHistoryPanel({
         </button>
       </div>
       <div className="version-history-body">
+        {offline && <p className="version-history-warning" role="status">{t("versionHistory.offline")}</p>}
         {historyWarning && <p className="version-history-warning" role="status">{historyWarning}</p>}
         {error && (
           <div className="version-history-error" role="alert">

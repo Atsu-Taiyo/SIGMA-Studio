@@ -53,6 +53,8 @@ export interface OfficialPluginStatus {
   available: boolean;
   requiresLogin: boolean;
   requiresRole?: boolean;
+  offline?: boolean;
+  offlineUntil?: string;
   autoUpdate: boolean;
   phase: "idle" | "checking" | "installing";
   plugins: OfficialPluginRow[];

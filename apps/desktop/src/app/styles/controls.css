@@ -530,6 +530,10 @@ button:disabled {
 }
 
 .document-icon {
+  /* Reserve grid column 1, but anchor the mark to the header origin in both layouts. */
+  position: absolute;
+  top: 0;
+  left: var(--space-md);
   grid-column: 1;
   grid-row: 1 / span 2;
   display: inline-grid;
@@ -538,7 +542,19 @@ button:disabled {
   justify-items: center;
   align-content: center;
   width: 38px;
-  height: 50px;
+  height: 64px;
+  align-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.document-icon:hover:not(:disabled),
+.document-icon:focus-visible {
+  background: var(--surface-muted);
+  border-radius: var(--radius-control);
 }
 
 .menubar-row,
@@ -667,12 +683,14 @@ button:disabled {
   border: 1px solid var(--border-subtle);
   border-bottom-color: var(--border);
   border-radius: 6px 6px 0 0;
-  background: var(--surface);
+  background: var(--surface-muted);
   color: var(--text-secondary);
 }
 
 .document-tab.active {
-  border-color: var(--border);
+  box-shadow: inset 0 3px 0 var(--text-primary);
+  font-weight: 650;
+  border-color: var(--border-strong);
   border-bottom-color: var(--background);
   background: var(--background);
   color: var(--text-primary);
@@ -2079,8 +2097,8 @@ button:disabled {
   cursor: pointer;
 }
 
-.shape-menu-button:hover,
-.shape-menu-button.active {
+.shape-menu-button:hover:not(:disabled):not([aria-disabled="true"]),
+.shape-menu-button.active:not(:disabled):not([aria-disabled="true"]) {
   border-color: var(--border);
   background: var(--surface-soft);
   color: var(--text-primary);
@@ -2088,7 +2106,7 @@ button:disabled {
 
 /* 分割ボタンのキャレット側。トグル本体 (.icon-button.active) と同じ塗りにして
    ひと続きに見せる。 */
-.shape-menu-button.active-format {
+.shape-menu-button.active-format:not(:disabled):not([aria-disabled="true"]) {
   border-color: transparent;
   background: var(--primary-surface-selected);
   color: var(--text-primary);
@@ -2616,8 +2634,8 @@ button:disabled {
   border-color: transparent;
 }
 
-.icon-button:hover,
-.icon-button:focus-visible {
+.icon-button:hover:not(:disabled):not([aria-disabled="true"]),
+.icon-button:focus-visible:not(:disabled):not([aria-disabled="true"]) {
   border-color: var(--border);
   background: var(--surface-muted);
   color: var(--text-primary);
@@ -3177,9 +3195,9 @@ button:disabled {
   cursor: pointer;
 }
 
-.toolbar-icon-color:hover,
-.toolbar-icon-color:focus-visible,
-.toolbar-icon-color.active,
+.toolbar-icon-color:hover:not(:disabled):not([aria-disabled="true"]),
+.toolbar-icon-color:focus-visible:not(:disabled):not([aria-disabled="true"]),
+.toolbar-icon-color.active:not(:disabled):not([aria-disabled="true"]),
 .toolbar-icon-select:hover,
 .toolbar-icon-select:focus-within {
   border-color: var(--border);
@@ -4111,3 +4129,31 @@ button:disabled {
 .document-reference-suggestions small { color: var(--text-muted); flex-shrink: 0; }
 .document-reference-suggestions button[aria-selected="true"],
 .document-reference-suggestions button:hover { background: var(--surface-muted); }
+
+/* All ribbon/toolbar button variants share one unavailable state. */
+[data-editor-toolbar="quick"] button:disabled,
+.ribbon-body button:disabled,
+.ribbon-statusbar button:disabled,
+[data-editor-toolbar-control]:disabled,
+[data-editor-toolbar-control][aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-disabled);
+  box-shadow: none;
+}
+
+.document-tab[data-new="true"] {
+  animation: document-tab-created 360ms ease-out;
+}
+
+@keyframes document-tab-created {
+  from { transform: translateY(4px); opacity: 0.5; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .document-tab[data-new="true"] { animation: none; }
+}

@@ -114,6 +114,22 @@ function fixture() {
 }
 
 describe("workspace document commands", () => {
+  it("marks only a newly created tab and clears the notice after the animation", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture();
+      const created = record("new-material");
+      mockOverview({});
+      vi.spyOn(storage, "createNewDocument").mockResolvedValue(created);
+      render(f.options);
+      await act(async () => actions.createDocumentTab());
+      expect(actions.newlyCreatedFileId).toBe(created.fileId);
+      expect(f.options.setActiveFileId).toHaveBeenCalledWith(created.fileId);
+      await act(async () => vi.advanceTimersByTime(600));
+      expect(actions.newlyCreatedFileId).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
   it("stops creation, duplication and navigation when the save boundary refuses replacement", async () => {
     const f = fixture();
     vi.mocked(f.options.saveCurrentDocumentBeforeReplacement).mockResolvedValue(false);

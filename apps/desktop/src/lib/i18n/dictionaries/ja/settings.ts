@@ -2,6 +2,8 @@
 export const settings = {
   organizations: { title: "所属団体", membership: "{{name}}に所属", more: "ほか{{count}}団体" },
   plugins: {
+    offlineExpired: "接続できず、保存した権限確認の期限も切れています。接続して再確認してください。",
+    offline: "オフラインです。最後の権限確認から7日間は、インストール済みの拡張機能を使えます。",
     addComplete: "{{name}}の追加が完了しました。",
     updateComplete: "{{name}}の更新が完了しました。",
     loadComplete: "{{name}}の読み込みが完了しました。",

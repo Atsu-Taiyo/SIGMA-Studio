@@ -77,6 +77,7 @@ export interface CollaborationInfo {
   restrictedFileIds: string[];
 }
 export interface SharedBackup {
+  offline?: boolean;
   id: string;
   epoch: number;
   created_at: string;
@@ -145,6 +146,7 @@ export interface CollaborationBridge {
     role: "editor" | "viewer" | null,
   ): Promise<void>;
   revokeInvitation(fileId: string, tokenHash: string): Promise<void>;
+  cachedBackups?(fileId: string): Promise<SharedBackup[]>;
   backups(fileId: string): Promise<SharedBackup[]>;
   version(fileId: string, backupId: string): Promise<SharedVersion>;
   backup(fileId: string): Promise<void>;

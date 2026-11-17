@@ -101,9 +101,9 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   const ribbonBodyHidden = ribbonCollapse.collapsed && !ribbonCollapse.overlayOpen;
 
   const documentIcon = (
-    <div className="document-icon" aria-hidden="true">
+    <button type="button" className="document-icon" aria-label={t("actions.workspace")} title={t("actions.workspace")} disabled={isEmbedded} onClick={() => void openWorkspaceScreen()}>
       <SigmaMark size={32} />
-    </div>
+    </button>
   );
 
   const documentTitleRow = (
