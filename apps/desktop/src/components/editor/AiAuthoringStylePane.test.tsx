@@ -63,3 +63,23 @@ it("shows the learned memo with its evidence and lets the user decide staged cha
     expect(view.button("学んだ書き方を保存").disabled).toBe(true);
   } finally { await view.unmount(); }
 });
+
+it("keeps an unsaved manual note when only the learned memo is saved", async () => {
+  const profile: AuthoringStyleProfile = { ...base, workspaceId: "ws1", generatedContent: "- 学んだ行\n", generatedRevision: "memo1" };
+  const saveLearned = vi.fn<AuthoringStyleAPI["saveLearned"]>().mockResolvedValue({ ...profile, generatedContent: "- 自分の行\n", generatedRevision: "memo2" });
+  const view = mount(fakeApi({ saveLearned }, profile), "ws1");
+  const type = (selector: string, value: string) => act(async () => {
+    const field = view.host.querySelector<HTMLTextAreaElement>(selector)!;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  try {
+    await view.render();
+    await type("#authoring-style-note", "書きかけのメモ");
+    await type("#authoring-style-learned", "- 自分の行");
+    await act(async () => view.button("学んだ書き方を保存").click());
+    expect(saveLearned).toHaveBeenCalledWith({ workspaceId: "ws1", content: "- 自分の行", expectedRevision: "memo1" });
+    expect(view.host.querySelector<HTMLTextAreaElement>("#authoring-style-note")!.value).toBe("書きかけのメモ");
+    expect(view.host.querySelector<HTMLTextAreaElement>("#authoring-style-learned")!.value).toBe("- 自分の行\n");
+  } finally { await view.unmount(); }
+});

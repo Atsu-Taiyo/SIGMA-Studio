@@ -8,7 +8,7 @@ import { createTranslator, getAppLocale, type AppLocale } from "@/lib/i18n";
 import type { AiResourceContextItem, AiResourceRunContext } from "./ai-resource-store";
 import {
   documentEvidence, fragmentHash, mergeObservations, observeCorrections, observeWriting, projectDocument, textSimilarity,
-  MAX_FRAGMENT_LENGTH, type EvidenceUnit, type Fragment, type StyleExample,
+  MAX_FRAGMENT_LENGTH, type DocumentProjection, type EvidenceUnit, type Fragment, type StyleExample,
 } from "./authoring-style-features";
 import { itemText, memoLabels, SECTION_ORDER } from "./authoring-style-items";
 import { AuthoringStyleMemory, atomicStyleWrite, renderMemo, type StyleMemory } from "./authoring-style-memory";
@@ -96,6 +96,8 @@ export class LocalAuthoringStyleStore {
   private queue: Promise<void> = Promise.resolve();
   private readonly reviewTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly reviews = new Map<string, Promise<void>>();
+  /** Bumped by a reset so a review already under way cannot write back what was just erased. */
+  private generation = 0;
 
   constructor(userDataPath: string, options: AuthoringStyleStoreOptions = {}) {
     this.options = options;
@@ -143,7 +145,11 @@ export class LocalAuthoringStyleStore {
   }
 
   private schedule(): void {
-    this.pending = this.pending.slice(-MAX_PENDING);
+    // Shed the oldest edits only. Losing an acceptance would later pass AI text off as the author's.
+    for (let index = 0; this.pending.length > MAX_PENDING && index < this.pending.length;) {
+      if (this.pending[index].type === "edit") this.pending.splice(index, 1);
+      else index++;
+    }
     if (!this.pending.length || this.timer) return;
     this.timer = setTimeout(() => { this.timer = undefined; void this.flush(); }, FLUSH_DELAY_MS);
     this.timer.unref();
@@ -209,6 +215,12 @@ export class LocalAuthoringStyleStore {
           tracked.state = !edit.after || textSimilarity(edit.before?.text ?? "", edit.after.text) >= REWRITTEN_BELOW ? "edited" : "rewritten";
           counters(edit.workspaceId).corrections++;
           edit.source = "post-accept";
+        } else if (tracked?.state === "edited" && record.afterHash === tracked.previousHash) {
+          // A correction that ends up back at the pre-AI text was a revert after all.
+          tracked.state = "reverted";
+          counters(edit.workspaceId).rejections++;
+          examples = examples.filter(e => !(e.fileId === edit.fileId && e.blockId === edit.blockId));
+          continue;
         } else if (!tracked || tracked.state === "reverted" || tracked.state === "rewritten") edit.source = "manual";
         const index = examples.findIndex(e => e.workspaceId === edit.workspaceId && e.fileId === edit.fileId && e.blockId === edit.blockId);
         const previous = index < 0 ? undefined : examples[index];
@@ -218,6 +230,9 @@ export class LocalAuthoringStyleStore {
         const merged = previous && same(previous.after, edit.before)
           ? { ...edit, before: previous.before, source: edit.source ?? previous.source ?? "manual" } : { ...edit, source: edit.source ?? "manual" };
         if (!same(merged.before, merged.after)) examples.push(merged);
+        // Further edits can leave so little of the AI's sentence that the block is the author's own again.
+        if (tracked?.state === "edited" && merged.source === "post-accept" && merged.before && merged.after
+          && textSimilarity(merged.before.text, merged.after.text) < REWRITTEN_BELOW) tracked.state = "rewritten";
         examples = examples.slice(-MAX_EXAMPLES);
       }
     }
@@ -264,52 +279,64 @@ export class LocalAuthoringStyleStore {
 
   private async runReview(workspaceId: string): Promise<void> {
     await this.flush();
-    const prepared = await this.exclusive(async () => {
+    const generation = this.generation;
+    const recent = await this.exclusive(async () => {
       if (!await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return null;
       const files = await this.personalFiles();
-      const outcomes = await this.readOutcomes();
-      const recent = files ? [...files.values()].filter(f => f.workspaceId === workspaceId)
+      return files ? [...files.values()].filter(f => f.workspaceId === workspaceId)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, MAX_REVIEW_DOCUMENTS) : [];
-      return { recent, aiBlocks: outcomes.blocks.filter(b => b.workspaceId === workspaceId) };
     });
-    if (!prepared) return;
+    if (!recent) return;
     // Documents are read outside the style lock so a long read never delays a save's bookkeeping.
-    const units: EvidenceUnit[] = [];
-    const reviewed = new Set<string>();
-    let remaining = MAX_REVIEW_CHARACTERS;
-    for (const file of prepared.recent) {
+    const loaded: { file: LocalDocumentMetadata; projection: DocumentProjection }[] = [];
+    let characters = 0;
+    for (const file of recent) {
       // Stop once the budget is all but spent rather than opening documents that cannot be read.
-      if (remaining < MAX_REVIEW_DOCUMENT_CHARACTERS / 10 || !this.options.loadDocument) break;
+      if (MAX_REVIEW_CHARACTERS - characters < MAX_REVIEW_DOCUMENT_CHARACTERS / 10 || !this.options.loadDocument) break;
       let document: SigmaDocument | null;
       try { document = await this.options.loadDocument(file.fileId); }
       catch (error) { logLedgerEvent(this.dataDir, "authoring-style-read-failed", { fileId: file.fileId, error: String(error) }); continue; }
       if (!document) continue;
-      const tracked = new Map(prepared.aiBlocks.filter(b => b.fileId === file.fileId).map(b => [b.blockId, b]));
-      // Text the AI wrote and the author left alone, or only touched up, is not the author's writing.
-      const isAiText = (blockId: string, fragment: Fragment) => {
-        const ai = tracked.get(blockId);
-        return Boolean(ai) && (ai!.state === "edited" || ((ai!.state === "accepted" || ai!.state === "kept") && fragmentHash(fragment) === ai!.hash));
-      };
-      const evidence = documentEvidence(file.fileId, projectDocument(document), isAiText, { characters: Math.min(remaining, MAX_REVIEW_DOCUMENT_CHARACTERS) });
-      remaining -= evidence.characters;
-      units.push(...evidence.units);
-      reviewed.add(file.fileId);
+      const projection = projectDocument(document);
+      loaded.push({ file, projection });
+      let length = 0;
+      for (const fragment of projection.fragments.values()) length += fragment.area === "structure" ? 0 : fragment.text.length;
+      characters += Math.min(length, MAX_REVIEW_DOCUMENT_CHARACTERS);
     }
+    // Bring in acceptances saved while reading, so their text is attributed to the AI below.
+    await this.flush();
     await this.exclusive(async () => {
-      if (!await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return;
+      if (generation !== this.generation || !await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return;
       const files = await this.personalFiles();
       const eligibleFiles = files ? new Set([...files.values()].filter(f => f.workspaceId === workspaceId).map(f => f.fileId)) : null;
-      // A document shared, moved or deleted while it was being read is not evidence.
-      const writing = observeWriting(units.filter(unit => !eligibleFiles || eligibleFiles.has(unit.fileId)));
-      const examples = (await this.eligible(await this.read())).filter(e => e.workspaceId === workspaceId);
       const outcomes = await this.readOutcomes();
+      const units: EvidenceUnit[] = [];
+      let remaining = MAX_REVIEW_CHARACTERS;
+      let reviewed = 0;
+      for (const { file, projection } of loaded) {
+        // A document shared, moved, deleted or saved again while it was being read is not evidence:
+        // what was read may no longer match what is recorded about it.
+        const current = files?.get(file.fileId);
+        if (files && (current?.workspaceId !== workspaceId || current.revision !== file.revision)) continue;
+        const tracked = new Map(outcomes.blocks.filter(b => b.fileId === file.fileId).map(b => [b.blockId, b]));
+        // Text the AI wrote and the author left alone, or only touched up, is not the author's writing.
+        const isAiText = (blockId: string, fragment: Fragment) => {
+          const ai = tracked.get(blockId);
+          return Boolean(ai) && (ai!.state === "edited" || ((ai!.state === "accepted" || ai!.state === "kept") && fragmentHash(fragment) === ai!.hash));
+        };
+        const evidence = documentEvidence(file.fileId, projection, isAiText, { characters: Math.min(remaining, MAX_REVIEW_DOCUMENT_CHARACTERS) });
+        remaining -= evidence.characters;
+        units.push(...evidence.units);
+        reviewed++;
+      }
+      const examples = (await this.eligible(await this.read())).filter(e => e.workspaceId === workspaceId);
       const counters = outcomes.counters[workspaceId] ??= emptyCounters();
       const now = this.now();
       const memory = await this.memory.load(workspaceId, getAppLocale(), now);
-      const planned = planReview(memory, mergeObservations(writing, observeCorrections(examples)),
+      const planned = planReview(memory, mergeObservations(observeWriting(units), observeCorrections(examples)),
         { now, locale: memory.locale, eligibleFiles, keptSinceLastReview: counters.kept > 0 });
       memory.lastReviewedAt = now.toISOString();
-      memory.reviewedDocuments = reviewed.size;
+      memory.reviewedDocuments = reviewed;
       await this.memory.commit(workspaceId, memory, planned.entries);
       outcomes.counters[workspaceId] = { ...emptyCounters(), reviewedAt: now.toISOString() };
       await this.writeOutcomes(outcomes);
@@ -398,7 +425,8 @@ export class LocalAuthoringStyleStore {
     const seen = new Set<string>();
     let length = 2;
     for (const example of ranked) {
-      if (isSuspicious(JSON.stringify([example.title, example.before, example.after]))) continue;
+      // Scan the text itself: JSON escaping would hide a line break inside an instruction.
+      if ([example.title, example.before?.text, example.before?.context, example.after?.text, example.after?.context].some(text => text && isSuspicious(text))) continue;
       const fingerprint = createHash("sha256").update(JSON.stringify([example.before, example.after])).digest("hex");
       if (seen.has(fingerprint)) continue;
       const size = JSON.stringify(example).length + (selected.length ? 1 : 0);
@@ -463,8 +491,9 @@ export class LocalAuthoringStyleStore {
     const files = await this.personalFiles();
     const outcomes = await this.readOutcomes();
     if (files) {
-      const blocks = outcomes.blocks.filter(b => files.get(b.fileId)?.workspaceId === b.workspaceId);
-      if (blocks.length !== outcomes.blocks.length) await this.writeOutcomes({ ...outcomes, blocks });
+      // What the AI wrote stays AI-written when its document moves to another workspace.
+      const blocks = outcomes.blocks.filter(b => files.has(b.fileId)).map(b => ({ ...b, workspaceId: files.get(b.fileId)!.workspaceId }));
+      if (JSON.stringify(blocks) !== JSON.stringify(outcomes.blocks)) await this.writeOutcomes({ ...outcomes, blocks });
       outcomes.blocks = blocks;
     }
     const inScope = <T extends { workspaceId: string }>(list: readonly T[]) => list.filter(e => workspaceId === null || e.workspaceId === workspaceId);
@@ -529,6 +558,7 @@ export class LocalAuthoringStyleStore {
   reset(workspaceId: string | null): Promise<AuthoringStyleProfile> {
     for (const [id, timer] of this.reviewTimers) if (workspaceId === null || id === workspaceId) { clearTimeout(timer); this.reviewTimers.delete(id); }
     return this.change(workspaceId, async () => {
+      this.generation++;
       const keep = <T extends { workspaceId: string }>(list: readonly T[]) => list.filter(e => workspaceId !== null && e.workspaceId !== workspaceId);
       await this.persist(keep(await this.read()));
       const outcomes = await this.readOutcomes();

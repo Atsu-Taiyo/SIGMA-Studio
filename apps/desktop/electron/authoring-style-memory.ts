@@ -63,7 +63,7 @@ export interface PendingChange {
   createdAt: string;
 }
 
-interface UndoSnapshot { at: string; reason: string; items: StyleItem[]; suppressed: string[]; pending: PendingChange[] }
+interface UndoSnapshot { at: string; reason: string; items: StyleItem[]; suppressed: string[]; pending: PendingChange[]; dismissed: string[] }
 
 export interface StyleMemory {
   version: 2;
@@ -84,8 +84,10 @@ export interface StyleMemory {
 export interface LedgerDraft { actor: "review" | "user"; action: string; key?: string; before?: string; after?: string }
 
 const MAX_UNDO = 5;
+// Every line of a memo within the read limit is kept: nothing the user wrote is cut off on reload.
+const MAX_ITEMS = AUTHORING_STYLE_NOTE_LIMIT + 1000;
 const MAX_LEDGER_LINES = 400;
-const MEMORY_FILE_LIMIT = 400_000;
+const MEMORY_FILE_LIMIT = 4_000_000;
 // Adopting a hand edit adds headings, so the stored text may run slightly past the editing limit.
 const MEMO_READ_LIMIT = AUTHORING_STYLE_NOTE_LIMIT + 1000;
 const GENERATED_FILES = ["learned.md", "learned.sha256", "learned-evidence.json", "memory.json", "ledger.jsonl"];
@@ -112,7 +114,7 @@ export function renderMemo(memory: Pick<StyleMemory, "items">, locale: AppLocale
 }
 
 export function snapshotForUndo(memory: StyleMemory, reason: string, at: string): void {
-  memory.undo.push(structuredClone({ at, reason, items: memory.items, suppressed: memory.suppressed, pending: memory.pending }));
+  memory.undo.push(structuredClone({ at, reason, items: memory.items, suppressed: memory.suppressed, pending: memory.pending, dismissed: memory.dismissed }));
   memory.undo = memory.undo.slice(-MAX_UNDO);
 }
 
@@ -157,7 +159,7 @@ function parseMemory(text: string, locale: AppLocale): StyleMemory {
   const items = (list: unknown[]): StyleItem[] => list.filter((i): i is StyleItem => Boolean(i) && typeof i === "object"
     && typeof (i as StyleItem).id === "string" && typeof (i as StyleItem).text === "string" && (i as StyleItem).text.length <= AUTHORING_STYLE_NOTE_LIMIT
     && ((i as StyleItem).origin === "auto" || (i as StyleItem).origin === "user") && SECTION_ORDER.includes((i as StyleItem).section)
-    && ((i as StyleItem).status === "active" || (i as StyleItem).status === "stale") && Array.isArray((i as StyleItem).sources)).slice(0, 200);
+    && ((i as StyleItem).status === "active" || (i as StyleItem).status === "stale") && Array.isArray((i as StyleItem).sources)).slice(0, MAX_ITEMS);
   const pending = (list: unknown[]): PendingChange[] => list.filter((p): p is PendingChange => Boolean(p) && typeof p === "object"
     && typeof (p as PendingChange).id === "string" && typeof (p as PendingChange).key === "string" && typeof (p as PendingChange).value === "string"
     && ["add", "rewrite", "remove"].includes((p as PendingChange).kind)).slice(0, 60);
@@ -167,7 +169,7 @@ function parseMemory(text: string, locale: AppLocale): StyleMemory {
     items: items(data.items), suppressed: strings(data.suppressed, 100), pending: pending(data.pending), dismissed: strings(data.dismissed, 60),
     undo: (Array.isArray(data.undo) ? data.undo : []).slice(-MAX_UNDO).map((u: UndoSnapshot) => ({
       at: String(u?.at ?? ""), reason: String(u?.reason ?? ""), items: items(Array.isArray(u?.items) ? u.items : []),
-      suppressed: strings(u?.suppressed, 100), pending: pending(Array.isArray(u?.pending) ? u.pending : []),
+      suppressed: strings(u?.suppressed, 100), pending: pending(Array.isArray(u?.pending) ? u.pending : []), dismissed: strings(u?.dismissed, 60),
     })),
     renderedHash: typeof data.renderedHash === "string" ? data.renderedHash : styleHash(""),
     lastReviewedAt: typeof data.lastReviewedAt === "string" ? data.lastReviewedAt : null,
@@ -265,6 +267,7 @@ export class AuthoringStyleMemory {
     const change = memory.pending[index];
     const at = now.toISOString();
     if (!approve) {
+      snapshotForUndo(memory, "dismiss", at);
       memory.pending.splice(index, 1);
       memory.dismissed = [...memory.dismissed, `${change.kind}:${change.key}:${change.value}`].slice(-60);
       await this.commit(workspaceId, memory, [{ actor: "user", action: "dismiss", key: change.key }]);
@@ -294,8 +297,8 @@ export class AuthoringStyleMemory {
     const memory = await this.load(workspaceId, locale, now);
     const previous = memory.undo.pop();
     if (!previous) throw new Error("Nothing to undo");
-    const current = structuredClone({ at: now.toISOString(), reason: "rollback", items: memory.items, suppressed: memory.suppressed, pending: memory.pending });
-    Object.assign(memory, { items: previous.items, suppressed: previous.suppressed, pending: previous.pending });
+    const current = structuredClone({ at: now.toISOString(), reason: "rollback", items: memory.items, suppressed: memory.suppressed, pending: memory.pending, dismissed: memory.dismissed });
+    Object.assign(memory, { items: previous.items, suppressed: previous.suppressed, pending: previous.pending, dismissed: previous.dismissed });
     memory.undo.push(current);
     await this.commit(workspaceId, memory, [{ actor: "user", action: "rollback", before: previous.reason }]);
     return memory;

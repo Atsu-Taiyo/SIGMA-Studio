@@ -30,14 +30,14 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
   }, [api, workspaceId]);
 
   // A draft the user is typing is never replaced by the result of another action.
-  const run = async (action: () => Promise<AuthoringStyleProfile>, replace: "none" | "note" | "all" = "none") => {
+  const run = async (action: () => Promise<AuthoringStyleProfile>, replace: "none" | "note" | "learned" | "all" = "none") => {
     setBusy(true); setError(false);
     try {
       const value = await action();
       const learnedUntouched = profile !== null && learned === profile.generatedContent;
       setProfile(value);
-      if (replace !== "none") adoptNote(value);
-      if (replace === "all" || learnedUntouched) adoptLearned(value);
+      if (replace === "note" || replace === "all") adoptNote(value);
+      if (replace === "learned" || replace === "all" || learnedUntouched) adoptLearned(value);
     } catch { setError(true); }
     finally { setBusy(false); }
   };
@@ -75,7 +75,7 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
             {profile.lastUpdate && ` / ${t("authoringStyle.updated", { ...profile.lastUpdate })}`}
           </SettingsStatus>
           <Inline gap="sm">
-            <Button size="sm" disabled={busy || !learnedDirty} onClick={() => void run(() => api.saveLearned({ workspaceId, content: learned, expectedRevision: learnedRevision }), "all")}>{t("authoringStyle.saveLearned")}</Button>
+            <Button size="sm" disabled={busy || !learnedDirty} onClick={() => void run(() => api.saveLearned({ workspaceId, content: learned, expectedRevision: learnedRevision }), "learned")}>{t("authoringStyle.saveLearned")}</Button>
             <Button tone="ghost" size="sm" disabled={busy || learnedDirty || !profile.enabled} onClick={() => void run(() => api.review(workspaceId))}>{t("authoringStyle.review")}</Button>
             <Button tone="ghost" size="sm" disabled={busy || learnedDirty || !profile.canUndo} onClick={() => void run(() => api.undo(workspaceId))}>{t("authoringStyle.undo")}</Button>
           </Inline>
