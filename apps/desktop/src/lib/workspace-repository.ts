@@ -102,10 +102,11 @@ export async function createDocumentInWorkspace(
   workspaceId: string,
   folderId: string | null,
   title = tWorkspace("untitledMaterial"),
-): Promise<WorkspaceOverviewResult> {
+): Promise<WorkspaceOverviewResult & { createdFileId: string }> {
   const runtime = getAppRuntime();
   const result = await runtime.library.createDocument({ workspaceId, folderId, title });
-  return runtime.workspace.listOverview(result.metadata.workspaceId);
+  const overview = await runtime.workspace.listOverview(result.metadata.workspaceId);
+  return { ...overview, createdFileId: result.fileId };
 }
 
 export async function createDocumentFromTemplateInWorkspace(

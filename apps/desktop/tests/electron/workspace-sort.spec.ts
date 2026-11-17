@@ -30,7 +30,7 @@ test("list sorting uses the editor's workspace chips and persists across reload"
     });
     await page.reload();
     await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible({ timeout: 60_000 });
-    const workspaceButton = page.getByRole("button", { name: "ワークスペース", exact: true });
+    const workspaceButton = page.getByRole("button", { name: "ワークスペース", exact: true }).and(page.locator(".workspace-open-button"));
     const editorChipStyle = await chipStyle(workspaceButton);
     const fixture = await page.evaluate(async () => {
       const api = window.desktopAPI!.storage;
@@ -89,7 +89,7 @@ test("list sorting uses the editor's workspace chips and persists across reload"
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await returnChip.click();
     await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible();
-    await page.getByRole("button", { name: "ワークスペース", exact: true }).click();
+    await page.getByRole("button", { name: "ワークスペース", exact: true }).and(page.locator(".workspace-open-button")).click();
     await expect(updatedHeader).toHaveAttribute("aria-sort", "ascending");
     await page.mouse.move(400, 500);
     await page.screenshot({ path: test.info().outputPath("workspace-list-chips.png") });

@@ -26,6 +26,7 @@ export interface WorkspaceTabStripProps {
   metadata: readonly DocumentMetadata[];
   activeFileId: string;
   loadingFileId: string | null;
+  newlyCreatedFileId?: string | null;
   /** 編集中の教材のタイトル。台帳より新しいので、そのタブだけはこちらを使う。 */
   activeDocumentTitle: string;
   /** 数式を含むタイトルを組むためのノード列 (編集中の教材のみ)。 */
@@ -81,6 +82,12 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
       window.removeEventListener("blur", close);
     };
   }, [contextMenu]);
+
+  useEffect(() => {
+    if (!props.newlyCreatedFileId) return;
+    const tab = Array.from(scrollRef.current?.querySelectorAll<HTMLElement>("[data-new]") ?? [])[0];
+    tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [props.newlyCreatedFileId, props.layout]);
 
   const tabTitle = (tab: WorkspaceTab): string => {
     if (tab.kind === "document") {
@@ -166,6 +173,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
               return (
                 <div
                   className={`document-tab workspace-tab ${active ? "active" : ""}`}
+                  data-new={tab.kind === "document" && tab.fileId === props.newlyCreatedFileId ? "true" : undefined}
                   key={tab.id}
                   data-tab-id={tab.id}
                   data-drop-before={dropTarget?.groupId === group.id && dropTarget.index === tabIndex ? "true" : undefined}

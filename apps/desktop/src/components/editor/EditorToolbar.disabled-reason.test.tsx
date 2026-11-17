@@ -38,3 +38,12 @@ describe("disabled text format tooltips", () => {
     expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("選択範囲を太字に⌘B");
   });
 });
+
+it.each([EditorToolbarIconButton, EditorToolbarMenuButton, EditorToolbarColorButton])("exposes native and ARIA disabled state with the shared style hook and no active state", (Button) => {
+  act(() => root.render(<Button active disabled aria-label="unavailable">A</Button>));
+  const button = host.querySelector("button")!;
+  expect(button.disabled).toBe(true);
+  expect(button.getAttribute("aria-disabled")).toBe("true");
+  expect(button.hasAttribute("data-editor-toolbar-control")).toBe(true);
+  expect(button.classList.contains("active")).toBe(false);
+});

@@ -196,7 +196,7 @@ export const chrome = {
       importOther: "PowerPointをインポート",
       importText: "テキストから読み込み",
       export: "エクスポート",
-      exportJson: "JSONをエクスポート",
+      exportJson: "sigmaファイルをエクスポート",
       exportPdf: "PDFを書き出し",
       copyText: "テキストでコピー",
     },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useState, type RefObject } from "react";
 import { useStableCallback } from "@/lib/react/use-stable-callback";
 import { getDefaultPageLayout, type SigmaDocument } from "@/features/document";
 import type { EditorSaveState } from "@/features/editor-state/types";
@@ -82,6 +82,13 @@ export function useWorkspaceDocumentCommands({
   setOpenFileIds, setActiveFileId, setWorkspaceReady, setActiveMenu,
   setDocumentListOpen, setSaveState, setStatusMessage, showCreatedMaterialLocation, t, tEditor,
 }: WorkspaceDocumentCommandOptions) {
+
+  const [newlyCreatedFileId, setNewlyCreatedFileId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!newlyCreatedFileId) return;
+    const timer = setTimeout(() => setNewlyCreatedFileId(null), 600);
+    return () => clearTimeout(timer);
+  }, [newlyCreatedFileId]);
 
   const prepareExternalNavigation = useStableCallback(async () => {
     if (embeddedHostRef.current || !workspaceReadyRef.current) return false;
@@ -176,6 +183,7 @@ export function useWorkspaceDocumentCommands({
       // 何も書かずに閉じた空の教材は消す。テンプレートから作った教材は中身があるので、閉じても残す
       // (ワークスペース画面から作ったときと同じ)。
       if (!template) untouchedNewDocumentsRef.current.set(created.fileId, created.document);
+      setNewlyCreatedFileId(created.fileId);
       await openDocumentAsTab(created, tEditor(template ? "status.templateDocumentCreated" : kind === "whiteboard" ? "status.whiteboardCreated" : "status.documentCreated"));
       showCreatedMaterialLocation(await loadCreatedMaterialNotice(created.metadata, { kind, origin: destination.origin }));
     } catch (error) {
@@ -306,6 +314,6 @@ export function useWorkspaceDocumentCommands({
     await deleteDocumentFromList(activeFileId);
   };
   return {
-    openWorkspaceScreen, openDocumentAsTab, createDocumentTab, createDocumentTabInWorkspace, createWhiteboardDocumentTab, createDocumentTabFromTemplate, duplicateActiveDocument, openDocumentListDialog, closeDocumentTab, openDocumentFromList, duplicateDocumentFromList, deleteDocumentFromList, deleteActiveDocument
+    newlyCreatedFileId, openWorkspaceScreen, openDocumentAsTab, createDocumentTab, createDocumentTabInWorkspace, createWhiteboardDocumentTab, createDocumentTabFromTemplate, duplicateActiveDocument, openDocumentListDialog, closeDocumentTab, openDocumentFromList, duplicateDocumentFromList, deleteDocumentFromList, deleteActiveDocument
   };
 }
