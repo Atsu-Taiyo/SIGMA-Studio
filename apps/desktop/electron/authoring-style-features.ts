@@ -274,8 +274,16 @@ export function documentEvidence(fileId: string, projection: DocumentProjection,
     ]) });
   }
   // How a block is laid out is the author's doing where its text is: a block the AI built and nobody wrote in says nothing.
-  // The document as a whole speaks for its author when at least as much of it is theirs as is the AI's.
-  const mostlyAuthored = authored.size > 0 && authored.size >= skippedAi;
+  // The document as a whole speaks for its author when at least as much of it is theirs as is the AI's. That is
+  // counted over every block, also those too long to keep or past what this review reads.
+  let ai = 0;
+  let own = 0;
+  for (const [blockId, fragment] of projection.fragments) {
+    if (fragment.area === "structure") continue;
+    if (isAiText(blockId, fragment)) ai++;
+    else own++;
+  }
+  const mostlyAuthored = authored.size > 0 && own >= ai;
   for (const unit of layout?.units ?? []) {
     if (unit.whole ? mostlyAuthored : unit.fragments.some(id => authored.has(id))) units.push({ fileId, blockId: `${unit.id}:layout`, votes: unit.votes });
   }

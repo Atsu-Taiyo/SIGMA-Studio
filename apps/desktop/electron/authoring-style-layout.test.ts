@@ -108,6 +108,14 @@ describe("how a document is laid out", () => {
     const mostlyAi = documentEvidence("f", projection, id => id !== "t", budget, layout);
     expect(mostlyAi.units.some(unit => unit.blockId === "$layout:layout")).toBe(false);
     expect(mostlyAi.outline).toBe("");
+    // Blocks too long to learn wording from, and blocks past what one review reads, still count as the AI's or the author's.
+    const long = doc([h("t", 1, "第1章 関数"), ...[1, 2, 3, 4].map(n => p(`ai${n}`, "あ".repeat(2000)))]);
+    const longAi = documentEvidence("f", projectDocument(long), id => id.startsWith("ai"), budget, projectLayout(long));
+    expect(longAi.units.some(unit => unit.blockId === "$layout:layout")).toBe(false);
+    expect(longAi.outline).toBe("");
+    const many = doc([h("t", 1, "第1章 関数"), ...[1, 2, 3, 4].map(n => p(`ai${n}`, "AIが書いたままの段落である。"))]);
+    const pastBudget = documentEvidence("f", projectDocument(many), id => id.startsWith("ai"), { characters: 8 }, projectLayout(many));
+    expect(pastBudget.units.some(unit => unit.blockId === "$layout:layout")).toBe(false);
     // Without a layout to go by, nothing changes for the habits of wording.
     expect(documentEvidence("f", projection, () => false, budget).units.every(unit => !unit.blockId.endsWith(":layout"))).toBe(true);
   });

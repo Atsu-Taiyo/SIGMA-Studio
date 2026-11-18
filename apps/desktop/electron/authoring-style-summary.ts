@@ -98,9 +98,9 @@ export function parseSummaryReply(raw: string, input: Pick<SummaryInput, "sample
   // Only a reply of the form asked for says anything. An error message, or an answer to some other question, is
   // not "nothing to add and nothing confirmed": taken as that, it would count against the earlier suggestions.
   if (!data || typeof data !== "object" || !Array.isArray(data.add) || !Array.isArray(data.confirm)) return null;
-  // The same goes for numbers that are not numbers: read leniently, a suggestion the AI did speak for would look
-  // like one it passed over.
-  if (!data.confirm.every(value => Number.isSafeInteger(value))) return null;
+  // The same goes for a number that names none of the candidates: read leniently, a suggestion the AI did speak
+  // for would look like one it passed over.
+  if (!data.confirm.every(value => Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= input.candidates.length)) return null;
   const source = input.sample.join("\n");
   const quotes = (text: string) => {
     for (let index = 0; index + QUOTATION_LENGTH <= text.length; index++) if (source.includes(text.slice(index, index + QUOTATION_LENGTH))) return true;
@@ -117,6 +117,6 @@ export function parseSummaryReply(raw: string, input: Pick<SummaryInput, "sample
     add.push({ section: section as SummarySection, text: sentence });
     if (add.length === MAX_SUMMARY_ADDITIONS) break;
   }
-  const confirm = [...new Set(data.confirm.filter((n): n is number => Number.isSafeInteger(n) && n >= 1 && n <= input.candidates.length))];
+  const confirm = [...new Set(data.confirm as number[])];
   return { add, confirm };
 }

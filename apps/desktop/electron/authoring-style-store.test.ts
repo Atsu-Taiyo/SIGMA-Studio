@@ -978,7 +978,8 @@ describe("automatic authoring style", () => {
       store.noteProvider("claude");
       await store.reviewNow("ws1");
       now += 80 * 24 * HOUR;
-      const answers = ['{"error":"cannot review"}', '{"add":"none"}', '{"confirm":[]}', "すみません、対応できません。", '{"add":[],"confirm":[{"number":1}]}', '{"add":[],"confirm":["1"]}'];
+      const answers = ['{"error":"cannot review"}', '{"add":"none"}', '{"confirm":[]}', "すみません、対応できません。", '{"add":[],"confirm":[{"number":1}]}', '{"add":[],"confirm":["1"]}',
+        '{"add":[],"confirm":[0]}', '{"add":[],"confirm":[999]}', '{"add":[],"confirm":[1.5]}'];
       for (const [index, answer] of answers.entries()) {
         lib.put("f1", written(...essay(`本人${index + 2}`)));
         summarize.mockImplementation(async () => answer);
@@ -1445,6 +1446,35 @@ describe("automatic authoring style", () => {
       const later = await recovered.reviewNow("shared-ws");
       expect(later.generatedContent).toContain("常体");
       expect(later.pending).toEqual([]);
+    });
+
+    it("does not take a suggestion for stale when the list of shared documents fails after the AI has answered", async () => {
+      const lib = library();
+      const shared = catalog();
+      const essay = (label: string) => Array.from({ length: 12 }, (_, i) => `${label}の第${i}段落では、関数が単調に増加することを先に確かめてから結論を述べる。`);
+      const HABIT = "要点を先に述べてから理由を書く。";
+      shared.put("s1", written(...essay("共有")));
+      let now = new Date("2026-11-17T00:00:00Z");
+      let answer = JSON.stringify({ add: [{ section: "style", text: HABIT }], confirm: [] });
+      let failing = false;
+      const listSharedFiles = vi.fn(async () => { if (failing) throw new Error("fetch failed"); return shared.options.listSharedFiles(); });
+      // While the AI takes its time, the connection goes; what is known of the shared documents is by then from before.
+      const summarize = vi.fn(async () => { if (answer.includes('"add":[]')) { failing = true; await new Promise(resolve => setTimeout(resolve, 20)); } return answer; });
+      store = make({ ...lib.options, ...shared.options, listSharedFiles, summarize, now: () => now });
+      store.noteProvider("claude");
+      expect((await store.reviewNow("shared-ws")).generatedContent).toContain(HABIT);
+      now = new Date("2027-02-01T00:00:00Z");
+      shared.put("s1", written(...essay("共有2")), "shared-ws", { updatedAt: "2027-01-31T00:00:00Z" });
+      answer = JSON.stringify({ add: [], confirm: [] });
+      const realNow = Date.now;
+      // Long enough for the list of shared documents to be read afresh after the answer.
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => realNow() + (failing ? 120_000 : 0));
+      try {
+        const profile = await store.reviewNow("shared-ws");
+        expect(summarize).toHaveBeenCalledTimes(2);
+        expect(profile.generatedContent).toContain(HABIT);
+        expect(profile.autoChanges).toEqual([]);
+      } finally { clock.mockRestore(); }
     });
 
     it("reviews once more when the last document of the workspace is gone", async () => {
