@@ -35,6 +35,24 @@ it("takes up settings another device changed, and does not bring removed command
     expect(current.customCommands).toEqual([]);
     expect(current.shortcutOverrides).toEqual({ "edit.undo": { primary: true, key: "y" } });
     expect(setCommandConfig).toHaveBeenLastCalledWith({ commandShortcuts: { "edit.undo": { primary: true, key: "y" } }, customCommands: [] });
+    // A change made on this screen while another device's settings are being read is the newer one.
+    let release!: () => void;
+    const settings = (window as unknown as { desktopAPI: { settings: { get: () => Promise<unknown> } } }).desktopAPI.settings;
+    const immediate = settings.get;
+    settings.get = () => new Promise(resolve => { release = () => resolve({ ...stored, customCommands: [command("remote")], hasCustomCommands: true }); });
+    await act(async () => synced());
+    await act(async () => current.setCustomCommands([command("typed-meanwhile") as never]));
+    await act(async () => release());
+    expect(current.customCommands.map(c => c.id)).toEqual(["custom.typed-meanwhile"]);
+    // A sync that changed nothing here (the language only, say) does not save the commands again.
+    settings.get = async () => ({ ...stored, customCommands: [command("typed-meanwhile")], hasCustomCommands: true });
+    const saves = setCommandConfig.mock.calls.length;
+    await act(async () => synced());
+    expect(setCommandConfig.mock.calls.length).toBe(saves);
+    settings.get = immediate;
+    stored = { ...stored, customCommands: [], hasCustomCommands: false };
+    await act(async () => current.setCustomCommands([]));
+
     // The old storage has done its job once the settings file holds the settings: a restart must not bring it back.
     expect(localStorage.getItem(EDITOR_CUSTOM_COMMANDS_STORAGE_KEY)).toBeNull();
     await act(async () => root.unmount());
