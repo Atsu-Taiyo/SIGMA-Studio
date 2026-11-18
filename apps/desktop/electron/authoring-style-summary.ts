@@ -110,6 +110,12 @@ export function parseSummaryReply(raw: string, input: Pick<SummaryInput, "sample
   // Only a reply of the form asked for says anything. An error message, or an answer to some other question, is
   // not "nothing to add and nothing confirmed": taken as that, it would count against the earlier suggestions.
   if (!data || typeof data !== "object" || !Array.isArray(data.add) || !Array.isArray(data.confirm)) return null;
+  // The same goes for numbers that are not numbers, and for a rewording without its number or its sentence: read
+  // leniently, a suggestion the AI did speak for would look like one it passed over.
+  const whole = (value: unknown) => Number.isSafeInteger(value);
+  const revisions = [data.rewrite, data.remove].map(value => value === undefined || value === null ? [] : value);
+  if (!data.confirm.every(whole) || !revisions.every(Array.isArray) || !(revisions[1] as unknown[]).every(whole)
+    || !(revisions[0] as unknown[]).every(entry => Boolean(entry) && typeof entry === "object" && whole((entry as { number?: unknown }).number) && typeof (entry as { text?: unknown }).text === "string")) return null;
   const source = input.sample.join("\n");
   const quotes = (text: string) => {
     for (let index = 0; index + QUOTATION_LENGTH <= text.length; index++) if (source.includes(text.slice(index, index + QUOTATION_LENGTH))) return true;

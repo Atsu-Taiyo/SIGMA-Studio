@@ -379,6 +379,23 @@ describe("account sync of the learned writing style", () => {
     expect(await a.memo()).toBe("");
   });
 
+  it("does not bring back, when two devices first meet, a habit whose adding was undone on one of them", async () => {
+    const a = await device("ws-a", { documents: { f1: written(...PLAIN) } });
+    await a.store.reviewNow("ws-a");
+    expect(await a.memo()).toContain(PLAIN_MEMO);
+    await a.store.undo("ws-a");
+    expect(await a.memo()).toBe("");
+    const b = await device("ws-b", { documents: { f1: written(...PLAIN) } });
+    await b.store.reviewNow("ws-b");
+    await b.store.setSync(null, true);
+    await a.store.setSync(null, true);
+    // Taken back on purpose on one device: it does not return there, and goes on the other.
+    expect(await a.memo()).not.toContain(PLAIN_MEMO);
+    await b.store.syncNow(null);
+    expect(await b.memo()).not.toContain(PLAIN_MEMO);
+    expect((await a.store.reviewNow("ws-a")).generatedContent).not.toContain(PLAIN_MEMO);
+  });
+
   it("keeps what another device added when the last local change is undone", async () => {
     const a = await device("ws-a", { documents: { f1: written(...PLAIN) } });
     const b = await device("ws-b");
@@ -1438,6 +1455,10 @@ describe("merging two devices' copies", () => {
     expect(keys(mergeItems(base, confirmed, []))).toEqual(["tone=plain"]);
     // Deleted by its author, or its adding undone: the deletion stands whatever a review said since.
     expect(keys(mergeItems(base, [], confirmed, entry => entry.key === "tone"))).toEqual([]);
+    // A sentence the AI suggested is not brought back either: where it is gone, an AI reworded or withdrew it.
+    const suggested = (text: string, extra: Partial<SyncedItem> = {}) => item(summaryKey("style", text), text, { basis: "summary", text, ...extra });
+    expect(keys(mergeItems([suggested("要点を先に述べる。")], [suggested("要点を先に述べ、理由を続ける。")], [suggested("要点を先に述べる。", { lastConfirmedAt: "2026-12-20" })])).map(key => key.split("=")[1]))
+      .toEqual(["要点を先に述べ、理由を続ける。"]);
     // A line somebody wrote is never brought back that way.
     expect(keys(mergeItems([line("消す行")], [], [{ ...line("消す行"), lastConfirmedAt: "2026-12-20" }]))).toEqual([]);
   });

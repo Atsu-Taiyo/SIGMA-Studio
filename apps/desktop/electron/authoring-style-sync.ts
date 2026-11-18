@@ -185,7 +185,9 @@ export function mergeList(base: readonly string[] | undefined, local: readonly s
  */
 export function mergeItems(base: readonly SyncedItem[] | undefined, local: readonly SyncedItem[], remote: readonly SyncedItem[], unwanted: (item: SyncedItem) => boolean = () => false): SyncedItem[] {
   const index = (list: readonly SyncedItem[]) => new Map(list.map(item => [identity(item), item]));
-  const reconfirmed = (item: SyncedItem, was: SyncedItem) => item.origin === "auto" && item.lastConfirmedAt > was.lastConfirmedAt && !unwanted(item);
+  // Not a sentence the AI suggested: one that is gone was reworded or withdrawn by an AI that was asked about it,
+  // and bringing it back would put it next to its own rewording.
+  const reconfirmed = (item: SyncedItem, was: SyncedItem) => item.origin === "auto" && item.basis !== "summary" && item.lastConfirmedAt > was.lastConfirmedAt && !unwanted(item);
   const before = index(base ?? []);
   const theirs = index(remote);
   const result: SyncedItem[] = [];
@@ -276,12 +278,14 @@ function mergeLearned(base: Learned | undefined, local: Learned, remote: Learned
   const suppressed = mergeList(was?.suppressed, local.suppressed, remote.suppressed);
   const declined = mergeList(was?.declined, local.declined, remote.declined, 30);
   const dismissed = mergeList(was?.dismissed, local.dismissed, remote.dismissed, 60);
+  /** Taken out on purpose on some device: deleted, its adding undone or declined, or (a sentence of the AI's) turned down. */
+  const unwanted = (item: SyncedItem) => Boolean(item.key) && (suppressed.includes(item.key!) || dismissed.includes(`add:${item.key}:${item.value}`)
+    || (item.basis === "summary" && declined.includes(item.text)));
   return {
     generation: remote.generation, suppressed, declined, dismissed,
     // A removal its author made always wins: no device learns again, or keeps, what was taken out on purpose.
-    items: mergeItems(was?.items, local.items, remote.items, item => Boolean(item.key) && (suppressed.includes(item.key!) || dismissed.includes(`add:${item.key}:${item.value}`)
-      || (item.basis === "summary" && declined.includes(item.text))))
-      .filter(item => item.origin !== "auto" || !item.key || (!suppressed.includes(item.key) && !(item.basis === "summary" && declined.includes(item.text)))),
+    // With or without a history in common: what one side holds and the other took out on purpose does not stay.
+    items: mergeItems(was?.items, local.items, remote.items, unwanted).filter(item => item.origin !== "auto" || !unwanted(item)),
     // With no history in common (a copy that replaced a lost one), what this device carried for others is kept next to theirs.
     opaque: was ? remote.opaque : [...new Map([...remote.opaque, ...local.opaque].map(entry => [JSON.stringify(entry), entry])).values()].slice(0, MAX_OPAQUE_ITEMS),
   };

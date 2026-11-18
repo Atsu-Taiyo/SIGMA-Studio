@@ -4,6 +4,8 @@
  * withheld. Nothing is rewritten on disk: the caller reports how much was held back.
  */
 const INVISIBLE = /[­​-‏‪-‮⁠-⁤⁦-⁯﻿\u{E0000}-\u{E007F}]/u;
+/** Control characters other than the line break, and halves of a surrogate pair. Handed to a model as a space. */
+export const CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
 const THREATS: readonly RegExp[] = [
   /ignore\s+(?:all\s+|any\s+)?(?:the\s+)?(?:previous|prior|above|earlier)\s+(?:instructions?|prompts?|rules?|messages?)/i,
   /disregard\s+(?:all\s+|any\s+)?(?:the\s+)?(?:previous|prior|above|earlier|system)/i,
@@ -22,7 +24,9 @@ const THREATS: readonly RegExp[] = [
 export function isSuspicious(text: string): boolean {
   // Full-width and other compatibility forms are read as the plain characters they stand for.
   const plain = text.normalize("NFKC");
-  return INVISIBLE.test(text) || THREATS.some(pattern => pattern.test(text) || pattern.test(plain));
+  // A control character between two words is read by a model as the space it is handed on as.
+  const spaced = plain.replace(CONTROL, " ");
+  return INVISIBLE.test(text) || THREATS.some(pattern => pattern.test(text) || pattern.test(plain) || pattern.test(spaced));
 }
 
 /** Drop suspicious lines, keeping the rest of a note usable. */

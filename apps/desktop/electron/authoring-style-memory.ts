@@ -476,14 +476,16 @@ export class AuthoringStyleMemory {
     // Taking back what the AI added tells it not to suggest the sentence again; redoing lifts that.
     const texts = (items: readonly StyleItem[]) => items.filter(isSuggestion).map(i => i.text);
     const restored = new Set(texts(previous.items));
-    const withdrawn = texts(memory.items).filter(text => !restored.has(text));
+    // Undoing an undo is not taking anything back: what was declined, and what is not to be done again, go back
+    // as they were before the first undo.
+    const redo = previous.reason === "rollback";
+    const withdrawn = redo ? [] : texts(memory.items).filter(text => !restored.has(text));
     memory.declined = [...(previous.declined ?? memory.declined).filter(text => !restored.has(text) && !withdrawn.includes(text)), ...withdrawn].slice(-MAX_DECLINED);
     // What is taken back is not done again by the next review: neither an addition, nor a rewrite, nor a removal.
     // (Undoing once more puts the list back as it was, with the rest.)
     const was = new Map(previous.items.filter(i => i.origin === "auto" && i.key).map(i => [i.key!, i]));
     const held = new Map(memory.items.filter(i => i.origin === "auto" && i.key).map(i => [i.key!, i]));
-    // Undoing an undo is not taking anything back: the list goes back as it was before the first undo.
-    const takenBack = previous.reason === "rollback" ? [] : [
+    const takenBack = redo ? [] : [
       ...[...held.values()].flatMap(i => !was.has(i.key!) ? [`add:${i.key}:${i.value}`] : was.get(i.key!)!.value !== i.value ? [`rewrite:${i.key}:${i.value}`] : []),
       ...[...was.values()].filter(i => !held.has(i.key!)).map(i => `remove:${i.key}:${i.value}`),
     ];

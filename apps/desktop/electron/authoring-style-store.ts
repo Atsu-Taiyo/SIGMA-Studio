@@ -14,7 +14,7 @@ import { itemText, memoLabels, SECTION_ORDER } from "./authoring-style-items";
 import { projectLayout, type LayoutProjection } from "./authoring-style-layout";
 import { AuthoringStyleMemory, atomicStyleWrite, renderMemo, type StyleItem, type StyleMemory, type StyleTrust } from "./authoring-style-memory";
 import { planReview, planSummary } from "./authoring-style-review";
-import { isSuspicious, scanLines } from "./authoring-style-scan";
+import { CONTROL, isSuspicious, scanLines } from "./authoring-style-scan";
 import { AuthoringStyleSync, declinedMark, itemMark, noteLineMark, type SyncAccount, type SyncedPart } from "./authoring-style-sync";
 import { buildSummaryPrompt, isSummaryText, parseSummaryReply, type SummaryInput } from "./authoring-style-summary";
 import type { AiEditProvider } from "./ai-edit-provider";
@@ -687,7 +687,8 @@ export class LocalAuthoringStyleStore {
   private promptText(text: string, limit = 2200): string {
     // A control character or half of a surrogate pair says nothing about how to write, and encodes to six characters.
     // Read as a space, what is left can at most double (quotes and backslashes), which the memo's limit allows for.
-    text = text.replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, " ").replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "\ufffd");
+    // (The scan before this read each line that way too, so no instruction is put together here.)
+    text = text.replace(CONTROL, " ");
     // Bound the encoded JSON too (escaping can expand it).
     while (JSON.stringify(text).length > limit) text = text.slice(0, Math.floor(text.length * 0.9));
     return text;
