@@ -101,6 +101,8 @@ export function parseSummaryReply(raw: string, input: Pick<SummaryInput, "sample
   // The same goes for a number that names none of the candidates: read leniently, a suggestion the AI did speak
   // for would look like one it passed over.
   if (!data.confirm.every(value => Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= input.candidates.length)) return null;
+  // And for an addition that is not a section and a sentence. (A sentence that is one, but fails the checks below, is only left out.)
+  if (!data.add.every(entry => Boolean(entry) && typeof entry === "object" && typeof (entry as { section?: unknown }).section === "string" && typeof (entry as { text?: unknown }).text === "string")) return null;
   const source = input.sample.join("\n");
   const quotes = (text: string) => {
     for (let index = 0; index + QUOTATION_LENGTH <= text.length; index++) if (source.includes(text.slice(index, index + QUOTATION_LENGTH))) return true;

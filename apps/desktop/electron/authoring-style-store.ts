@@ -486,8 +486,10 @@ export class LocalAuthoringStyleStore {
       const now = this.now();
       const memory = await this.memory.load(workspaceId, getAppLocale(), now);
       // The list of shared documents was read once more just above: failing there counts like failing earlier in this review.
-      const planned = planSummary(memory, reply, summary.candidates, { now, locale: memory.locale, sources, autoApply: await this.autoApply(workspaceId), complete: summary.complete && !this.sharedListFailed });
-      memory.summary = { hash: summary.hash, at: now.toISOString() };
+      const complete = summary.complete && !this.sharedListFailed;
+      const planned = planSummary(memory, reply, summary.candidates, { now, locale: memory.locale, sources, autoApply: await this.autoApply(workspaceId), complete });
+      // What was asked on the strength of an incomplete reading is asked again once everything can be read.
+      if (complete) memory.summary = { hash: summary.hash, at: now.toISOString() };
       await this.memory.commit(workspaceId, memory, planned.entries);
     });
     this.sync.soon();

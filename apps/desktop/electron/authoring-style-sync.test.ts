@@ -356,6 +356,26 @@ describe("account sync of the learned writing style", () => {
     expect(await b.memo()).toBe("");
   });
 
+  it("keeps a habit that was put back, taken out again by undo, and put back once more, through a sync", async () => {
+    const document = written(...PLAIN);
+    const a = await device("ws-a", { documents: { f1: document } });
+    await a.store.reviewNow("ws-a");
+    await a.store.setSync(null, true);
+    const b = await device("ws-b");
+    await b.store.setSync(null, true);
+    document.content = written("別の話題のメモ").content;
+    now = new Date("2027-01-10T00:00:00Z");
+    const removed = await a.store.reviewNow("ws-a");
+    await a.store.revertAutoChange({ workspaceId: "ws-a", id: removed.autoChanges[0].id });
+    const undone = await a.store.undo("ws-a");
+    expect(undone.generatedContent).toBe("");
+    await a.store.revertAutoChange({ workspaceId: "ws-a", id: undone.autoChanges[0].id });
+    expect(await a.memo()).toContain(PLAIN_MEMO);
+    for (const device of [a, b, a]) await device.store.syncNow(null);
+    expect(await a.memo()).toContain(PLAIN_MEMO);
+    expect(await b.memo()).toContain(PLAIN_MEMO);
+  });
+
   it("does not let a change the review made before a reset be put back after it", async () => {
     const document = written(...PLAIN);
     const a = await device("ws-a", { documents: { f1: document } });

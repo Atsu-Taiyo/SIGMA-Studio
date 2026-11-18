@@ -550,6 +550,13 @@ describe("automatic authoring style", () => {
       expect(profile.generatedContent).toContain(TONE.plain);
       now += 200 * DAY;
       expect((await store.reviewNow("ws1")).generatedContent).toContain(TONE.plain);
+      // Putting back, undoing that, and putting back again leaves no record that the habit is unwanted.
+      const decisions = async () => JSON.parse(await fs.readFile(path.join(styleDir(), "memory.json"), "utf8")).dismissed as string[];
+      expect((await store.undo("ws1")).items).toEqual([]);
+      expect(await decisions()).toContain("add:tone.explanation:plain");
+      profile = await store.revertAutoChange({ workspaceId: "ws1", id: (await store.getProfile("ws1")).autoChanges[0].id });
+      expect(profile.generatedContent).toContain(TONE.plain);
+      expect(await decisions()).toEqual(["remove:tone.explanation:plain"]);
     });
 
     it("does not bring back, by way of an older change, a habit its author has since deleted by hand", async () => {
@@ -979,7 +986,7 @@ describe("automatic authoring style", () => {
       await store.reviewNow("ws1");
       now += 80 * 24 * HOUR;
       const answers = ['{"error":"cannot review"}', '{"add":"none"}', '{"confirm":[]}', "すみません、対応できません。", '{"add":[],"confirm":[{"number":1}]}', '{"add":[],"confirm":["1"]}',
-        '{"add":[],"confirm":[0]}', '{"add":[],"confirm":[999]}', '{"add":[],"confirm":[1.5]}'];
+        '{"add":[],"confirm":[0]}', '{"add":[],"confirm":[999]}', '{"add":[],"confirm":[1.5]}', '{"add":[{"section":"style","text":123}],"confirm":[]}', '{"add":[null],"confirm":[]}'];
       for (const [index, answer] of answers.entries()) {
         lib.put("f1", written(...essay(`本人${index + 2}`)));
         summarize.mockImplementation(async () => answer);
@@ -1475,6 +1482,13 @@ describe("automatic authoring style", () => {
         expect(profile.generatedContent).toContain(HABIT);
         expect(profile.autoChanges).toEqual([]);
       } finally { clock.mockRestore(); }
+      // Connected again: the same question is asked once more, and this time its answer counts.
+      failing = false;
+      summarize.mockImplementation(async () => answer);
+      const profile = await store.reviewNow("shared-ws");
+      expect(summarize).toHaveBeenCalledTimes(3);
+      expect(profile.generatedContent).not.toContain(HABIT);
+      expect(profile.autoChanges).toMatchObject([{ kind: "remove", reason: "stale", before: HABIT }]);
     });
 
     it("reviews once more when the last document of the workspace is gone", async () => {

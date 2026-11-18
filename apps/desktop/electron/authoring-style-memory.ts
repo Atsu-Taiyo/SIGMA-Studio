@@ -161,6 +161,15 @@ export function renderMemo(memory: Pick<StyleMemory, "items">, locale: AppLocale
   return `${lines.join("\n")}\n`;
 }
 
+/**
+ * A habit that stands in the memo by its user's own doing (put back, or brought back by undo) is not at the same
+ * time on record as one they do not want: left there, the record would take it out again at the next sync.
+ */
+function settleDecisions(memory: StyleMemory): void {
+  const held = new Set(memory.items.filter(i => i.origin === "auto" && i.key).flatMap(i => [`add:${i.key}:${i.value}`, `rewrite:${i.key}:${i.value}`]));
+  memory.dismissed = memory.dismissed.filter(entry => !held.has(entry));
+}
+
 export function snapshotForUndo(memory: StyleMemory, reason: string, at: string): void {
   memory.undo.push(structuredClone({ at, reason, items: memory.items, suppressed: memory.suppressed, pending: memory.pending, dismissed: memory.dismissed, declined: memory.declined, applied: memory.applied }));
   memory.undo = memory.undo.slice(-MAX_UNDO);
@@ -496,6 +505,7 @@ export class AuthoringStyleMemory {
     ];
     Object.assign(memory, { items: previous.items, suppressed: previous.suppressed, pending: previous.pending,
       dismissed: [...previous.dismissed.filter(entry => !takenBack.includes(entry)), ...takenBack].slice(-MAX_DISMISSED) });
+    settleDecisions(memory);
     // Which changes can be put back one by one goes back with the memo they belong to.
     if (previous.applied) memory.applied = previous.applied;
     memory.undo.push(current);
@@ -529,6 +539,7 @@ export class AuthoringStyleMemory {
     memory.items = next;
     memory.applied = memory.applied.filter(c => c !== change);
     memory.dismissed = [...memory.dismissed, `${change.kind}:${change.key}:${change.value}`].slice(-MAX_DISMISSED);
+    settleDecisions(memory);
     await this.commit(workspaceId, memory, [{ actor: "user", action: `revert-${change.kind}`, key: change.before.key!, before: current?.text ?? "", after: restored.text }]);
     return memory;
   }
