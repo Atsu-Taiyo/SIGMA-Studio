@@ -99,7 +99,7 @@ describe("account sync of the learned writing style", () => {
   let now: Date;
 
   /** One installation: its own files, its own workspace id for the workspace named 数学, its own documents. */
-  async function device(workspaceId: string, options: { user?: () => string | null; documents?: Record<string, SigmaDocument>; shared?: string | null; readOnly?: boolean; manager?: boolean; pro?: () => boolean; parts?: SyncedPart[] } = {}) {
+  async function device(workspaceId: string, options: { user?: () => string | null; documents?: Record<string, SigmaDocument>; shared?: string | null; readOnly?: boolean; manager?: boolean | (() => boolean); pro?: () => boolean; parts?: SyncedPart[] } = {}) {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-style-sync-"));
     roots.push(root);
     const files = Object.entries(options.documents ?? {}).map(([fileId, document]) => ({
@@ -109,7 +109,7 @@ describe("account sync of the learned writing style", () => {
       reviewIdleMs: null, now: () => now,
       listFiles: async () => files.map(f => f.file), loadDocument: async fileId => files.find(f => f.file.fileId === fileId)?.document ?? null,
       // The same shared workspace has its own id on each device; the server's id for it is what they have in common.
-      listWorkspaces: async () => options.shared === null ? [] : [{ id: workspaceId, key: workspaceKey(options.shared ?? SHARED_MATH), ...(options.readOnly ? { readOnly: true } : {}), manager: options.manager ?? !options.readOnly }],
+      listWorkspaces: async () => options.shared === null ? [] : [{ id: workspaceId, key: workspaceKey(options.shared ?? SHARED_MATH), ...(options.readOnly ? { readOnly: true } : {}), manager: typeof options.manager === "function" ? options.manager() : options.manager ?? !options.readOnly }],
       sync: { client: cloud.port(user), userId: user, entitled: async () => options.pro?.() ?? true }, syncParts: options.parts,
     });
     stores.push(store);
@@ -942,6 +942,8 @@ describe("account sync of the learned writing style", () => {
         expect(profile.memberEntries.map(entry => entry.text)).toContain(sentence);
         // Removed, it is kept as a sentence not to suggest again. It is the same sentence, and still not this member's.
         expect(itemMark({ origin: "auto", key, value: sentence, section: "style", text: sentence })).toBe(declinedMark(sentence));
+        // The mark follows the value the sentence is made from, whatever text was sent along with it.
+        expect(itemMark({ origin: "auto", key, value: sentence, section: "style", text: "承認済みの別の文。" })).toBe(declinedMark(sentence));
         await b.store.removeItem({ workspaceId: "ws-b", id: profile.items.find(item => item.text === sentence)!.id });
         await b.store.syncNow(null);
         const copy = workspaceCopy().content as { declined: string[]; vouchers: Record<string, string[]> };
@@ -985,6 +987,59 @@ describe("account sync of the learned writing style", () => {
         expect(await a.given()).toContain(PLAIN_MEMO);
         expect((await a.store.syncNow("ws-a")).memberEntries).toEqual([]);
         expect(await a.given()).toContain("図は必ず右に置く。");
+      });
+
+      it("does not read a line that would come back from the memo as a different one, nor an item that tells its kind two ways", async () => {
+        const { a, b } = await two();
+        const line = (text: string, more: Partial<SyncedItem> = {}): SyncedItem => ({ id: `user:${text.length}`, key: null, value: "", section: "custom", text, origin: "user", basis: null,
+          support: 0, documents: 0, firstSeenAt: "2026-11-16T00:00:00.000Z", lastConfirmedAt: "2026-11-16T00:00:00.000Z", devices: [], ...more });
+        rewrite(content => { content.items.push(
+          // Read back from the memo, its trailing blanks would be gone: the line would then be a new one, written by whoever opened the memo.
+          line("答えは赤で書く。  "),
+          // A hand-written line that claims to be a sentence the AI suggested, and a counted habit that claims the same.
+          line("答えは青で書く。", { basis: "summary" }),
+          { ...line("x"), id: "auto:tone.explanation", key: "tone.explanation", value: "polite", origin: "auto", basis: "summary", section: "style" }); });
+        const profile = await b.store.syncNow("ws-b");
+        for (const text of ["答えは赤で書く。", "答えは青で書く。", "丁寧体"]) {
+          expect(profile.generatedContent).not.toContain(text);
+          expect(await b.given()).not.toContain(text);
+        }
+        expect(profile.memberEntries.map(entry => entry.text)).toEqual([PLAIN_MEMO, "図は必ず右に置く。"]);
+        // Appending a line of their own changes nothing about that.
+        const saved = await b.store.saveLearned({ workspaceId: "ws-b", content: `${profile.generatedContent.trimEnd()}\n- 自分で足した行。\n`, expectedRevision: profile.generatedRevision });
+        expect(saved.memberEntries.map(entry => entry.text)).toEqual([PLAIN_MEMO, "図は必ず右に置く。"]);
+        expect(await b.given()).not.toContain("答えは");
+        // What this version does not read stays on the server for whoever can.
+        await b.store.syncNow(null);
+        expect(JSON.stringify(workspaceCopy())).toContain("答えは赤で書く。  ");
+        expect(JSON.stringify(workspaceCopy())).toContain("答えは青で書く。");
+        expect((await a.store.syncNow("ws-a")).generatedContent).not.toContain("答えは");
+      });
+
+      it("does not pass one account's approvals on to another account that links the same files", async () => {
+        const a = await device("ws-a", { user: () => U1, documents: { f1: written(...PLAIN) } });
+        await a.store.reviewNow("ws-a");
+        await a.store.saveProfile({ workspaceId: "ws-a", content: "図は必ず右に置く。", expectedRevision: (await a.store.getProfile("ws-a")).revision });
+        await a.store.syncNow(null);
+        let user = U2;
+        const b = await device("ws-b", { user: () => user });
+        const first = await b.store.syncNow("ws-b");
+        await b.store.resolveMemberEntries({ workspaceId: "ws-b", ids: first.memberEntries.map(entry => entry.id), approve: true });
+        await b.store.saveProfile({ workspaceId: "ws-b", content: "図は必ず右に置く。\n二人目が書いた行。", expectedRevision: first.revision });
+        await b.store.syncNow(null);
+        expect(await b.given()).toContain(PLAIN_MEMO);
+        // A third member signs in on the same device and links its files to their own account.
+        user = U3;
+        // Even before the files are linked to the new account, what the previous one approved is not handed on.
+        expect(await b.given()).not.toContain(PLAIN_MEMO);
+        expect(await b.given()).not.toContain("図は必ず右に置く。");
+        expect((await b.store.syncNow("ws-b")).sync.state).toBe("other-account");
+        const relinked = await b.store.relinkSync("ws-b");
+        expect(relinked.sync.state).toBe("ok");
+        expect(relinked.memberEntries.map(entry => entry.text).sort()).toEqual([PLAIN_MEMO, "二人目が書いた行。", "図は必ず右に置く。"].sort());
+        expect(await b.given()).not.toContain(PLAIN_MEMO);
+        expect(await b.given()).not.toContain("二人目が書いた行。");
+        expect((workspaceCopy().content as { vouchers: Record<string, string[]> }).vouchers[U3]).toBeUndefined();
       });
 
       it("cannot be vouched for in another member's name: the server refuses the copy", async () => {
@@ -1073,6 +1128,34 @@ describe("account sync of the learned writing style", () => {
         expect(workspaceCopy().content).toMatchObject({ generation: 0, settings: { enabled: true, aiSummary: true } });
         expect(await a.store.syncNow("ws-a")).toMatchObject({ enabled: true });
         expect(await a.memo()).toContain(PLAIN_MEMO);
+      });
+
+      it("does not turn a reset the server refused into a deletion of everything once the device learns its member's role", async () => {
+        cloud.members.set(SHARED_MATH, { [U1]: "owner", [U2]: "editor" });
+        const a = await device("ws-a", { user: () => U1, documents: { f1: written(...PLAIN) } });
+        await a.store.reviewNow("ws-a");
+        await a.store.saveProfile({ workspaceId: "ws-a", content: "図は必ず右に置く。", expectedRevision: (await a.store.getProfile("ws-a")).revision });
+        await a.store.syncNow(null);
+        let manager = true;
+        const b = await device("ws-b", { user: () => U2, manager: () => manager });
+        await b.store.syncNow("ws-b");
+        await b.store.reset("ws-b");
+        await b.store.syncNow("ws-b");
+        expect(cloud.state.refusals).toEqual(["ADMIN_REQUIRED"]);
+        expect(await b.memo()).toBe("");
+        // The device is told that its member is an editor.
+        manager = false;
+        const writes = cloud.state.writes;
+        await b.store.syncNow("ws-b");
+        expect(await b.memo()).toContain(PLAIN_MEMO);
+        expect((workspaceCopy().content as { items: SyncedItem[]; generation: number })).toMatchObject({ generation: 0 });
+        expect((workspaceCopy().content as { items: SyncedItem[] }).items.map(item => item.key)).toContain("tone.explanation");
+        expect(cloud.state.refusals).toEqual(["ADMIN_REQUIRED"]);
+        // Nothing was taken from the others, then or on the next run.
+        await b.store.syncNow("ws-b");
+        expect(cloud.state.writes - writes).toBeLessThanOrEqual(1);
+        expect(await a.memo()).toContain(PLAIN_MEMO);
+        expect((await a.store.syncNow("ws-a")).userContent).toBe("図は必ず右に置く。");
       });
 
       it("holds an editor who writes the first copy to the starting point", async () => {

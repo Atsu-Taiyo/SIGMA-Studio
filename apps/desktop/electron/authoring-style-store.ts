@@ -643,7 +643,13 @@ export class LocalAuthoringStyleStore {
   /** Caller holds the lock. As recorded, or, where nothing was ever recorded, with all of the members' copy waiting. */
   private async trust(workspaceId: string): Promise<StyleTrust> {
     const trust = await this.memory.readTrust(workspaceId);
-    return trust.known ? trust : { ...trust, foreign: [...await this.sync.agreedMarks(workspaceId) ?? []] };
+    const account = this.sync.accountHash();
+    // Kept for another account that used this device: what that account stood behind is not the word of the one signed in now.
+    if (trust.known && trust.account !== null && account !== null && trust.account !== account) {
+      const foreign = [...new Set([...trust.foreign, ...await this.sync.agreedMarks(workspaceId) ?? []])];
+      return { known: true, account, vouched: [], foreign, declined: trust.declined.filter(mark => foreign.includes(mark)) };
+    }
+    return trust.known ? trust : { ...trust, account, foreign: [...await this.sync.agreedMarks(workspaceId) ?? []] };
   }
 
   private selectExamples(examples: readonly StyleExample[], fileId: string): StyleExample[] {
@@ -883,8 +889,8 @@ export class LocalAuthoringStyleStore {
         ...(await this.memory.readNote(input.workspaceId)).content.split("\n").flatMap(line => { const id = noteLineMark(line); return id ? [[id, line.trim()] as const] : []; }),
       ]);
       await this.memory.writeTrust(input.workspaceId, input.approve
-        ? { known: true, vouched: [...new Set([...trust.vouched, ...ids])].sort(), foreign: trust.foreign.filter(id => !ids.has(id)), declined: trust.declined.filter(id => !ids.has(id)) }
-        : { ...trust, known: true, declined: [...new Set([...trust.declined, ...ids])].sort() });
+        ? { known: true, account: trust.account ?? this.sync.accountHash(), vouched: [...new Set([...trust.vouched, ...ids])].sort(), foreign: trust.foreign.filter(id => !ids.has(id)), declined: trust.declined.filter(id => !ids.has(id)) }
+        : { ...trust, known: true, account: trust.account ?? this.sync.accountHash(), declined: [...new Set([...trust.declined, ...ids])].sort() });
       await this.memory.record(input.workspaceId, [...ids].map(id => ({ actor: "approval" as const, action: input.approve ? "member-approve" : "member-decline", after: texts.get(id) ?? "" })));
     });
   }

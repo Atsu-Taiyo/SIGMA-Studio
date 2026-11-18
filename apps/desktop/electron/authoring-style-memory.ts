@@ -98,7 +98,12 @@ export interface StyleTrust {
   vouched: string[]; foreign: string[]; declined: string[];
   /** False while nothing was ever recorded: these files were last written by a version that kept no such record. */
   known: boolean;
+  /** Hash of the account whose word `vouched` is. Another account that signs in on this device decides for itself. */
+  account: string | null;
 }
+
+/** A sentence the AI suggested. Only such an item is remembered, once removed, as one not to suggest again. */
+const isSuggestion = (item: Pick<StyleItem, "origin" | "key" | "basis">) => item.origin === "auto" && item.basis === "summary" && Boolean(item.key?.startsWith("summary."));
 const MAX_TRUST_MARKS = 4000;
 
 const MAX_UNDO = 5;
@@ -164,7 +169,7 @@ function reconcile(memory: StyleMemory, content: string, now: string): LedgerDra
   }
   for (const item of unclaimed) {
     if (item.key && !memory.suppressed.includes(item.key)) memory.suppressed.push(item.key);
-    if (item.basis === "summary") memory.declined = [...memory.declined, item.text].slice(-MAX_DECLINED);
+    if (isSuggestion(item)) memory.declined = [...memory.declined, item.text].slice(-MAX_DECLINED);
     entries.push({ actor: "user", action: "user-remove", ...(item.key ? { key: item.key } : {}), before: item.text });
   }
   if (!entries.length) return entries;
@@ -230,11 +235,12 @@ export class AuthoringStyleMemory {
     const data: unknown = JSON.parse(await boundedRead(path.join(this.dir(workspaceId), TRUST_FILE), 400_000) || "null");
     const list = (value: unknown) => Array.isArray(value) ? value.filter((mark): mark is string => typeof mark === "string" && /^[0-9a-f]{20}$/.test(mark)).slice(0, MAX_TRUST_MARKS) : [];
     const record = data && typeof data === "object" ? data as Record<string, unknown> : {};
-    return { vouched: list(record.vouched), foreign: list(record.foreign), declined: list(record.declined), known: data !== null };
+    return { vouched: list(record.vouched), foreign: list(record.foreign), declined: list(record.declined), known: data !== null,
+      account: typeof record.account === "string" && record.account.length <= 64 ? record.account : null };
   }
 
   async writeTrust(workspaceId: string, trust: StyleTrust): Promise<void> {
-    await atomicStyleWrite(path.join(this.dir(workspaceId), TRUST_FILE), JSON.stringify({ version: 1, vouched: trust.vouched, foreign: trust.foreign, declined: trust.declined }));
+    await atomicStyleWrite(path.join(this.dir(workspaceId), TRUST_FILE), JSON.stringify({ version: 1, account: trust.account, vouched: trust.vouched, foreign: trust.foreign, declined: trust.declined }));
   }
 
   /** A line for the ledger about something that did not change the memo. */
@@ -397,7 +403,7 @@ export class AuthoringStyleMemory {
       memory.items = memory.items.filter(i => i !== item);
       // Removed with its author's agreement: like a line deleted by hand, it is not learned again.
       if (!memory.suppressed.includes(change.key)) memory.suppressed.push(change.key);
-      if (item!.basis === "summary") memory.declined = [...memory.declined, item!.text].slice(-MAX_DECLINED);
+      if (isSuggestion(item!)) memory.declined = [...memory.declined, item!.text].slice(-MAX_DECLINED);
     }
     else if (change.kind === "rewrite") Object.assign(item!, evidence, { value: change.value, text });
     else memory.items.push({ id: `auto:${change.key}`, key: change.key, value: change.value, section: sectionOf(change.key), text: text!, origin: "auto", ...evidence, firstSeenAt: at });
@@ -413,7 +419,7 @@ export class AuthoringStyleMemory {
     snapshotForUndo(memory, "user-remove", now.toISOString());
     memory.items = memory.items.filter(i => i !== item);
     if (item.key && !memory.suppressed.includes(item.key)) memory.suppressed.push(item.key);
-    if (item.basis === "summary") memory.declined = [...memory.declined.filter(text => text !== item.text), item.text].slice(-MAX_DECLINED);
+    if (isSuggestion(item)) memory.declined = [...memory.declined.filter(text => text !== item.text), item.text].slice(-MAX_DECLINED);
     memory.pending = memory.pending.filter(p => p.key !== item.key);
     await this.commit(workspaceId, memory, [{ actor: "user", action: "user-remove", ...(item.key ? { key: item.key } : {}), before: item.text }]);
     return memory;
@@ -426,7 +432,7 @@ export class AuthoringStyleMemory {
     if (!previous) throw new Error("Nothing to undo");
     const current = structuredClone({ at: now.toISOString(), reason: "rollback", items: memory.items, suppressed: memory.suppressed, pending: memory.pending, dismissed: memory.dismissed, declined: memory.declined });
     // Taking back what the AI added tells it not to suggest the sentence again; redoing lifts that.
-    const texts = (items: readonly StyleItem[]) => items.filter(i => i.origin === "auto" && i.basis === "summary").map(i => i.text);
+    const texts = (items: readonly StyleItem[]) => items.filter(isSuggestion).map(i => i.text);
     const restored = new Set(texts(previous.items));
     const withdrawn = texts(memory.items).filter(text => !restored.has(text));
     memory.declined = [...(previous.declined ?? memory.declined).filter(text => !restored.has(text) && !withdrawn.includes(text)), ...withdrawn].slice(-MAX_DECLINED);

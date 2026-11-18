@@ -105,8 +105,12 @@ export function parseBundle(value: unknown, kind: "workspace" | "global"): Works
     updatedAt: text(value.updatedAt, 40) ? value.updatedAt : "", device: text(value.device, 64) ? value.device : "" };
   if (kind === "global") return { ...common, kind, provider: PROVIDERS.includes(value.provider as string) ? value.provider as string : null };
   if (!Array.isArray(value.items)) return null;
+  // What kind of habit an item is must be told one way only: a line someone wrote has no key and no basis, a
+  // sentence the AI suggested has both the key and the basis of one. Anything else is not read (and so not used).
+  const told = (item: Record<string, unknown>) => item.origin === "user" ? item.key === null && (item.basis === null || item.basis === undefined)
+    : item.origin === "auto" && text(item.key, 200) && item.key.startsWith("summary.") === (item.basis === "summary");
   const known = (item: unknown): item is SyncedItem => isRecord(item) && text(item.id, 200) && (item.key === null || text(item.key, 200))
-    && text(item.value, 200) && text(item.text, AUTHORING_STYLE_NOTE_LIMIT) && (item.origin === "auto" || item.origin === "user")
+    && text(item.value, 200) && text(item.text, AUTHORING_STYLE_NOTE_LIMIT) && told(item)
     && SECTION_ORDER.includes(item.section as AuthoringStyleSection) && text(item.firstSeenAt, 40) && text(item.lastConfirmedAt, 40);
   const extra = Array.isArray(value.opaque) ? value.opaque : [];
   const opaque = [...value.items.filter(item => !known(item)), ...extra];
@@ -139,7 +143,9 @@ const mark = (kind: "item" | "note" | "sentence", content: string) => hash(`${ki
  * one not to suggest again, and is then still the same member's sentence, approved or not.
  */
 export const itemMark = (item: Pick<SyncedItem, "origin" | "key" | "value" | "section" | "text">) =>
-  item.origin === "auto" && item.key?.startsWith("summary.") ? mark("sentence", item.text) : mark("item", statement(item));
+  // By the value, as every automatic habit: that is what the sentence shown and handed on is made from. The text
+  // that came along with it is not used, so it must not be what the approval is tied to either.
+  item.origin === "auto" && item.key?.startsWith("summary.") ? mark("sentence", item.value) : mark("item", statement(item));
 /** A note is vouched for line by line. Null for an empty line: there is nothing to vouch for. */
 export const noteLineMark = (line: string) => line.trim() ? mark("note", line.trim()) : null;
 /** A sentence the AI suggested and someone turned down. It is named to the AI again (so as not to be suggested twice), so it has a mark too. */
@@ -511,6 +517,12 @@ export class AuthoringStyleSync {
     return agreed?.kind === "workspace" ? marksOf(agreed.items, agreed.note, agreed.declined) : null;
   }
 
+  /** Hash of the signed-in account, as the record of what an account stands behind names it. */
+  accountHash(): string | null {
+    const userId = this.account?.userId() ?? null;
+    return userId ? hash(userId) : null;
+  }
+
   /** Caller holds the style lock. Shared workspaces whose style this member may not reset: it is all members'. */
   async unmanaged(): Promise<string[]> {
     const state = await this.state();
@@ -531,6 +543,17 @@ export class AuthoringStyleSync {
     const userId = this.account?.userId() ?? null;
     if (!userId) throw new Error("Sign in to sync");
     this.cancel();
+    // What the previous account stood behind in a shared workspace is not this account's word: everything of the
+    // members' copy these files agreed on waits for this account's own approval (what this device finds in the
+    // documents itself still needs none). What was only ever on this device stays its own.
+    for (const [workspaceId, key] of Object.entries(state.keys)) {
+      const agreed = state.scopes[key]?.base as WorkspaceBundle | null | undefined;
+      if (agreed?.kind !== "workspace") continue;
+      const trust = await this.host.memory.readTrust(workspaceId);
+      if (trust.known && trust.account === hash(userId)) continue;
+      const foreign = [...new Set([...trust.foreign, ...marksOf(agreed.items, agreed.note, agreed.declined)])].slice(-MAX_FOREIGN);
+      await this.host.memory.writeTrust(workspaceId, { known: true, account: hash(userId), vouched: [], foreign, declined: trust.declined.filter(m => foreign.includes(m)) });
+    }
     // What was agreed with the previous account, and how often it was reset, says nothing about this one.
     await this.write({ ...state, account: hash(userId), scopes: {}, resets: {}, problem: null });
   }
@@ -681,7 +704,8 @@ export class AuthoringStyleSync {
    */
   private usable(item: SyncedItem, locale: AppLocale): boolean {
     if (item.origin === "auto") return Boolean(item.key) && itemText(item.key!, item.value, locale) !== null;
-    return item.text.length <= MAX_USER_LINE && !LINE_BREAK.test(item.text) && !isSuspicious(item.text);
+    // As it would be read back from the memo: a line that reads differently there would come back as a new line of this member's own.
+    return item.text.length <= MAX_USER_LINE && !LINE_BREAK.test(item.text) && !isSuspicious(item.text) && Boolean(item.text.trim()) && item.text === item.text.trimEnd();
   }
 
   private async snapshot(workspaceId: string, state: SyncState, key: string): Promise<WorkspaceBundle & { own: Set<string>; derived: Set<string> }> {
@@ -884,13 +908,17 @@ export class AuthoringStyleSync {
         const remoteCopy = theirs as WorkspaceBundle | null;
         // Resetting the style for everyone is an owner's or admin's to do (the server refuses it from anyone else):
         // from another member such a reset stays a change to this device's copy, and what the others do keeps arriving.
+        // A reset that was not this member's to make (made while the device still took them for an admin, and
+        // refused by the server) emptied these files only. It is not a deletion of everything either: these files
+        // take the members' copy back as if they met it for the first time.
+        const overruled = !manager && Boolean(remoteCopy) && mine.generation > remoteCopy!.generation;
         if (!manager) mine.generation = remoteCopy ? Math.min(mine.generation, remoteCopy.generation) : 0;
         // So are the switches that hold for everyone. Another member's own switch says what this device does, not what is sent.
         const local = { ...mine, settings: manager ? held(mine.settings) : remoteCopy ? remoteCopy.settings : { enabled: true, aiSummary: true } };
         // The copy belongs to all members. A reset stands against it only on a device that has seen it: one made
         // before these files ever met the workspace's copy erased what was here, not what the others share.
-        const mode: MergeMode = !linking ? "merge" : state.resets[workspaceId] && base && manager ? "reset" : "link";
-        const result = mergeWorkspace(base as WorkspaceBundle | null, local, theirs as WorkspaceBundle | null, mode);
+        const mode: MergeMode = overruled ? "link" : !linking ? "merge" : state.resets[workspaceId] && base && manager ? "reset" : "link";
+        const result = mergeWorkspace(overruled ? null : base as WorkspaceBundle | null, local, theirs as WorkspaceBundle | null, mode);
         // The first to write a copy names it.
         if (!theirs) result.copy = randomUUID();
         // Whose word each habit and note line has. This member's: what these files held themselves and was not
@@ -899,17 +927,19 @@ export class AuthoringStyleSync {
         const me = run.userId.toLowerCase();
         const trust = await this.host.memory.readTrust(workspaceId);
         const present = marksOf(result.items, result.note, result.declined);
-        const approved = new Set([...trust.vouched, ...(remoteCopy?.vouchers[me] ?? [])]);
-        // Files that held the members' copy before any such record was kept: whose word each part of it has is
-        // not known, so all of it waits, except what the account vouched for or this device finds itself.
-        const waiting = new Set(trust.known ? trust.foreign : before?.kind === "workspace" ? marksOf(before.items, before.note, before.declined) : []);
+        // A record kept for another account says what that account stood behind, not this one.
+        const theirRecord = trust.known && trust.account !== null && trust.account !== hash(run.userId);
+        const approved = new Set([...(theirRecord ? [] : trust.vouched), ...(remoteCopy?.vouchers[me] ?? [])]);
+        // Files that held the members' copy before any such record was kept (or kept it for another account): whose
+        // word each part of it has is not known, so all of it waits, except what the account vouched for or this device finds itself.
+        const waiting = new Set([...(trust.known ? trust.foreign : []), ...(!trust.known || theirRecord ? (before?.kind === "workspace" ? marksOf(before.items, before.note, before.declined) : []) : [])]);
         const vouched = [...present].filter(m => approved.has(m) || derived.has(m) || (own.has(m) && !waiting.has(m))).sort();
         const mineNow = new Set(vouched);
         // What waits keeps waiting when it is gone: stepping back to before it was deleted brings it back as
         // somebody else's, not as this member's. Only when the list is full does what is gone make room.
         const kept = [...new Set([...waiting, ...[...present].filter(m => !mineNow.has(m))])].filter(m => !mineNow.has(m));
         const foreign = kept.length <= MAX_FOREIGN ? kept : [...kept.filter(m => !present.has(m)).slice(-Math.max(0, MAX_FOREIGN - present.size)), ...kept.filter(m => present.has(m))];
-        const nextTrust: StyleTrust = { known: true, vouched, foreign, declined: trust.declined.filter(m => foreign.includes(m)) };
+        const nextTrust: StyleTrust = { known: true, account: hash(run.userId), vouched, foreign, declined: trust.declined.filter(m => foreign.includes(m)) };
         result.vouchers = Object.fromEntries([
           // The others' lists as they stand, less what is gone. Nothing is ever added to them here.
           ...Object.entries(remoteCopy?.vouchers ?? {}).filter(([account]) => account !== me).map(([account, list]) => [account, list.filter(m => present.has(m))] as const).filter(([, list]) => list.length),
@@ -922,7 +952,7 @@ export class AuthoringStyleSync {
           || (mode === "link" && Boolean(base && theirs) && (theirs as WorkspaceBundle).generation > (base as WorkspaceBundle).generation);
         // What waits for approval is on record before what it is about is in these files: should the run stop in
         // between, nothing another member wrote is there without its mark.
-        const sameTrust = trust.known && JSON.stringify([nextTrust.vouched, nextTrust.foreign, nextTrust.declined]) === JSON.stringify([trust.vouched, trust.foreign, trust.declined]);
+        const sameTrust = trust.known && JSON.stringify([nextTrust.account, nextTrust.vouched, nextTrust.foreign, nextTrust.declined]) === JSON.stringify([trust.account, trust.vouched, trust.foreign, trust.declined]);
         if (comparable(result) !== comparable(local)) {
           const plan = await this.plan(workspaceId, result, state.device);
           if (!sameTrust) await this.host.memory.writeTrust(workspaceId, nextTrust);
