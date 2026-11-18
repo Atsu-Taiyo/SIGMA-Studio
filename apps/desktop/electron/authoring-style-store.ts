@@ -503,7 +503,12 @@ export class LocalAuthoringStyleStore {
       const now = this.now();
       const memory = await this.memory.load(workspaceId, getAppLocale(), now);
       // The list of shared documents was read once more just above: failing there counts like failing earlier in this review.
-      const complete = summary.complete && !(this.sharedListFailed && summary.wasShared);
+      // So does a document that was saved again, moved or deleted while the AI was answering: its answer is about what was there before.
+      const unchanged = loaded.every(({ file }) => {
+        const current = files?.get(file.fileId);
+        return !files || (current?.workspaceId === workspaceId && current.revision === file.revision && current.updatedAt === file.updatedAt);
+      });
+      const complete = summary.complete && unchanged && !(this.sharedListFailed && summary.wasShared);
       const planned = planSummary(memory, reply, summary.candidates, { now, locale: memory.locale, sources, autoApply: await this.autoApply(workspaceId), complete });
       // What was asked on the strength of an incomplete reading is asked again once everything can be read.
       if (complete) memory.summary = { hash: summary.hash, at: now.toISOString() };

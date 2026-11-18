@@ -67,7 +67,8 @@ function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "l
   };
   /** Add a habit the memo does not have yet, or stage it when the memo is full. */
   const add = (key: string, value: string, text: string, evidence: Evidence, action: "add" | "add-summary" = "add") => {
-    if (memory.dismissed.includes(`add:${key}:${value}`)) return;
+    // Neither what the user declined or took back as an addition, nor a wording they put a habit back from.
+    if (memory.dismissed.includes(`add:${key}:${value}`) || memory.dismissed.includes(`rewrite:${key}:${value}`)) return;
     const candidate: StyleItem = { id: `auto:${key}`, key, value, section: sectionOf(key), text, origin: "auto", ...evidence, firstSeenAt: now, lastConfirmedAt: now };
     if (renderMemo({ ...memory, items: [...memory.items, candidate] }, context.locale).length > AUTHORING_STYLE_LEARNED_LIMIT) {
       // Never make room by dropping something silently: the user decides what goes.

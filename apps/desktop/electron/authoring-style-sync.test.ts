@@ -426,6 +426,30 @@ describe("account sync of the learned writing style", () => {
     });
   }
 
+  it("does not take in from another device the wording a habit was put back from, once that habit itself is gone", async () => {
+    const POLITE = ["この関数は単調に増加します。", "最大値は3になります。", "解は存在しません。"];
+    const document = written(...PLAIN);
+    const a = await device("ws-a", { documents: { f1: document } });
+    await a.store.reviewNow("ws-a");
+    document.content = written(...POLITE).content;
+    const rewritten = await a.store.reviewNow("ws-a");
+    await a.store.revertAutoChange({ workspaceId: "ws-a", id: rewritten.autoChanges[0].id });
+    // Later the habit is no longer seen at all and is dropped.
+    document.content = written("別の話題のメモ").content;
+    now = new Date("2027-01-10T00:00:00Z");
+    expect(await a.memo()).toContain(PLAIN_MEMO);
+    expect((await a.store.reviewNow("ws-a")).generatedContent).toBe("");
+    // Another device, which learned the polite wording by itself, meets this one for the first time.
+    const b = await device("ws-b", { documents: { f1: written(...POLITE) } });
+    await b.store.reviewNow("ws-b");
+    expect(await b.memo()).toContain("丁寧体");
+    await b.store.setSync(null, true);
+    await a.store.setSync(null, true);
+    expect(await a.memo()).not.toContain("丁寧体");
+    await b.store.syncNow(null);
+    expect(await b.memo()).not.toContain("丁寧体");
+  });
+
   it("does not bring back, when two devices first meet, a habit whose adding was undone on one of them", async () => {
     const a = await device("ws-a", { documents: { f1: written(...PLAIN) } });
     await a.store.reviewNow("ws-a");

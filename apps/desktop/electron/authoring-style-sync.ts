@@ -298,7 +298,8 @@ function mergeLearned(base: Learned | undefined, local: Learned, remote: Learned
     generation: remote.generation, suppressed, declined, dismissed,
     // A removal its author made always wins: no device learns again, or keeps, what was taken out on purpose.
     // With or without a history in common: what one side holds and the other took out on purpose does not stay.
-    items: mergeItems(was?.items, local.items, remote.items, rules).filter(item => item.origin !== "auto" || !unwanted(item)),
+    // Nor does a wording somebody put a habit back from, where no other wording of that habit is left to prefer.
+    items: mergeItems(was?.items, local.items, remote.items, rules).filter(item => item.origin !== "auto" || (!unwanted(item) && !rules.refused!(item))),
     // With no history in common (a copy that replaced a lost one), what this device carried for others is kept next to theirs.
     opaque: was ? remote.opaque : [...new Map([...remote.opaque, ...local.opaque].map(entry => [JSON.stringify(entry), entry])).values()].slice(0, MAX_OPAQUE_ITEMS),
   };

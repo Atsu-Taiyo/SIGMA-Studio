@@ -715,11 +715,11 @@ describe("automatic authoring style", () => {
     const text = (value: string) => [{ type: "text" as const, text: value }];
     const heading = (id: string, value: string): SigmaBlock => ({ id, type: "heading", level: 1, children: text(value) });
     const box = (id: string, styleId: string, title: string, body: string): SigmaBlock => ({ id, type: "boxBlock", styleId, title: text(title), blocks: [paragraph(`${id}p`, body)] });
-    const question = (id: string, frame = "doublebox"): SigmaBlock => ({ id, type: "problem", tags: [], lead: [], hints: [], frame: { enabled: true, styleId: frame },
+    const question = (id: string, frame: string | null = "doublebox"): SigmaBlock => ({ id, type: "problem", tags: [], lead: [], hints: [], ...(frame ? { frame: { enabled: true, styleId: frame } } : {}),
       prompt: [paragraph(`${id}p`, "次の問いに答えよ。"), { id: `${id}l`, type: "list", listType: "ordered", markerStyle: "paren",
         items: [{ type: "listItem", id: `${id}l1`, children: text("最小値を求めよ。") }, { type: "listItem", id: `${id}l2`, children: text("最大値を求めよ。") }] }],
       solution: [paragraph(`${id}s`, "平方完成して求める。")] });
-    const worksheet = (name: string, chapter: number, frame?: string) => blocks([heading(`${name}h`, `第${chapter}章 演習`), box(`${name}b`, "theorembox", "公式", "解の公式を確かめる。"),
+    const worksheet = (name: string, chapter: number, frame?: string | null) => blocks([heading(`${name}h`, `第${chapter}章 演習`), box(`${name}b`, "theorembox", "公式", "解の公式を確かめる。"),
       question(`${name}q1`, frame), question(`${name}q2`, frame)]);
     const STRUCTURE = [
       "## 構成・レイアウト",
@@ -784,6 +784,30 @@ describe("automatic authoring style", () => {
       profile = await untouched.reviewNow("ws2");
       expect(profile.reviewedDocuments).toBe(3);
       expect(profile.generatedContent).toBe("");
+    });
+
+    it("does not learn again, as something new, the wording a habit was put back from", async () => {
+      const lib = library();
+      const use = (frame?: string | null) => { for (const [index, name] of ["a", "b", "c"].entries()) lib.put(`f${index + 1}`, worksheet(name, index + 1, frame)); };
+      use();
+      store = make(lib.options);
+      await store.reviewNow("ws1");
+      use("cornerbox");
+      let profile = await store.reviewNow("ws1");
+      profile = await store.revertAutoChange({ workspaceId: "ws1", id: profile.autoChanges[0].id });
+      expect(profile.generatedContent).toContain("枠の種類は `doublebox`");
+      // The problems lose their frames, and the habit goes.
+      use(null);
+      profile = await store.reviewNow("ws1");
+      expect(profile.generatedContent).not.toContain("枠の種類は");
+      // The frame the user said no to comes back in the documents. It is not learned as if it had never been turned down.
+      use("cornerbox");
+      profile = await store.reviewNow("ws1");
+      expect(profile.generatedContent).not.toContain("cornerbox");
+      expect(profile.pending).toEqual([]);
+      // The one they put back to is learned again like any other.
+      use();
+      expect((await store.reviewNow("ws1")).generatedContent).toContain("枠の種類は `doublebox`");
     });
 
     it("reads a shared workspace's layout from every member's documents, and syncs only what was learned", async () => {
@@ -982,6 +1006,29 @@ describe("automatic authoring style", () => {
       profile = await store.revertAutoChange({ workspaceId: "ws1", id: profile.autoChanges[0].id });
       expect(aiAdded(profile)).toEqual([HABIT.text]);
       expect(await turnedDown()).toEqual([]);
+    });
+
+    it("does not take a suggestion for stale on an answer about a document that was saved again while the AI was answering", async () => {
+      const lib = library();
+      lib.put("f1", written(...essay("本人")));
+      let now = NOW;
+      const summarize = vi.fn(async () => reply([HABIT]));
+      store = make({ ...lib.options, summarize, now: () => new Date(now) });
+      store.noteProvider("claude");
+      await store.reviewNow("ws1");
+      now += 80 * 24 * HOUR;
+      lib.put("f1", written(...essay("本人2")));
+      // While the AI answers about the second version, the author saves a third.
+      summarize.mockImplementationOnce(async () => { lib.put("f1", written(...essay("本人3")), { revision: 2 }); return reply([]); });
+      let profile = await store.reviewNow("ws1");
+      expect(summarize).toHaveBeenCalledTimes(2);
+      expect(aiAdded(profile)).toEqual([HABIT.text]);
+      expect(profile.autoChanges).toEqual([]);
+      // Asked about what is there now, and not confirmed: then it goes.
+      summarize.mockImplementation(async () => reply([]));
+      profile = await store.reviewNow("ws1");
+      expect(summarize).toHaveBeenCalledTimes(3);
+      expect(aiAdded(profile)).toEqual([]);
     });
 
     it("does not take an answer of some other form for the AI having nothing to confirm", async () => {
