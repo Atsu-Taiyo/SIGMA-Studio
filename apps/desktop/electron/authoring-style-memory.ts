@@ -69,14 +69,19 @@ export interface AppliedChange {
   id: string;
   at: string;
   kind: "rewrite" | "remove";
-  reason: "contradicted" | "stale" | "summary";
+  reason: "contradicted" | "stale";
   /** The habit as it was. */
   before: StyleItem;
-  /** What stands in its place after a rewrite (for a removal, the habit's own key and value). */
+  /** The habit's key, and the value it was rewritten to (for a removal, the value it had). */
   key: string;
   value: string;
 }
 export const MAX_APPLIED = 20;
+/**
+ * Changes the user declined, took back or put back, each as `kind:key:value`. The review does not make them
+ * again. Only the user's own actions add to it, so the limit is far from what a workspace's use comes to.
+ */
+export const MAX_DISMISSED = 400;
 
 interface UndoSnapshot { at: string; reason: string; items: StyleItem[]; suppressed: string[]; pending: PendingChange[]; dismissed: string[]; declined?: string[]; applied?: AppliedChange[] }
 
@@ -209,7 +214,7 @@ function parseMemory(text: string, locale: AppLocale): StyleMemory {
   const applied = (list: unknown): AppliedChange[] => (Array.isArray(list) ? list : []).flatMap((entry: AppliedChange) => {
     const [before] = items([entry?.before]);
     return before?.origin === "auto" && before.key && typeof entry.id === "string" && typeof entry.at === "string" && typeof entry.key === "string" && typeof entry.value === "string"
-      && (entry.kind === "rewrite" || entry.kind === "remove") && ["contradicted", "stale", "summary"].includes(entry.reason)
+      && (entry.kind === "rewrite" || entry.kind === "remove") && ["contradicted", "stale"].includes(entry.reason) && entry.key === before.key
       ? [{ id: entry.id, at: entry.at, kind: entry.kind, reason: entry.reason, before, key: entry.key, value: entry.value }] : [];
   }).slice(-MAX_APPLIED);
   const pending = (list: unknown[]): PendingChange[] => list.filter((p): p is PendingChange => Boolean(p) && typeof p === "object"
@@ -218,12 +223,12 @@ function parseMemory(text: string, locale: AppLocale): StyleMemory {
   return {
     ...emptyMemory(locale),
     locale: data.locale === "en" || data.locale === "ja" ? data.locale : locale,
-    items: items(data.items), suppressed: strings(data.suppressed, 100), pending: pending(data.pending), dismissed: strings(data.dismissed, 60),
+    items: items(data.items), suppressed: strings(data.suppressed, 100), pending: pending(data.pending), dismissed: strings(data.dismissed, MAX_DISMISSED),
     declined: strings(data.declined, MAX_DECLINED).filter(text => text.length <= 200),
     summary: data.summary && typeof data.summary.hash === "string" && typeof data.summary.at === "string" ? { hash: data.summary.hash, at: data.summary.at } : null,
     undo: (Array.isArray(data.undo) ? data.undo : []).slice(-MAX_UNDO).map((u: UndoSnapshot) => ({
       at: String(u?.at ?? ""), reason: String(u?.reason ?? ""), items: items(Array.isArray(u?.items) ? u.items : []),
-      suppressed: strings(u?.suppressed, 100), pending: pending(Array.isArray(u?.pending) ? u.pending : []), dismissed: strings(u?.dismissed, 60),
+      suppressed: strings(u?.suppressed, 100), pending: pending(Array.isArray(u?.pending) ? u.pending : []), dismissed: strings(u?.dismissed, MAX_DISMISSED),
       ...(Array.isArray(u?.declined) ? { declined: strings(u.declined, MAX_DECLINED).filter(text => text.length <= 200) } : {}),
       ...(Array.isArray(u?.applied) ? { applied: applied(u.applied) } : {}),
     })),
@@ -424,7 +429,7 @@ export class AuthoringStyleMemory {
     if (!approve) {
       snapshotForUndo(memory, "dismiss", at);
       memory.pending.splice(index, 1);
-      memory.dismissed = [...memory.dismissed, `${change.kind}:${change.key}:${change.value}`].slice(-60);
+      memory.dismissed = [...memory.dismissed, `${change.kind}:${change.key}:${change.value}`].slice(-MAX_DISMISSED);
       if (change.kind === "add" && change.basis === "summary") memory.declined = [...memory.declined, change.value].slice(-MAX_DECLINED);
       await this.commit(workspaceId, memory, [{ actor: "user", action: "dismiss", key: change.key }]);
       return memory;
@@ -490,7 +495,7 @@ export class AuthoringStyleMemory {
       ...[...was.values()].filter(i => !held.has(i.key!)).map(i => `remove:${i.key}:${i.value}`),
     ];
     Object.assign(memory, { items: previous.items, suppressed: previous.suppressed, pending: previous.pending,
-      dismissed: [...previous.dismissed.filter(entry => !takenBack.includes(entry)), ...takenBack].slice(-60) });
+      dismissed: [...previous.dismissed.filter(entry => !takenBack.includes(entry)), ...takenBack].slice(-MAX_DISMISSED) });
     // Which changes can be put back one by one goes back with the memo they belong to.
     if (previous.applied) memory.applied = previous.applied;
     memory.undo.push(current);
@@ -502,7 +507,7 @@ export class AuthoringStyleMemory {
   revertible(memory: StyleMemory): AppliedChange[] {
     // A habit somebody has since deleted by hand is not brought back by way of an older change.
     return memory.applied.filter(change => !memory.suppressed.includes(change.before.key!)).filter(change => change.kind === "remove" ? !memory.items.some(i => i.key === change.before.key)
-      : memory.items.some(i => i.origin === "auto" && i.key === change.key && i.value === change.value) && (change.key === change.before.key || !memory.items.some(i => i.key === change.before.key)));
+      : memory.items.some(i => i.origin === "auto" && i.key === change.key && i.value === change.value));
   }
 
   /**
@@ -523,10 +528,7 @@ export class AuthoringStyleMemory {
     snapshotForUndo(memory, "revert", now.toISOString());
     memory.items = next;
     memory.applied = memory.applied.filter(c => c !== change);
-    memory.dismissed = [...memory.dismissed.filter(entry => entry !== `gone:${change.before.key}`), `${change.kind}:${change.before.key}:${change.value}`].slice(-60);
-    // The AI's new wording goes the way of a suggestion its author turned down: it is not suggested again.
-    if (current && isSuggestion(current)) memory.declined = [...memory.declined.filter(sentence => sentence !== current.text), current.text].slice(-MAX_DECLINED);
-    memory.declined = memory.declined.filter(sentence => sentence !== restored.text);
+    memory.dismissed = [...memory.dismissed, `${change.kind}:${change.key}:${change.value}`].slice(-MAX_DISMISSED);
     await this.commit(workspaceId, memory, [{ actor: "user", action: `revert-${change.kind}`, key: change.before.key!, before: current?.text ?? "", after: restored.text }]);
     return memory;
   }

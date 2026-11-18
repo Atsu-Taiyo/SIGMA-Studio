@@ -4,12 +4,7 @@ import { createTranslator, type AppLocale } from "@/lib/i18n";
 import { isSuspicious } from "./authoring-style-scan";
 
 export type SummarySection = "style" | "procedure" | "structure" | "tex";
-/** `rewrite` and `remove` name, by number, habits an earlier summary suggested: the AI may reword or withdraw its own. */
-export interface SummaryReply {
-  add: { section: SummarySection; text: string }[]; confirm: number[]; rewrite: { number: number; text: string }[]; remove: number[];
-  /** Earlier suggestions the AI tried to reword in a way that did not pass the checks. They stay as they are: not reworded, and not taken for abandoned. */
-  kept: number[];
-}
+export interface SummaryReply { add: { section: SummarySection; text: string }[]; confirm: number[] }
 
 export interface SummaryInput {
   locale: AppLocale;
@@ -22,10 +17,8 @@ export interface SummaryInput {
   candidates: readonly string[];
   /** Suggestions the author removed or declined. */
   declined: readonly string[];
-  /** Per document, the kinds of its blocks in order (no text of the author's). Empty when layout is not being learned. */
+  /** Per document, the kinds of its blocks in order (no text of the author's). */
   outlines?: readonly string[];
-  /** Whether the reply may reword or withdraw earlier suggestions. */
-  revise?: boolean;
 }
 
 const SECTIONS: readonly SummarySection[] = ["style", "procedure", "structure", "tex"];
@@ -34,9 +27,6 @@ export const MAX_SUMMARY_ADDITIONS = 3;
 export const MAX_SUMMARY_TEXT = 60;
 /** A run of this many characters copied from a document is a quotation, not a habit. */
 const QUOTATION_LENGTH = 14;
-
-/** Earlier suggestions one reply may reword, and may withdraw. */
-export const MAX_SUMMARY_REVISIONS = 3;
 
 export const summarySection = (key: string): SummarySection | null => SECTIONS.find(s => key.startsWith(`summary.${s}:`)) ?? null;
 export const summaryKey = (section: SummarySection, text: string) =>
@@ -92,9 +82,7 @@ export function buildSummaryPrompt(input: SummaryInput): string {
     sample: input.sample, corrections: input.corrections, existing: input.existing,
     candidates: input.candidates.map((text, index) => ({ number: index + 1, text })), declined: input.declined, outlines: input.outlines ?? [],
   };
-  const instructions = [t("authoringStyle.summary.instructions", { count: MAX_SUMMARY_ADDITIONS, length: MAX_SUMMARY_TEXT }),
-    ...(input.revise ? [t("authoringStyle.summary.revise", { count: MAX_SUMMARY_REVISIONS, length: MAX_SUMMARY_TEXT })] : []), t(input.revise ? "authoringStyle.summary.formatRevise" : "authoringStyle.summary.format")];
-  return `${instructions.join("")}\n${JSON.stringify(data)}`;
+  return `${t("authoringStyle.summary.instructions", { count: MAX_SUMMARY_ADDITIONS, length: MAX_SUMMARY_TEXT })}\n${JSON.stringify(data)}`;
 }
 
 /**
@@ -105,17 +93,14 @@ export function parseSummaryReply(raw: string, input: Pick<SummaryInput, "sample
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start < 0 || end <= start) return null;
-  let data: { add?: unknown; confirm?: unknown; rewrite?: unknown; remove?: unknown };
+  let data: { add?: unknown; confirm?: unknown };
   try { data = JSON.parse(raw.slice(start, end + 1)); } catch { return null; }
   // Only a reply of the form asked for says anything. An error message, or an answer to some other question, is
   // not "nothing to add and nothing confirmed": taken as that, it would count against the earlier suggestions.
   if (!data || typeof data !== "object" || !Array.isArray(data.add) || !Array.isArray(data.confirm)) return null;
-  // The same goes for numbers that are not numbers, and for a rewording without its number or its sentence: read
-  // leniently, a suggestion the AI did speak for would look like one it passed over.
-  const whole = (value: unknown) => Number.isSafeInteger(value);
-  const revisions = [data.rewrite, data.remove].map(value => value === undefined || value === null ? [] : value);
-  if (!data.confirm.every(whole) || !revisions.every(Array.isArray) || !(revisions[1] as unknown[]).every(whole)
-    || !(revisions[0] as unknown[]).every(entry => Boolean(entry) && typeof entry === "object" && whole((entry as { number?: unknown }).number) && typeof (entry as { text?: unknown }).text === "string")) return null;
+  // The same goes for numbers that are not numbers: read leniently, a suggestion the AI did speak for would look
+  // like one it passed over.
+  if (!data.confirm.every(value => Number.isSafeInteger(value))) return null;
   const source = input.sample.join("\n");
   const quotes = (text: string) => {
     for (let index = 0; index + QUOTATION_LENGTH <= text.length; index++) if (source.includes(text.slice(index, index + QUOTATION_LENGTH))) return true;
@@ -132,21 +117,6 @@ export function parseSummaryReply(raw: string, input: Pick<SummaryInput, "sample
     add.push({ section: section as SummarySection, text: sentence });
     if (add.length === MAX_SUMMARY_ADDITIONS) break;
   }
-  const numbers = (value: unknown) => [...new Set((Array.isArray(value) ? value : [])
-    .filter((n): n is number => Number.isSafeInteger(n) && n >= 1 && n <= input.candidates.length))];
-  const confirm = numbers(data.confirm);
-  // A new wording passes the same checks as a new sentence. One that does not is dropped, and the old sentence stays.
-  const rewrite: SummaryReply["rewrite"] = [];
-  const kept: number[] = [];
-  for (const entry of Array.isArray(data.rewrite) ? data.rewrite : []) {
-    const { number, text } = (entry ?? {}) as { number?: unknown; text?: unknown };
-    if (!numbers([number]).length) continue;
-    const sentence = typeof text === "string" ? text.trim() : "";
-    if (rewrite.length < MAX_SUMMARY_REVISIONS && acceptable(sentence) && !confirm.includes(number as number) && !rewrite.some(r => r.number === number || r.text === sentence) && !add.some(a => a.text === sentence)) {
-      rewrite.push({ number: number as number, text: sentence });
-    } else if (!kept.includes(number as number)) kept.push(number as number);
-  }
-  // Naming a suggestion for rewording is not withdrawing it, whatever became of the new wording.
-  const remove = numbers(data.remove).filter(n => !confirm.includes(n) && !kept.includes(n) && !rewrite.some(r => r.number === n)).slice(0, MAX_SUMMARY_REVISIONS);
-  return { add, confirm, rewrite, remove, kept: kept.filter(n => !rewrite.some(r => r.number === n)) };
+  const confirm = [...new Set(data.confirm.filter((n): n is number => Number.isSafeInteger(n) && n >= 1 && n <= input.candidates.length))];
+  return { add, confirm };
 }

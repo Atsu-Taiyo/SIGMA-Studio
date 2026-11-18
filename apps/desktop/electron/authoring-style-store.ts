@@ -395,7 +395,8 @@ export class LocalAuthoringStyleStore {
       if (!await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return null;
       const files = await this.learnableFiles(true);
       const mine = files ? [...files.values()].filter(f => f.workspaceId === workspaceId) : [];
-      return { signature: this.sharedWorkspaces.has(workspaceId) ? sharedSignature(mine) : null,
+      // Which documents there are to read is decided here. A list that could not be read then is not made good by one that can be read later.
+      return { listed: !this.sharedListFailed, signature: this.sharedWorkspaces.has(workspaceId) ? sharedSignature(mine) : null,
         files: mine.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, this.options.reviewDocuments ?? DEFAULT_REVIEW_DOCUMENTS) };
     });
     if (!start) return;
@@ -426,7 +427,8 @@ export class LocalAuthoringStyleStore {
       if (generation !== this.generation || !await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return null;
       const files = await this.learnableFiles(true);
       // A list of shared documents that could not be read says nothing about which documents are gone.
-      const eligibleFiles = files && !this.sharedListFailed ? new Set([...files.values()].filter(f => f.workspaceId === workspaceId).map(f => f.fileId)) : null;
+      const listed = start.listed && !this.sharedListFailed;
+      const eligibleFiles = files && listed ? new Set([...files.values()].filter(f => f.workspaceId === workspaceId).map(f => f.fileId)) : null;
       const outcomes = await this.readOutcomes();
       const units: EvidenceUnit[] = [];
       const authored: { fileId: string; texts: string[]; outline: string }[] = [];
@@ -459,13 +461,13 @@ export class LocalAuthoringStyleStore {
       const memory = await this.memory.load(workspaceId, getAppLocale(), now);
       const planned = planReview(memory, mergeObservations(observeWriting(units), observeCorrections(examples)),
         // A pass that did not see every document it was due to read changes nothing by itself that it cannot be sure of.
-        { now, locale: memory.locale, eligibleFiles, keptSinceLastReview: counters.kept > 0, autoApply: await this.autoApply(workspaceId), complete: !unread && !skipped && !this.sharedListFailed });
+        { now, locale: memory.locale, eligibleFiles, keptSinceLastReview: counters.kept > 0, autoApply: await this.autoApply(workspaceId), complete: !unread && !skipped && listed });
       memory.lastReviewedAt = now.toISOString();
       memory.reviewedDocuments = reviewed;
       await this.memory.commit(workspaceId, memory, planned.entries);
       outcomes.counters[workspaceId] = { ...emptyCounters(), reviewedAt: now.toISOString(), ...(start.signature !== null && !unread ? { shared: start.signature } : {}) };
       await this.writeOutcomes(outcomes);
-      return this.summaryRequest(workspaceId, memory, authored, examples, eligibleFiles, requested, now, !unread && !skipped && !this.sharedListFailed);
+      return this.summaryRequest(workspaceId, memory, authored, examples, eligibleFiles, requested, now, !unread && !skipped && listed);
     });
     this.sync.soon();
     if (!summary) return;
@@ -483,7 +485,7 @@ export class LocalAuthoringStyleStore {
       if (!sources.length) return;
       const now = this.now();
       const memory = await this.memory.load(workspaceId, getAppLocale(), now);
-      const planned = planSummary(memory, reply, summary.candidates, { now, locale: memory.locale, sources, autoApply: await this.autoApply(workspaceId), complete: summary.input.revise === true });
+      const planned = planSummary(memory, reply, summary.candidates, { now, locale: memory.locale, sources, autoApply: await this.autoApply(workspaceId), complete: summary.complete });
       memory.summary = { hash: summary.hash, at: now.toISOString() };
       await this.memory.commit(workspaceId, memory, planned.entries);
     });
@@ -539,10 +541,10 @@ export class LocalAuthoringStyleStore {
       locale: memory.locale, sample, corrections,
       existing: scanLines(usable.map(i => i.text.replace(/^- /, "")).join("\n")).text.split("\n").filter(Boolean),
       candidates: suggested.map(i => i.text), declined: memory.declined.filter(isSummaryText).filter(sentence => !waiting.marks.has(declinedMark(sentence))),
-      // As for the counting pass: what was read is not everything, so the AI is not asked to change what is there.
-      outlines, revise: complete && await this.autoApply(workspaceId),
+      outlines,
     };
-    return { provider, input, hash, sources, candidates: suggested.map(i => i.key!) };
+    // As for the counting pass: when what was read is not everything, a suggestion left unconfirmed is not taken for stale.
+    return { provider, input, hash, sources, candidates: suggested.map(i => i.key!), complete };
   }
 
   /** Remember which AI the author uses, so the review asks that one and no other. */

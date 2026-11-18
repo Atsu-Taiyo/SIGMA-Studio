@@ -6,7 +6,7 @@ import { AUTHORING_STYLE_LEARNED_LIMIT, AUTHORING_STYLE_NOTE_LIMIT, type Authori
 import type { AppLocale } from "@/lib/i18n";
 import { itemText, SECTION_ORDER, sectionOf } from "./authoring-style-items";
 import { isSuspicious } from "./authoring-style-scan";
-import { atomicStyleWrite, renderMemo, type AuthoringStyleMemory, type LedgerDraft, type StyleItem, type StyleMemory, type StyleTrust } from "./authoring-style-memory";
+import { MAX_DISMISSED, atomicStyleWrite, renderMemo, type AuthoringStyleMemory, type LedgerDraft, type StyleItem, type StyleMemory, type StyleTrust } from "./authoring-style-memory";
 
 /**
  * Keeps the author's own note, the learning settings and (through `SyncedPart`) other
@@ -125,7 +125,7 @@ export function parseBundle(value: unknown, kind: "workspace" | "global"): Works
   const vouchers = Object.fromEntries(Object.entries(isRecord(value.vouchers) ? value.vouchers : {}).filter(([account]) => ACCOUNT.test(account)).slice(0, 500)
     .map(([account, list]) => [account, Array.isArray(list) ? list.filter((mark): mark is string => typeof mark === "string" && MARK.test(mark)).slice(0, MAX_VOUCHES) : []] as const));
   return { ...common, kind, vouchers, copy: text(value.copy, 64) ? value.copy : "", locale: value.locale === "en" ? "en" : "ja", generation: count(value.generation), items,
-    suppressed: strings(value.suppressed, MAX_SUPPRESSED, 200), dismissed: strings(value.dismissed, 60, 500), declined: strings(value.declined, 30, 200),
+    suppressed: strings(value.suppressed, MAX_SUPPRESSED, 200), dismissed: strings(value.dismissed, MAX_DISMISSED, 500), declined: strings(value.declined, 30, 200),
     ledger: strings(value.ledger, MAX_SYNCED_LEDGER_LINES, MAX_LEDGER_LINE), opaque };
 }
 
@@ -181,7 +181,7 @@ export function mergeList(base: readonly string[] | undefined, local: readonly s
 
 /** What the members decided about automatic habits, which a merge of two reviews' work has to respect. */
 export interface MergeRules {
-  /** Taken out on purpose (deleted, its adding undone or declined, or reworded or withdrawn by the AI that suggested it). It does not come back. */
+  /** Taken out on purpose (deleted, or its adding undone or declined). It does not come back. */
   unwanted?: (item: SyncedItem) => boolean;
   /** What a habit was automatically rewritten to, and somebody put back. The other wording stands. */
   refused?: (item: SyncedItem) => boolean;
@@ -289,10 +289,10 @@ function mergeLearned(base: Learned | undefined, local: Learned, remote: Learned
   // Not cut short here: dropping a record of a removal would let the habit come back. An overlong list stops the sync instead.
   const suppressed = mergeList(was?.suppressed, local.suppressed, remote.suppressed);
   const declined = mergeList(was?.declined, local.declined, remote.declined, 30);
-  const dismissed = mergeList(was?.dismissed, local.dismissed, remote.dismissed, 60);
-  /** Taken out on purpose on some device: deleted, its adding undone or declined, or (a sentence of the AI's) turned down, reworded or withdrawn. */
+  const dismissed = mergeList(was?.dismissed, local.dismissed, remote.dismissed, MAX_DISMISSED);
+  /** Taken out on purpose on some device: deleted, its adding undone or declined, or (a sentence of the AI's) turned down. */
   const unwanted = (item: SyncedItem) => Boolean(item.key) && (suppressed.includes(item.key!) || dismissed.includes(`add:${item.key}:${item.value}`)
-    || dismissed.includes(`gone:${item.key}`) || (item.basis === "summary" && declined.includes(item.text)));
+    || (item.basis === "summary" && declined.includes(item.text)));
   const rules: MergeRules = { unwanted, refused: item => dismissed.includes(`rewrite:${item.key}:${item.value}`), restored: item => dismissed.includes(`remove:${item.key}:${item.value}`) };
   return {
     generation: remote.generation, suppressed, declined, dismissed,

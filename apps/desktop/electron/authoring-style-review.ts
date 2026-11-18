@@ -3,7 +3,7 @@ import type { AppLocale } from "@/lib/i18n";
 import type { Observation } from "./authoring-style-features";
 import { itemText, sectionOf } from "./authoring-style-items";
 import { MAX_APPLIED, renderMemo, snapshotForUndo, styleHash, type AppliedChange, type LedgerDraft, type PendingChange, type StyleItem, type StyleMemory } from "./authoring-style-memory";
-import { summaryKey, summarySection, type SummaryReply } from "./authoring-style-summary";
+import { summaryKey, type SummaryReply } from "./authoring-style-summary";
 
 /** A habit nothing has confirmed for this long is taken out (or, with automatic changes off, offered for removal). */
 export const STALE_AFTER_MS = 45 * 24 * 60 * 60 * 1000;
@@ -31,8 +31,8 @@ export interface ReviewResult { added: number; staged: number; rewritten: number
 type Evidence = Pick<StyleItem, "support" | "documents" | "sources"> & { basis: NonNullable<StyleItem["basis"]> };
 
 /**
- * What an unattended pass does: add a grounded habit, refresh evidence, and rewrite or remove a habit of its
- * own that the evidence no longer supports. Each change that passed the checks is applied, written to the
+ * What an unattended pass does: add a grounded habit, refresh evidence, and rewrite or remove an automatic
+ * habit that the evidence no longer supports. Each change that passed the checks is applied, written to the
  * ledger, kept in the list of applied changes (so it can be put back) and covered by the memo's undo.
  * With `autoApply` off, rewriting and removing are only staged for the user, as is adding past the size limit.
  * Lines the user wrote are never touched, and neither are the notes.
@@ -84,24 +84,18 @@ function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "l
     Object.assign(item, evidence ?? {}, { lastConfirmedAt: now });
     unstage(item.key!);
   };
-  /**
-   * Replace what an automatic habit says. `key` differs from the item's own only for a sentence the AI
-   * suggested, whose key is made from the sentence. Returns whether the memo was changed.
-   */
-  const rewrite = (item: StyleItem, next: { key: string; value: string; text: string }, evidence: Evidence, reason: AppliedChange["reason"]): boolean => {
-    if (item.origin !== "auto" || !item.key || memory.dismissed.includes(`rewrite:${item.key}:${next.value}`)) return false;
-    const changed: StyleItem = { ...item, ...evidence, id: `auto:${next.key}`, key: next.key, value: next.value, section: sectionOf(next.key), text: next.text, lastConfirmedAt: now };
+  /** Replace what an automatic habit says. Returns whether the memo was changed. */
+  const rewrite = (item: StyleItem, value: string, text: string, evidence: Evidence): boolean => {
+    if (item.origin !== "auto" || !item.key || memory.dismissed.includes(`rewrite:${item.key}:${value}`)) return false;
+    const changed: StyleItem = { ...item, ...evidence, value, text, lastConfirmedAt: now };
     const fits = renderMemo({ items: memory.items.map(i => i === item ? changed : i) }, context.locale).length <= AUTHORING_STYLE_LEARNED_LIMIT;
     if (!apply || !fits) {
-      // A sentence of the AI's has no staged form: with automatic changes off it is simply left as it is.
-      if (next.key === item.key) stage({ id: `rewrite:${item.key}`, kind: "rewrite", reason: "contradicted", key: item.key, value: next.value, expectedText: item.text, ...evidence, createdAt: now });
+      stage({ id: `rewrite:${item.key}`, kind: "rewrite", reason: "contradicted", key: item.key, value, expectedText: item.text, ...evidence, createdAt: now });
       return false;
     }
     touch();
-    // A sentence the AI reworded is gone on purpose: no other device's confirmation of it brings it back next to its rewording.
-    if (next.key !== item.key) memory.dismissed = [...memory.dismissed, `gone:${item.key}`].slice(-60);
-    applied({ kind: "rewrite", reason, before: structuredClone(item), key: next.key, value: next.value });
-    result.entries.push({ actor: "review", action: "auto-rewrite", reason, key: item.key, before: item.text, after: next.text });
+    applied({ kind: "rewrite", reason: "contradicted", before: structuredClone(item), key: item.key, value });
+    result.entries.push({ actor: "review", action: "auto-rewrite", reason: "contradicted", key: item.key, before: item.text, after: text });
     unstage(item.key);
     memory.items = memory.items.map(i => i === item ? changed : i);
     result.rewritten++;
@@ -111,13 +105,11 @@ function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "l
   const remove = (item: StyleItem, reason: AppliedChange["reason"]): boolean => {
     if (item.origin !== "auto" || !item.key || memory.dismissed.includes(`remove:${item.key}:${item.value}`)) return false;
     if (!apply) {
-      if (reason !== "summary") stage({ id: `remove:${item.key}`, kind: "remove", reason: reason === "stale" ? "stale" : "contradicted", key: item.key, value: item.value, expectedText: item.text,
+      stage({ id: `remove:${item.key}`, kind: "remove", reason, key: item.key, value: item.value, expectedText: item.text,
         basis: item.basis ?? "writing", support: item.support, documents: item.documents, sources: item.sources, createdAt: now });
       return false;
     }
     touch();
-    // Withdrawn by the AI that suggested it, as against merely not confirmed for a long time.
-    if (reason === "summary") memory.dismissed = [...memory.dismissed, `gone:${item.key}`].slice(-60);
     applied({ kind: "remove", reason, before: structuredClone(item), key: item.key, value: item.value });
     result.entries.push({ actor: "review", action: "auto-remove", reason, key: item.key, before: item.text, after: "" });
     unstage(item.key);
@@ -153,7 +145,7 @@ export function planReview(memory: StyleMemory, observations: readonly Observati
     else if (item.origin !== "auto") continue;
     else if (item.value === value) pass.confirm(item, evidence);
     // New evidence contradicts the habit. The sentence is replaced; a second one is never put next to it.
-    else pass.rewrite(item, { key, value, text }, evidence, "contradicted");
+    else pass.rewrite(item, value, text, evidence);
   }
 
   for (const item of [...memory.items]) {
@@ -171,47 +163,36 @@ export function planReview(memory: StyleMemory, observations: readonly Observati
 }
 
 /**
- * What the configured AI read out of the author's writing. It adds habits, confirms the ones it suggested
- * before, and may reword or withdraw those (never a counted habit, never a line the user wrote). Its sentences
- * are free text, so each was checked before it got here, is checked again every time it is placed in an AI
- * request, is recorded in the ledger as the AI's doing, and can be taken back.
+ * What the configured AI read out of the author's writing. It adds habits and confirms the ones it suggested
+ * before; it does not reword or withdraw anything. A suggestion it was asked about again and did not confirm,
+ * for long enough, has gone stale like any habit nothing confirms. Its sentences are free text, so each was
+ * checked before it got here, is checked again every time it is placed in an AI request, is recorded in the
+ * ledger as the AI's addition, and can be taken back.
  */
 export function planSummary(memory: StyleMemory, reply: SummaryReply, candidates: readonly string[],
   context: Pick<ReviewContext, "now" | "locale" | "autoApply" | "complete"> & { sources: readonly string[] }): ReviewResult {
   const pass = unattended(memory, context);
   const evidence: Evidence = { basis: "summary", support: context.sources.length, documents: context.sources.length, sources: context.sources.slice(0, 8) };
   const suggested = (number: number) => memory.items.find(i => i.origin === "auto" && i.basis === "summary" && i.key === candidates[number - 1]);
-  const settled = new Set<number>(reply.kept);
+  const confirmed = new Set<number>();
   for (const number of reply.confirm) {
     const item = suggested(number);
-    if (item) { pass.confirm(item, evidence); settled.add(number); }
+    if (item) { pass.confirm(item, evidence); confirmed.add(number); }
   }
-  const taken = new Set(memory.items.map(i => i.text.replace(/^- /, "")));
-  const fresh = (key: string, text: string) => !taken.has(text) && !memory.declined.includes(text) && !memory.suppressed.includes(key) && !memory.dismissed.includes(`gone:${key}`)
-    && !memory.items.some(i => i.key === key) && !memory.pending.some(p => p.key === key) && itemText(key, text, context.locale) === text;
-  for (const { number, text } of reply.rewrite) {
-    const item = suggested(number);
-    const section = item?.key ? summarySection(item.key) : null;
-    if (!item || !section || settled.has(number)) continue;
-    settled.add(number);
-    const key = summaryKey(section, text);
-    if (fresh(key, text) && pass.rewrite(item, { key, value: text, text }, evidence, "summary")) taken.add(text);
-  }
-  for (const number of reply.remove) {
-    const item = suggested(number);
-    if (item && !settled.has(number)) { settled.add(number); pass.remove(item, "summary"); }
-  }
-  // Asked about again and not stood by, for long enough: the suggestion has gone stale. (With automatic changes
-  // off, the counting pass has already staged its removal.)
+  // Counting cannot confirm a sentence the AI suggested, so this is where one goes stale. (With automatic changes
+  // off, the counting pass has staged its removal instead; after a pass that did not see everything, it stays.)
   if (context.autoApply && context.complete) candidates.forEach((_, index) => {
     const item = suggested(index + 1);
-    if (item && !settled.has(index + 1) && context.now.getTime() - Date.parse(item.lastConfirmedAt) > STALE_AFTER_MS) pass.remove(item, "stale");
+    if (item && !confirmed.has(index + 1) && context.now.getTime() - Date.parse(item.lastConfirmedAt) > STALE_AFTER_MS) pass.remove(item, "stale");
   });
+  const taken = new Set(memory.items.map(i => i.text.replace(/^- /, "")));
   let held = memory.items.filter(i => i.origin === "auto" && i.basis === "summary").length
     + memory.pending.filter(p => p.kind === "add" && p.basis === "summary").length;
   for (const { section, text } of reply.add) {
     const key = summaryKey(section, text);
-    if (held >= MAX_SUMMARY_ITEMS || !fresh(key, text) || memory.dismissed.includes(`add:${key}:${text}`)) continue;
+    if (held >= MAX_SUMMARY_ITEMS || taken.has(text) || memory.declined.includes(text) || memory.suppressed.includes(key)
+      || memory.items.some(i => i.key === key) || memory.pending.some(p => p.key === key)
+      || memory.dismissed.includes(`add:${key}:${text}`) || itemText(key, text, context.locale) !== text) continue;
     pass.add(key, text, text, evidence, "add-summary");
     held++;
     taken.add(text);

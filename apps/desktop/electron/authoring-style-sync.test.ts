@@ -1482,14 +1482,14 @@ describe("merging two devices' copies", () => {
     expect(keys(mergeItems(base, confirmed, []))).toEqual(["tone=plain"]);
     // Deleted by its author, or its adding undone: the deletion stands whatever a review said since.
     expect(keys(mergeItems(base, [], confirmed, { unwanted: entry => entry.key === "tone" }))).toEqual([]);
-    // The same for a sentence the AI suggested: one that merely went unconfirmed on one device stays where another's AI stood by it,
+    // The same for a sentence the AI suggested: one that went unconfirmed on one device stays where another's AI stood by it,
     const suggested = (text: string, extra: Partial<SyncedItem> = {}) => item(summaryKey("style", text), text, { basis: "summary", text, ...extra });
     const old = suggested("要点を先に述べる。");
     const stoodBy = suggested("要点を先に述べる。", { lastConfirmedAt: "2026-12-20" });
     const texts = (items: SyncedItem[]) => items.map(entry => entry.text);
     expect(texts(mergeItems([old], [], [stoodBy]))).toEqual(["要点を先に述べる。"]);
-    // but one an AI reworded or withdrew is gone on purpose, and does not come back next to its own rewording.
-    expect(texts(mergeItems([old], [suggested("要点を先に述べ、理由を続ける。")], [stoodBy], { unwanted: entry => entry.key === old.key }))).toEqual(["要点を先に述べ、理由を続ける。"]);
+    // but not one its author turned down.
+    expect(texts(mergeItems([old], [], [stoodBy], { unwanted: entry => entry.key === old.key }))).toEqual([]);
     // A habit put back after a review removed it stays, though the other device still has it removed.
     expect(keys(mergeItems(base, base, [], { restored: entry => entry.key === "tone" }))).toEqual(["tone=plain"]);
     // A wording somebody put back from does not return because another device's review made the same change.

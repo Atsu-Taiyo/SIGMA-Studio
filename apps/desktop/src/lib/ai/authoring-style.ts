@@ -29,8 +29,7 @@ export interface AuthoringStylePendingView {
 export interface AuthoringStyleAutoChangeView {
   id: string;
   kind: "rewrite" | "remove";
-  /** `summary`: the AI the user already uses reworded or withdrew its own earlier suggestion. */
-  reason: "contradicted" | "stale" | "summary";
+  reason: "contradicted" | "stale";
   at: string;
   before: string;
   after: string;
