@@ -742,12 +742,11 @@ export class AuthoringStyleSync {
   /**
    * A list of marks kept within bounds. Only marks of what is gone for good make room, the oldest first: one
    * that is still there, or that stepping back can bring back, is never dropped, since without its mark it
-   * would count as this member's own. Should those alone not fit, nothing is changed and the sync stops.
+   * would count as this member's own. (What is needed is bounded by how much a workspace and its undo history hold.)
    */
   private bounded(marks: readonly string[], needed: (mark: string) => boolean): string[] {
     if (marks.length <= MAX_FOREIGN) return [...marks];
-    const room = MAX_FOREIGN - marks.filter(needed).length;
-    if (room < 0) throw new SyncProblem("limit");
+    const room = Math.max(0, MAX_FOREIGN - marks.filter(needed).length);
     const spare = marks.filter(mark => !needed(mark));
     const dropped = new Set(spare.slice(0, spare.length - room));
     return marks.filter(mark => !dropped.has(mark));
@@ -955,9 +954,7 @@ export class AuthoringStyleSync {
         // What waits keeps waiting when it is gone: stepping back to before it was deleted brings it back as
         // somebody else's, not as this member's. Only when the list is full does what is gone make room.
         const kept = [...new Set([...waiting, ...[...present].filter(m => !mineNow.has(m))])].filter(m => !mineNow.has(m));
-        // What these files hold right now counts as still there: the record is written before they are changed,
-        // and should changing them fail, what waited must still be marked.
-        const foreign = this.bounded(kept, m => present.has(m) || undoable.has(m) || own.has(m));
+        const foreign = this.bounded(kept, m => present.has(m) || undoable.has(m));
         // What this account stood behind stays on record when it is gone, as what waits does: brought back by
         // stepping back, it is this account's still, and another account's to approve should one sign in here.
         const gone = theirRecord ? [] : this.bounded(trust.vouched.filter(m => !present.has(m) && !foreign.includes(m)), m => undoable.has(m));
@@ -977,9 +974,13 @@ export class AuthoringStyleSync {
         const sameTrust = trust.known && JSON.stringify([nextTrust.account, nextTrust.vouched, nextTrust.foreign, nextTrust.declined]) === JSON.stringify([trust.account, trust.vouched, trust.foreign, trust.declined]);
         if (comparable(result) !== comparable(local)) {
           const plan = await this.plan(workspaceId, result, state.device);
-          if (!sameTrust) await this.host.memory.writeTrust(workspaceId, nextTrust);
+          // First with nothing dropped from it: until these files are changed they still hold what they held, and
+          // should changing them fail, every line of it that waited must still be marked. Made to fit only afterwards.
+          const whole = { ...nextTrust, foreign: kept, declined: trust.declined.filter(m => kept.includes(m)) };
+          if (!sameTrust || kept.length !== foreign.length) await this.host.memory.writeTrust(workspaceId, whole);
           if (reset) await this.host.forget(workspaceId);
           await this.adopt(workspaceId, local, result, state.device, reset, plan);
+          if (kept.length !== foreign.length) await this.host.memory.writeTrust(workspaceId, nextTrust);
         } else if (!sameTrust) await this.host.memory.writeTrust(workspaceId, nextTrust);
         const heldNow = await this.switches(workspaceId, mine.settings, result.settings);
         await journal(heldNow, result.generation);
