@@ -1094,6 +1094,29 @@ describe("account sync of the learned writing style", () => {
         expect((workspaceCopy().content as { vouchers: Record<string, string[]> }).vouchers[U3]).toBeUndefined();
       });
 
+      it("does not forget that a deleted line was somebody else's while stepping back can still bring it back", async () => {
+        const a = await device("ws-a", { user: () => U1 });
+        await a.store.saveLearned({ workspaceId: "ws-a", content: "- 答えは最後にまとめて書く。\n", expectedRevision: (await a.store.getProfile("ws-a")).generatedRevision });
+        await a.store.syncNow(null);
+        const b = await device("ws-b", { user: () => U2 });
+        const received = await b.store.syncNow("ws-b");
+        // Deleted without ever being approved.
+        await b.store.saveLearned({ workspaceId: "ws-b", content: received.generatedContent.replace("- 答えは最後にまとめて書く。\n", ""), expectedRevision: received.generatedRevision });
+        await b.store.syncNow(null);
+        // The other member then writes more note lines, twice over, than the record of what waits has room for.
+        for (const start of [0x4e00, 0x5e00]) {
+          const note = Array.from({ length: 1500 }, (_, index) => String.fromCodePoint(start + index)).join("\n");
+          await a.store.syncNow(null);
+          await a.store.saveProfile({ workspaceId: "ws-a", content: note, expectedRevision: (await a.store.getProfile("ws-a")).revision });
+          await a.store.syncNow(null);
+          expect((await b.store.syncNow("ws-b")).sync.state).toBe("ok");
+        }
+        const back = await b.store.undo("ws-b");
+        expect(back.generatedContent).toContain("答えは最後にまとめて書く。");
+        expect(back.memberEntries.map(entry => entry.text)).toContain("答えは最後にまとめて書く。");
+        expect(await b.given()).not.toContain("答えは最後にまとめて書く。");
+      }, 30_000);
+
       it("cannot be vouched for in another member's name: the server refuses the copy", async () => {
         const { a, b } = await two();
         await b.store.syncNow(null);

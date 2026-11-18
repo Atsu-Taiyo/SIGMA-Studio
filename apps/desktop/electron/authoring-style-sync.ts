@@ -551,7 +551,7 @@ export class AuthoringStyleSync {
       const trust = await this.host.memory.readTrust(workspaceId);
       if ((trust.known && trust.account === hash(userId)) || (!trust.known && agreed?.kind !== "workspace")) continue;
       // Whatever the previous account stood behind waits too, whether or not these files still hold the copy it was agreed in.
-      const foreign = [...new Set([...trust.foreign, ...trust.vouched, ...(agreed?.kind === "workspace" ? marksOf(agreed.items, agreed.note, agreed.declined) : [])])].slice(-MAX_FOREIGN);
+      const foreign = [...new Set([...trust.foreign, ...trust.vouched, ...(agreed?.kind === "workspace" ? marksOf(agreed.items, agreed.note, agreed.declined) : [])])];
       await this.host.memory.writeTrust(workspaceId, { known: true, account: hash(userId), vouched: [], foreign, declined: trust.declined.filter(m => foreign.includes(m)) });
     }
     // What was agreed with the previous account, and how often it was reset, says nothing about this one.
@@ -708,7 +708,7 @@ export class AuthoringStyleSync {
     return item.text.length <= MAX_USER_LINE && !LINE_BREAK.test(item.text) && !isSuspicious(item.text) && Boolean(item.text.trim()) && item.text === item.text.trimEnd();
   }
 
-  private async snapshot(workspaceId: string, state: SyncState, key: string): Promise<WorkspaceBundle & { own: Set<string>; derived: Set<string> }> {
+  private async snapshot(workspaceId: string, state: SyncState, key: string): Promise<WorkspaceBundle & { own: Set<string>; derived: Set<string>; undoable: Set<string> }> {
     const memory = await this.host.memory.load(workspaceId, this.host.locale(), this.host.now());
     // Sending only part of a memo would read, on the other side, as the rest having been deleted.
     if (memory.items.length > MAX_SYNCED_ITEMS) throw new SyncProblem("limit");
@@ -728,13 +728,29 @@ export class AuthoringStyleSync {
       updatedAt: this.host.now().toISOString(), device: state.device, vouchers: {},
     };
     // What these files hold themselves (not what is only carried along for others), and what this device found in the documents itself.
-    return Object.assign(bundle, { own: marksOf(memory.items, note, memory.declined), derived: new Set(memory.items.filter(item => item.origin === "auto" && item.sources.length).map(itemMark)) });
+    return Object.assign(bundle, { own: marksOf(memory.items, note, memory.declined), derived: new Set(memory.items.filter(item => item.origin === "auto" && item.sources.length).map(itemMark)),
+      // What stepping back can bring back into these files.
+      undoable: new Set(memory.undo.flatMap(step => [...marksOf(step.items, "", step.declined ?? [])])) });
   }
 
   private synced(item: StyleItem, device: string): SyncedItem {
     const { id, key, value, section, text: sentence, origin, basis, support, documents, firstSeenAt, lastConfirmedAt } = item;
     return { id, key, value, section, text: sentence, origin, basis, support, documents, firstSeenAt, lastConfirmedAt,
       devices: [...new Set([...(item.devices ?? []).filter(d => d !== device), ...(item.sources.length ? [device] : [])])].sort() };
+  }
+
+  /**
+   * A list of marks kept within bounds. Only marks of what is gone for good make room, the oldest first: one
+   * that is still there, or that stepping back can bring back, is never dropped, since without its mark it
+   * would count as this member's own. Should those alone not fit, nothing is changed and the sync stops.
+   */
+  private bounded(marks: readonly string[], needed: (mark: string) => boolean): string[] {
+    if (marks.length <= MAX_FOREIGN) return [...marks];
+    const room = MAX_FOREIGN - marks.filter(needed).length;
+    if (room < 0) throw new SyncProblem("limit");
+    const spare = marks.filter(mark => !needed(mark));
+    const dropped = new Set(spare.slice(0, spare.length - room));
+    return marks.filter(mark => !dropped.has(mark));
   }
 
   /** Turn merged habits back into this device's items, keeping the evidence it holds itself. */
@@ -904,7 +920,7 @@ export class AuthoringStyleSync {
           await journal(heldNow);
           return { result, held: heldNow, empty: !result.note && result.settings.enabled && result.settings.aiSummary && !result.provider };
         }
-        const { own, derived, ...mine } = await this.snapshot(workspaceId, state, key);
+        const { own, derived, undoable, ...mine } = await this.snapshot(workspaceId, state, key);
         const remoteCopy = theirs as WorkspaceBundle | null;
         // Resetting the style for everyone is an owner's or admin's to do (the server refuses it from anyone else):
         // from another member such a reset stays a change to this device's copy, and what the others do keeps arriving.
@@ -939,10 +955,10 @@ export class AuthoringStyleSync {
         // What waits keeps waiting when it is gone: stepping back to before it was deleted brings it back as
         // somebody else's, not as this member's. Only when the list is full does what is gone make room.
         const kept = [...new Set([...waiting, ...[...present].filter(m => !mineNow.has(m))])].filter(m => !mineNow.has(m));
-        const foreign = kept.length <= MAX_FOREIGN ? kept : [...kept.filter(m => !present.has(m)).slice(-Math.max(0, MAX_FOREIGN - present.size)), ...kept.filter(m => present.has(m))];
+        const foreign = this.bounded(kept, m => present.has(m) || undoable.has(m));
         // What this account stood behind stays on record when it is gone, as what waits does: brought back by
         // stepping back, it is this account's still, and another account's to approve should one sign in here.
-        const gone = theirRecord ? [] : trust.vouched.filter(m => !present.has(m) && !foreign.includes(m)).slice(-MAX_FOREIGN);
+        const gone = theirRecord ? [] : this.bounded(trust.vouched.filter(m => !present.has(m) && !foreign.includes(m)), m => undoable.has(m));
         const nextTrust: StyleTrust = { known: true, account: hash(run.userId), vouched: [...gone, ...vouched], foreign, declined: trust.declined.filter(m => foreign.includes(m)) };
         result.vouchers = Object.fromEntries([
           // The others' lists as they stand, less what is gone. Nothing is ever added to them here.

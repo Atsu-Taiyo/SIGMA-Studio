@@ -104,7 +104,8 @@ export interface StyleTrust {
 
 /** A sentence the AI suggested. Only such an item is remembered, once removed, as one not to suggest again. */
 const isSuggestion = (item: Pick<StyleItem, "origin" | "key" | "basis">) => item.origin === "auto" && item.basis === "summary" && Boolean(item.key?.startsWith("summary."));
-const MAX_TRUST_MARKS = 4000;
+// Far above what a workspace and its undo history can hold: reading must never cut a record short.
+const MAX_TRUST_MARKS = 30_000;
 
 const MAX_UNDO = 5;
 const MAX_DECLINED = 30;
@@ -232,8 +233,13 @@ export class AuthoringStyleMemory {
 
   async readTrust(workspaceId: string): Promise<StyleTrust> {
     // A file that cannot be read is an error, not "nothing is foreign": what awaits approval must not slip through.
-    const data: unknown = JSON.parse(await boundedRead(path.join(this.dir(workspaceId), TRUST_FILE), 400_000) || "null");
-    const list = (value: unknown) => Array.isArray(value) ? value.filter((mark): mark is string => typeof mark === "string" && /^[0-9a-f]{20}$/.test(mark)).slice(0, MAX_TRUST_MARKS) : [];
+    const data: unknown = JSON.parse(await boundedRead(path.join(this.dir(workspaceId), TRUST_FILE), 3_000_000) || "null");
+    const list = (value: unknown) => {
+      const marks = Array.isArray(value) ? value.filter((mark): mark is string => typeof mark === "string" && /^[0-9a-f]{20}$/.test(mark)) : [];
+      // A record too long to be this app's own is not read in part: part of it would let the rest through.
+      if (marks.length > MAX_TRUST_MARKS) throw new Error("Invalid authoring memory file");
+      return marks;
+    };
     const record = data && typeof data === "object" ? data as Record<string, unknown> : {};
     return { vouched: list(record.vouched), foreign: list(record.foreign), declined: list(record.declined), known: data !== null,
       account: typeof record.account === "string" && record.account.length <= 64 ? record.account : null };
