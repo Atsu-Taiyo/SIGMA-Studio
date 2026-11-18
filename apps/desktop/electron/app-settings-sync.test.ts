@@ -36,6 +36,16 @@ describe("merging the app's settings of two devices", () => {
     expect(merged.customCommands).toEqual([command("a", "A2")]);
   });
 
+  it("tells a shortcut that was switched off from one that was never changed", () => {
+    // Switched off on the account, untouched here: it is off here too, and stays off on the account.
+    expect(mergeAppSettings(null, settings(), settings({ commandShortcuts: { "edit.undo": null } })).commandShortcuts).toEqual({ "edit.undo": null });
+    expect(mergeAppSettings(null, settings({ commandShortcuts: { "edit.undo": null } }), settings()).commandShortcuts).toEqual({ "edit.undo": null });
+    const base = settings({ commandShortcuts: { "edit.undo": null } });
+    // Put back to the default on another device since: the default it is.
+    expect(mergeAppSettings(base, base, settings()).commandShortcuts).toEqual({});
+    expect(mergeAppSettings(settings(), settings(), base).commandShortcuts).toEqual({ "edit.undo": null });
+  });
+
   it("reads a copy by the same checks as the settings file, and nothing it does not know", () => {
     expect(parseAppSettings({ version: 2, kind: "app-settings" })).toBeNull();
     expect(parseAppSettings({ version: 1, kind: "workspace" })).toBeNull();
@@ -118,6 +128,32 @@ describe("account sync of the app's settings", () => {
     await writeDesktopSettings(b.dataDir, { codexBin: "/b/codex", editorFontFamily: "B Font" });
     await b.sync();
     expect(b.read()).toEqual({ uiLocale: "en", codexBin: "/b/codex", editorFontFamily: "B Font" });
+  });
+
+  it("keeps a shortcut switched off on one device switched off, instead of taking a new device's default for a change", async () => {
+    const a = await device();
+    await writeDesktopSettings(a.dataDir, { commandShortcuts: { "edit.undo": null } });
+    await a.sync();
+    const b = await device();
+    await b.sync();
+    await a.sync();
+    for (const each of [a, b]) expect(each.read().commandShortcuts).toEqual({ "edit.undo": null });
+  });
+
+  it("does not lose a setting the user changes while another device's change is coming in", async () => {
+    const a = await device();
+    await writeDesktopSettings(a.dataDir, { uiLocale: "en" });
+    await a.sync();
+    const b = await device();
+    await b.sync();
+    await writeDesktopSettings(a.dataDir, { uiLocale: "ja" });
+    await a.sync();
+    // The user's write is queued just before the sync reads the file, and lands while the sync is under way.
+    const edit = writeDesktopSettings(b.dataDir, { commandShortcuts: { "edit.search": SEARCH }, codexBin: "/b/codex" });
+    await Promise.all([edit, b.sync()]);
+    expect(b.read()).toEqual({ uiLocale: "ja", commandShortcuts: { "edit.search": SEARCH }, codexBin: "/b/codex" });
+    await b.sync(); await a.sync();
+    expect(a.read()).toEqual({ uiLocale: "ja", commandShortcuts: { "edit.search": SEARCH } });
   });
 
   it("sends no settings from an account without Pro", async () => {

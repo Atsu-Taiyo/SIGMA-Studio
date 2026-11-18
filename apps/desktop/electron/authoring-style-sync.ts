@@ -270,15 +270,18 @@ function comparable(bundle: WorkspaceBundle | GlobalBundle): string {
 
 /**
  * Something else of the account's that is synced under the same switch, account and plan: the app's own settings.
- * `read` and `apply` run under the style lock.
+ * `update` runs under the style lock.
  */
 export interface SyncedPart<T = unknown> {
   key: string;
   /** Null for a copy this version cannot read. Such a copy is neither merged nor overwritten. */
   parse(value: unknown): T | null;
-  read(): Promise<T>;
   merge(base: T | null, local: T, remote: T): T;
-  apply(next: T, previous: T): Promise<void>;
+  /**
+   * Read what this device has, hand it to `merge`, store what comes back and return it, as one step that nothing
+   * else writing the same settings can get in between. When `merge` throws, nothing is changed.
+   */
+  update(merge: (local: T) => T): Promise<T>;
   /** Equal as far as other devices are concerned. */
   comparable(value: T): string;
   /** Nothing worth storing while the account holds no copy yet. */
@@ -337,6 +340,7 @@ export interface SyncAccount {
 class SyncProblem extends Error { constructor(readonly state: NonNullable<SyncState["problem"]>) { super(state); } }
 const WORKSPACE_KEY = /^style-ws-[a-z0-9][a-z0-9-]{0,59}$/;
 const ENTITLEMENT_WAIT_MS = 1500;
+const PLAN_FRESH_MS = 5 * 60_000;
 /** The run was overtaken: sync was turned off, the copy was deleted, or another account signed in. */
 class Cancelled extends Error {}
 
@@ -353,7 +357,7 @@ export class AuthoringStyleSync {
   /** Aborts the requests of a run that must not go on. */
   private controller = new AbortController();
   /** What the server last said about the signed-in account's plan. Unknown until asked. */
-  private known: { userId: string; entitled: boolean } | null = null;
+  private known: { userId: string; entitled: boolean; at: number } | null = null;
 
   private entitled(userId: string | null): boolean | null {
     return userId && this.known?.userId === userId ? this.known.entitled : null;
@@ -361,14 +365,18 @@ export class AuthoringStyleSync {
 
   private async askPlan(userId: string): Promise<boolean> {
     const entitled = await this.account?.entitled?.() ?? true;
-    if (this.account?.userId() === userId) this.known = { userId, entitled };
+    if (this.account?.userId() === userId) this.known = { userId, entitled, at: Date.now() };
     return entitled;
   }
 
-  /** Learn the account's plan before the pane is first shown, without making it wait for a slow network. */
+  /**
+   * Learn the account's plan before the pane is shown, without making it wait for a slow network. A plan that did
+   * not include sync is asked about again each time: the account may have been upgraded since, and with sync
+   * turned off no run would find that out.
+   */
   async knowPlan(): Promise<void> {
     const userId = this.account?.userId() ?? null;
-    if (!userId || this.entitled(userId) !== null) return;
+    if (!userId || (this.entitled(userId) === true && Date.now() - this.known!.at < PLAN_FRESH_MS)) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([this.askPlan(userId).catch(() => {}), new Promise(resolve => { timer = setTimeout(resolve, ENTITLEMENT_WAIT_MS); })]);
     clearTimeout(timer);
@@ -498,7 +506,7 @@ export class AuthoringStyleSync {
       const status = (error as { status?: number })?.status;
       // The server is the judge of the plan: a refusal there stands whatever was known here.
       const userId = this.account?.userId() ?? null;
-      if (status === 403 && userId) this.known = { userId, entitled: false };
+      if (status === 403 && userId) this.known = { userId, entitled: false, at: Date.now() };
       const problem = error instanceof SyncProblem ? error.state : status === 403 ? "pro-required" : status === 404 ? "unavailable" : "error";
       if (!(error instanceof SyncProblem) && status !== 403) this.host.log(error);
       await this.host.exclusive(async () => this.write({ ...await this.state(), problem })).catch(() => {});
@@ -679,10 +687,11 @@ export class AuthoringStyleSync {
           throw new Cancelled();
         }
         const base = known?.base === undefined || known.base === null ? null : part.parse(known.base);
-        const local = await part.read();
-        const result = theirs === null ? local : part.merge(base, local, theirs);
-        if (Buffer.byteLength(JSON.stringify(result)) > MAX_BUNDLE_BYTES) throw new SyncProblem("limit");
-        if (part.comparable(result) !== part.comparable(local)) await part.apply(result, local);
+        const result = await part.update(local => {
+          const next = theirs === null ? local : part.merge(base, local, theirs);
+          if (Buffer.byteLength(JSON.stringify(next)) > MAX_BUNDLE_BYTES) throw new SyncProblem("limit");
+          return next;
+        });
         // As in `scope`: what came from the server is on record before the upload can fail.
         const latest = await this.state();
         await this.write({ ...latest, scopes: { ...latest.scopes, [part.key]: { revision: remote.revision, base: theirs, syncedAt: known?.syncedAt ?? null } } });

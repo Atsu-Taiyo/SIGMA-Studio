@@ -119,6 +119,16 @@ describe("account sync of the learned writing style", () => {
     expect(stored()).toContain(PLAIN_MEMO);
   });
 
+  it("notices an upgrade to Pro even while sync is turned off", async () => {
+    let pro = false;
+    const a = await device("ws-a", { pro: () => pro });
+    await a.store.setSync(null, false);
+    expect((await a.store.getProfile(null)).sync).toMatchObject({ pro: false, state: "pro-required" });
+    pro = true;
+    expect((await a.store.getProfile(null)).sync).toMatchObject({ pro: true, enabled: false, state: "off" });
+    expect(cloud.state.reads + cloud.state.writes).toBe(0);
+  });
+
   it("takes the server's word when it refuses an account the app took for Pro", async () => {
     const a = await device("ws-a", { documents: { f1: written(...PLAIN) } });
     cloud.state.refused = true;

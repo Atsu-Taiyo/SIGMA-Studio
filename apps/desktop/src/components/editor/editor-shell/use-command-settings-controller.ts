@@ -22,7 +22,7 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
     }
 
     let canceled = false;
-    const load = () => void bridge.settings!.get().then((settings) => {
+    const load = (synced = false) => void bridge.settings!.get().then((settings) => {
       if (canceled) {
         return;
       }
@@ -36,8 +36,9 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
       }
       const storedShortcutOverrides = parseEditorShortcutOverrides(JSON.stringify(settings.commandShortcuts ?? {}));
       const storedCustomCommands = parseEditorCustomCommands(JSON.stringify(settings.customCommands ?? []));
-      const legacyShortcutOverrides = settings.hasCommandShortcuts ? {} : loadEditorShortcutOverrides();
-      const legacyCustomCommands = settings.hasCustomCommands ? [] : loadEditorCustomCommands();
+      // 旧保存先からの引き継ぎは起動時の1回だけ。同期で空になったものを、古い localStorage で生き返らせない。
+      const legacyShortcutOverrides = synced || settings.hasCommandShortcuts ? {} : loadEditorShortcutOverrides();
+      const legacyCustomCommands = synced || settings.hasCustomCommands ? [] : loadEditorCustomCommands();
       setShortcutOverrides(Object.keys(storedShortcutOverrides).length > 0 ? storedShortcutOverrides : legacyShortcutOverrides);
       setCustomCommands(storedCustomCommands.length > 0 ? storedCustomCommands : legacyCustomCommands);
       setCommandSettingsError(null);
@@ -49,7 +50,7 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
     });
     load();
     // アカウントの同期でほかの端末の設定が入ったら、同じ手順で読み直す。
-    const stop = bridge.settings.onSynced?.(load);
+    const stop = bridge.settings.onSynced?.(() => load(true));
 
     return () => {
       canceled = true;

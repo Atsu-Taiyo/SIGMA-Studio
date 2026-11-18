@@ -2,7 +2,7 @@ import type { AppLocale } from "@/lib/i18n";
 import type { SyncedPart } from "./authoring-style-sync";
 import {
   isAiWebSearchEnabled, normalizeDesktopCommandShortcuts, normalizeDesktopCustomCommands, normalizeUiLocale,
-  readDesktopSettingsSync, writeDesktopSettings, type DesktopSettings,
+  readDesktopSettingsSync, transactDesktopSettings, type DesktopSettings,
 } from "./desktop-settings";
 
 /**
@@ -37,7 +37,8 @@ function stable(value: unknown): string {
   if (isRecord(value)) return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stable(value[key])}`).join(",")}}`;
   return JSON.stringify(value) ?? "null";
 }
-const same = (a: unknown, b: unknown) => stable(a) === stable(b);
+/** A value that is not there is not the same as one set to null: a shortcut set to null is one its user switched off. */
+const same = (a: unknown, b: unknown) => a === undefined || b === undefined ? a === b : stable(a) === stable(b);
 
 /**
  * One value on two devices. `agreed` is false while they have never been merged: then whatever either
@@ -90,7 +91,10 @@ function comparable(settings: SyncedAppSettings): string {
 }
 
 export function readAppSettings(dataDir: string): SyncedAppSettings {
-  const settings = readDesktopSettingsSync(dataDir);
+  return fromDesktop(readDesktopSettingsSync(dataDir));
+}
+
+function fromDesktop(settings: DesktopSettings): SyncedAppSettings {
   return {
     version: 1, kind: "app-settings", uiLocale: settings.uiLocale ?? null,
     commandShortcuts: normalizeDesktopCommandShortcuts(settings.commandShortcuts),
@@ -107,19 +111,24 @@ export function appSettingsPart(dataDir: () => string, applied: (change: AppSett
   return {
     key: APP_SETTINGS_KEY,
     parse: parseAppSettings,
-    read: async () => readAppSettings(dataDir()),
     merge: mergeAppSettings,
     comparable,
     empty: settings => settings.uiLocale === null && !Object.keys(settings.commandShortcuts).length && !settings.customCommands.length && settings.aiWebSearchEnabled,
-    async apply(next, previous) {
+    // Read, merged and written in one go, in line with every other write to the settings file: a change the
+    // user makes meanwhile is either read here or written after this, never lost in between.
+    update: merge => transactDesktopSettings(dataDir(), async (current, write) => {
+      const previous = fromDesktop(current);
+      const next = merge(previous);
       const change: AppSettingsChange = {};
       if (next.uiLocale && next.uiLocale !== previous.uiLocale) change.uiLocale = next.uiLocale;
       if (!same(next.commandShortcuts, previous.commandShortcuts)) change.commandShortcuts = next.commandShortcuts;
-      if (!same(next.customCommands, previous.customCommands)) change.customCommands = next.customCommands;
+      if (comparable({ ...previous, customCommands: next.customCommands }) !== comparable(previous)) change.customCommands = next.customCommands;
       if (next.aiWebSearchEnabled !== previous.aiWebSearchEnabled) change.aiWebSearchEnabled = next.aiWebSearchEnabled;
-      if (!Object.keys(change).length) return;
-      await writeDesktopSettings(dataDir(), change);
-      applied(change);
-    },
+      if (Object.keys(change).length) {
+        await write(change);
+        applied(change);
+      }
+      return next;
+    }),
   };
 }
