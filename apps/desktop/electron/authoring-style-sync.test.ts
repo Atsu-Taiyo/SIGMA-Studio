@@ -839,6 +839,30 @@ describe("account sync of the learned writing style", () => {
       expect(JSON.stringify(JSON.parse(await fs.readFile(path.join(viewer.dir, "sync.json"), "utf8")).scopes[key])).toContain("from a newer version");
     });
 
+    it("meets a copy that replaced a lost one as new, even without ever having seen the place empty", async () => {
+      const a = await device("ws-a", { user: () => "user-1", documents: { f1: written(...PLAIN) } });
+      await a.store.reviewNow("ws-a");
+      await a.store.saveProfile({ workspaceId: "ws-a", content: "Aのメモ。", expectedRevision: (await a.store.getProfile("ws-a")).revision });
+      await a.store.syncNow(null);
+      const first = (workspaceCopy().content as { copy: string }).copy;
+      expect(first).not.toBe("");
+      // Lost and written anew by someone else while this device was away.
+      cloud.workspaces.clear();
+      const b = await device("ws-b", { user: () => "user-2" });
+      await b.store.saveProfile({ workspaceId: "ws-b", content: "Bのメモ。", expectedRevision: (await b.store.getProfile("ws-b")).revision });
+      await b.store.syncNow(null);
+      expect((workspaceCopy().content as { copy: string }).copy).not.toBe(first);
+      const profile = await a.store.syncNow("ws-a");
+      expect(profile.generatedContent).toContain(PLAIN_MEMO);
+      for (const line of ["Aのメモ。", "Bのメモ。"]) expect(profile.userContent).toContain(line);
+      // From here on they share a history again: a removal is a removal.
+      await b.store.syncNow(null);
+      const item = (await b.store.getProfile("ws-b")).items.find(i => i.text === PLAIN_MEMO)!;
+      await b.store.removeItem({ workspaceId: "ws-b", id: item.id });
+      await b.store.syncNow(null);
+      expect((await a.store.syncNow("ws-a")).generatedContent).not.toContain(PLAIN_MEMO);
+    });
+
     it("does not take what a member without the history writes into the place of a lost copy for a deletion of everything before", async () => {
       const a = await device("ws-a", { user: () => "user-1", documents: { f1: written(...PLAIN) } });
       await a.store.reviewNow("ws-a");

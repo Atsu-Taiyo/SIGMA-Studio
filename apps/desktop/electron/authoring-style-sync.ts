@@ -69,6 +69,11 @@ interface Learned {
 }
 export interface WorkspaceBundle extends Learned {
   version: 1; kind: "workspace"; locale: AppLocale; note: string; settings: Settings; ledger: string[]; updatedAt: string; device: string;
+  /**
+   * Names this copy from the moment it was first written. Another name under the same key is another copy
+   * (written after this one was lost), with no history in common: it is met as for the first time.
+   */
+  copy: string;
 }
 export interface GlobalBundle { version: 1; kind: "global"; note: string; settings: Settings; provider: string | null; updatedAt: string; device: string }
 
@@ -101,7 +106,7 @@ export function parseBundle(value: unknown, kind: "workspace" | "global"): Works
       support: count(item.support), documents: count(item.documents), firstSeenAt: item.firstSeenAt, lastConfirmedAt: item.lastConfirmedAt,
       devices: strings(item.devices, 20, 64).sort(),
     }));
-  return { ...common, kind, locale: value.locale === "en" ? "en" : "ja", generation: count(value.generation), items,
+  return { ...common, kind, copy: text(value.copy, 64) ? value.copy : "", locale: value.locale === "en" ? "en" : "ja", generation: count(value.generation), items,
     suppressed: strings(value.suppressed, MAX_SUPPRESSED, 200), dismissed: strings(value.dismissed, 60, 500), declined: strings(value.declined, 30, 200),
     ledger: strings(value.ledger, MAX_SYNCED_LEDGER_LINES, MAX_LEDGER_LINE), opaque };
 }
@@ -244,7 +249,7 @@ export function mergeWorkspace(base: WorkspaceBundle | null, local: WorkspaceBun
   const resetMeanwhile = mode === "link" && Boolean(base) && remote.generation > base!.generation;
   const replaced = resetMeanwhile || (mode === "merge" && local.generation !== remote.generation);
   return {
-    ...local, ...mergeLearned(was, local, remote, mode),
+    ...local, copy: remote.copy, ...mergeLearned(was, local, remote, mode),
     note: mergeNote(was?.note, local.note, remote.note),
     settings: mergeSettings(was?.settings, local.settings, remote.settings),
     // A reset empties the ledger too.
@@ -617,7 +622,7 @@ export class AuthoringStyleSync {
     const mine = new Set(memory.items.map(identity));
     const carried = (base?.items ?? []).filter(item => !mine.has(identity(item)) && !this.usable(item, memory.locale) && !memory.suppressed.includes(item.key ?? ""));
     return {
-      version: 1, kind: "workspace", locale: memory.locale, generation,
+      version: 1, kind: "workspace", copy: base?.copy ?? "", locale: memory.locale, generation,
       items: [...memory.items.map(item => this.synced(item, state.device)), ...carried], opaque: base?.opaque ?? [],
       suppressed: memory.suppressed, dismissed: memory.dismissed, declined: memory.declined,
       note: (await this.host.memory.readNote(workspaceId)).content, settings: await this.host.memory.settingsOf(workspaceId),
@@ -760,7 +765,10 @@ export class AuthoringStyleSync {
         // A workspace's copy is not this account's to delete. Should it be gone all the same, these files meet
         // whatever comes next as for the first time. What was agreed before is set aside (`carry`) until a copy
         // is back on the server.
-        const lost = workspaceId !== null && remote.revision === null && Boolean(known?.revision);
+        const before = known?.base as WorkspaceBundle | null | undefined;
+        // Another copy under the same key: the one agreed on before was lost and written anew by someone without its history.
+        const replaced = workspaceId !== null && Boolean(theirs && before?.kind === "workspace" && before.copy && (theirs as WorkspaceBundle).copy && before.copy !== (theirs as WorkspaceBundle).copy);
+        const lost = workspaceId !== null && ((remote.revision === null && Boolean(known?.revision)) || replaced);
         if (remote.revision === null && known?.revision && !lost) {
           // The account's copy was deleted from another device. Do not put it back: stop syncing here too.
           this.cancel();
@@ -804,6 +812,8 @@ export class AuthoringStyleSync {
         // before these files ever met the workspace's copy erased what was here, not what the others share.
         const mode: MergeMode = !linking ? "merge" : state.resets[workspaceId] && base && !readOnly ? "reset" : "link";
         const result = mergeWorkspace(base as WorkspaceBundle | null, local, theirs as WorkspaceBundle | null, mode);
+        // The first to write a copy names it.
+        if (!theirs) result.copy = randomUUID();
         // Everything is checked before anything on this device changes: a merge that does not fit changes nothing.
         if (result.items.length > MAX_SYNCED_ITEMS || result.suppressed.length > MAX_SUPPRESSED || Buffer.byteLength(JSON.stringify(result)) > MAX_BUNDLE_BYTES) throw new SyncProblem("limit");
         // Reset on another device: what this device collected before the reset goes as well.
