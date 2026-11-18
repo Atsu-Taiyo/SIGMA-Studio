@@ -233,7 +233,8 @@ function mergeLearned(base: Learned | undefined, local: Learned, remote: Learned
     // A removal always wins: no device learns again, or keeps, what its author took out.
     items: mergeItems(was?.items, local.items, remote.items)
       .filter(item => item.origin !== "auto" || !item.key || (!suppressed.includes(item.key) && !(item.basis === "summary" && declined.includes(item.text)))),
-    opaque: remote.opaque,
+    // With no history in common (a copy that replaced a lost one), what this device carried for others is kept next to theirs.
+    opaque: was ? remote.opaque : [...new Map([...remote.opaque, ...local.opaque].map(entry => [JSON.stringify(entry), entry])).values()].slice(0, MAX_OPAQUE_ITEMS),
   };
 }
 

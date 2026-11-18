@@ -844,6 +844,10 @@ describe("account sync of the learned writing style", () => {
       await a.store.reviewNow("ws-a");
       await a.store.saveProfile({ workspaceId: "ws-a", content: "Aのメモ。", expectedRevision: (await a.store.getProfile("ws-a")).revision });
       await a.store.syncNow(null);
+      // The copy also held an entry of a newer version's, which this device carries without reading it.
+      const stored = cloud.workspaces.get(workspaceKey(SHARED_MATH))!;
+      cloud.workspaces.set(workspaceKey(SHARED_MATH), { revision: "newer", content: { ...(stored.content as object), opaque: [{ id: "x", shape: "from a newer version" }] } });
+      await a.store.syncNow(null);
       cloud.workspaces.clear();
       cloud.state.beforeWrite = () => { throw new Error("fetch failed"); };
       await a.store.syncNow(null);
@@ -856,6 +860,7 @@ describe("account sync of the learned writing style", () => {
       expect(profile.generatedContent).toContain(PLAIN_MEMO);
       for (const line of ["Aのメモ。", "Bのメモ。"]) expect(profile.userContent).toContain(line);
       expect(JSON.stringify(workspaceCopy().content)).toContain(PLAIN_MEMO);
+      expect(JSON.stringify(workspaceCopy().content)).toContain("from a newer version");
     });
   });
 });
