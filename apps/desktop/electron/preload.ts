@@ -190,6 +190,11 @@ const desktopAPI = {
     setUiLocale(value: string): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("settings:set-ui-locale", value);
     },
+    onSynced(handler: () => void): () => void {
+      const listener = () => handler();
+      ipcRenderer.on("settings:synced", listener);
+      return () => ipcRenderer.removeListener("settings:synced", listener);
+    },
     onAiSettingsChanged(handler: () => void): () => void {
       const listener = () => handler();
       ipcRenderer.on("ai-settings:changed", listener);

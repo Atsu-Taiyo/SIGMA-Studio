@@ -14,7 +14,7 @@ import { itemText, memoLabels, SECTION_ORDER } from "./authoring-style-items";
 import { AuthoringStyleMemory, atomicStyleWrite, renderMemo, type StyleMemory } from "./authoring-style-memory";
 import { planReview, planSummary } from "./authoring-style-review";
 import { isSuspicious, scanLines } from "./authoring-style-scan";
-import { AuthoringStyleSync, type SyncAccount } from "./authoring-style-sync";
+import { AuthoringStyleSync, type SyncAccount, type SyncedPart } from "./authoring-style-sync";
 import { buildSummaryPrompt, isSummaryText, parseSummaryReply, type SummaryInput } from "./authoring-style-summary";
 import type { AiEditProvider } from "./ai-edit-provider";
 import { acquireFileLock } from "./file-lock";
@@ -93,10 +93,12 @@ export interface AuthoringStyleStoreOptions {
    * Without it the review only counts habits on this device.
    */
   summarize?: (request: { provider: AiEditProvider; prompt: string }) => Promise<string>;
-  /** Personal workspaces, for account sync. */
-  listWorkspaces?: () => Promise<{ id: string; name: string }[]>;
+  /** Shared workspaces with the key the account keeps each under, for account sync. Others stay on this device. */
+  listWorkspaces?: () => Promise<{ id: string; key: string }[]>;
   /** The signed-in account's store on the collaboration server. Without it nothing is synced. */
   sync?: SyncAccount;
+  /** Other personal settings kept in step under the same switch. */
+  syncParts?: readonly SyncedPart[];
   now?: () => Date;
   /** Quiet time after the last save before a due review starts. Null never starts one automatically. */
   reviewIdleMs?: number | null;
@@ -142,7 +144,7 @@ export class LocalAuthoringStyleStore {
     this.memory = new AuthoringStyleMemory(this.root);
     this.sync = new AuthoringStyleSync({
       root: this.root, memory: this.memory, exclusive: run => this.exclusive(run), now: () => this.now(), locale: () => getAppLocale(),
-      workspaces: async () => await options.listWorkspaces?.() ?? [],
+      workspaces: async () => await options.listWorkspaces?.() ?? [], parts: options.syncParts,
       provider: () => this.lastProvider(),
       setProvider: async provider => { this.provider = provider as AiEditProvider; await atomicStyleWrite(this.providerPath, JSON.stringify({ provider })); },
       forget: workspaceId => this.forget(workspaceId),
@@ -646,6 +648,7 @@ export class LocalAuthoringStyleStore {
 
   async getProfile(workspaceId: string | null): Promise<AuthoringStyleProfile> {
     await this.flush();
+    await this.sync.knowPlan();
     this.sync.refresh();
     return this.exclusive(() => this.profile(workspaceId));
   }
@@ -691,7 +694,7 @@ export class LocalAuthoringStyleStore {
       // Counted with the lines the scan holds back: an added sentence that no longer passes the check for one.
       blockedLines: scanLines(note.content).blocked + scanLines(generatedContent).blocked
         + (memory?.items ?? []).filter(i => i.origin === "auto" && i.key && !isSuspicious(i.text) && !itemText(i.key, i.value, memory!.locale)).length,
-      sync: await this.sync.view(),
+      sync: await this.sync.view(workspaceId),
     };
   }
 

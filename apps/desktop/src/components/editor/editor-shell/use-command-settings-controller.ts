@@ -22,7 +22,7 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
     }
 
     let canceled = false;
-    void bridge.settings.get().then((settings) => {
+    const load = () => void bridge.settings!.get().then((settings) => {
       if (canceled) {
         return;
       }
@@ -47,9 +47,13 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
         setCommandSettingsError(tEditor("status.shortcutsLoadFailed"));
       }
     });
+    load();
+    // アカウントの同期でほかの端末の設定が入ったら、同じ手順で読み直す。
+    const stop = bridge.settings.onSynced?.(load);
 
     return () => {
       canceled = true;
+      stop?.();
     };
   }, []);
 

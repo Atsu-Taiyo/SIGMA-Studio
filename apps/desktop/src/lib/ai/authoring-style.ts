@@ -38,12 +38,17 @@ export interface AuthoringStyleSyncView {
   /** The app was built with a collaboration server. */
   available: boolean;
   signedIn: boolean;
+  /** Whether the signed-in account's plan includes sync. Null until the server has been asked. */
+  pro: boolean | null;
   enabled: boolean;
   /**
    * `other-account`: these files were merged with a different account and wait for the user's decision.
    * `limit`: merging would exceed the memo limit, so nothing was changed. `unavailable`: the server does not offer it.
+   * `pro-required`: the account's plan does not include sync, so nothing is sent.
    */
-  state: "off" | "signed-out" | "other-account" | "unavailable" | "limit" | "error" | "ok";
+  state: "off" | "signed-out" | "pro-required" | "other-account" | "unavailable" | "limit" | "error" | "ok";
+  /** What the page being shown is: the account's own, a shared workspace's (synced), or a workspace kept on this device. */
+  scope: "account" | "shared" | "device";
   lastSyncedAt: string | null;
 }
 

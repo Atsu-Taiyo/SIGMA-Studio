@@ -131,6 +131,8 @@ export interface DesktopSettingsAPI {
   /** MCPの update_ai_settings tool等、他プロセス(MCPサーバー)からsettings.jsonが書き換えられた
    * ときにmainがfs.watch経由で検知して通知する。開いている設定画面の値を再取得させる用途。 */
   onAiSettingsChanged?(handler: () => void): () => void;
+  /** アカウントの同期で、ほかの端末の表示言語・ショートカットが settings.json に入ったとき。開いている画面に読み直させる。 */
+  onSynced?(handler: () => void): () => void;
 }
 
 export interface DesktopCustomFont {

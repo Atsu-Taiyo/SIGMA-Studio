@@ -8,7 +8,7 @@ import type { AuthoringStyleAPI, AuthoringStyleProfile } from "@/lib/ai/authorin
 const base: AuthoringStyleProfile = { workspaceId: null, enabled: true, aiSummary: true, aiSummaryProvider: null, userContent: "画面にあるメモ", userPath: "/user.md", revision: "original",
   generatedContent: "", generatedPath: "", generatedRevision: "", exampleCount: 1, items: [], pending: [], usage: { characters: 0, limit: 3000 },
   outcomes: { kept: 0, edited: 0, reverted: 0, rejected: 0 }, lastReviewedAt: null, reviewedDocuments: 0, lastUpdate: null, canUndo: false, blockedLines: 0,
-  sync: { available: true, signedIn: true, enabled: false, state: "off", lastSyncedAt: null } };
+  sync: { available: true, signedIn: true, pro: true, scope: "account", enabled: false, state: "off", lastSyncedAt: null } };
 
 function mount(api: AuthoringStyleAPI, workspaceId: string | null) {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -94,7 +94,7 @@ it("keeps an unsaved manual note when only the learned memo is saved", async () 
 });
 
 it("offers account sync only on the global page, says what state it is in, and asks before deleting the server's copy", async () => {
-  const synced: AuthoringStyleProfile = { ...base, sync: { available: true, signedIn: true, enabled: true, state: "other-account", lastSyncedAt: null } };
+  const synced: AuthoringStyleProfile = { ...base, sync: { ...base.sync, enabled: true, state: "other-account" } };
   const relinkSync = vi.fn<AuthoringStyleAPI["relinkSync"]>().mockResolvedValue({ ...synced, sync: { ...synced.sync, state: "ok" } });
   const deleteSynced = vi.fn<AuthoringStyleAPI["deleteSynced"]>().mockResolvedValue(base);
   const view = mount(fakeApi({ relinkSync, deleteSynced }, synced), null);
@@ -125,4 +125,29 @@ it("offers account sync only on the global page, says what state it is in, and a
     await unavailable.render();
     expect(unavailable.host.textContent).not.toContain("書き方をアカウントで同期する");
   } finally { await unavailable.unmount(); }
+});
+
+it("shows that sync is for Pro and cannot be turned on without it, while the rest of the page keeps working", async () => {
+  const free: AuthoringStyleProfile = { ...base, sync: { ...base.sync, pro: false, enabled: false, state: "pro-required" } };
+  const view = mount(fakeApi({}, free), null);
+  try {
+    await view.render();
+    expect(view.host.textContent).toContain("アカウントで同期する（Pro）");
+    expect(view.host.textContent).toContain("同期は Pro プランの機能です。");
+    const toggle = [...view.host.querySelectorAll<HTMLButtonElement | HTMLInputElement>("button[role=switch], input[type=checkbox]")].find(el => el.getAttribute("aria-label") === "アカウントで同期する（Pro）" || el.closest("label")?.textContent?.includes("アカウントで同期する（Pro）"))!;
+    expect(toggle.disabled).toBe(true);
+    expect(view.host.querySelector<HTMLTextAreaElement>("#authoring-style-note")!.disabled).toBe(false);
+  } finally { await view.unmount(); }
+});
+
+it("says on a workspace's page whether that workspace is synced or stays on this device", async () => {
+  for (const [scope, text] of [["shared", "共有されているので"], ["device", "この端末だけに保存されます"]] as const) {
+    const view = mount(fakeApi({}, { ...base, workspaceId: "ws1", sync: { ...base.sync, scope } }), "ws1");
+    try {
+      await view.render();
+      expect(view.host.textContent).toContain(text);
+      // The switch itself is on the account's page only.
+      expect(view.host.textContent).not.toContain("アカウントで同期する（Pro）");
+    } finally { await view.unmount(); }
+  }
 });

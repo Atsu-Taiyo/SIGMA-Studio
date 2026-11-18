@@ -9,11 +9,12 @@ import { isSuspicious } from "./authoring-style-scan";
 import { atomicStyleWrite, renderMemo, type AuthoringStyleMemory, type LedgerDraft, type StyleItem, type StyleMemory } from "./authoring-style-memory";
 
 /**
- * Keeps the learned memo, the notes and the learning settings the same on every
- * device of one account. The files on this device stay the source of truth: sync
- * merges a copy held by the collaboration server into them and sends the result
- * back. Document text, correction examples and the record of AI-written blocks
- * never leave the device.
+ * Keeps the author's own note, the learning settings, the writing style of shared
+ * workspaces and (through `SyncedPart`) other personal settings the same on every
+ * device of one Pro account. A workspace that is not shared stays on its device.
+ * The files on this device stay the source of truth: sync merges a copy held by
+ * the collaboration server into them and sends the result back. Document text,
+ * correction examples and the record of AI-written blocks never leave the device.
  */
 
 /** The server's per-user store, reached with the signed-in account's token. */
@@ -267,8 +268,25 @@ function comparable(bundle: WorkspaceBundle | GlobalBundle): string {
     sorted(bundle.declined), sorted(bundle.ledger), bundle.opaque.map(entry => JSON.stringify(entry)).sort()]);
 }
 
+/**
+ * Something else of the account's that is synced under the same switch, account and plan: the app's own settings.
+ * `read` and `apply` run under the style lock.
+ */
+export interface SyncedPart<T = unknown> {
+  key: string;
+  /** Null for a copy this version cannot read. Such a copy is neither merged nor overwritten. */
+  parse(value: unknown): T | null;
+  read(): Promise<T>;
+  merge(base: T | null, local: T, remote: T): T;
+  apply(next: T, previous: T): Promise<void>;
+  /** Equal as far as other devices are concerned. */
+  comparable(value: T): string;
+  /** Nothing worth storing while the account holds no copy yet. */
+  empty(value: T): boolean;
+}
+
 interface ScopeState {
-  revision: string | null; base: WorkspaceBundle | GlobalBundle | null; syncedAt: string | null;
+  revision: string | null; base: unknown; syncedAt: string | null;
   /** Switches the account has on and this device keeps off until its user turns them on here. */
   held?: { enabled?: boolean; aiSummary?: boolean };
   /** The first merge with the account's copy has begun and is not yet agreed. */
@@ -281,7 +299,7 @@ interface SyncState {
   device: string;
   /** Hash of the account these files were last merged with. */
   account: string | null;
-  /** The server key each local workspace syncs under. Workspace ids differ from device to device. */
+  /** The server key each shared workspace on this device syncs under: the id the server knows it by. */
   keys: Record<string, string>;
   generations: Record<string, number>;
   /** Workspaces reset on this device before their first merge with the account. The reset is to stand. */
@@ -298,8 +316,9 @@ export interface SyncHost {
   exclusive<T>(run: () => Promise<T>): Promise<T>;
   now(): Date;
   locale(): AppLocale;
-  /** Personal workspaces on this device. Shared ones are never learned from, so never synced. */
-  workspaces(): Promise<{ id: string; name: string }[]>;
+  /** Shared workspaces on this device, each with the key the account keeps it under. One that is not shared is never synced. */
+  workspaces(): Promise<{ id: string; key: string }[]>;
+  parts?: readonly SyncedPart[];
   provider(): Promise<string | null>;
   setProvider(provider: string): Promise<void>;
   /** Caller holds the lock. Drop this device's evidence for a workspace that was reset on another device. */
@@ -307,9 +326,17 @@ export interface SyncHost {
   log(error: unknown): void;
 }
 
-export interface SyncAccount { client: PersonalDataPort; userId(): string | null; /** False when the app was built without a server. */ available?(): boolean }
+export interface SyncAccount {
+  client: PersonalDataPort; userId(): string | null;
+  /** False when the app was built without a server. */
+  available?(): boolean;
+  /** Whether the signed-in account's plan includes sync. Asked of the server, which refuses the others anyway. */
+  entitled?(): Promise<boolean>;
+}
 
 class SyncProblem extends Error { constructor(readonly state: NonNullable<SyncState["problem"]>) { super(state); } }
+const WORKSPACE_KEY = /^style-ws-[a-z0-9][a-z0-9-]{0,59}$/;
+const ENTITLEMENT_WAIT_MS = 1500;
 /** The run was overtaken: sync was turned off, the copy was deleted, or another account signed in. */
 class Cancelled extends Error {}
 
@@ -325,6 +352,27 @@ export class AuthoringStyleSync {
   private epoch = 0;
   /** Aborts the requests of a run that must not go on. */
   private controller = new AbortController();
+  /** What the server last said about the signed-in account's plan. Unknown until asked. */
+  private known: { userId: string; entitled: boolean } | null = null;
+
+  private entitled(userId: string | null): boolean | null {
+    return userId && this.known?.userId === userId ? this.known.entitled : null;
+  }
+
+  private async askPlan(userId: string): Promise<boolean> {
+    const entitled = await this.account?.entitled?.() ?? true;
+    if (this.account?.userId() === userId) this.known = { userId, entitled };
+    return entitled;
+  }
+
+  /** Learn the account's plan before the pane is first shown, without making it wait for a slow network. */
+  async knowPlan(): Promise<void> {
+    const userId = this.account?.userId() ?? null;
+    if (!userId || this.entitled(userId) !== null) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([this.askPlan(userId).catch(() => {}), new Promise(resolve => { timer = setTimeout(resolve, ENTITLEMENT_WAIT_MS); })]);
+    clearTimeout(timer);
+  }
 
   private cancel(): void {
     this.epoch++;
@@ -343,7 +391,8 @@ export class AuthoringStyleSync {
     const record = <T>(input: unknown, valid: (entry: unknown) => entry is T): Record<string, T> =>
       isRecord(input) ? Object.fromEntries(Object.entries(input).filter((entry): entry is [string, T] => valid(entry[1])).slice(0, 500)) : {};
     return {
-      version: 1, enabled: value.enabled === true, device: text(value.device, 64) && value.device ? value.device : randomUUID(),
+      // On unless turned off: a Pro account's devices agree without being set up one by one.
+      version: 1, enabled: value.enabled !== false, device: text(value.device, 64) && value.device ? value.device : randomUUID(),
       account: text(value.account, 64) ? value.account : null,
       keys: record(value.keys, (entry): entry is string => text(entry, 80)),
       generations: record(value.generations, (entry): entry is number => Number.isSafeInteger(entry)),
@@ -357,13 +406,16 @@ export class AuthoringStyleSync {
   private write(state: SyncState): Promise<void> { return atomicStyleWrite(this.file, JSON.stringify(state)); }
 
   /** Caller holds the style lock. */
-  async view(): Promise<AuthoringStyleSyncView> {
+  async view(workspaceId: string | null = null): Promise<AuthoringStyleSyncView> {
     const state = await this.state();
+    const scope = workspaceId === null ? "account" : (await this.host.workspaces()).some(w => w.id === workspaceId && WORKSPACE_KEY.test(w.key)) ? "shared" : "device";
     const userId = this.account?.userId() ?? null;
     const available = Boolean(this.account) && this.account!.available?.() !== false;
-    const status: AuthoringStyleSyncView["state"] = !available ? "unavailable" : !state.enabled ? "off" : !userId ? "signed-out"
-      : state.account && state.account !== hash(userId) ? "other-account" : state.problem ?? "ok";
-    return { available, signedIn: Boolean(userId), enabled: state.enabled, state: status, lastSyncedAt: state.lastSyncedAt };
+    const pro = this.entitled(userId);
+    const status: AuthoringStyleSyncView["state"] = !available ? "unavailable" : !userId ? (state.enabled ? "signed-out" : "off")
+      : pro === false || (pro === null && state.problem === "pro-required") ? "pro-required" : !state.enabled ? "off"
+      : state.account && state.account !== hash(userId) ? "other-account" : state.problem === "pro-required" ? "ok" : state.problem ?? "ok";
+    return { available, signedIn: Boolean(userId), pro, scope, enabled: state.enabled, state: status, lastSyncedAt: state.lastSyncedAt };
   }
 
   /** Caller holds the style lock. Turning sync on for the first time links these files to the signed-in account. */
@@ -387,7 +439,9 @@ export class AuthoringStyleSync {
   /** Caller holds the style lock. A reset must not be undone by another device's older copy. */
   async noteReset(workspaceId: string | null): Promise<void> {
     const state = await this.state();
-    const ids = workspaceId === null ? [...new Set([...Object.keys(state.keys), ...(await this.host.workspaces()).map(w => w.id)])] : [workspaceId];
+    // A workspace that is not shared has nothing on the account to reset.
+    const synced = new Set([...Object.keys(state.keys), ...(await this.host.workspaces()).map(w => w.id)]);
+    const ids = workspaceId === null ? [...synced] : synced.has(workspaceId) ? [workspaceId] : [];
     for (const id of ids) {
       state.generations[id] = (state.generations[id] ?? 0) + 1;
       // With nothing agreed yet there is no history to compare: remember that the reset is to stand.
@@ -441,8 +495,12 @@ export class AuthoringStyleSync {
     const signal = this.controller.signal;
     this.running = this.sync().catch(async error => {
       if (error instanceof Cancelled || signal.aborted) return;
-      const problem = error instanceof SyncProblem ? error.state : (error as { status?: number })?.status === 404 ? "unavailable" : "error";
-      if (!(error instanceof SyncProblem)) this.host.log(error);
+      const status = (error as { status?: number })?.status;
+      // The server is the judge of the plan: a refusal there stands whatever was known here.
+      const userId = this.account?.userId() ?? null;
+      if (status === 403 && userId) this.known = { userId, entitled: false };
+      const problem = error instanceof SyncProblem ? error.state : status === 403 ? "pro-required" : status === 404 ? "unavailable" : "error";
+      if (!(error instanceof SyncProblem) && status !== 403) this.host.log(error);
       await this.host.exclusive(async () => this.write({ ...await this.state(), problem })).catch(() => {});
     }).finally(() => {
       this.running = null;
@@ -478,21 +536,19 @@ export class AuthoringStyleSync {
     const run: Run = { userId, epoch: this.epoch, signal: this.controller.signal };
     const start = await this.host.exclusive(() => this.state());
     if (!start.enabled || (start.account && start.account !== hash(userId))) return;
+    // Nothing is sent, or asked for, on an account whose plan does not include sync.
+    if (!await this.askPlan(userId)) throw new SyncProblem("pro-required");
+    this.alive(run);
     await this.scope(GLOBAL_KEY, null, run);
-    const workspaces = await this.host.workspaces();
+    for (const part of this.host.parts ?? []) await this.part(part, run);
+    // A shared workspace is the same one on every device: the server's id for it is the key.
+    const seen = new Set<string>();
+    const workspaces = (await this.host.workspaces()).filter(w => WORKSPACE_KEY.test(w.key) && !seen.has(w.key) && Boolean(seen.add(w.key)));
     const keys = await this.host.exclusive(async () => {
       const state = await this.current(run);
-      const taken = new Set(Object.entries(state.keys).filter(([id]) => workspaces.some(w => w.id === id)).map(([, key]) => key));
-      for (const workspace of workspaces) {
-        if (state.keys[workspace.id]) continue;
-        // The same name on two devices is the same workspace. The name itself is not sent.
-        const named = `style-ws-${hash(`workspace\n${workspace.name.normalize("NFKC").trim().toLowerCase()}`).slice(0, 32)}`;
-        const key = taken.has(named) ? `style-ws-${hash(`workspace\n${state.device}\n${workspace.id}`).slice(0, 32)}` : named;
-        state.keys[workspace.id] = key;
-        taken.add(key);
-      }
-      await this.write({ ...state, account: state.account ?? hash(userId) });
-      return state.keys;
+      const keys = { ...state.keys, ...Object.fromEntries(workspaces.map(w => [w.id, w.key])) };
+      await this.write({ ...state, keys, account: state.account ?? hash(userId) });
+      return keys;
     });
     let limited = false;
     for (const workspace of workspaces) {
@@ -516,7 +572,7 @@ export class AuthoringStyleSync {
     // Sending only part of a memo would read, on the other side, as the rest having been deleted.
     if (memory.items.length > MAX_SYNCED_ITEMS) throw new SyncProblem("limit");
     const generation = state.generations[workspaceId] ?? 0;
-    const known = state.scopes[key]?.base;
+    const known = state.scopes[key]?.base as WorkspaceBundle | GlobalBundle | null | undefined;
     // What this device could not use came from another one. It is carried along untouched, unless a reset erased it.
     const base = known?.kind === "workspace" && known.generation === generation ? known : null;
     const mine = new Set(memory.items.map(identity));
@@ -606,6 +662,48 @@ export class AuthoringStyleSync {
       provider: await this.host.provider(), updatedAt: this.host.now().toISOString(), device: state.device };
   }
 
+  /** As `scope`, for a part that brings its own reading, merging and applying. */
+  private async part(part: SyncedPart, run: Run): Promise<void> {
+    const client = this.account!.client;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      this.alive(run);
+      const remote = await client.read(run.userId, part.key, run.signal);
+      const theirs = remote.revision === null ? null : part.parse(remote.content);
+      if (remote.revision !== null && theirs === null) return;
+      const merged = await this.host.exclusive(async () => {
+        const state = await this.current(run);
+        const known = state.scopes[part.key];
+        if (remote.revision === null && known?.revision) {
+          this.cancel();
+          await this.write({ ...state, enabled: false, scopes: {}, resets: {}, problem: null });
+          throw new Cancelled();
+        }
+        const base = known?.base === undefined || known.base === null ? null : part.parse(known.base);
+        const local = await part.read();
+        const result = theirs === null ? local : part.merge(base, local, theirs);
+        if (Buffer.byteLength(JSON.stringify(result)) > MAX_BUNDLE_BYTES) throw new SyncProblem("limit");
+        if (part.comparable(result) !== part.comparable(local)) await part.apply(result, local);
+        // As in `scope`: what came from the server is on record before the upload can fail.
+        const latest = await this.state();
+        await this.write({ ...latest, scopes: { ...latest.scopes, [part.key]: { revision: remote.revision, base: theirs, syncedAt: known?.syncedAt ?? null } } });
+        return result;
+      });
+      let revision = remote.revision;
+      if (theirs === null ? !part.empty(merged) : part.comparable(merged) !== part.comparable(theirs)) {
+        this.alive(run);
+        const written = await client.write(run.userId, part.key, merged, remote.revision, run.signal);
+        if (written === "conflict") continue;
+        revision = written.revision;
+      }
+      await this.host.exclusive(async () => {
+        const state = await this.current(run);
+        await this.write({ ...state, scopes: { ...state.scopes, [part.key]: { revision, base: revision === null ? null : merged, syncedAt: this.host.now().toISOString() } } });
+      });
+      return;
+    }
+    throw new Error("Settings sync kept conflicting");
+  }
+
   /** One key: read the server's copy, merge it into this device under the lock, send the result, remember what was agreed. */
   private async scope(key: string, workspaceId: string | null, run: Run): Promise<void> {
     const client = this.account!.client;
@@ -626,7 +724,8 @@ export class AuthoringStyleSync {
           throw new Cancelled();
         }
         // Until the first merge with the account's copy is agreed there is no shared history to merge against.
-        const base = known?.base?.kind === kind ? known.base : null;
+        const agreed = known?.base as WorkspaceBundle | GlobalBundle | null | undefined;
+        const base = agreed?.kind === kind ? agreed : null;
         const linking = !base || Boolean(known?.linking);
         const held = (local: Settings): Settings => ({ enabled: local.enabled || Boolean(known?.held?.enabled), aiSummary: local.aiSummary || Boolean(known?.held?.aiSummary) });
         // What was merged in is on record before anything else can fail: a retry then tells what came from

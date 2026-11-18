@@ -52,6 +52,7 @@ import {
 } from "./desktop-settings";
 import { AUTO_APPLY_DEFER_MS, shouldDeferAutoApply } from "./auto-apply-defer";
 import { LocalSigmaDocStore, type LocalStoreChangeEvent } from "./local-sigma-doc-store";
+import { appSettingsPart } from "./app-settings-sync";
 import { LocalAuthoringStyleStore } from "./authoring-style-store";
 import { LocalMaterialStore } from "./local-material-store";
 import { LocalTemplateStore } from "./local-template-store";
@@ -197,14 +198,29 @@ let stopLocalProposalWatch: (() => void) | null = null;
 let stopAiResourceWatch: (() => void) | null = null;
 let stopAiSettingsWatch: (() => void) | null = null;
 const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH, {
-  listFiles: () => localSigmaDocStore.listFiles(),
+  // A document bound to a shared one is a stand-in for it: what it holds is not this author's writing alone.
+  listFiles: async () => {
+    const bound = new Set(collaborationSessions.bindings().map(binding => binding.fileId));
+    return (await localSigmaDocStore.listFiles()).filter(file => !bound.has(file.fileId));
+  },
   loadDocument: fileId => localSigmaDocStore.loadDocument(fileId),
-  listWorkspaces: async () => (await localSigmaDocStore.getLocalLibrarySnapshot()).workspaces
-    .filter(workspace => !workspace.sharing && !workspace.sharingPending).map(({ id, name }) => ({ id, name })),
-  // Keeps the learned habits in step across the account's devices, once the user turns that on.
+  // Only shared workspaces are synced, each under the id the server knows it by. The others stay on this device.
+  listWorkspaces: async () => {
+    const result = await sharedCatalog.overview();
+    return result.state !== "ready" ? [] : result.overview.workspaces.flatMap(({ id, sharing }) => sharing?.state === "active" && sharing.target.kind === "workspace"
+      ? [{ id, key: `style-ws-${sharing.target.catalogNodeId.toLowerCase()}` }] : []);
+  },
+  // Keeps the author's note, the settings and shared workspaces' styles in step across a Pro account's devices.
   sync: { client: { read: (userId, key, signal) => collaborationSessions.personalData.read(userId, key, signal),
     write: (userId, key, content, revision, signal) => collaborationSessions.personalData.write(userId, key, content, revision, signal),
-    removeAll: userId => collaborationSessions.personalData.removeAll(userId) }, userId: () => collaborationSessions.actorId(), available: () => Boolean(collaborationSessions.auth) },
+    removeAll: userId => collaborationSessions.personalData.removeAll(userId) }, userId: () => collaborationSessions.actorId(), available: () => Boolean(collaborationSessions.auth),
+    // The same answer the sharing limits and the plan dialog go by. A trial has what Pro has.
+    entitled: async () => ["pro", "trial"].includes((await collaborationSessions.request<{ plan?: string }>("/catalog/capabilities")).plan ?? "") },
+  syncParts: [appSettingsPart(() => SIGMA_STUDIO_DATA_PATH, change => {
+    if (change.uiLocale) { setAppLocale(change.uiLocale); codexAppServerClient.setUiLocale(change.uiLocale); }
+    if (change.aiWebSearchEnabled !== undefined) codexAppServerClient.setWebSearchEnabled(change.aiWebSearchEnabled);
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send("settings:synced");
+  })],
   // The same tool-less single call the skill editor uses, to the provider the author already uses.
   summarize: ({ provider, prompt }) => runToollessPrompt(provider, prompt,
     { claude: claudeStreamClient, geminiSkillDraft: geminiSkillDraftClient, codex: codexAppServerClient }, `authoring-style-${crypto.randomUUID()}`, 90_000),
@@ -1570,6 +1586,8 @@ function startAiSettingsWatch(): void {
     const settings = readDesktopSettingsSync(SIGMA_STUDIO_DATA_PATH);
     codexAppServerClient.setWebSearchEnabled(isAiWebSearchEnabled(settings));
     scheduleAutoApplyCheck();
+    // The language and the shortcuts live in this file too: send a change on to the account's other devices.
+    localAuthoringStyleStore.sync.soon();
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send("ai-settings:changed");
     }

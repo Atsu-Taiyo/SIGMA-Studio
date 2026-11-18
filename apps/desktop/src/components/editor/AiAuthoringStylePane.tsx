@@ -60,18 +60,19 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
         </SettingsField>
         {!workspaceId && profile.sync.available && <Stack gap="xs">
           <SettingsField label={t("authoringStyle.sync")} description={t("authoringStyle.syncDescription")}>
-            <Switch label={t("authoringStyle.sync")} checked={profile.sync.enabled} disabled={busy || (!profile.sync.enabled && !profile.sync.signedIn)} onCheckedChange={enabled => void run(() => api.setSync(workspaceId, enabled), "all")} />
+            <Switch label={t("authoringStyle.sync")} checked={profile.sync.enabled} disabled={busy || (!profile.sync.enabled && (!profile.sync.signedIn || profile.sync.pro === false))} onCheckedChange={enabled => void run(() => api.setSync(workspaceId, enabled), "all")} />
           </SettingsField>
           <SettingsStatus tone={["error", "limit", "other-account"].includes(profile.sync.state) ? "error" : undefined}>
-            {t(`authoringStyle.syncState.${profile.sync.state}`)}{profile.sync.enabled && profile.sync.lastSyncedAt ? ` ${t("authoringStyle.syncedAt", { at: new Date(profile.sync.lastSyncedAt).toLocaleString() })}` : ""}
+            {t(`authoringStyle.syncState.${profile.sync.state}`)}{profile.sync.enabled && profile.sync.pro !== false && profile.sync.lastSyncedAt ? ` ${t("authoringStyle.syncedAt", { at: new Date(profile.sync.lastSyncedAt).toLocaleString() })}` : ""}
           </SettingsStatus>
           {profile.sync.enabled && <div className="ai-settings-actions">
             {profile.sync.state === "other-account"
               ? <Button size="sm" disabled={busy || dirty} onClick={() => void run(() => api.relinkSync(workspaceId), "all")}>{t("authoringStyle.syncRelink")}</Button>
-              : <Button tone="ghost" size="sm" disabled={busy || dirty || !profile.sync.signedIn} onClick={() => void run(() => api.syncNow(workspaceId), "all")}>{t("authoringStyle.syncNow")}</Button>}
+              : <Button tone="ghost" size="sm" disabled={busy || dirty || !profile.sync.signedIn || profile.sync.pro === false} onClick={() => void run(() => api.syncNow(workspaceId), "all")}>{t("authoringStyle.syncNow")}</Button>}
             <Button tone="ghost" size="sm" disabled={busy || !profile.sync.signedIn || profile.sync.state === "other-account"} onClick={() => setConfirmDelete(true)}>{t("authoringStyle.syncDelete")}</Button>
           </div>}
         </Stack>}
+        {workspaceId && profile.sync.available && profile.sync.scope !== "account" && <SettingsStatus>{t(`authoringStyle.syncScope.${profile.sync.scope}`)}</SettingsStatus>}
         <SettingsStatus>{t("authoringStyle.count", { count: profile.exampleCount })} / {t("authoringStyle.outcomes", { ...profile.outcomes })}</SettingsStatus>
         {profile.blockedLines > 0 && <SettingsStatus tone="error">{t("authoringStyle.blocked", { count: profile.blockedLines })}</SettingsStatus>}
         <Stack gap="xs">
