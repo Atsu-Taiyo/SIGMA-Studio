@@ -163,7 +163,11 @@ export function projectLayout(document: SigmaDocument): LayoutProjection {
         }
         case "layoutSection": if (top) outline.push(`columns${block.layout.columnCount}`); walk(block.children, false); break;
         case "quote": if (top) outline.push("quote"); walk(block.blocks, false); break;
-        case "list": if (top) outline.push(block.listType === "ordered" ? `list(${block.markerStyle ?? "decimal"})` : "list"); break;
+        case "list":
+          if (top) outline.push(block.listType === "ordered" ? `list(${block.markerStyle ?? "decimal"})` : "list");
+          // A heading under a list item is a heading like any other.
+          for (const item of block.items) { walk(item.continuations ?? [], false); walk(item.nested ?? [], false); }
+          break;
         case "paragraph": if (top && !blank(block)) outline.push("text"); break;
         default: if (top) outline.push(KIND[block.type]);
       }

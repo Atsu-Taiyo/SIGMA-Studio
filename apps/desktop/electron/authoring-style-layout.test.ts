@@ -83,6 +83,13 @@ describe("how a document is laid out", () => {
     expect(votesOf(document, "q1b")).toEqual({ "layout.boxStyle": "theorembox", "layout.boxTitle": "titled", "layout.box.theorem": "theorembox" });
     expect(votesOf(document, "q1h")).toEqual({ "layout.headingNumber": "paren", "layout.headingAlign": "left" });
     expect(votesOf(document, "$layout")).toMatchObject({ "layout.headingDepth": "2" });
+    // So is a heading under a list item, at any depth of the list.
+    const under = (id: string, title: string): Extract<SigmaBlock, { type: "list" }> => ({ id, type: "list", listType: "bullet",
+      items: [{ type: "listItem", id: `${id}i`, children: text("項目"), continuations: [{ id: `${id}h`, type: "heading", level: 3, children: text(title), align: "center" }] }] });
+    const listed = doc([{ ...under("l1", "1. 準備"), items: [{ ...under("l1", "1. 準備").items[0], nested: [under("l2", "2. 実験")] }] }]);
+    for (const id of ["l1h", "l2h"]) expect(votesOf(listed, id), id).toEqual({ "layout.headingNumber": "dot", "layout.headingAlign": "center" });
+    expect(votesOf(listed, "$layout")).toMatchObject({ "layout.headingDepth": "3" });
+    expect(projectLayout(listed).outline).toBe("list");
     // What is inside a problem is not a block of the document's own order.
     expect(projectLayout(document).outline).toBe("problem[prompt,solution]");
   });
