@@ -955,7 +955,9 @@ export class AuthoringStyleSync {
         // What waits keeps waiting when it is gone: stepping back to before it was deleted brings it back as
         // somebody else's, not as this member's. Only when the list is full does what is gone make room.
         const kept = [...new Set([...waiting, ...[...present].filter(m => !mineNow.has(m))])].filter(m => !mineNow.has(m));
-        const foreign = this.bounded(kept, m => present.has(m) || undoable.has(m));
+        // What these files hold right now counts as still there: the record is written before they are changed,
+        // and should changing them fail, what waited must still be marked.
+        const foreign = this.bounded(kept, m => present.has(m) || undoable.has(m) || own.has(m));
         // What this account stood behind stays on record when it is gone, as what waits does: brought back by
         // stepping back, it is this account's still, and another account's to approve should one sign in here.
         const gone = theirRecord ? [] : this.bounded(trust.vouched.filter(m => !present.has(m) && !foreign.includes(m)), m => undoable.has(m));
