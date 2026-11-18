@@ -130,6 +130,8 @@ export function projectLayout(document: SigmaDocument): LayoutProjection {
             ["layout.subquestionList", lists.length ? lists[0] : typed ? "text" : undefined],
           ]);
           if (top) outline.push(`problem[${(["lead", "prompt", "hints", "solution"] as const).filter(area => filled(block[area])).join(",")}]`);
+          // A box or a heading inside a problem is laid out by the same habits as one beside it.
+          for (const area of [block.lead, block.prompt, block.hints, block.solution]) walk(area, false);
           break;
         }
         case "boxBlock": {

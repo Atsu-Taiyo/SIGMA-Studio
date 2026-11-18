@@ -67,6 +67,15 @@ describe("how a document is laid out", () => {
     expect(votesOf(document, "$layout")).toMatchObject({ "layout.headingDepth": "2", "layout.docTitle": "heading", "layout.subtitle": "heading", "layout.columns": "1", "layout.pageSize": "A4-portrait" });
   });
 
+  it("reads boxes and headings inside a problem like those beside it", () => {
+    const document = doc([problem("q1", { prompt: [p("q1p", "次を示せ。")], solution: [h("q1h", 2, "(1) 方針"), box("q1b", "theorembox", "公式", [p("q1bp", "和の公式を使う。")])] as Problem["solution"] })]);
+    expect(votesOf(document, "q1b")).toEqual({ "layout.boxStyle": "theorembox", "layout.boxTitle": "titled", "layout.box.theorem": "theorembox" });
+    expect(votesOf(document, "q1h")).toEqual({ "layout.headingNumber": "paren", "layout.headingAlign": "left" });
+    expect(votesOf(document, "$layout")).toMatchObject({ "layout.headingDepth": "2" });
+    // What is inside a problem is not a block of the document's own order.
+    expect(projectLayout(document).outline).toBe("problem[prompt,solution]");
+  });
+
   it("names the order of blocks, a repeated unit included, and gives up on an order with no shape", () => {
     expect(sequenceOf(["heading", "box", "problem", "problem", "problem"])).toBe("heading>box>problem");
     expect(sequenceOf(["heading", "text", "problem", "text", "problem", "text", "problem"])).toBe("heading>(text>problem)");

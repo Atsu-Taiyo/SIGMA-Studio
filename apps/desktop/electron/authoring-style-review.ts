@@ -151,7 +151,9 @@ export function planReview(memory: StyleMemory, observations: readonly Observati
   for (const item of [...memory.items]) {
     if (item.origin !== "auto" || !item.key || observed.has(item.key)) continue;
     const sources = context.eligibleFiles ? item.sources.filter(id => context.eligibleFiles!.has(id)) : item.sources;
-    if (context.keptSinceLastReview && sources.length) item.lastConfirmedAt = pass.now;
+    // AI text the author kept speaks for the habits counted from their writing. A sentence the AI suggested is
+    // confirmed by the AI's next summary only: otherwise it would never go stale while proposals are being accepted.
+    if (context.keptSinceLastReview && sources.length && item.basis !== "summary") item.lastConfirmedAt = pass.now;
     // Documents on another device of the same account still count as evidence.
     const orphaned = !sources.length && !item.devices?.length;
     const aged = context.now.getTime() - Date.parse(item.lastConfirmedAt) > STALE_AFTER_MS;

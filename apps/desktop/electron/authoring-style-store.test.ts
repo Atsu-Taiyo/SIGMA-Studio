@@ -1069,6 +1069,29 @@ describe("automatic authoring style", () => {
       expect(aiAdded(profile)).toEqual([]);
     });
 
+    it("lets a suggestion go stale though the author has been keeping AI text meanwhile", async () => {
+      const lib = library();
+      const base = written(...essay("本人"));
+      lib.put("f1", base);
+      let now = NOW;
+      const summarize = vi.fn(async () => reply([HABIT]));
+      store = make({ ...lib.options, summarize, now: () => new Date(now) });
+      store.noteProvider("claude");
+      await store.reviewNow("ws1");
+      now += 80 * 24 * HOUR;
+      // An accepted proposal the author left in through a later editing session.
+      const accepted = blocks([...base.content, paragraph("ai", "AIが書いたこの文は本人の文章ではない。")]);
+      const later = blocks([...written(...essay("本人2")).content, paragraph("ai", "AIが書いたこの文は本人の文章ではない。")]);
+      store.observe(event(base, accepted, 2, "f1", "ai"));
+      store.observe(event(accepted, later, 3));
+      lib.put("f1", later, { revision: 3 });
+      summarize.mockImplementation(async () => reply([]));
+      const profile = await store.reviewNow("ws1");
+      expect(profile.outcomes.kept).toBe(1);
+      expect(aiAdded(profile)).toEqual([]);
+      expect(profile.autoChanges).toMatchObject([{ kind: "remove", reason: "stale", before: HABIT.text }]);
+    });
+
     it("does not take an answer of some other form for the AI having nothing to confirm", async () => {
       const lib = library();
       lib.put("f1", written(...essay("本人")));
