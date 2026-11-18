@@ -1643,6 +1643,37 @@ describe("automatic authoring style", () => {
       expect(profile.autoChanges).toEqual([]);
     });
 
+    it("does not take a suggestion for stale when a member rewrote the shared document while the AI was answering and the catalog shows no change", async () => {
+      const lib = library();
+      const shared = catalog();
+      const essay = (label: string) => Array.from({ length: 12 }, (_, i) => `${label}の第${i}段落では、関数が単調に増加することを先に確かめてから結論を述べる。`);
+      const HABIT = "要点を先に述べてから理由を書く。";
+      shared.put("s1", written(...essay("共有")));
+      let now = new Date("2026-11-17T00:00:00Z");
+      const summarize = vi.fn(async () => JSON.stringify({ add: [{ section: "style", text: HABIT }], confirm: [] }));
+      store = make({ ...lib.options, ...shared.options, summarize, now: () => now });
+      store.noteProvider("claude");
+      expect((await store.reviewNow("shared-ws")).generatedContent).toContain(HABIT);
+      now = new Date("2027-02-01T00:00:00Z");
+      shared.put("s1", written(...essay("共有2")), "shared-ws", { updatedAt: "2027-01-31T00:00:00Z" });
+      // The text changes while the AI answers; the catalog's entry for the document stays exactly as it was.
+      summarize.mockImplementationOnce(async () => {
+        shared.put("s1", written(...essay("共有3")), "shared-ws", { updatedAt: "2027-01-31T00:00:00Z" });
+        return JSON.stringify({ add: [], confirm: [] });
+      });
+      let profile = await store.reviewNow("shared-ws");
+      expect(summarize).toHaveBeenCalledTimes(2);
+      expect(profile.generatedContent).toContain(HABIT);
+      expect(profile.autoChanges).toEqual([]);
+      // Asked about the text as it now is, and still not confirmed: it goes.
+      summarize.mockImplementation(async () => JSON.stringify({ add: [], confirm: [] }));
+      now = new Date("2027-02-01T07:00:00Z");
+      profile = await store.reviewNow("shared-ws");
+      expect(summarize).toHaveBeenCalledTimes(3);
+      expect(profile.generatedContent).not.toContain(HABIT);
+      expect(profile.autoChanges).toMatchObject([{ kind: "remove", reason: "stale", before: HABIT }]);
+    });
+
     it("does not act on a list of shared documents that failed when the review began and came back while it ran", async () => {
       const lib = library();
       const shared = catalog();

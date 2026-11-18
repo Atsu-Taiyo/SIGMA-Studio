@@ -146,6 +146,10 @@ function sharedSignature(files: readonly LocalDocumentMetadata[]): string {
 
 class SharedCatalogUnavailable extends Error {}
 
+/** Tells two readings of a document apart by its text blocks, whatever the catalog says about when it changed. */
+const contentFingerprint = (projection: DocumentProjection) =>
+  createHash("sha256").update(JSON.stringify([...projection.fragments].map(([id, fragment]) => [id, fragmentHash(fragment)]))).digest("hex");
+
 const emptyCounters = (): Counters => ({ saves: 0, corrections: 0, rejections: 0, kept: 0, reviewedAt: null });
 
 /**
@@ -414,7 +418,7 @@ export class LocalAuthoringStyleStore {
     if (!start) return;
     const recent = start.files;
     // Documents are read outside the style lock so a long read never delays a save's bookkeeping.
-    const loaded: { file: LocalDocumentMetadata; projection: DocumentProjection; layout: LayoutProjection }[] = [];
+    const loaded: { file: LocalDocumentMetadata; projection: DocumentProjection; layout: LayoutProjection; fingerprint: string }[] = [];
     let characters = 0;
     /** A document could not be read: what this review saw is not all there was to see. */
     let unread = false;
@@ -428,7 +432,7 @@ export class LocalAuthoringStyleStore {
       // Not there to be read just now: as with a failed read, this review did not see everything.
       if (!document) { unread = true; continue; }
       const projection = projectDocument(document);
-      loaded.push({ file, projection, layout: projectLayout(document) });
+      loaded.push({ file, projection, layout: projectLayout(document), fingerprint: contentFingerprint(projection) });
       let length = 0;
       for (const fragment of projection.fragments.values()) length += fragment.area === "structure" ? 0 : fragment.text.length;
       characters += Math.min(length, MAX_REVIEW_DOCUMENT_CHARACTERS);
@@ -497,6 +501,20 @@ export class LocalAuthoringStyleStore {
     catch (error) { logLedgerEvent(this.dataDir, "authoring-style-summary-failed", { error: String(error) }); return; }
     const reply = parseSummaryReply(raw, summary.input);
     if (!reply) { logLedgerEvent(this.dataDir, "authoring-style-summary-failed", { error: "Unreadable summary reply" }); return; }
+    // A member may have rewritten a shared document while the AI was answering, and the catalog's date for it does
+    // not move with its text. Where the answer could count against an earlier suggestion, the shared documents are
+    // read once more (outside the lock, like the first time) and compared with what the AI was asked about.
+    let sharedUnchanged = true;
+    if (summary.candidates.length) {
+      for (const { file, fingerprint } of loaded) {
+        if (!file.sharing) continue;
+        try {
+          const document = await this.options.loadSharedDocument?.(file.fileId);
+          if (!document || contentFingerprint(projectDocument(document)) !== fingerprint) sharedUnchanged = false;
+        } catch { sharedUnchanged = false; }
+        if (!sharedUnchanged) break;
+      }
+    }
     await this.exclusive(async () => {
       if (generation !== this.generation || !await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)
         || !await this.memory.aiSummary(null) || !await this.memory.aiSummary(workspaceId)) return;
@@ -512,7 +530,7 @@ export class LocalAuthoringStyleStore {
         const current = files?.get(file.fileId);
         return !files || (current?.workspaceId === workspaceId && current.revision === file.revision && current.updatedAt === file.updatedAt);
       });
-      const complete = summary.complete && unchanged && !(this.sharedListFailed && summary.wasShared);
+      const complete = summary.complete && unchanged && sharedUnchanged && !(this.sharedListFailed && summary.wasShared);
       const planned = planSummary(memory, reply, summary.candidates, { now, locale: memory.locale, sources, autoApply: await this.autoApply(workspaceId), complete });
       // What was asked on the strength of an incomplete reading is asked again once everything can be read.
       if (complete) memory.summary = { hash: summary.hash, at: now.toISOString() };
