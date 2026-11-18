@@ -183,10 +183,13 @@ export function evaluateAudit({ fullReport, shippedReport, exceptions, today }) 
   for (const advisory of advisories) {
     const exception = usable.find((entry) => entry.id === advisory.id && entry.package === advisory.package);
     if (exception) reported.add(exception);
-    if (!BLOCKING_SEVERITIES.has(advisory.severity)) continue;
     const through = affectedPackages(fullReport, advisory);
     const label = `${advisory.severity} advisory ${advisory.id} in ${advisory.package} ${advisory.range}`.trimEnd()
       + ` (${advisory.url})${through.length > 0 ? `; reaches ${through.join(", ")}` : ""}`;
+    if (!BLOCKING_SEVERITIES.has(advisory.severity)) {
+      warnings.push(`Non-blocking ${label}; below the high audit threshold.`);
+      continue;
+    }
     if (!exception) {
       fail(`Unaccepted ${label}`);
     } else if (!dateKnown || today > exception.expires) {

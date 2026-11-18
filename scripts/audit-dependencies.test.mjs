@@ -59,7 +59,8 @@ test("an excepted advisory passes until its last day", () => {
     assert.equal(result.ok, true, today);
     assert.equal(result.accepted.length, 1, "Only the high advisory needs acceptance");
     assert.match(result.accepted[0], /GHSA-fc5q-39xc-vjpf.*reaches fdir, tinyglobby, vite/);
-    assert.deepEqual(result.warnings, []);
+    assert.equal(result.warnings.length, 1);
+    assert.match(result.warnings[0], /Non-blocking moderate advisory GHSA-g3hv-75wg-m249 in minimatch/);
   }
 });
 
@@ -134,6 +135,21 @@ test("moderate and low advisories do not fail, with or without an exception", ()
   assert.equal(evaluate({ fullReport }).ok, true);
   assert.equal(evaluate({ fullReport, exceptions: [] }).ok, true);
   assert.equal(evaluate({ fullReport, today: "2027-01-01" }).ok, true);
+});
+
+test("non-blocking advisories remain visible without changing the high threshold", () => {
+  const fullReport = report({
+    leftpad: { severity: "moderate", via: [advisory("leftpad", OTHER, "moderate")] },
+    eslint: { severity: "moderate", via: ["leftpad"] },
+    rightpad: { severity: "low", via: [advisory("rightpad", "GHSA-dddd-eeee-ffff", "low")] },
+  });
+  const result = evaluate({ fullReport, exceptions: [] });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(result.accepted, []);
+  assert.equal(result.warnings.length, 2, "Each source advisory is reported once");
+  assert.match(result.warnings[0], /moderate advisory GHSA-aaaa-bbbb-cccc in leftpad .*reaches eslint/);
+  assert.match(result.warnings[1], /low advisory GHSA-dddd-eeee-ffff in rightpad/);
 });
 
 test("an excepted advisory that became critical is still bound by its expiry only", () => {
