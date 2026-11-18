@@ -6,7 +6,7 @@ import { AUTHORING_STYLE_LEARNED_LIMIT, AUTHORING_STYLE_NOTE_LIMIT, type Authori
 import type { AppLocale } from "@/lib/i18n";
 import { itemText, SECTION_ORDER, sectionOf } from "./authoring-style-items";
 import { isSuspicious } from "./authoring-style-scan";
-import { MAX_DISMISSED, atomicStyleWrite, renderMemo, type AuthoringStyleMemory, type LedgerDraft, type StyleItem, type StyleMemory, type StyleTrust } from "./authoring-style-memory";
+import { MAX_DISMISSED, atomicStyleWrite, refusedValue, renderMemo, type AuthoringStyleMemory, type LedgerDraft, type StyleItem, type StyleMemory, type StyleTrust } from "./authoring-style-memory";
 
 /**
  * Keeps the author's own note, the learning settings and (through `SyncedPart`) other
@@ -181,9 +181,9 @@ export function mergeList(base: readonly string[] | undefined, local: readonly s
 
 /** What the members decided about automatic habits, which a merge of two reviews' work has to respect. */
 export interface MergeRules {
-  /** Taken out on purpose (deleted, or its adding undone or declined). It does not come back. */
+  /** Taken out on purpose (the habit deleted, or this value of it refused). It does not come back. */
   unwanted?: (item: SyncedItem) => boolean;
-  /** What a habit was automatically rewritten to, and somebody put back. The other wording stands. */
+  /** A value somebody said no to for this habit (declined, its adding undone, or put back from). Another value of the habit stands. */
   refused?: (item: SyncedItem) => boolean;
   /** Automatically removed, and somebody put it back (or declined the removal). It stays. */
   restored?: (item: SyncedItem) => boolean;
@@ -214,7 +214,7 @@ export function mergeItems(base: readonly SyncedItem[] | undefined, local: reado
     }
     const chosen = statement(mine) === statement(other) || (was && statement(was) === statement(other)) ? mine : other;
     const loser = chosen === mine ? other : mine;
-    // A wording somebody put back from does not win over the one they put back to, whichever device's review made it.
+    // A value somebody said no to does not win over one nobody did, whichever device's review came to it.
     const winner = statement(mine) !== statement(other) && rules.refused?.(chosen) && !rules.refused(loser) ? loser : chosen;
     // The same on whichever device merges: otherwise two devices would keep sending each other their own version.
     const rank = (item: SyncedItem) => `${item.lastConfirmedAt}\n${String(item.support).padStart(9, "0")}\n${String(item.documents).padStart(9, "0")}\n${item.basis}`;
@@ -290,16 +290,15 @@ function mergeLearned(base: Learned | undefined, local: Learned, remote: Learned
   const suppressed = mergeList(was?.suppressed, local.suppressed, remote.suppressed);
   const declined = mergeList(was?.declined, local.declined, remote.declined, 30);
   const dismissed = mergeList(was?.dismissed, local.dismissed, remote.dismissed, MAX_DISMISSED);
-  /** Taken out on purpose on some device: deleted, its adding undone or declined, or (a sentence of the AI's) turned down. */
-  const unwanted = (item: SyncedItem) => Boolean(item.key) && (suppressed.includes(item.key!) || dismissed.includes(`add:${item.key}:${item.value}`)
-    || (item.basis === "summary" && declined.includes(item.text)));
-  const rules: MergeRules = { unwanted, refused: item => dismissed.includes(`rewrite:${item.key}:${item.value}`), restored: item => dismissed.includes(`remove:${item.key}:${item.value}`) };
+  const refused = (item: SyncedItem) => Boolean(item.key) && refusedValue(dismissed, item.key!, item.value);
+  /** Taken out on purpose on some device: the habit deleted, this value of it refused, or (a sentence of the AI's) turned down. */
+  const unwanted = (item: SyncedItem) => Boolean(item.key) && (suppressed.includes(item.key!) || refused(item) || (item.basis === "summary" && declined.includes(item.text)));
+  const rules: MergeRules = { unwanted, refused, restored: item => dismissed.includes(`remove:${item.key}:${item.value}`) };
   return {
     generation: remote.generation, suppressed, declined, dismissed,
     // A removal its author made always wins: no device learns again, or keeps, what was taken out on purpose.
     // With or without a history in common: what one side holds and the other took out on purpose does not stay.
-    // Nor does a wording somebody put a habit back from, where no other wording of that habit is left to prefer.
-    items: mergeItems(was?.items, local.items, remote.items, rules).filter(item => item.origin !== "auto" || (!unwanted(item) && !rules.refused!(item))),
+    items: mergeItems(was?.items, local.items, remote.items, rules).filter(item => item.origin !== "auto" || !unwanted(item)),
     // With no history in common (a copy that replaced a lost one), what this device carried for others is kept next to theirs.
     opaque: was ? remote.opaque : [...new Map([...remote.opaque, ...local.opaque].map(entry => [JSON.stringify(entry), entry])).values()].slice(0, MAX_OPAQUE_ITEMS),
   };

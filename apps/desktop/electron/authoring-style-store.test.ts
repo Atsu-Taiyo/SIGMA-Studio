@@ -599,6 +599,23 @@ describe("automatic authoring style", () => {
       expect(JSON.stringify(cleaned)).not.toContain("\\ud800");
     });
 
+    it("does not come to a value the user said no to by another road: an addition taken back does not return as a rewrite", async () => {
+      const lib = library();
+      lib.put("f1", written(...POLITE));
+      store = make(lib.options);
+      expect((await store.reviewNow("ws1")).generatedContent).toContain(TONE.polite);
+      expect((await store.undo("ws1")).items).toEqual([]);
+      lib.put("f1", written(...PLAIN));
+      expect((await store.reviewNow("ws1")).generatedContent).toContain(TONE.plain);
+      // The evidence turns polite again. The habit is not rewritten to what was taken back; it is left as it is.
+      lib.put("f1", written(...POLITE));
+      const profile = await store.reviewNow("ws1");
+      expect(profile.generatedContent).toContain(TONE.plain);
+      expect(profile.generatedContent).not.toContain("丁寧体");
+      expect(profile.autoChanges).toEqual([]);
+      expect(profile.pending).toEqual([]);
+    });
+
     it("remembers what the user took back through many later decisions", async () => {
       const lib = library();
       lib.put("f1", written(...PLAIN));
@@ -1554,6 +1571,29 @@ describe("automatic authoring style", () => {
       answer = JSON.stringify({ add: [], confirm: [] });
       summarize.mockImplementation(async () => { ready = false; return answer; });
       profile = await store.reviewNow("shared-ws");
+      expect(summarize).toHaveBeenCalledTimes(2);
+      expect(profile.generatedContent).toContain(HABIT);
+      expect(profile.autoChanges).toEqual([]);
+    });
+
+    it("does not take a suggestion for stale when a member saved the shared document while the AI was answering, however quick the answer", async () => {
+      const lib = library();
+      const shared = catalog();
+      const essay = (label: string) => Array.from({ length: 12 }, (_, i) => `${label}の第${i}段落では、関数が単調に増加することを先に確かめてから結論を述べる。`);
+      const HABIT = "要点を先に述べてから理由を書く。";
+      shared.put("s1", written(...essay("共有")));
+      let now = new Date("2026-11-17T00:00:00Z");
+      const summarize = vi.fn(async () => JSON.stringify({ add: [{ section: "style", text: HABIT }], confirm: [] }));
+      store = make({ ...lib.options, ...shared.options, summarize, now: () => now });
+      store.noteProvider("claude");
+      expect((await store.reviewNow("shared-ws")).generatedContent).toContain(HABIT);
+      now = new Date("2027-02-01T00:00:00Z");
+      shared.put("s1", written(...essay("共有2")), "shared-ws", { updatedAt: "2027-01-31T00:00:00Z" });
+      summarize.mockImplementationOnce(async () => {
+        shared.put("s1", written(...essay("共有3")), "shared-ws", { updatedAt: "2027-02-01T00:00:00Z" });
+        return JSON.stringify({ add: [], confirm: [] });
+      });
+      const profile = await store.reviewNow("shared-ws");
       expect(summarize).toHaveBeenCalledTimes(2);
       expect(profile.generatedContent).toContain(HABIT);
       expect(profile.autoChanges).toEqual([]);

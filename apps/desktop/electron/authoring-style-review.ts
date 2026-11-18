@@ -2,7 +2,7 @@ import { AUTHORING_STYLE_LEARNED_LIMIT } from "@/lib/ai/authoring-style";
 import type { AppLocale } from "@/lib/i18n";
 import type { Observation } from "./authoring-style-features";
 import { itemText, sectionOf } from "./authoring-style-items";
-import { MAX_APPLIED, renderMemo, snapshotForUndo, styleHash, type AppliedChange, type LedgerDraft, type PendingChange, type StyleItem, type StyleMemory } from "./authoring-style-memory";
+import { MAX_APPLIED, refusedValue, renderMemo, snapshotForUndo, styleHash, type AppliedChange, type LedgerDraft, type PendingChange, type StyleItem, type StyleMemory } from "./authoring-style-memory";
 import { summaryKey, type SummaryReply } from "./authoring-style-summary";
 
 /** A habit nothing has confirmed for this long is taken out (or, with automatic changes off, offered for removal). */
@@ -67,8 +67,7 @@ function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "l
   };
   /** Add a habit the memo does not have yet, or stage it when the memo is full. */
   const add = (key: string, value: string, text: string, evidence: Evidence, action: "add" | "add-summary" = "add") => {
-    // Neither what the user declined or took back as an addition, nor a wording they put a habit back from.
-    if (memory.dismissed.includes(`add:${key}:${value}`) || memory.dismissed.includes(`rewrite:${key}:${value}`)) return;
+    if (refusedValue(memory.dismissed, key, value)) return;
     const candidate: StyleItem = { id: `auto:${key}`, key, value, section: sectionOf(key), text, origin: "auto", ...evidence, firstSeenAt: now, lastConfirmedAt: now };
     if (renderMemo({ ...memory, items: [...memory.items, candidate] }, context.locale).length > AUTHORING_STYLE_LEARNED_LIMIT) {
       // Never make room by dropping something silently: the user decides what goes.
@@ -87,7 +86,7 @@ function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "l
   };
   /** Replace what an automatic habit says. Returns whether the memo was changed. */
   const rewrite = (item: StyleItem, value: string, text: string, evidence: Evidence): boolean => {
-    if (item.origin !== "auto" || !item.key || memory.dismissed.includes(`rewrite:${item.key}:${value}`)) return false;
+    if (item.origin !== "auto" || !item.key || refusedValue(memory.dismissed, item.key, value)) return false;
     const changed: StyleItem = { ...item, ...evidence, value, text, lastConfirmedAt: now };
     const fits = renderMemo({ items: memory.items.map(i => i === item ? changed : i) }, context.locale).length <= AUTHORING_STYLE_LEARNED_LIMIT;
     if (!apply || !fits) {
@@ -193,7 +192,7 @@ export function planSummary(memory: StyleMemory, reply: SummaryReply, candidates
     const key = summaryKey(section, text);
     if (held >= MAX_SUMMARY_ITEMS || taken.has(text) || memory.declined.includes(text) || memory.suppressed.includes(key)
       || memory.items.some(i => i.key === key) || memory.pending.some(p => p.key === key)
-      || memory.dismissed.includes(`add:${key}:${text}`) || itemText(key, text, context.locale) !== text) continue;
+      || refusedValue(memory.dismissed, key, text) || itemText(key, text, context.locale) !== text) continue;
     pass.add(key, text, text, evidence, "add-summary");
     held++;
     taken.add(text);

@@ -82,6 +82,13 @@ export const MAX_APPLIED = 20;
  * again. Only the user's own actions add to it, so the limit is far from what a workspace's use comes to.
  */
 export const MAX_DISMISSED = 400;
+/**
+ * The user said no to this value for this habit, in whichever way: declined or took back its adding, or put the
+ * habit back from a rewrite to it. No review sets the habit to that value again, as an addition or as a rewrite,
+ * and no sync takes it in from another device.
+ */
+export const refusedValue = (dismissed: readonly string[], key: string, value: string) =>
+  dismissed.includes(`add:${key}:${value}`) || dismissed.includes(`rewrite:${key}:${value}`);
 
 interface UndoSnapshot { at: string; reason: string; items: StyleItem[]; suppressed: string[]; pending: PendingChange[]; dismissed: string[]; declined?: string[]; applied?: AppliedChange[] }
 

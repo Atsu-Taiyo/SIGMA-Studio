@@ -450,6 +450,44 @@ describe("account sync of the learned writing style", () => {
     expect(await b.memo()).not.toContain("丁寧体");
   });
 
+  it("keeps the value one device settled on when the other holds the value that was taken back there", async () => {
+    const POLITE = ["この関数は単調に増加します。", "最大値は3になります。", "解は存在しません。"];
+    const document = written(...POLITE);
+    const a = await device("ws-a", { documents: { f1: document } });
+    await a.store.reviewNow("ws-a");
+    await a.store.undo("ws-a");
+    document.content = written(...PLAIN).content;
+    expect((await a.store.reviewNow("ws-a")).generatedContent).toContain(PLAIN_MEMO);
+    const b = await device("ws-b", { documents: { f1: written(...POLITE) } });
+    await b.store.reviewNow("ws-b");
+    await b.store.setSync(null, true);
+    await a.store.setSync(null, true);
+    await b.store.syncNow(null);
+    for (const device of [a, b]) {
+      expect(await device.memo()).toContain(PLAIN_MEMO);
+      expect(await device.memo()).not.toContain("丁寧体");
+    }
+  });
+
+  it("does not take a workspace it only ever synced for one that is not shared, when reviewing it signed out after a restart", async () => {
+    const a = await device("ws-a", { user: () => U1, documents: { f1: written(...PLAIN) } });
+    await a.store.reviewNow("ws-a");
+    await a.store.syncNow(null);
+    // Another member's device receives the style and never reviews the workspace itself.
+    const b = await device("ws-b", { user: () => U2 });
+    expect((await b.store.syncNow("ws-b")).generatedContent).toContain(PLAIN_MEMO);
+    b.store.dispose();
+    await b.store.flush();
+    // Months later it starts signed out, and the review comes round.
+    now = new Date("2027-03-01T00:00:00Z");
+    const restarted = new LocalAuthoringStyleStore(path.dirname(path.dirname(b.dir)), { reviewIdleMs: null, now: () => now, listFiles: async () => [], loadDocument: async () => null,
+      sharedCatalogReady: async () => false, listWorkspaces: async () => [], listSharedFiles: async () => [], loadSharedDocument: async () => null });
+    stores.push(restarted);
+    const profile = await restarted.reviewNow("ws-b");
+    expect(profile.generatedContent).toContain(PLAIN_MEMO);
+    expect(profile.autoChanges).toEqual([]);
+  });
+
   it("does not bring back, when two devices first meet, a habit whose adding was undone on one of them", async () => {
     const a = await device("ws-a", { documents: { f1: written(...PLAIN) } });
     await a.store.reviewNow("ws-a");

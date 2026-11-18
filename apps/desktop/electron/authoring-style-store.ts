@@ -443,7 +443,10 @@ export class LocalAuthoringStyleStore {
       // What is shared could not be told at some point of this review. That matters for a workspace that is shared,
       // or was when that could last be told: its documents are then not listed, and the review did not see them.
       const untold = start.failed || this.sharedListFailed;
-      const wasShared = untold ? this.sharedWorkspaces.has(workspaceId) || Boolean(outcomes.counters[workspaceId]?.wasShared) : this.sharedWorkspaces.has(workspaceId);
+      // Known from a review that saw its shared documents, or from its style having met the members' copy through
+      // sync (which may be all a device ever did with it). A record of that which cannot be read counts as a yes.
+      const wasShared = this.sharedWorkspaces.has(workspaceId) || (untold && (Boolean(outcomes.counters[workspaceId]?.wasShared)
+        || await this.memory.readTrust(workspaceId).then(trust => trust.known, () => true)));
       const listed = !(untold && wasShared);
       const eligibleFiles = files && listed ? new Set([...files.values()].filter(f => f.workspaceId === workspaceId).map(f => f.fileId)) : null;
       const units: EvidenceUnit[] = [];
@@ -497,7 +500,8 @@ export class LocalAuthoringStyleStore {
     await this.exclusive(async () => {
       if (generation !== this.generation || !await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)
         || !await this.memory.aiSummary(null) || !await this.memory.aiSummary(workspaceId)) return;
-      const files = await this.learnableFiles();
+      // Read afresh: what the answer is about has to be what is there now, not what was there a moment ago.
+      const files = await this.learnableFiles(true);
       const sources = summary.sources.filter(id => !files || files.get(id)?.workspaceId === workspaceId);
       if (!sources.length) return;
       const now = this.now();
