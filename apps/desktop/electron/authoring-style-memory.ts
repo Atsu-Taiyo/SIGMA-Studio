@@ -86,7 +86,16 @@ export interface StyleMemory {
   lastUpdate: { at: string; added: number; staged: number } | null;
 }
 
-export interface LedgerDraft { actor: "review" | "user" | "sync"; action: string; key?: string; before?: string; after?: string }
+/** `approval`: this member's own decision about what another member wrote. Like `sync`, such a line stays on its device. */
+export interface LedgerDraft { actor: "review" | "user" | "sync" | "approval"; action: string; key?: string; before?: string; after?: string }
+
+/**
+ * In a shared workspace: which of the habits and note lines this member stands behind, by their marks.
+ * `foreign` came from other members and is not given to this member's AI until approved (then it moves to
+ * `vouched`). `declined` is the part of `foreign` this member chose not to use, so it is not asked about again.
+ */
+export interface StyleTrust { vouched: string[]; foreign: string[]; declined: string[] }
+const MAX_TRUST_MARKS = 4000;
 
 const MAX_UNDO = 5;
 const MAX_DECLINED = 30;
@@ -98,6 +107,8 @@ const MEMORY_FILE_LIMIT = 4_000_000;
 const MEMO_READ_LIMIT = AUTHORING_STYLE_NOTE_LIMIT + 1000;
 /** Holds the hash of the memo being replaced while a commit is under way. */
 const COMMIT_MARK = "learned.pending";
+const TRUST_FILE = "members.json";
+// Not among the files a reset removes: the note outlives a reset, and so must the record of whose lines in it still wait for approval.
 const GENERATED_FILES = ["learned.md", "learned.sha256", "learned-evidence.json", "memory.json", "ledger.jsonl", COMMIT_MARK];
 
 const emptyMemory = (locale: AppLocale): StyleMemory => ({
@@ -208,6 +219,27 @@ export class AuthoringStyleMemory {
   async writeNote(workspaceId: string | null, content: string): Promise<void> {
     if (content.length > AUTHORING_STYLE_NOTE_LIMIT) throw new Error("Style note exceeds 3000 characters");
     await atomicStyleWrite(path.join(this.dir(workspaceId), workspaceId === null ? "user.md" : "workspace.md"), content);
+  }
+
+  async readTrust(workspaceId: string): Promise<StyleTrust> {
+    // A file that cannot be read is an error, not "nothing is foreign": what awaits approval must not slip through.
+    const data: unknown = JSON.parse(await boundedRead(path.join(this.dir(workspaceId), TRUST_FILE), 400_000) || "null");
+    const list = (value: unknown) => Array.isArray(value) ? value.filter((mark): mark is string => typeof mark === "string" && /^[0-9a-f]{20}$/.test(mark)).slice(0, MAX_TRUST_MARKS) : [];
+    const record = data && typeof data === "object" ? data as Record<string, unknown> : {};
+    return { vouched: list(record.vouched), foreign: list(record.foreign), declined: list(record.declined) };
+  }
+
+  async writeTrust(workspaceId: string, trust: StyleTrust): Promise<void> {
+    await atomicStyleWrite(path.join(this.dir(workspaceId), TRUST_FILE), JSON.stringify({ version: 1, ...trust }));
+  }
+
+  /** A line for the ledger about something that did not change the memo. */
+  async record(workspaceId: string, entries: readonly LedgerDraft[]): Promise<void> {
+    if (!entries.length) return;
+    const dir = this.dir(workspaceId);
+    await fs.mkdir(dir, { recursive: true });
+    const at = new Date().toISOString();
+    await fs.appendFile(path.join(dir, "ledger.jsonl"), entries.map(entry => `${JSON.stringify({ at, ...entry })}\n`).join(""), { mode: 0o600 });
   }
 
   async ledgerLines(workspaceId: string): Promise<string[]> {
@@ -400,13 +432,15 @@ export class AuthoringStyleMemory {
     return memory;
   }
 
-  async resetAllGenerated(): Promise<void> {
+  /** `spare`: workspaces whose memo is not this user's to reset. */
+  async resetAllGenerated(spare: readonly string[] = []): Promise<void> {
+    const kept = new Set(spare.map(styleHash));
     for (const name of GENERATED_FILES) await fs.rm(path.join(this.root, name), { force: true });
     let scopes;
     try { scopes = await fs.readdir(path.join(this.root, "workspaces"), { withFileTypes: true }); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
     for (const dir of scopes) {
-      if (!dir.isDirectory() || !/^[a-f0-9]{64}$/.test(dir.name)) continue;
+      if (!dir.isDirectory() || !/^[a-f0-9]{64}$/.test(dir.name) || kept.has(dir.name)) continue;
       for (const name of GENERATED_FILES) await fs.rm(path.join(this.root, "workspaces", dir.name, name), { force: true });
     }
   }

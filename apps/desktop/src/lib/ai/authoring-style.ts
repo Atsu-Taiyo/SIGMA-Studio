@@ -50,6 +50,22 @@ export interface AuthoringStyleSyncView {
   /** What the page being shown is: the account's own, a shared workspace's (synced), or a workspace kept on this device. */
   scope: "account" | "shared" | "shared-view" | "device";
   lastSyncedAt: string | null;
+  /**
+   * Whether this member may reset the style and set the switches for everyone who shares the page. False for a
+   * member of a shared workspace who is not an owner or admin: their switches then hold for this device only.
+   */
+  manage: boolean;
+  /** How the switches stand for all members of a shared workspace. Null where there is no such thing. */
+  wide: { enabled: boolean; aiSummary: boolean } | null;
+}
+
+/** A habit or note line another member of a shared workspace wrote. It is not given to this member's AI until approved. */
+export interface AuthoringStyleMemberEntryView {
+  id: string;
+  kind: "item" | "note";
+  text: string;
+  /** This member chose not to use it. It stays out until approved after all. */
+  declined: boolean;
 }
 
 export interface AuthoringStyleProfile {
@@ -77,6 +93,8 @@ export interface AuthoringStyleProfile {
   canUndo: boolean;
   /** Lines withheld from the AI because they look like injected instructions. */
   blockedLines: number;
+  /** What other members of a shared workspace wrote and this member has not approved. Empty elsewhere. */
+  memberEntries: AuthoringStyleMemberEntryView[];
   sync: AuthoringStyleSyncView;
 }
 
@@ -93,6 +111,8 @@ export interface AuthoringStyleAPI {
   /** Remove one automatic item by id. Like deleting its line, it is not learned again. */
   removeItem(input: { workspaceId: string; id: string }): Promise<AuthoringStyleProfile>;
   undo(workspaceId: string): Promise<AuthoringStyleProfile>;
+  /** Approve what other members wrote, so it is given to this member's AI, or decline it. */
+  resolveMemberEntries(input: { workspaceId: string; ids: string[]; approve: boolean }): Promise<AuthoringStyleProfile>;
   /** Turn account sync on or off. Nothing is sent while it is off. */
   setSync(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile>;
   syncNow(workspaceId: string | null): Promise<AuthoringStyleProfile>;

@@ -406,6 +406,7 @@ const desktopAPI = {
     relinkSync: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:relink-sync", workspaceId),
     deleteSynced: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:delete-synced", workspaceId),
     undo: (workspaceId: string) => ipcRenderer.invoke("authoring-style:undo", workspaceId),
+    resolveMemberEntries: (input: unknown) => ipcRenderer.invoke("authoring-style:resolve-member-entries", input),
   },
   aiResources: {
     getTree(): Promise<unknown> {

@@ -7,8 +7,8 @@ import type { AuthoringStyleAPI, AuthoringStyleProfile } from "@/lib/ai/authorin
 
 const base: AuthoringStyleProfile = { workspaceId: null, enabled: true, aiSummary: true, aiSummaryProvider: null, userContent: "画面にあるメモ", userPath: "/user.md", revision: "original",
   generatedContent: "", generatedPath: "", generatedRevision: "", exampleCount: 1, items: [], pending: [], usage: { characters: 0, limit: 3000 },
-  outcomes: { kept: 0, edited: 0, reverted: 0, rejected: 0 }, lastReviewedAt: null, reviewedDocuments: 0, lastUpdate: null, canUndo: false, blockedLines: 0,
-  sync: { available: true, signedIn: true, pro: true, scope: "account", enabled: false, state: "off", lastSyncedAt: null } };
+  outcomes: { kept: 0, edited: 0, reverted: 0, rejected: 0 }, lastReviewedAt: null, reviewedDocuments: 0, lastUpdate: null, canUndo: false, blockedLines: 0, memberEntries: [],
+  sync: { available: true, signedIn: true, pro: true, scope: "account", enabled: false, state: "off", lastSyncedAt: null, manage: true, wide: null } };
 
 function mount(api: AuthoringStyleAPI, workspaceId: string | null) {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -22,7 +22,7 @@ function mount(api: AuthoringStyleAPI, workspaceId: string | null) {
 
 function fakeApi(overrides: Partial<AuthoringStyleAPI>, profile: AuthoringStyleProfile): AuthoringStyleAPI {
   const resolved = () => vi.fn().mockResolvedValue(profile);
-  return { read: resolved(), save: resolved(), saveLearned: resolved(), setEnabled: resolved(), setAiSummary: resolved(), reset: resolved(), review: resolved(), resolvePending: resolved(), removeItem: resolved(), undo: resolved(), setSync: resolved(), syncNow: resolved(), relinkSync: resolved(), deleteSynced: resolved(), ...overrides };
+  return { read: resolved(), save: resolved(), saveLearned: resolved(), setEnabled: resolved(), setAiSummary: resolved(), reset: resolved(), review: resolved(), resolvePending: resolved(), removeItem: resolved(), undo: resolved(), resolveMemberEntries: resolved(), setSync: resolved(), syncNow: resolved(), relinkSync: resolved(), deleteSynced: resolved(), ...overrides };
 }
 
 it("keeps the displayed note's revision when another action returns a newer external note", async () => {
@@ -141,7 +141,7 @@ it("shows that sync is for Pro and cannot be turned on without it, while the res
 });
 
 it("says on a workspace's page whether that workspace is synced or stays on this device", async () => {
-  for (const [scope, text] of [["shared", "あなたの変更やリセットはほかのメンバーにも反映されます"], ["shared-view", "この端末での変更はほかのメンバーには反映されません"], ["device", "この端末だけに保存されます"]] as const) {
+  for (const [scope, text] of [["shared", "あなたの変更はほかのメンバーにも届きます"], ["shared-view", "この端末での変更はほかのメンバーには反映されません"], ["device", "この端末だけに保存されます"]] as const) {
     const view = mount(fakeApi({}, { ...base, workspaceId: "ws1", sync: { ...base.sync, scope } }), "ws1");
     try {
       await view.render();
@@ -150,4 +150,45 @@ it("says on a workspace's page whether that workspace is synced or stays on this
       expect(view.host.textContent).not.toContain("アカウントで同期する（Pro）");
     } finally { await view.unmount(); }
   }
+});
+
+it("lists what other members wrote for approval, one by one or all at once", async () => {
+  const profile: AuthoringStyleProfile = { ...base, workspaceId: "ws1", sync: { ...base.sync, scope: "shared", manage: true, wide: { enabled: true, aiSummary: true } },
+    memberEntries: [{ id: "m1", kind: "item", text: "解説・説明は常体（だ・である）で書く。", declined: false }, { id: "m2", kind: "note", text: "図は必ず右に置く。", declined: false },
+      { id: "m3", kind: "note", text: "使わないと決めた行。", declined: true }] };
+  const api = fakeApi({}, profile);
+  const view = mount(api, "ws1");
+  try {
+    await view.render();
+    for (const text of ["ほかのメンバーが書いた項目（承認待ち 2件）", "あなたが承認するまで、あなたのAIには渡しません", "学んだ項目", "メモ", "使わないことにした項目（1件）", "あなたはオーナーまたは管理者です"]) {
+      expect(view.host.textContent).toContain(text);
+    }
+    await act(async () => view.host.querySelector<HTMLButtonElement>('[aria-label="「図は必ず右に置く。」を承認する"]')!.click());
+    expect(api.resolveMemberEntries).toHaveBeenLastCalledWith({ workspaceId: "ws1", ids: ["m2"], approve: true });
+    await act(async () => view.host.querySelector<HTMLButtonElement>('[aria-label="「解説・説明は常体（だ・である）で書く。」を使わない"]')!.click());
+    expect(api.resolveMemberEntries).toHaveBeenLastCalledWith({ workspaceId: "ws1", ids: ["m1"], approve: false });
+    await act(async () => view.button("すべて承認する").click());
+    expect(api.resolveMemberEntries).toHaveBeenLastCalledWith({ workspaceId: "ws1", ids: ["m1", "m2"], approve: true });
+    // What was declined can still be approved after all, and is not part of "all".
+    await act(async () => view.host.querySelector<HTMLButtonElement>('[aria-label="「使わないと決めた行。」を承認する"]')!.click());
+    expect(api.resolveMemberEntries).toHaveBeenLastCalledWith({ workspaceId: "ws1", ids: ["m3"], approve: true });
+  } finally { await view.unmount(); }
+});
+
+it("leaves the reset and the switches that hold for everyone to a shared workspace's owner and admins", async () => {
+  const member: AuthoringStyleProfile = { ...base, workspaceId: "ws1", aiSummary: false, sync: { ...base.sync, scope: "shared", manage: false, wide: { enabled: true, aiSummary: false } } };
+  const api = fakeApi({}, member);
+  const view = mount(api, "ws1");
+  try {
+    await view.render();
+    expect(view.host.textContent).toContain("全員分のリセットは、オーナーと管理者だけができます");
+    expect(view.host.textContent).toContain("このワークスペース全体でオフにしています: AIによる要約");
+    expect(view.button("学習をリセット").disabled).toBe(true);
+    const [learning, summary] = view.host.querySelectorAll<HTMLButtonElement>('[role="switch"]');
+    // Off for everyone cannot be turned on here; what is on for everyone can be turned off for this device.
+    expect(summary.disabled).toBe(true);
+    expect(learning.disabled).toBe(false);
+    await act(async () => learning.click());
+    expect(api.setEnabled).toHaveBeenCalledWith("ws1", false);
+  } finally { await view.unmount(); }
 });

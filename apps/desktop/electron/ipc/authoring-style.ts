@@ -46,6 +46,11 @@ export function registerAuthoringStyleIpc(store: LocalAuthoringStyleStore): void
     if (typeof value.id !== "string" || value.id.length > 200 || typeof value.approve !== "boolean") throw new Error("Invalid staged change");
     return store.resolvePending({ workspaceId: workspace(value.workspaceId), id: value.id, approve: value.approve });
   });
+  ipcMain.handle("authoring-style:resolve-member-entries", (_event, input: unknown) => {
+    const value = record(input);
+    if (!Array.isArray(value.ids) || value.ids.length > 2000 || value.ids.some(id => typeof id !== "string" || id.length > 40) || typeof value.approve !== "boolean") throw new Error("Invalid member entries");
+    return store.resolveMemberEntries({ workspaceId: workspace(value.workspaceId), ids: value.ids as string[], approve: value.approve });
+  });
   ipcMain.handle("authoring-style:remove-item", (_event, input: unknown) => {
     const value = record(input);
     if (typeof value.id !== "string" || value.id.length > 200) throw new Error("Invalid style item");

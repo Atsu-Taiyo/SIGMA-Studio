@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import type { SigmaDocument } from "@/features/document";
-import { AUTHORING_STYLE_NOTE_LIMIT, type AuthoringStyleOutcomes, type AuthoringStyleProfile } from "@/lib/ai/authoring-style";
+import { AUTHORING_STYLE_NOTE_LIMIT, type AuthoringStyleMemberEntryView, type AuthoringStyleOutcomes, type AuthoringStyleProfile } from "@/lib/ai/authoring-style";
 import { createTranslator, getAppLocale, type AppLocale } from "@/lib/i18n";
 import type { AiResourceContextItem, AiResourceRunContext } from "./ai-resource-store";
 import {
@@ -11,10 +11,10 @@ import {
   MAX_FRAGMENT_LENGTH, type DocumentProjection, type EvidenceUnit, type Fragment, type StyleExample,
 } from "./authoring-style-features";
 import { itemText, memoLabels, SECTION_ORDER } from "./authoring-style-items";
-import { AuthoringStyleMemory, atomicStyleWrite, renderMemo, type StyleMemory } from "./authoring-style-memory";
+import { AuthoringStyleMemory, atomicStyleWrite, renderMemo, type StyleItem, type StyleMemory } from "./authoring-style-memory";
 import { planReview, planSummary } from "./authoring-style-review";
 import { isSuspicious, scanLines } from "./authoring-style-scan";
-import { AuthoringStyleSync, type SyncAccount, type SyncedPart } from "./authoring-style-sync";
+import { AuthoringStyleSync, declinedMark, itemMark, noteLineMark, type SyncAccount, type SyncedPart } from "./authoring-style-sync";
 import { buildSummaryPrompt, isSummaryText, parseSummaryReply, type SummaryInput } from "./authoring-style-summary";
 import type { AiEditProvider } from "./ai-edit-provider";
 import { acquireFileLock } from "./file-lock";
@@ -105,7 +105,7 @@ export interface AuthoringStyleStoreOptions {
    */
   summarize?: (request: { provider: AiEditProvider; prompt: string }) => Promise<string>;
   /** Shared workspaces with the key their members keep each under, for sync. Others stay on this device. */
-  listWorkspaces?: () => Promise<{ id: string; key: string; readOnly?: boolean }[]>;
+  listWorkspaces?: () => Promise<{ id: string; key: string; readOnly?: boolean; manager?: boolean }[]>;
   /**
    * The documents of shared workspaces, whoever wrote them. A shared workspace's style is learned from all of
    * them and belongs to all its members. Without it nothing is learned from shared documents.
@@ -521,13 +521,15 @@ export class LocalAuthoringStyleStore {
     this.summaryAttempts.set(workspaceId, now.getTime());
     // As for an ordinary request: a habit whose documents were all shared, moved or deleted is not passed on.
     // Nor is an automatic sentence that no longer passes the check made of it.
-    const usable = memory.items.filter(i => i.origin === "user"
+    // Nor is what another member wrote and this one has not approved.
+    const waiting = await this.waiting(workspaceId);
+    const usable = memory.items.filter(i => !waiting(i)).filter(i => i.origin === "user"
       || ((!eligibleFiles || i.sources.some(id => eligibleFiles.has(id)) || Boolean(i.devices?.length)) && Boolean(i.key) && itemText(i.key!, i.value, memory.locale) === i.text));
     const suggested = usable.filter(i => i.origin === "auto" && i.basis === "summary" && i.key);
     const input: SummaryInput = {
       locale: memory.locale, sample, corrections,
       existing: scanLines(usable.map(i => i.text.replace(/^- /, "")).join("\n")).text.split("\n").filter(Boolean),
-      candidates: suggested.map(i => i.text), declined: memory.declined.filter(isSummaryText),
+      candidates: suggested.map(i => i.text), declined: memory.declined.filter(isSummaryText).filter(sentence => !waiting.marks.has(declinedMark(sentence))),
     };
     return { provider, input, hash, sources, candidates: suggested.map(i => i.key!) };
   }
@@ -585,8 +587,11 @@ export class LocalAuthoringStyleStore {
       const examples = (await this.eligible(await this.read())).filter(e => e.workspaceId === workspaceId && input.visibleFileIds.has(e.fileId));
       const files = await this.learnableFiles();
       const stored = await this.memory.load(workspaceId, getAppLocale(), this.now());
-      const learned = this.promptText(scanLines(this.injectedMemo(stored, input.locale, files, workspaceId)).text);
-      const notes = [await this.memory.readNote(null), await this.memory.readNote(workspaceId)].map(note => this.promptText(scanLines(note.content).text));
+      // What other members wrote reaches this member's AI only once this member has approved it.
+      const waiting = await this.waiting(workspaceId);
+      const learned = this.promptText(scanLines(this.injectedMemo(stored, input.locale, files, workspaceId, waiting)).text);
+      const ownLines = (content: string) => content.split("\n").filter(line => !waiting.marks.has(noteLineMark(line) ?? "")).join("\n");
+      const notes = [(await this.memory.readNote(null)).content, ownLines((await this.memory.readNote(workspaceId)).content)].map(content => this.promptText(scanLines(content).text));
       const selected = this.selectExamples(examples, input.fileId);
       const recent = [...examples].reverse().sort((a, b) => Number(b.fileId === input.fileId) - Number(a.fileId === input.fileId));
       const references = [...new Map(recent.map(e => [e.fileId, { fileId: e.fileId, title: isSuspicious(e.title) ? "" : e.title.slice(0, 100), ...(e.blockId !== "$structure" ? { blockId: e.blockId } : {}) }])).values()].slice(0, 8);
@@ -610,11 +615,11 @@ export class LocalAuthoringStyleStore {
   }
 
   /** The memo in the language of the request. A habit whose documents were all shared, moved or deleted is left out. */
-  private injectedMemo(memory: StyleMemory, locale: AppLocale, files: Map<string, LocalDocumentMetadata> | null, workspaceId: string): string {
+  private injectedMemo(memory: StyleMemory, locale: AppLocale, files: Map<string, LocalDocumentMetadata> | null, workspaceId: string, waiting: (item: StyleItem) => boolean): string {
     const labels = memoLabels(locale);
     const lines: string[] = [];
     for (const section of SECTION_ORDER) {
-      const items = memory.items.filter(item => item.section === section).flatMap(item => {
+      const items = memory.items.filter(item => item.section === section && !waiting(item)).flatMap(item => {
         if (item.origin === "user") return [item.text];
         // A habit learned on another device of the same account has its documents there.
         if (files && !item.sources.some(id => files.get(id)?.workspaceId === workspaceId) && !item.devices?.length) return [];
@@ -624,6 +629,15 @@ export class LocalAuthoringStyleStore {
       if (items.length) lines.push(labels.sections[section], ...items);
     }
     return lines.join("\n");
+  }
+
+  /**
+   * Caller holds the lock. Tells what in a shared workspace's style came from another member and still waits
+   * for this member's approval. A habit this device found in the documents itself does not wait.
+   */
+  private async waiting(workspaceId: string): Promise<((item: StyleItem) => boolean) & { marks: ReadonlySet<string> }> {
+    const marks = new Set((await this.memory.readTrust(workspaceId)).foreign);
+    return Object.assign((item: StyleItem) => marks.has(itemMark(item)) && !(item.origin === "auto" && item.sources.length > 0), { marks });
   }
 
   private selectExamples(examples: readonly StyleExample[], fileId: string): StyleExample[] {
@@ -756,6 +770,14 @@ export class LocalAuthoringStyleStore {
     const note = await this.memory.readNote(workspaceId);
     const memory = workspaceId === null ? null : await this.memory.load(workspaceId, getAppLocale(), this.now());
     const generatedContent = memory ? renderMemo(memory, memory.locale) : "";
+    const trust = workspaceId === null ? null : await this.memory.readTrust(workspaceId);
+    const waiting = workspaceId === null ? null : await this.waiting(workspaceId);
+    const declined = new Set(trust?.declined);
+    const memberEntries: AuthoringStyleMemberEntryView[] = !waiting ? [] : [
+      ...(memory?.items ?? []).filter(waiting).map(item => ({ id: itemMark(item), kind: "item" as const, text: item.text.replace(/^- /, "") })),
+      ...[...new Map(note.content.split("\n").flatMap(line => { const id = noteLineMark(line); return id && waiting.marks.has(id) ? [[id, line.trim()] as const] : []; })).entries()]
+        .map(([id, text]) => ({ id, kind: "note" as const, text })),
+    ].map(entry => ({ ...entry, declined: declined.has(entry.id) }));
     return {
       workspaceId, enabled: await this.memory.enabled(workspaceId),
       aiSummary: await this.memory.aiSummary(workspaceId), aiSummaryProvider: this.options.summarize ? await this.lastProvider() : null,
@@ -773,6 +795,7 @@ export class LocalAuthoringStyleStore {
       // Counted with the lines the scan holds back: an added sentence that no longer passes the check for one.
       blockedLines: scanLines(note.content).blocked + scanLines(generatedContent).blocked
         + (memory?.items ?? []).filter(i => i.origin === "auto" && i.key && !isSuspicious(i.text) && !itemText(i.key, i.value, memory!.locale)).length,
+      memberEntries,
       sync: await this.sync.view(workspaceId),
     };
   }
@@ -809,16 +832,17 @@ export class LocalAuthoringStyleStore {
   }
 
   /** Caller holds the lock. Drop collected evidence, keeping which text the AI wrote (hashes only). */
-  private async forget(workspaceId: string | null): Promise<void> {
+  private async forget(workspaceId: string | null, spared: ReadonlySet<string> = new Set()): Promise<void> {
     this.generation++;
-    for (const id of [...this.summaryAttempts.keys()]) if (workspaceId === null || id === workspaceId) this.summaryAttempts.delete(id);
-    const keep = <T extends { workspaceId: string }>(list: readonly T[]) => list.filter(e => workspaceId !== null && e.workspaceId !== workspaceId);
+    const gone = (id: string) => (workspaceId === null || id === workspaceId) && !spared.has(id);
+    for (const id of [...this.summaryAttempts.keys()]) if (gone(id)) this.summaryAttempts.delete(id);
+    const keep = <T extends { workspaceId: string }>(list: readonly T[]) => list.filter(e => !gone(e.workspaceId));
     await this.persist(keep(await this.read()));
     const outcomes = await this.readOutcomes();
     // Which text the AI wrote is kept (hashes only), so a reset does not make it the author's writing.
-    const blocks = outcomes.blocks.map(b => workspaceId === null || b.workspaceId === workspaceId ? { ...b, uncounted: true as const } : b);
+    const blocks = outcomes.blocks.map(b => gone(b.workspaceId) ? { ...b, uncounted: true as const } : b);
     await this.writeOutcomes({ version: 1, blocks, overflow: outcomes.overflow, rejected: keep(outcomes.rejected),
-      counters: Object.fromEntries(Object.entries(outcomes.counters).filter(([id]) => workspaceId !== null && id !== workspaceId)) });
+      counters: Object.fromEntries(Object.entries(outcomes.counters).filter(([id]) => !gone(id))) });
   }
 
   saveProfile(input: { workspaceId: string | null; content: string; expectedRevision: string }): Promise<AuthoringStyleProfile> {
@@ -838,16 +862,37 @@ export class LocalAuthoringStyleStore {
     return this.change(input.workspaceId, () => this.memory.resolvePending(input.workspaceId, input.id, input.approve, getAppLocale(), this.now()));
   }
 
+  /**
+   * Approve what other members wrote (it is then given to this member's AI, on every device of the account) or
+   * decline it (it stays out and is not asked about again). Nothing changes for the other members either way.
+   */
+  resolveMemberEntries(input: { workspaceId: string; ids: readonly string[]; approve: boolean }): Promise<AuthoringStyleProfile> {
+    return this.change(input.workspaceId, async () => {
+      const trust = await this.memory.readTrust(input.workspaceId);
+      const ids = new Set(input.ids.filter(id => trust.foreign.includes(id)));
+      if (!ids.size) return;
+      const memory = await this.memory.load(input.workspaceId, getAppLocale(), this.now());
+      const texts = new Map<string, string>([
+        ...memory.items.map(item => [itemMark(item), item.text] as const),
+        ...(await this.memory.readNote(input.workspaceId)).content.split("\n").flatMap(line => { const id = noteLineMark(line); return id ? [[id, line.trim()] as const] : []; }),
+      ]);
+      await this.memory.writeTrust(input.workspaceId, input.approve
+        ? { vouched: [...new Set([...trust.vouched, ...ids])].sort(), foreign: trust.foreign.filter(id => !ids.has(id)), declined: trust.declined.filter(id => !ids.has(id)) }
+        : { ...trust, declined: [...new Set([...trust.declined, ...ids])].sort() });
+      await this.memory.record(input.workspaceId, [...ids].map(id => ({ actor: "approval" as const, action: input.approve ? "member-approve" : "member-decline", after: texts.get(id) ?? "" })));
+    });
+  }
+
   undo(workspaceId: string): Promise<AuthoringStyleProfile> {
     return this.change(workspaceId, () => this.memory.undo(workspaceId, getAppLocale(), this.now()));
   }
 
   setEnabled(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile> {
-    return this.change(workspaceId, async () => { await this.memory.setEnabled(workspaceId, enabled); await this.sync.noteSwitch(workspaceId, "enabled"); });
+    return this.change(workspaceId, async () => { await this.sync.noteSwitch(workspaceId, "enabled", enabled); await this.memory.setEnabled(workspaceId, enabled); });
   }
 
   setAiSummary(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile> {
-    return this.change(workspaceId, async () => { await this.memory.setAiSummary(workspaceId, enabled); await this.sync.noteSwitch(workspaceId, "aiSummary"); });
+    return this.change(workspaceId, async () => { await this.sync.noteSwitch(workspaceId, "aiSummary", enabled); await this.memory.setAiSummary(workspaceId, enabled); });
   }
 
   async reviewNow(workspaceId: string): Promise<AuthoringStyleProfile> {
@@ -858,9 +903,12 @@ export class LocalAuthoringStyleStore {
   reset(workspaceId: string | null): Promise<AuthoringStyleProfile> {
     for (const [id, timer] of this.reviewTimers) if (workspaceId === null || id === workspaceId) { clearTimeout(timer); this.reviewTimers.delete(id); }
     return this.change(workspaceId, async () => {
-      await this.forget(workspaceId);
+      // A shared workspace's style is all its members': only an owner or admin resets it. Resetting everything leaves it alone.
+      const spared = await this.sync.unmanaged();
+      if (workspaceId !== null && spared.includes(workspaceId)) throw new Error("Only an owner or admin can reset a shared workspace's style");
+      await this.forget(workspaceId, new Set(spared));
       await this.sync.noteReset(workspaceId);
-      if (workspaceId === null) await this.memory.resetAllGenerated();
+      if (workspaceId === null) await this.memory.resetAllGenerated(spared);
       else await this.memory.resetGenerated(workspaceId);
     });
   }

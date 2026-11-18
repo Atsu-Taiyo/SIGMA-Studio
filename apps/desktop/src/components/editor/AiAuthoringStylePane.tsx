@@ -48,15 +48,22 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
     : item.basis === "summary" ? t("authoringStyle.evidenceSummary", { documents: item.documents })
       : t(item.basis === "corrections" ? "authoringStyle.evidenceCorrections" : "authoringStyle.evidenceWriting", { count: item.support, documents: item.documents });
   const aiAdded = (profile?.items ?? []).filter(item => item.origin === "auto" && item.basis === "summary");
+  // In a shared workspace the switches that hold for everyone, and the reset, are its owner's and admins'.
+  const wide = profile?.sync.wide ?? null;
+  const manage = profile?.sync.manage ?? true;
+  const heldOff = (name: "enabled" | "aiSummary") => !manage && wide !== null && !wide[name];
+  const waiting = (profile?.memberEntries ?? []).filter(entry => !entry.declined);
+  const declined = (profile?.memberEntries ?? []).filter(entry => entry.declined);
+  const decide = (ids: string[], approve: boolean) => void run(() => api.resolveMemberEntries({ workspaceId: workspaceId!, ids, approve }));
   return (
     <SettingsSection id={id} className="ai-settings-pane" title={t("authoringStyle.title")} description={t("authoringStyle.description")}>
       {error && <SettingsStatus tone="error">{t("authoringStyle.error")}</SettingsStatus>}
       {!profile ? <Shimmer>{t("ai.loading")}</Shimmer> : <Stack gap="lg">
         <SettingsField label={t(workspaceId ? "authoringStyle.workspaceEnabled" : "authoringStyle.enabled")}>
-          <Switch label={t(workspaceId ? "authoringStyle.workspaceEnabled" : "authoringStyle.enabled")} checked={profile.enabled} disabled={busy} onCheckedChange={enabled => void run(() => api.setEnabled(workspaceId, enabled))} />
+          <Switch label={t(workspaceId ? "authoringStyle.workspaceEnabled" : "authoringStyle.enabled")} checked={profile.enabled} disabled={busy || (heldOff("enabled") && !profile.enabled)} onCheckedChange={enabled => void run(() => api.setEnabled(workspaceId, enabled))} />
         </SettingsField>
         <SettingsField label={t("authoringStyle.aiSummary")} description={t("authoringStyle.aiSummaryDescription")}>
-          <Switch label={t("authoringStyle.aiSummary")} checked={profile.aiSummary} disabled={busy || !profile.enabled} onCheckedChange={enabled => void run(() => api.setAiSummary(workspaceId, enabled))} />
+          <Switch label={t("authoringStyle.aiSummary")} checked={profile.aiSummary} disabled={busy || !profile.enabled || (heldOff("aiSummary") && !profile.aiSummary)} onCheckedChange={enabled => void run(() => api.setAiSummary(workspaceId, enabled))} />
         </SettingsField>
         {!workspaceId && profile.sync.available && <Stack gap="xs">
           <SettingsField label={t("authoringStyle.sync")} description={t("authoringStyle.syncDescription")}>
@@ -73,6 +80,8 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
           </div>}
         </Stack>}
         {workspaceId && profile.sync.available && profile.sync.scope !== "account" && <SettingsStatus>{t(`authoringStyle.syncScope.${profile.sync.scope}`)}</SettingsStatus>}
+        {workspaceId && wide !== null && <SettingsStatus>{t(manage ? "authoringStyle.manageManager" : "authoringStyle.manageMember")}</SettingsStatus>}
+        {(heldOff("enabled") || heldOff("aiSummary")) && <SettingsStatus>{t("authoringStyle.wideOff", { names: (["enabled", "aiSummary"] as const).filter(heldOff).map(name => t(`authoringStyle.wideName.${name}`)).join(" / ") })}</SettingsStatus>}
         <SettingsStatus>{t("authoringStyle.count", { count: profile.exampleCount })} / {t("authoringStyle.outcomes", { ...profile.outcomes })}</SettingsStatus>
         {profile.blockedLines > 0 && <SettingsStatus tone="error">{t("authoringStyle.blocked", { count: profile.blockedLines })}</SettingsStatus>}
         <Stack gap="xs">
@@ -111,6 +120,29 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
               </Stack>
             ))}
           </Stack>}
+          {(waiting.length > 0 || declined.length > 0) && <Stack gap="xs" data-testid="authoring-style-member-entries">
+            <strong>{t("authoringStyle.memberTitle", { count: waiting.length })}</strong>
+            <small className="ai-settings-empty-hint">{t("authoringStyle.memberHint")}</small>
+            <ul>{waiting.map(entry => <li key={entry.id}>
+              <Inline gap="sm">
+                <span>{entry.text}</span>
+                <small className="ai-settings-empty-hint"><strong>{t(`authoringStyle.memberKind.${entry.kind}`)}</strong></small>
+                <Button size="sm" aria-label={t("authoringStyle.memberApproveLabel", { text: entry.text })} disabled={busy} onClick={() => decide([entry.id], true)}>{t("authoringStyle.memberApprove")}</Button>
+                <Button tone="ghost" size="sm" aria-label={t("authoringStyle.memberDeclineLabel", { text: entry.text })} disabled={busy} onClick={() => decide([entry.id], false)}>{t("authoringStyle.memberDecline")}</Button>
+              </Inline>
+            </li>)}</ul>
+            {waiting.length > 1 && <Inline gap="sm"><Button tone="ghost" size="sm" disabled={busy} onClick={() => decide(waiting.map(entry => entry.id), true)}>{t("authoringStyle.memberApproveAll")}</Button></Inline>}
+            {declined.length > 0 && <details>
+              <summary>{t("authoringStyle.memberDeclinedTitle", { count: declined.length })}</summary>
+              <ul>{declined.map(entry => <li key={entry.id}>
+                <Inline gap="sm">
+                  <span>{entry.text}</span>
+                  <small className="ai-settings-empty-hint"><strong>{t(`authoringStyle.memberKind.${entry.kind}`)}</strong></small>
+                  <Button tone="ghost" size="sm" aria-label={t("authoringStyle.memberApproveLabel", { text: entry.text })} disabled={busy} onClick={() => decide([entry.id], true)}>{t("authoringStyle.memberApprove")}</Button>
+                </Inline>
+              </li>)}</ul>
+            </details>}
+          </Stack>}
           {aiAdded.length > 0 && <Stack gap="xs">
             <strong>{t("authoringStyle.aiAddedTitle")}</strong>
             <small className="ai-settings-empty-hint">{t("authoringStyle.aiAddedHint")}</small>
@@ -128,7 +160,7 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
             <ul>{profile.items.map(item => <li key={item.id}>{item.text.replace(/^- /, "")} <small className="ai-settings-empty-hint">{item.basis === "summary" && item.origin === "auto" && <strong>{t("authoringStyle.aiAddedBadge")} </strong>}{evidence(item)}</small></li>)}</ul>
           </details>}
         </Stack>}
-        <Button tone="ghost" size="sm" disabled={busy || dirty || learnedDirty} onClick={() => setConfirmReset(true)}>{t("authoringStyle.reset")}</Button>
+        <Button tone="ghost" size="sm" disabled={busy || dirty || learnedDirty || !manage} onClick={() => setConfirmReset(true)}>{t("authoringStyle.reset")}</Button>
       </Stack>}
       <ModalFrame open={confirmDelete} onDismiss={() => setConfirmDelete(false)} size="sm" ariaLabel={t("authoringStyle.syncDelete")}>
         <ModalHeader title={t("authoringStyle.syncDelete")} onClose={() => setConfirmDelete(false)} />

@@ -210,7 +210,8 @@ const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH, {
     const result = await sharedCatalog.overview();
     return result.state !== "ready" ? [] : result.overview.workspaces.flatMap(({ id, sharing }) => sharing?.state === "active" && sharing.target.kind === "workspace"
       // Whoever cannot edit the workspace's documents does not change the style its members share either.
-      ? [{ id, key: workspaceKey(sharing.target.catalogNodeId), readOnly: sharing.role === "viewer" }] : []);
+      // Resetting it for everyone, and the switches that hold for everyone, are for its owner and admins.
+      ? [{ id, key: workspaceKey(sharing.target.catalogNodeId), readOnly: sharing.role === "viewer", manager: sharing.role === "owner" || sharing.role === "admin" }] : []);
   },
   // A shared workspace's style is learned from all of its documents, whoever wrote them. They are only read.
   listSharedFiles: async () => (await sharedCatalog.listFiles()).filter(file => file.sharing),
