@@ -616,6 +616,27 @@ describe("automatic authoring style", () => {
       expect(profile.pending).toEqual([]);
     });
 
+    it("takes a change approved by hand as wanted, though the same change was taken back before", async () => {
+      const lib = library();
+      lib.put("f1", written(...PLAIN));
+      store = make(lib.options);
+      await store.reviewNow("ws1");
+      // Staged while the switch is off, applied by the review once it is on, then undone.
+      await store.setAutoApply("ws1", false);
+      lib.put("f1", written(...POLITE));
+      expect((await store.reviewNow("ws1")).pending).toHaveLength(1);
+      await store.setAutoApply("ws1", true);
+      expect((await store.reviewNow("ws1")).generatedContent).toContain(TONE.polite);
+      let profile = await store.undo("ws1");
+      expect(profile.generatedContent).toContain(TONE.plain);
+      const decisions = async () => JSON.parse(await fs.readFile(path.join(styleDir(), "memory.json"), "utf8")).dismissed as string[];
+      expect(await decisions()).toEqual(["rewrite:tone.explanation:polite"]);
+      // The proposal is back with the memo it belonged to, and the user now says yes to it.
+      profile = await store.resolvePending({ workspaceId: "ws1", id: profile.pending[0].id, approve: true });
+      expect(profile.generatedContent).toContain(TONE.polite);
+      expect(await decisions()).toEqual([]);
+    });
+
     it("remembers what the user took back through many later decisions", async () => {
       const lib = library();
       lib.put("f1", written(...PLAIN));

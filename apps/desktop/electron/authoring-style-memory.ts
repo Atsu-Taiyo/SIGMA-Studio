@@ -473,6 +473,8 @@ export class AuthoringStyleMemory {
     }
     else if (change.kind === "rewrite") Object.assign(item!, evidence, { value: change.value, text });
     else memory.items.push({ id: `auto:${change.key}`, key: change.key, value: change.value, section: sectionOf(change.key), text: text!, origin: "auto", ...evidence, firstSeenAt: at });
+    // Approved by hand: whatever was on record against this value before, it is wanted now.
+    settleDecisions(memory);
     await this.commit(workspaceId, memory, [{ actor: "user", action: `approve-${change.kind}`, key: change.key, before: change.expectedText, after: change.kind === "remove" ? "" : text! }]);
     return memory;
   }
