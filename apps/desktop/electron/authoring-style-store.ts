@@ -409,7 +409,8 @@ export class LocalAuthoringStyleStore {
       let document: SigmaDocument | null;
       try { document = await load(file.fileId); }
       catch (error) { unread = true; logLedgerEvent(this.dataDir, "authoring-style-read-failed", { fileId: file.fileId, error: String(error) }); continue; }
-      if (!document) continue;
+      // Not there to be read just now: as with a failed read, this review did not see everything.
+      if (!document) { unread = true; continue; }
       const projection = projectDocument(document);
       loaded.push({ file, projection });
       let length = 0;

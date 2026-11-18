@@ -813,6 +813,31 @@ describe("account sync of the learned writing style", () => {
       expect((await a.store.syncNow(null)).sync).toMatchObject({ enabled: true, state: "ok" });
       expect(JSON.stringify(workspaceCopy().content)).toContain(PLAIN_MEMO);
     });
+
+    it("keeps what it carries for others when the copy is gone and putting it back fails at first, or is not its to do", async () => {
+      const a = await device("ws-a", { documents: { f1: written(...PLAIN) } });
+      await a.store.reviewNow("ws-a");
+      await a.store.syncNow(null);
+      // A newer version of the app wrote an entry this one cannot read.
+      const key = workspaceKey(SHARED_MATH);
+      const copy = cloud.workspaces.get(key)!;
+      cloud.workspaces.set(key, { revision: "newer", content: { ...(copy.content as object), opaque: [{ id: "x", shape: "from a newer version" }] } });
+      const viewer = await device("ws-v", { user: () => "user-2", readOnly: true });
+      await a.store.syncNow(null);
+      await viewer.store.syncNow(null);
+
+      cloud.workspaces.clear();
+      cloud.state.beforeWrite = () => { throw new Error("fetch failed"); };
+      expect((await a.store.syncNow(null)).sync.state).toBe("error");
+      // The viewer cannot put it back, and must not forget it either.
+      await viewer.store.syncNow(null);
+      await viewer.store.syncNow(null);
+      cloud.state.beforeWrite = null;
+      expect(cloud.workspaces.size).toBe(0);
+      await a.store.syncNow(null);
+      expect(JSON.stringify(workspaceCopy().content)).toContain("from a newer version");
+      expect(JSON.stringify(JSON.parse(await fs.readFile(path.join(viewer.dir, "sync.json"), "utf8")).scopes[key])).toContain("from a newer version");
+    });
   });
 });
 
