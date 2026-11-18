@@ -838,6 +838,25 @@ describe("account sync of the learned writing style", () => {
       expect(JSON.stringify(workspaceCopy().content)).toContain("from a newer version");
       expect(JSON.stringify(JSON.parse(await fs.readFile(path.join(viewer.dir, "sync.json"), "utf8")).scopes[key])).toContain("from a newer version");
     });
+
+    it("does not take what a member without the history writes into the place of a lost copy for a deletion of everything before", async () => {
+      const a = await device("ws-a", { user: () => "user-1", documents: { f1: written(...PLAIN) } });
+      await a.store.reviewNow("ws-a");
+      await a.store.saveProfile({ workspaceId: "ws-a", content: "Aのメモ。", expectedRevision: (await a.store.getProfile("ws-a")).revision });
+      await a.store.syncNow(null);
+      cloud.workspaces.clear();
+      cloud.state.beforeWrite = () => { throw new Error("fetch failed"); };
+      await a.store.syncNow(null);
+      cloud.state.beforeWrite = null;
+      // Someone who never had the old copy writes a new one first.
+      const b = await device("ws-b", { user: () => "user-2" });
+      await b.store.saveProfile({ workspaceId: "ws-b", content: "Bのメモ。", expectedRevision: (await b.store.getProfile("ws-b")).revision });
+      await b.store.syncNow(null);
+      const profile = await a.store.syncNow("ws-a");
+      expect(profile.generatedContent).toContain(PLAIN_MEMO);
+      for (const line of ["Aのメモ。", "Bのメモ。"]) expect(profile.userContent).toContain(line);
+      expect(JSON.stringify(workspaceCopy().content)).toContain(PLAIN_MEMO);
+    });
   });
 });
 

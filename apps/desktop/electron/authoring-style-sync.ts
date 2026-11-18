@@ -299,6 +299,12 @@ interface ScopeState {
   held?: { enabled?: boolean; aiSummary?: boolean };
   /** The first merge with the account's copy has begun and is not yet agreed. */
   linking?: boolean;
+  /**
+   * What was last agreed, kept while the server holds no copy. It is not something to merge against (whoever
+   * writes the next copy shares no history with it), only where the entries come from that this device carries
+   * along for others without being able to read them.
+   */
+  carry?: unknown;
 }
 interface SyncState {
   version: 1;
@@ -604,7 +610,7 @@ export class AuthoringStyleSync {
     // Sending only part of a memo would read, on the other side, as the rest having been deleted.
     if (memory.items.length > MAX_SYNCED_ITEMS) throw new SyncProblem("limit");
     const generation = state.generations[workspaceId] ?? 0;
-    const known = state.scopes[key]?.base as WorkspaceBundle | GlobalBundle | null | undefined;
+    const known = (state.scopes[key]?.base ?? state.scopes[key]?.carry) as WorkspaceBundle | GlobalBundle | null | undefined;
     // What this device could not use came from another one. It is carried along untouched, unless a reset erased it.
     const base = known?.kind === "workspace" && known.generation === generation ? known : null;
     const mine = new Set(memory.items.map(identity));
@@ -751,8 +757,8 @@ export class AuthoringStyleSync {
         const state = await this.current(run);
         const known = state.scopes[key];
         // A workspace's copy is not this account's to delete. Should it be gone all the same, these files meet
-        // whatever comes next as for the first time. What was agreed before stays on record until a copy is
-        // back on the server: it holds what this device carries along for others without being able to read it.
+        // whatever comes next as for the first time. What was agreed before is set aside (`carry`) until a copy
+        // is back on the server.
         const lost = workspaceId !== null && remote.revision === null && Boolean(known?.revision);
         if (remote.revision === null && known?.revision && !lost) {
           // The account's copy was deleted from another device. Do not put it back: stop syncing here too.
@@ -769,12 +775,13 @@ export class AuthoringStyleSync {
         // the server from what was added here, and does not send back something another device has deleted since.
         // A reset made before these files met the copy is spent on this first meeting: should the upload meet a
         // conflict, the retry must not take it for a reset of what the members share.
+        const carried = remote.revision === null ? known?.base ?? known?.carry ?? null : null;
         const spent = workspaceId !== null && !base && Boolean(state.resets[workspaceId]);
         const journal = async (heldNow: ScopeState["held"], generation?: number) => {
           const latest = await this.state();
           if (spent) latest.resets = Object.fromEntries(Object.entries(latest.resets).filter(([id]) => id !== workspaceId));
           await this.write({ ...latest, generations: generation === undefined ? latest.generations : { ...latest.generations, [workspaceId!]: generation },
-            scopes: { ...latest.scopes, [key]: { revision: remote.revision, base: remote.revision === null ? known?.base ?? null : theirs, syncedAt: known?.syncedAt ?? null, held: heldNow, ...(linking ? { linking } : {}) } } });
+            scopes: { ...latest.scopes, [key]: { revision: remote.revision, base: theirs, syncedAt: known?.syncedAt ?? null, held: heldNow, ...(linking ? { linking } : {}), ...(carried ? { carry: carried } : {}) } } });
         };
         if (workspaceId === null) {
           const mine = await this.snapshotGlobal(state);
@@ -808,7 +815,7 @@ export class AuthoringStyleSync {
         }
         const heldNow = await this.switches(workspaceId, mine.settings, result.settings);
         await journal(heldNow, result.generation);
-        return { result, held: heldNow, carried: remote.revision === null ? known?.base ?? null : null, empty: !result.items.length && !result.opaque.length && !result.note && !result.ledger.length && !result.suppressed.length
+        return { result, held: heldNow, carried, empty: !result.items.length && !result.opaque.length && !result.note && !result.ledger.length && !result.suppressed.length
           && result.settings.enabled && result.settings.aiSummary };
       });
       let revision = remote.revision;
@@ -834,7 +841,7 @@ export class AuthoringStyleSync {
         const state = await this.current(run);
         const resets = Object.fromEntries(Object.entries(state.resets).filter(([id]) => id !== workspaceId));
         await this.write({ ...state, resets, scopes: { ...state.scopes, [key]: { revision, syncedAt: this.host.now().toISOString(), held: merged.held,
-          ...(revision !== null ? { base: agreed } : "carried" in merged && merged.carried ? { base: merged.carried, linking: true } : { base: null }) } } });
+          base: revision === null ? null : agreed, ...(revision === null && "carried" in merged && merged.carried ? { carry: merged.carried } : {}) } } });
       });
       return;
     }
