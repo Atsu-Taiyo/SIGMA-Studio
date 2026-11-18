@@ -53,6 +53,7 @@ import {
 import { AUTO_APPLY_DEFER_MS, shouldDeferAutoApply } from "./auto-apply-defer";
 import { LocalSigmaDocStore, type LocalStoreChangeEvent } from "./local-sigma-doc-store";
 import { appSettingsPart } from "./app-settings-sync";
+import { workspaceKey } from "./authoring-style-sync";
 import { LocalAuthoringStyleStore } from "./authoring-style-store";
 import { LocalMaterialStore } from "./local-material-store";
 import { LocalTemplateStore } from "./local-template-store";
@@ -204,13 +205,17 @@ const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH, {
     return (await localSigmaDocStore.listFiles()).filter(file => !bound.has(file.fileId));
   },
   loadDocument: fileId => localSigmaDocStore.loadDocument(fileId),
-  // Only shared workspaces are synced, each under the id the server knows it by. The others stay on this device.
+  // Only shared workspaces are synced, each under the id the server knows it by, as one copy for all members. The others stay on this device.
   listWorkspaces: async () => {
     const result = await sharedCatalog.overview();
     return result.state !== "ready" ? [] : result.overview.workspaces.flatMap(({ id, sharing }) => sharing?.state === "active" && sharing.target.kind === "workspace"
-      ? [{ id, key: `style-ws-${sharing.target.catalogNodeId.toLowerCase()}` }] : []);
+      // Whoever cannot edit the workspace's documents does not change the style its members share either.
+      ? [{ id, key: workspaceKey(sharing.target.catalogNodeId), readOnly: sharing.role === "viewer" }] : []);
   },
-  // Keeps the author's note, the settings and shared workspaces' styles in step across a Pro account's devices.
+  // A shared workspace's style is learned from all of its documents, whoever wrote them. They are only read.
+  listSharedFiles: async () => (await sharedCatalog.listFiles()).filter(file => file.sharing),
+  loadSharedDocument: fileId => sharedCatalog.preview(fileId, { assets: false }),
+  // Keeps the author's note and the settings in step across a Pro account's devices, and a shared workspace's style across its members.
   sync: { client: { read: (userId, key, signal) => collaborationSessions.personalData.read(userId, key, signal),
     write: (userId, key, content, revision, signal) => collaborationSessions.personalData.write(userId, key, content, revision, signal),
     removeAll: userId => collaborationSessions.personalData.removeAll(userId) }, userId: () => collaborationSessions.actorId(), available: () => Boolean(collaborationSessions.auth),

@@ -46,6 +46,13 @@ const SUMMARY_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const REVIEW_IDLE_MS = 15_000;
 const REVIEW_MAX_AGE_MS = 30 * 60 * 1000;
 const REVIEW_AFTER = { saves: 5, corrections: 2, rejections: 2 };
+/** How long a list of shared documents is good for. Reading it means reading the whole catalog. */
+const SHARED_FILES_FRESH_MS = 60_000;
+/**
+ * A shared workspace is reviewed again after this long even when its list of documents looks the same:
+ * what a member writes inside a document does not show in the list.
+ */
+const SHARED_REVIEW_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 /** Below this similarity a corrected AI block reads as the author's own text again. */
 const REWRITTEN_BELOW = 0.5;
 
@@ -66,7 +73,11 @@ interface AiBlock {
    */
   uncounted?: true;
 }
-interface Counters { saves: number; corrections: number; rejections: number; kept: number; reviewedAt: string | null }
+interface Counters {
+  saves: number; corrections: number; rejections: number; kept: number; reviewedAt: string | null;
+  /** Shared workspaces only: which documents the last review saw, and how recent each was. */
+  shared?: string;
+}
 interface Outcomes {
   version: 1;
   blocks: AiBlock[];
@@ -93,8 +104,15 @@ export interface AuthoringStyleStoreOptions {
    * Without it the review only counts habits on this device.
    */
   summarize?: (request: { provider: AiEditProvider; prompt: string }) => Promise<string>;
-  /** Shared workspaces with the key the account keeps each under, for account sync. Others stay on this device. */
-  listWorkspaces?: () => Promise<{ id: string; key: string }[]>;
+  /** Shared workspaces with the key their members keep each under, for sync. Others stay on this device. */
+  listWorkspaces?: () => Promise<{ id: string; key: string; readOnly?: boolean }[]>;
+  /**
+   * The documents of shared workspaces, whoever wrote them. A shared workspace's style is learned from all of
+   * them and belongs to all its members. Without it nothing is learned from shared documents.
+   */
+  listSharedFiles?: () => Promise<LocalDocumentMetadata[]>;
+  /** Reads a shared document for the review. It is only read: nothing here ever changes one. */
+  loadSharedDocument?: (fileId: string) => Promise<SigmaDocument | null>;
   /** The signed-in account's store on the collaboration server. Without it nothing is synced. */
   sync?: SyncAccount;
   /** Other personal settings kept in step under the same switch. */
@@ -106,6 +124,11 @@ export interface AuthoringStyleStoreOptions {
 
 function same(a: Fragment | null | undefined, b: Fragment | null | undefined): boolean {
   return a?.area === b?.area && a?.format === b?.format && a?.digest === b?.digest;
+}
+
+/** Which documents a shared workspace holds and when the catalog last saw each change. An empty workspace has one too. */
+function sharedSignature(files: readonly LocalDocumentMetadata[]): string {
+  return createHash("sha256").update(files.filter(f => f.sharing).map(f => `${f.fileId}\n${f.updatedAt}`).sort().join("\n")).digest("hex");
 }
 
 const emptyCounters = (): Counters => ({ saves: 0, corrections: 0, rejections: 0, kept: 0, reviewedAt: null });
@@ -315,7 +338,17 @@ export class LocalAuthoringStyleStore {
     for (const [workspaceId, value] of Object.entries(outcomes.counters)) if (this.due(value)) this.scheduleReview(workspaceId);
   }
 
-  private due(counters: Counters | undefined): boolean {
+  /**
+   * `shared`: the documents a shared workspace holds now (null for any other workspace). Nobody's saves are
+   * counted there, so a review is due when they are not the ones the last review saw, and now and then even
+   * when they are. Members who review at the same time come to the same habits, which sync then merges into one.
+   */
+  private due(counters: Counters | undefined, shared: string | null = null): boolean {
+    if (shared !== null) {
+      const age = counters?.reviewedAt ? this.now().getTime() - Date.parse(counters.reviewedAt) : Infinity;
+      // A review that could not read every document did not record what it saw, and comes round again here.
+      if (age > (shared === counters?.shared ? SHARED_REVIEW_MAX_AGE_MS : REVIEW_MAX_AGE_MS)) return true;
+    }
     if (!counters) return false;
     const activity = counters.saves + counters.corrections + counters.rejections;
     if (!activity) return false;
@@ -337,9 +370,10 @@ export class LocalAuthoringStyleStore {
   }
 
   /**
-   * Background review: read a few recently edited personal documents of the
-   * workspace, combine the habits found in the author's own text with repeated
-   * corrections, and refine the memo. Never throws; a failure is only logged.
+   * Background review: read a few recently edited documents of the workspace (the
+   * author's own, or in a shared workspace every member's), combine the habits found
+   * in their text with repeated corrections, and refine the memo. Documents are only
+   * read. Never throws; a failure is only logged.
    */
   review(workspaceId: string, requested = false): Promise<void> {
     const running = this.reviews.get(workspaceId);
@@ -354,22 +388,27 @@ export class LocalAuthoringStyleStore {
   private async runReview(workspaceId: string, requested: boolean): Promise<void> {
     await this.flush();
     const generation = this.generation;
-    const recent = await this.exclusive(async () => {
+    const start = await this.exclusive(async () => {
       if (!await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return null;
-      const files = await this.personalFiles();
-      return files ? [...files.values()].filter(f => f.workspaceId === workspaceId)
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, this.options.reviewDocuments ?? DEFAULT_REVIEW_DOCUMENTS) : [];
+      const files = await this.learnableFiles(true);
+      const mine = files ? [...files.values()].filter(f => f.workspaceId === workspaceId) : [];
+      return { signature: this.sharedWorkspaces.has(workspaceId) ? sharedSignature(mine) : null,
+        files: mine.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, this.options.reviewDocuments ?? DEFAULT_REVIEW_DOCUMENTS) };
     });
-    if (!recent) return;
+    if (!start) return;
+    const recent = start.files;
     // Documents are read outside the style lock so a long read never delays a save's bookkeeping.
     const loaded: { file: LocalDocumentMetadata; projection: DocumentProjection }[] = [];
     let characters = 0;
+    /** A document could not be read: what this review saw is not all there was to see. */
+    let unread = false;
     for (const file of recent) {
       // Stop once the budget is all but spent rather than opening documents that cannot be read.
-      if (MAX_REVIEW_CHARACTERS - characters < MAX_REVIEW_DOCUMENT_CHARACTERS / 10 || !this.options.loadDocument) break;
+      const load = file.sharing ? this.options.loadSharedDocument : this.options.loadDocument;
+      if (MAX_REVIEW_CHARACTERS - characters < MAX_REVIEW_DOCUMENT_CHARACTERS / 10 || !load) break;
       let document: SigmaDocument | null;
-      try { document = await this.options.loadDocument(file.fileId); }
-      catch (error) { logLedgerEvent(this.dataDir, "authoring-style-read-failed", { fileId: file.fileId, error: String(error) }); continue; }
+      try { document = await load(file.fileId); }
+      catch (error) { unread = true; logLedgerEvent(this.dataDir, "authoring-style-read-failed", { fileId: file.fileId, error: String(error) }); continue; }
       if (!document) continue;
       const projection = projectDocument(document);
       loaded.push({ file, projection });
@@ -381,7 +420,7 @@ export class LocalAuthoringStyleStore {
     await this.flush();
     const summary = await this.exclusive(async () => {
       if (generation !== this.generation || !await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return null;
-      const files = await this.personalFiles();
+      const files = await this.learnableFiles(true);
       const eligibleFiles = files ? new Set([...files.values()].filter(f => f.workspaceId === workspaceId).map(f => f.fileId)) : null;
       const outcomes = await this.readOutcomes();
       const units: EvidenceUnit[] = [];
@@ -393,7 +432,8 @@ export class LocalAuthoringStyleStore {
         // what was read may no longer match what is recorded about it.
         if (outcomes.overflow?.includes(file.fileId)) continue;
         const current = files?.get(file.fileId);
-        if (files && (current?.workspaceId !== workspaceId || current.revision !== file.revision)) continue;
+        // A shared document has no revision of this device's to go by: when it was last changed stands in for it.
+        if (files && (current?.workspaceId !== workspaceId || current.revision !== file.revision || current.updatedAt !== file.updatedAt)) continue;
         const tracked = new Map(outcomes.blocks.filter(b => b.fileId === file.fileId).map(b => [b.blockId, b]));
         // Text the AI wrote and the author left alone, or only touched up, is not the author's writing.
         const isAiText = (blockId: string, fragment: Fragment) => {
@@ -415,7 +455,7 @@ export class LocalAuthoringStyleStore {
       memory.lastReviewedAt = now.toISOString();
       memory.reviewedDocuments = reviewed;
       await this.memory.commit(workspaceId, memory, planned.entries);
-      outcomes.counters[workspaceId] = { ...emptyCounters(), reviewedAt: now.toISOString() };
+      outcomes.counters[workspaceId] = { ...emptyCounters(), reviewedAt: now.toISOString(), ...(start.signature !== null && !unread ? { shared: start.signature } : {}) };
       await this.writeOutcomes(outcomes);
       return this.summaryRequest(workspaceId, memory, authored, examples, eligibleFiles, requested, now);
     });
@@ -430,7 +470,7 @@ export class LocalAuthoringStyleStore {
     await this.exclusive(async () => {
       if (generation !== this.generation || !await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)
         || !await this.memory.aiSummary(null) || !await this.memory.aiSummary(workspaceId)) return;
-      const files = await this.personalFiles();
+      const files = await this.learnableFiles();
       const sources = summary.sources.filter(id => !files || files.get(id)?.workspaceId === workspaceId);
       if (!sources.length) return;
       const now = this.now();
@@ -542,7 +582,7 @@ export class LocalAuthoringStyleStore {
       if (!workspaceId || !input.visibleFileIds.has(input.fileId)) return context;
       if (!await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return context;
       const examples = (await this.eligible(await this.read())).filter(e => e.workspaceId === workspaceId && input.visibleFileIds.has(e.fileId));
-      const files = await this.personalFiles();
+      const files = await this.learnableFiles();
       const stored = await this.memory.load(workspaceId, getAppLocale(), this.now());
       const learned = this.promptText(scanLines(this.injectedMemo(stored, input.locale, files, workspaceId)).text);
       const notes = [await this.memory.readNote(null), await this.memory.readNote(workspaceId)].map(note => this.promptText(scanLines(note.content).text));
@@ -550,7 +590,7 @@ export class LocalAuthoringStyleStore {
       const recent = [...examples].reverse().sort((a, b) => Number(b.fileId === input.fileId) - Number(a.fileId === input.fileId));
       const references = [...new Map(recent.map(e => [e.fileId, { fileId: e.fileId, title: isSuspicious(e.title) ? "" : e.title.slice(0, 100), ...(e.blockId !== "$structure" ? { blockId: e.blockId } : {}) }])).values()].slice(0, 8);
       while (JSON.stringify(references).length > 1400) references.pop();
-      if (this.due((await this.readOutcomes()).counters[workspaceId])) this.scheduleReview(workspaceId);
+      await this.reviewIfDue(workspaceId, files);
       if (!selected.length && !learned && !notes.some(Boolean)) return context;
       const t = createTranslator(input.locale, "prompt");
       const resource: AiResourceContextItem = {
@@ -626,6 +666,34 @@ export class LocalAuthoringStyleStore {
     return this.options.listFiles ? new Map((await this.options.listFiles()).filter(f => !f.sharing && !f.sharingPending).map(f => [f.fileId, f])) : null;
   }
 
+  private sharedFilesRead: { at: number; files: Map<string, LocalDocumentMetadata> } | null = null;
+  /** The shared workspaces as of the last time their documents were listed. */
+  private sharedWorkspaces: ReadonlySet<string> = new Set();
+
+  /**
+   * What a review may read and a learned habit may rest on: the author's own documents, and every document
+   * of a shared workspace. A document shared by itself, or in a shared folder of a workspace that is not
+   * shared, is neither. `fresh`: read the list of shared documents now instead of one read a moment ago.
+   */
+  private async learnableFiles(fresh = false): Promise<Map<string, LocalDocumentMetadata> | null> {
+    const personal = await this.personalFiles();
+    if (!personal || !this.options.listSharedFiles || !this.options.listWorkspaces) return personal;
+    const at = Date.now();
+    if (fresh || !this.sharedFilesRead || at - this.sharedFilesRead.at > SHARED_FILES_FRESH_MS) {
+      try {
+        const workspaces = new Set((await this.options.listWorkspaces()).map(w => w.id));
+        this.sharedFilesRead = { at, files: new Map((await this.options.listSharedFiles())
+          .filter(f => f.sharing?.state === "active" && !f.sharingPending && workspaces.has(f.workspaceId)).map(f => [f.fileId, f])) };
+        this.sharedWorkspaces = workspaces;
+      } catch (error) {
+        // Signed out or offline: nothing shared is read, and what was learned from it before is left as it is.
+        logLedgerEvent(this.dataDir, "authoring-style-read-failed", { error: String(error) });
+        return this.sharedFilesRead ? new Map([...personal, ...this.sharedFilesRead.files]) : personal;
+      }
+    }
+    return new Map([...personal, ...this.sharedFilesRead.files]);
+  }
+
   private async eligible(examples: StyleExample[], respectEnabled = true): Promise<StyleExample[]> {
     const files = await this.personalFiles();
     const enabled = new Map<string, boolean>();
@@ -650,7 +718,17 @@ export class LocalAuthoringStyleStore {
     await this.flush();
     await this.sync.knowPlan();
     this.sync.refresh();
-    return this.exclusive(() => this.profile(workspaceId));
+    return this.exclusive(async () => {
+      // Opening a shared workspace's page is a moment to catch up with what its members wrote since.
+      if (workspaceId !== null && await this.memory.enabled(null) && await this.memory.enabled(workspaceId)) await this.reviewIfDue(workspaceId, await this.learnableFiles());
+      return this.profile(workspaceId);
+    });
+  }
+
+  /** Caller holds the lock. */
+  private async reviewIfDue(workspaceId: string, files: Map<string, LocalDocumentMetadata> | null): Promise<void> {
+    const shared = this.sharedWorkspaces.has(workspaceId) ? sharedSignature([...files?.values() ?? []].filter(f => f.workspaceId === workspaceId)) : null;
+    if (this.due((await this.readOutcomes()).counters[workspaceId], shared)) this.scheduleReview(workspaceId);
   }
 
   /** Caller holds the lock. Evidence from deleted, shared or moved documents is dropped first. */
@@ -804,6 +882,7 @@ export class LocalAuthoringStyleStore {
         counters: Object.fromEntries(Object.entries(data.counters as Record<string, Partial<Counters>>).slice(0, 500).map(([id, c]) => [id, {
           saves: count(c?.saves), corrections: count(c?.corrections), rejections: count(c?.rejections), kept: count(c?.kept),
           reviewedAt: text(c?.reviewedAt, 40) ? c.reviewedAt as string : null,
+          ...(text(c?.shared, 64) && c.shared ? { shared: c.shared as string } : {}),
         }])),
       };
     } catch (error) {

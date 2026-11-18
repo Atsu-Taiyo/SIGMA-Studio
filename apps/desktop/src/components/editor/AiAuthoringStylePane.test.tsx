@@ -141,7 +141,7 @@ it("shows that sync is for Pro and cannot be turned on without it, while the res
 });
 
 it("says on a workspace's page whether that workspace is synced or stays on this device", async () => {
-  for (const [scope, text] of [["shared", "共有されているので"], ["device", "この端末だけに保存されます"]] as const) {
+  for (const [scope, text] of [["shared", "あなたの変更やリセットはほかのメンバーにも反映されます"], ["shared-view", "この端末での変更はほかのメンバーには反映されません"], ["device", "この端末だけに保存されます"]] as const) {
     const view = mount(fakeApi({}, { ...base, workspaceId: "ws1", sync: { ...base.sync, scope } }), "ws1");
     try {
       await view.render();

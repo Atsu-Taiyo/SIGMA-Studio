@@ -48,7 +48,7 @@ export interface AuthoringStyleSyncView {
    */
   state: "off" | "signed-out" | "pro-required" | "other-account" | "unavailable" | "limit" | "error" | "ok";
   /** What the page being shown is: the account's own, a shared workspace's (synced), or a workspace kept on this device. */
-  scope: "account" | "shared" | "device";
+  scope: "account" | "shared" | "shared-view" | "device";
   lastSyncedAt: string | null;
 }
 

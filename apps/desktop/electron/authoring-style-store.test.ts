@@ -858,6 +858,156 @@ describe("automatic authoring style", () => {
     });
   });
 
+  describe("a shared workspace, learned from all of its documents", () => {
+    const active = { state: "active" } as LocalDocumentMetadata["sharing"];
+    /** The catalog's documents, as the main process lists them, with a loader that only reads. */
+    function catalog() {
+      const entries = new Map<string, { file: LocalDocumentMetadata; document: SigmaDocument }>();
+      const loadSharedDocument = vi.fn(async (fileId: string) => entries.get(fileId)?.document ?? null);
+      return {
+        entries, loadSharedDocument,
+        put(fileId: string, content: SigmaDocument, workspaceId = "shared-ws", extra: Partial<LocalDocumentMetadata> = {}) {
+          entries.set(fileId, { file: metadata(fileId, workspaceId, { sharing: active, ...extra }), document: content });
+        },
+        options: {
+          listSharedFiles: async () => [...entries.values()].map(e => e.file), loadSharedDocument,
+          listWorkspaces: async () => [{ id: "shared-ws", key: "style-ws-0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a" }],
+        } satisfies AuthoringStyleStoreOptions,
+      };
+    }
+    const sharedInput = { ...input, workspaceId: "shared-ws", fileId: "s1", visibleFileIds: new Set(["s1"]) };
+
+    it("learns from every member's documents there, by the same thresholds, and only reads them", async () => {
+      const lib = library();
+      const shared = catalog();
+      // Two documents nobody on this device wrote: no save of them was ever seen here.
+      shared.put("s1", written(...PLAIN.slice(0, 2)));
+      store = make({ ...lib.options, ...shared.options });
+      // Two blocks are not enough, here as anywhere.
+      expect((await store.reviewNow("shared-ws")).generatedContent).toBe("");
+      shared.put("s2", written(PLAIN[2]));
+      const before = JSON.stringify([...shared.entries.values()]);
+      const profile = await store.reviewNow("shared-ws");
+      expect(profile.generatedContent).toContain("常体");
+      expect(profile.reviewedDocuments).toBe(2);
+      expect([...new Set(shared.loadSharedDocument.mock.calls.map(call => call[0]))].sort()).toEqual(["s1", "s2"]);
+      expect(lib.loadDocument).not.toHaveBeenCalled();
+      expect(await learnedFor(store, sharedInput)).toContain("常体");
+      expect(JSON.stringify([...shared.entries.values()])).toBe(before);
+    });
+
+    it("adds by itself and only proposes a rewrite, whoever wrote what changed", async () => {
+      const lib = library();
+      const shared = catalog();
+      shared.put("s1", written(...PLAIN));
+      store = make({ ...lib.options, ...shared.options });
+      expect((await store.reviewNow("shared-ws")).generatedContent).toContain("常体");
+      // Another member rewrites the material in the polite form.
+      shared.put("s1", written(...POLITE, ...POLITE), "shared-ws", { updatedAt: "2026-11-02T00:00:00Z" });
+      const profile = await store.reviewNow("shared-ws");
+      expect(profile.generatedContent).toContain("常体");
+      expect(profile.pending.length).toBeGreaterThan(0);
+      expect(profile.pending.every(p => p.kind !== "add")).toBe(true);
+    });
+
+    it("leaves a document shared by itself, or in a workspace that is not shared, alone", async () => {
+      const lib = library();
+      const shared = catalog();
+      // Shared on its own inside a personal workspace, and a document of some other shared workspace's.
+      shared.put("lone", written(...POLITE, ...POLITE), "ws1");
+      shared.put("elsewhere", written(...POLITE, ...POLITE), "not-listed");
+      shared.put("pending", written(...POLITE, ...POLITE), "shared-ws", { sharingPending: true });
+      shared.put("stopped", written(...POLITE, ...POLITE), "shared-ws", { sharing: { state: "stopped" } as LocalDocumentMetadata["sharing"] });
+      store = make({ ...lib.options, ...shared.options });
+      for (const workspaceId of ["ws1", "not-listed", "shared-ws"]) expect((await store.reviewNow(workspaceId)).generatedContent).toBe("");
+      expect(shared.loadSharedDocument).not.toHaveBeenCalled();
+    });
+
+    it("reviews again once the members' documents have changed, without any save on this device", async () => {
+      const lib = library();
+      const shared = catalog();
+      shared.put("s1", written(...PLAIN.slice(0, 2)));
+      let now = new Date("2026-11-17T00:00:00Z");
+      store = make({ ...lib.options, ...shared.options, reviewIdleMs: 5, now: () => now });
+      // An AI request in the workspace is the occasion: nothing was reviewed yet.
+      await store.augmentRunContext(context(), sharedInput);
+      await expect.poll(async () => (await store.getProfile("shared-ws")).lastReviewedAt, { timeout: 5000 }).not.toBeNull();
+      expect((await store.getProfile("shared-ws")).generatedContent).toBe("");
+      const reads = shared.loadSharedDocument.mock.calls.length;
+      // Nothing changed: no further review, however often the AI is asked.
+      now = new Date("2026-11-17T02:00:00Z");
+      await store.augmentRunContext(context(), sharedInput);
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(shared.loadSharedDocument.mock.calls.length).toBe(reads);
+      // A member adds a document. The list is read again after a while, and the review follows.
+      shared.put("s2", written(PLAIN[2]), "shared-ws", { updatedAt: "2026-11-17T01:00:00Z" });
+      vi.spyOn(Date, "now").mockReturnValue(Date.now() + 120_000);
+      await store.augmentRunContext(context(), sharedInput);
+      vi.restoreAllMocks();
+      await expect.poll(async () => (await store.getProfile("shared-ws")).generatedContent, { timeout: 5000 }).toContain("常体");
+    });
+
+    it("comes back to documents it could not read, and to what members wrote inside a document the list does not show", async () => {
+      const lib = library();
+      const shared = catalog();
+      shared.put("s1", written(...PLAIN));
+      let now = new Date("2026-11-17T00:00:00Z");
+      store = make({ ...lib.options, ...shared.options, reviewIdleMs: 5, now: () => now });
+      // The list is there, the document cannot be fetched for now.
+      shared.loadSharedDocument.mockRejectedValueOnce(new Error("fetch failed"));
+      await store.augmentRunContext(context(), sharedInput);
+      await expect.poll(async () => (await store.getProfile("shared-ws")).lastReviewedAt, { timeout: 5000 }).not.toBeNull();
+      expect((await store.getProfile("shared-ws")).generatedContent).toBe("");
+      // Nothing in the list changed, yet the review is not taken for done.
+      now = new Date("2026-11-17T00:40:00Z");
+      await store.augmentRunContext(context(), sharedInput);
+      await expect.poll(async () => (await store.getProfile("shared-ws")).generatedContent, { timeout: 5000 }).toContain("常体");
+
+      // A member rewrites the document. The catalog's date for it stays the same.
+      shared.put("s1", written(...POLITE, ...POLITE));
+      now = new Date("2026-11-17T03:00:00Z");
+      await store.augmentRunContext(context(), sharedInput);
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect((await store.getProfile("shared-ws")).pending).toEqual([]);
+      now = new Date("2026-11-17T08:00:00Z");
+      await store.augmentRunContext(context(), sharedInput);
+      await expect.poll(async () => (await store.getProfile("shared-ws")).pending.length, { timeout: 5000 }).toBeGreaterThan(0);
+    });
+
+    it("reviews once more when the last document of the workspace is gone", async () => {
+      const lib = library();
+      const shared = catalog();
+      shared.put("s1", written(...PLAIN));
+      let now = new Date("2026-11-17T00:00:00Z");
+      store = make({ ...lib.options, ...shared.options, reviewIdleMs: 5, now: () => now });
+      const first = (await store.reviewNow("shared-ws")).lastReviewedAt;
+      shared.entries.clear();
+      now = new Date("2026-11-17T01:00:00Z");
+      vi.spyOn(Date, "now").mockReturnValue(Date.now() + 120_000);
+      await store.augmentRunContext(context(), sharedInput);
+      vi.restoreAllMocks();
+      await expect.poll(async () => (await store.getProfile("shared-ws")).lastReviewedAt, { timeout: 5000 }).not.toBe(first);
+    });
+
+    it("hands excerpts of shared documents to the AI only while the summary switch is on", async () => {
+      const essay = Array.from({ length: 12 }, (_, i) => `共有の第${i}段落では、関数が単調に増加することを先に確かめてから結論を述べる。`);
+      const lib = library();
+      const shared = catalog();
+      shared.put("s1", written(...essay));
+      const summarize = vi.fn(async () => JSON.stringify({ add: [{ section: "style", text: "要点を先に述べてから理由を書く。" }], confirm: [] }));
+      store = make({ ...lib.options, ...shared.options, summarize });
+      store.noteProvider("claude");
+      await store.setAiSummary("shared-ws", false);
+      await store.reviewNow("shared-ws");
+      expect(summarize).not.toHaveBeenCalled();
+      await store.setAiSummary("shared-ws", true);
+      const profile = await store.reviewNow("shared-ws");
+      expect(summarize).toHaveBeenCalledTimes(1);
+      expect((summarize.mock.calls[0] as unknown as [{ prompt: string }])[0].prompt).toContain("共有の第0段落");
+      expect(profile.items.filter(i => i.basis === "summary").map(i => i.text)).toEqual(["要点を先に述べてから理由を書く。"]);
+    });
+  });
+
   describe("safety", () => {
     it("drops evidence from shared, moved and deleted documents and never reads them", async () => {
       const lib = library();

@@ -1,10 +1,14 @@
-import type { PersonalDataPort } from "../authoring-style-sync";
+import { workspaceOfKey, type PersonalDataPort } from "../authoring-style-sync";
 import { CollaborationHttpError, readResponseJson } from "./transport";
 
 /**
  * The signed-in account's own small documents on the collaboration server
  * (`/profile/data/<key>`). Only the account itself can read them. The server
  * decides whose they are from the token, never from the request.
+ *
+ * The writing style of a shared workspace is the workspace's instead
+ * (`/workspaces/<id>/data/style`): one copy for all members, which the server
+ * hands only to members.
  *
  * Runs in the main process only, like every other call to the server.
  */
@@ -55,5 +59,7 @@ export class PersonalDataClient implements PersonalDataPort {
 
 function route(key: string): string {
   if (!KEY.test(key)) throw new Error("INVALID_PERSONAL_DATA_KEY");
+  const workspace = workspaceOfKey(key);
+  if (workspace) return `/workspaces/${workspace}/data/style`;
   return `/profile/data/${key}`;
 }

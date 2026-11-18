@@ -5,13 +5,14 @@ import type { TranslationsOf } from "../types";
 export const settings = {
   authoringStyle: {
     title: "Writing style",
-    description: "Learns how you write from the text of the ten personal materials you most recently edited in this workspace, and from your corrections of AI drafts, and uses it for future AI proposals. Text the AI wrote and you left untouched is not counted as your writing. Shared materials and restorations are excluded. Only additions are made automatically; rewriting or removing an item waits for your decision.",
+    description: "Learns how you write from the text of the ten personal materials you most recently edited in this workspace, and from your corrections of AI drafts, and uses it for future AI proposals. Text the AI wrote and you left untouched is not counted as your writing. In a shared workspace it learns from all members' materials (the ten most recent), and what is learned belongs to all members. Materials shared on their own inside a workspace that is not shared, and restorations, are excluded. Only additions are made automatically; rewriting or removing an item waits for your decision.",
     enabled: "Learn and use my writing style",
     workspaceEnabled: "Learn and use style in this workspace",
     sync: "Sync with my account (Pro)",
-    syncDescription: "Saves your own note, the settings on this page, the writing style of shared workspaces and the app's settings (display language, shortcuts, web search for AI) to the account you are signed in to, and keeps them in step with your other devices. This is part of the Pro plan. What is learned in a workspace that is not shared, document text and correction examples are not sent. Nothing is sent while this is off.",
+    syncDescription: "Saves your own note, the settings on this page and the app's settings (display language, shortcuts, web search for AI) to the account you are signed in to, and keeps them in step with your other devices. The writing style of a shared workspace is saved once for the workspace and kept in step between all of its members on Pro. This is part of the Pro plan. What is learned in a workspace that is not shared, document text and correction examples are not sent. Nothing is sent while this is off.",
     syncScope: {
-      shared: "This workspace is shared, so its writing style and note are synced with your other devices on a Pro account.",
+      shared: "This workspace is shared. Its writing style, note and settings are one copy for all members, learned from all of its documents, including what other members wrote. It is synced between members on Pro, and what you change or reset here changes it for them too. Document text is never sent.",
+      "shared-view": "This workspace is shared. Its writing style, note and settings are one copy for all members. You can only view this workspace, so on Pro you receive what the other members have, but changes made on this device do not reach them.",
       device: "This workspace is not shared, so what is learned here and its note stay on this device.",
     },
     syncState: {
@@ -28,9 +29,9 @@ export const settings = {
     syncNow: "Sync now",
     syncRelink: "Sync with this account",
     syncDelete: "Delete data on the server",
-    syncDeleteConfirm: "This deletes the writing-style and app-settings data saved to your account and turns sync off. What is on this device stays, and so does what is on your other devices.",
+    syncDeleteConfirm: "This deletes your own note, the settings and the app-settings data saved to your account and turns sync off. What is on this device stays, and so does what is on your other devices. The writing style of a shared workspace belongs to all of its members and is not deleted.",
     aiSummary: "Summarize my style with AI",
-    aiSummaryDescription: "During a review, excerpts of text you wrote (up to 6,000 characters) and examples of your corrections are sent to the AI you last used (ChatGPT, Claude or Antigravity), which suggests items. Suggestions that pass the checks are added to the memo automatically and marked \"Added by AI\" (up to 3 per review, 10 in total). You can remove them in the list below or take them back with \"Undo last change\". No new destination is added. When off, learning only counts habits on this device.",
+    aiSummaryDescription: "During a review, excerpts of text you wrote (up to 6,000 characters; in a shared workspace this includes materials other members wrote) and examples of your corrections are sent to the AI you last used (ChatGPT, Claude or Antigravity), which suggests items. Suggestions that pass the checks are added to the memo automatically and marked \"Added by AI\" (up to 3 per review, 10 in total). You can remove them in the list below or take them back with \"Undo last change\". No new destination is added. When off, learning only counts habits on this device.",
     count: "{{count}} corrections",
     outcomes: "Accepted AI text: kept {{kept}}, corrected {{edited}}, undone {{reverted}} / rejected proposals {{rejected}}",
     blocked: "{{count}} lines look like attempts to rewrite the AI's instructions and are not sent to the AI.",

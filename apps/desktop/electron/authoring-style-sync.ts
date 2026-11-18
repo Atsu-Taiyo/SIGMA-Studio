@@ -9,20 +9,25 @@ import { isSuspicious } from "./authoring-style-scan";
 import { atomicStyleWrite, renderMemo, type AuthoringStyleMemory, type LedgerDraft, type StyleItem, type StyleMemory } from "./authoring-style-memory";
 
 /**
- * Keeps the author's own note, the learning settings, the writing style of shared
- * workspaces and (through `SyncedPart`) other personal settings the same on every
- * device of one Pro account. A workspace that is not shared stays on its device.
+ * Keeps the author's own note, the learning settings and (through `SyncedPart`) other
+ * personal settings the same on every device of one Pro account, and the writing style
+ * of a shared workspace the same for all of its members: that one is the workspace's,
+ * not any member's own. A workspace that is not shared stays on its device.
  * The files on this device stay the source of truth: sync merges a copy held by
  * the collaboration server into them and sends the result back. Document text,
  * correction examples and the record of AI-written blocks never leave the device.
  */
 
-/** The server's per-user store, reached with the signed-in account's token. */
+/**
+ * The server's store, reached with the signed-in account's token. A key made by `workspaceKey` names the one
+ * copy a shared workspace's members have in common; every other key is the account's own.
+ */
 export interface PersonalDataPort {
   /** Every call names the account it is meant for and fails when another one is signed in by then. */
   read(userId: string, key: string, signal?: AbortSignal): Promise<{ revision: string | null; content: unknown }>;
   /** Writes only when the stored revision is still `expectedRevision` (null: nothing stored yet). */
   write(userId: string, key: string, content: unknown, expectedRevision: string | null, signal?: AbortSignal): Promise<{ revision: string } | "conflict">;
+  /** Removes what is the account's own. A shared workspace's copy belongs to the workspace and stays. */
   removeAll(userId: string): Promise<void>;
 }
 
@@ -319,8 +324,11 @@ export interface SyncHost {
   exclusive<T>(run: () => Promise<T>): Promise<T>;
   now(): Date;
   locale(): AppLocale;
-  /** Shared workspaces on this device, each with the key the account keeps it under. One that is not shared is never synced. */
-  workspaces(): Promise<{ id: string; key: string }[]>;
+  /**
+   * Shared workspaces on this device, each with the key its members keep it under. One that is not shared is
+   * never synced. `readOnly`: this member may read the workspace's style but not change it for everyone.
+   */
+  workspaces(): Promise<{ id: string; key: string; readOnly?: boolean }[]>;
   parts?: readonly SyncedPart[];
   provider(): Promise<string | null>;
   setProvider(provider: string): Promise<void>;
@@ -338,7 +346,13 @@ export interface SyncAccount {
 }
 
 class SyncProblem extends Error { constructor(readonly state: NonNullable<SyncState["problem"]>) { super(state); } }
-const WORKSPACE_KEY = /^style-ws-[a-z0-9][a-z0-9-]{0,59}$/;
+const WORKSPACE_KEY = /^style-ws-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+/** The key of a shared workspace's copy, from the id the server knows the workspace by. */
+export const workspaceKey = (catalogNodeId: string) => `style-ws-${catalogNodeId.toLowerCase()}`;
+/** The server's id of the workspace a key stands for, or null for a key of the account's own. */
+export const workspaceOfKey = (key: string) => WORKSPACE_KEY.exec(key)?.[1] ?? null;
+/** The server's word for a refusal, as the transport reports it. */
+const refusal = (error: unknown) => (error as { status?: number })?.status === 403 ? String((error as Error).message) : null;
 const ENTITLEMENT_WAIT_MS = 1500;
 const PLAN_FRESH_MS = 5 * 60_000;
 /** The run was overtaken: sync was turned off, the copy was deleted, or another account signed in. */
@@ -416,7 +430,8 @@ export class AuthoringStyleSync {
   /** Caller holds the style lock. */
   async view(workspaceId: string | null = null): Promise<AuthoringStyleSyncView> {
     const state = await this.state();
-    const scope = workspaceId === null ? "account" : (await this.host.workspaces()).some(w => w.id === workspaceId && WORKSPACE_KEY.test(w.key)) ? "shared" : "device";
+    const shared = workspaceId === null ? undefined : (await this.host.workspaces()).find(w => w.id === workspaceId && WORKSPACE_KEY.test(w.key));
+    const scope = workspaceId === null ? "account" : !shared ? "device" : shared.readOnly ? "shared-view" : "shared";
     const userId = this.account?.userId() ?? null;
     const available = Boolean(this.account) && this.account!.available?.() !== false;
     const pro = this.entitled(userId);
@@ -554,7 +569,7 @@ export class AuthoringStyleSync {
     });
     await this.scope(GLOBAL_KEY, null, run);
     for (const part of this.host.parts ?? []) await this.part(part, run);
-    // A shared workspace is the same one on every device: the server's id for it is the key.
+    // A shared workspace is the same one for every member, on every device: the server's id for it is the key.
     const seen = new Set<string>();
     const workspaces = (await this.host.workspaces()).filter(w => WORKSPACE_KEY.test(w.key) && !seen.has(w.key) && Boolean(seen.add(w.key)));
     const keys = await this.host.exclusive(async () => {
@@ -565,8 +580,12 @@ export class AuthoringStyleSync {
     });
     let limited = false;
     for (const workspace of workspaces) {
-      try { await this.scope(keys[workspace.id], workspace.id, run); }
-      catch (error) { if (error instanceof SyncProblem && error.state === "limit") limited = true; else throw error; }
+      try { await this.scope(keys[workspace.id], workspace.id, run, Boolean(workspace.readOnly)); }
+      catch (error) {
+        if (error instanceof SyncProblem && error.state === "limit") limited = true;
+        // No longer a member, or the workspace is gone: nothing of it is read or sent. The others go on.
+        else if (refusal(error) === null || refusal(error) === "PRO_REQUIRED") throw error;
+      }
     }
     await this.host.exclusive(async () => this.write({ ...await this.current(run), problem: limited ? "limit" : null, lastSyncedAt: this.host.now().toISOString() }));
   }
@@ -719,7 +738,7 @@ export class AuthoringStyleSync {
   }
 
   /** One key: read the server's copy, merge it into this device under the lock, send the result, remember what was agreed. */
-  private async scope(key: string, workspaceId: string | null, run: Run): Promise<void> {
+  private async scope(key: string, workspaceId: string | null, run: Run, readOnly = false): Promise<void> {
     const client = this.account!.client;
     for (let attempt = 0; attempt < 3; attempt++) {
       this.alive(run);
@@ -731,7 +750,10 @@ export class AuthoringStyleSync {
       const merged = await this.host.exclusive(async () => {
         const state = await this.current(run);
         const known = state.scopes[key];
-        if (remote.revision === null && known?.revision) {
+        // A workspace's copy is not this account's to delete. Should it be gone all the same, these files meet
+        // whatever comes next as for the first time.
+        const lost = workspaceId !== null && remote.revision === null && Boolean(known?.revision);
+        if (remote.revision === null && known?.revision && !lost) {
           // The account's copy was deleted from another device. Do not put it back: stop syncing here too.
           this.cancel();
           await this.write({ ...state, enabled: false, scopes: {}, resets: {}, problem: null });
@@ -739,13 +761,17 @@ export class AuthoringStyleSync {
         }
         // Until the first merge with the account's copy is agreed there is no shared history to merge against.
         const agreed = known?.base as WorkspaceBundle | GlobalBundle | null | undefined;
-        const base = agreed?.kind === kind ? agreed : null;
+        const base = agreed?.kind === kind && !lost ? agreed : null;
         const linking = !base || Boolean(known?.linking);
         const held = (local: Settings): Settings => ({ enabled: local.enabled || Boolean(known?.held?.enabled), aiSummary: local.aiSummary || Boolean(known?.held?.aiSummary) });
         // What was merged in is on record before anything else can fail: a retry then tells what came from
         // the server from what was added here, and does not send back something another device has deleted since.
+        // A reset made before these files met the copy is spent on this first meeting: should the upload meet a
+        // conflict, the retry must not take it for a reset of what the members share.
+        const spent = workspaceId !== null && !base && Boolean(state.resets[workspaceId]);
         const journal = async (heldNow: ScopeState["held"], generation?: number) => {
           const latest = await this.state();
+          if (spent) latest.resets = Object.fromEntries(Object.entries(latest.resets).filter(([id]) => id !== workspaceId));
           await this.write({ ...latest, generations: generation === undefined ? latest.generations : { ...latest.generations, [workspaceId!]: generation },
             scopes: { ...latest.scopes, [key]: { revision: remote.revision, base: theirs, syncedAt: known?.syncedAt ?? null, held: heldNow, ...(linking ? { linking } : {}) } } });
         };
@@ -761,8 +787,13 @@ export class AuthoringStyleSync {
           return { result, held: heldNow, empty: !result.note && result.settings.enabled && result.settings.aiSummary && !result.provider };
         }
         const mine = await this.snapshot(workspaceId, state, key);
+        // A member who can only read cannot reset the workspace's style for everyone: such a reset stays a
+        // change to this device's copy, and what the others do keeps arriving.
+        if (readOnly && theirs && mine.generation > (theirs as WorkspaceBundle).generation) mine.generation = (theirs as WorkspaceBundle).generation;
         const local = { ...mine, settings: held(mine.settings) };
-        const mode: MergeMode = !linking ? "merge" : state.resets[workspaceId] ? "reset" : "link";
+        // The copy belongs to all members. A reset stands against it only on a device that has seen it: one made
+        // before these files ever met the workspace's copy erased what was here, not what the others share.
+        const mode: MergeMode = !linking ? "merge" : state.resets[workspaceId] && base && !readOnly ? "reset" : "link";
         const result = mergeWorkspace(base as WorkspaceBundle | null, local, theirs as WorkspaceBundle | null, mode);
         // Everything is checked before anything on this device changes: a merge that does not fit changes nothing.
         if (result.items.length > MAX_SYNCED_ITEMS || result.suppressed.length > MAX_SUPPRESSED || Buffer.byteLength(JSON.stringify(result)) > MAX_BUNDLE_BYTES) throw new SyncProblem("limit");
@@ -781,18 +812,27 @@ export class AuthoringStyleSync {
       });
       let revision = remote.revision;
       const changed = theirs ? comparable(merged.result) !== comparable(theirs) : !merged.empty;
-      if (changed) {
+      // What the others have agreed on. For a member who can only read, that is the server's copy, not the merge with their own.
+      let agreed: unknown = merged.result;
+      if (changed && readOnly) agreed = theirs;
+      else if (changed) {
         if (Buffer.byteLength(JSON.stringify(merged.result)) > MAX_BUNDLE_BYTES) throw new SyncProblem("limit");
         this.alive(run);
-        const written = await client.write(run.userId, key, merged.result, remote.revision, run.signal);
-        // Another device wrote in between: read its copy and merge again.
+        let written: { revision: string } | "conflict" | null;
+        try { written = await client.write(run.userId, key, merged.result, remote.revision, run.signal); }
+        catch (error) {
+          // The role changed since the list of workspaces was read.
+          if (workspaceId === null || refusal(error) !== "READ_ONLY") throw error;
+          written = null;
+        }
+        // Another device, or another member, wrote in between: read that copy and merge again.
         if (written === "conflict") continue;
-        revision = written.revision;
+        if (written) revision = written.revision; else agreed = theirs;
       }
       await this.host.exclusive(async () => {
         const state = await this.current(run);
         const resets = Object.fromEntries(Object.entries(state.resets).filter(([id]) => id !== workspaceId));
-        await this.write({ ...state, resets, scopes: { ...state.scopes, [key]: { revision, base: revision === null ? null : merged.result, syncedAt: this.host.now().toISOString(), held: merged.held } } });
+        await this.write({ ...state, resets, scopes: { ...state.scopes, [key]: { revision, base: revision === null ? null : agreed, syncedAt: this.host.now().toISOString(), held: merged.held } } });
       });
       return;
     }
