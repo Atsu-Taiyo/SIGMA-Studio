@@ -1665,11 +1665,24 @@ describe("automatic authoring style", () => {
       expect(summarize).toHaveBeenCalledTimes(2);
       expect(profile.generatedContent).toContain(HABIT);
       expect(profile.autoChanges).toEqual([]);
-      // Asked about the text as it now is, and still not confirmed: it goes.
-      summarize.mockImplementation(async () => JSON.stringify({ add: [], confirm: [] }));
+      // The same when only the way it is laid out changes: that, too, is part of what the AI was asked about.
       now = new Date("2027-02-01T07:00:00Z");
+      const numbered = (marker: "paren" | "parenLowerAlpha"): SigmaDocument => blocks([...written(...essay("共有4")).content,
+        { id: "l", type: "list", listType: "ordered", markerStyle: marker, items: [{ type: "listItem", id: "l0", children: [{ type: "text", text: "値を求めよ。" }] }] }]);
+      shared.put("s1", numbered("paren"), "shared-ws", { updatedAt: "2027-01-31T00:00:00Z" });
+      summarize.mockImplementationOnce(async () => {
+        shared.put("s1", numbered("parenLowerAlpha"), "shared-ws", { updatedAt: "2027-01-31T00:00:00Z" });
+        return JSON.stringify({ add: [], confirm: [] });
+      });
       profile = await store.reviewNow("shared-ws");
       expect(summarize).toHaveBeenCalledTimes(3);
+      expect(profile.generatedContent).toContain(HABIT);
+      expect(profile.autoChanges).toEqual([]);
+      // Asked about the document as it now is, and still not confirmed: it goes.
+      summarize.mockImplementation(async () => JSON.stringify({ add: [], confirm: [] }));
+      now = new Date("2027-02-01T14:00:00Z");
+      profile = await store.reviewNow("shared-ws");
+      expect(summarize).toHaveBeenCalledTimes(4);
       expect(profile.generatedContent).not.toContain(HABIT);
       expect(profile.autoChanges).toMatchObject([{ kind: "remove", reason: "stale", before: HABIT }]);
     });

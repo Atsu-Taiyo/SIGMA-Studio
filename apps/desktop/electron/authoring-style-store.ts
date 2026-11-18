@@ -146,9 +146,13 @@ function sharedSignature(files: readonly LocalDocumentMetadata[]): string {
 
 class SharedCatalogUnavailable extends Error {}
 
-/** Tells two readings of a document apart by its text blocks, whatever the catalog says about when it changed. */
-const contentFingerprint = (projection: DocumentProjection) =>
-  createHash("sha256").update(JSON.stringify([...projection.fragments].map(([id, fragment]) => [id, fragmentHash(fragment)]))).digest("hex");
+/**
+ * Tells two readings of a document apart by everything a review takes from it (its text blocks, how it is laid
+ * out, the outline handed to the AI), whatever the catalog says about when it changed.
+ */
+const contentFingerprint = (projection: DocumentProjection, layout: LayoutProjection) =>
+  createHash("sha256").update(JSON.stringify([[...projection.fragments].map(([id, fragment]) => [id, fragmentHash(fragment)]),
+    layout.outline, layout.units.map(unit => [unit.id, [...unit.votes]])])).digest("hex");
 
 const emptyCounters = (): Counters => ({ saves: 0, corrections: 0, rejections: 0, kept: 0, reviewedAt: null });
 
@@ -432,7 +436,8 @@ export class LocalAuthoringStyleStore {
       // Not there to be read just now: as with a failed read, this review did not see everything.
       if (!document) { unread = true; continue; }
       const projection = projectDocument(document);
-      loaded.push({ file, projection, layout: projectLayout(document), fingerprint: contentFingerprint(projection) });
+      const layout = projectLayout(document);
+      loaded.push({ file, projection, layout, fingerprint: contentFingerprint(projection, layout) });
       let length = 0;
       for (const fragment of projection.fragments.values()) length += fragment.area === "structure" ? 0 : fragment.text.length;
       characters += Math.min(length, MAX_REVIEW_DOCUMENT_CHARACTERS);
@@ -510,7 +515,7 @@ export class LocalAuthoringStyleStore {
         if (!file.sharing) continue;
         try {
           const document = await this.options.loadSharedDocument?.(file.fileId);
-          if (!document || contentFingerprint(projectDocument(document)) !== fingerprint) sharedUnchanged = false;
+          if (!document || contentFingerprint(projectDocument(document), projectLayout(document)) !== fingerprint) sharedUnchanged = false;
         } catch { sharedUnchanged = false; }
         if (!sharedUnchanged) break;
       }

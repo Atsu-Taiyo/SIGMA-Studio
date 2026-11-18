@@ -67,6 +67,17 @@ describe("how a document is laid out", () => {
     expect(votesOf(document, "$layout")).toMatchObject({ "layout.headingDepth": "2", "layout.docTitle": "heading", "layout.subtitle": "heading", "layout.columns": "1", "layout.pageSize": "A4-portrait" });
   });
 
+  it("takes a comment for written wherever in the comment area it stands", () => {
+    const quoted = problem("q1", { prompt: [p("q1p", "次を示せ。")], hints: [{ id: "q1q", type: "quote", blocks: [p("q1qp", "背理法を使う。")] }] });
+    const columns = problem("q2", { prompt: [p("q2p", "次を示せ。")], hints: [{ id: "q2c", type: "layoutSection", layout: { columnCount: 2 }, children: [p("q2cp", "図を描く。"), p("q2cq", "")] }] });
+    const listed = problem("q3", { prompt: [p("q3p", "次を示せ。")], hints: [{ id: "q3l", type: "list", listType: "bullet", items: [{ type: "listItem", id: "q3l0", children: [], nested: [list("q3n", "paren", ["場合を分ける。"])] }] }] });
+    const empty = problem("q4", { prompt: [p("q4p", "次を示せ。")], hints: [p("q4h", "  ")] });
+    const document = doc([quoted, columns, listed, empty]);
+    for (const id of ["q1", "q2", "q3"]) expect(votesOf(document, id)["layout.comment"], id).toBe("area");
+    expect(votesOf(document, "q4")["layout.comment"]).toBe("none");
+    expect(projectLayout(document).outline).toBe("problem[prompt,hints] x3 / problem[prompt]");
+  });
+
   it("reads boxes and headings inside a problem like those beside it", () => {
     const document = doc([problem("q1", { prompt: [p("q1p", "次を示せ。")], solution: [h("q1h", 2, "(1) 方針"), box("q1b", "theorembox", "公式", [p("q1bp", "和の公式を使う。")])] as Problem["solution"] })]);
     expect(votesOf(document, "q1b")).toEqual({ "layout.boxStyle": "theorembox", "layout.boxTitle": "titled", "layout.box.theorem": "theorembox" });

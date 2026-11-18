@@ -71,11 +71,13 @@ function textIds(blocks: readonly SigmaBlock[], into: string[] = []): string[] {
   return into;
 }
 
-/** The first line of text under these blocks. */
+/** The first line of text under these blocks, wherever it is put (in a box, a quote, columns, a list). */
 function firstText(blocks: readonly SigmaBlock[]): string {
   for (const block of blocks) {
     const text = block.type === "paragraph" || block.type === "heading" ? plain(block.children) : block.type === "section" ? block.title.trim()
-      : block.type === "list" ? plain(block.items[0]?.children) : block.type === "boxBlock" ? firstText(block.blocks) : "";
+      : block.type === "list" ? block.items.map(item => plain(item.children) || firstText(item.continuations ?? []) || firstText(item.nested ?? [])).find(Boolean) ?? ""
+      : block.type === "boxBlock" ? plain(block.title) || firstText(block.blocks) : block.type === "quote" ? firstText(block.blocks)
+      : block.type === "layoutSection" ? firstText(block.children) : block.type === "codeBlock" ? plain(block.children) : "";
     if (text) return text;
   }
   return "";
@@ -115,7 +117,7 @@ export function projectLayout(document: SigmaDocument): LayoutProjection {
     blocks.forEach((block, index) => {
       switch (block.type) {
         case "problem": {
-          const filled = (area: readonly SigmaBlock[]) => textIds(area).length > 0 && Boolean(firstText(area) || area.some(b => b.type === "list" || b.type === "boxBlock"));
+          const filled = (area: readonly SigmaBlock[]) => Boolean(firstText(area));
           const lists = block.prompt.flatMap(b => b.type === "list" && b.listType === "ordered" ? [b.markerStyle ?? "decimal"] : []);
           const typed = block.prompt.some(b => b.type === "paragraph" && SUBQUESTION.test(plain(b.children)));
           const heights = Object.values(block.areaLayout ?? {}).some(area => (area?.minHeightMm ?? 0) > 0);
