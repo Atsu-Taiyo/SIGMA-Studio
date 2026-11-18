@@ -181,7 +181,7 @@ export function planSummary(memory: StyleMemory, reply: SummaryReply, candidates
   }
   // Counting cannot confirm a sentence the AI suggested, so this is where one goes stale. (With automatic changes
   // off, the counting pass has staged its removal instead; after a pass that did not see everything, it stays.)
-  if (context.autoApply && context.complete) candidates.forEach((_, index) => {
+  if (context.autoApply && context.complete && reply.whole) candidates.forEach((_, index) => {
     const item = suggested(index + 1);
     if (item && !confirmed.has(index + 1) && context.now.getTime() - Date.parse(item.lastConfirmedAt) > STALE_AFTER_MS) pass.remove(item, "stale");
   });

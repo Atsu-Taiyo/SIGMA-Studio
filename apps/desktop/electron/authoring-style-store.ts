@@ -758,9 +758,12 @@ export class LocalAuthoringStyleStore {
     const personal = await this.personalFiles();
     if (!personal || !this.options.listSharedFiles || !this.options.listWorkspaces) return personal;
     const at = Date.now();
-    if (fresh || !this.sharedFilesRead || at - this.sharedFilesRead.at > SHARED_FILES_FRESH_MS) {
+    // Asked every time, also when the lists themselves were read a moment ago: signing out takes effect at once.
+    const ready = !this.options.sharedCatalogReady || await this.options.sharedCatalogReady().catch(() => false);
+    if (!ready) this.sharedListFailed = true;
+    if (!ready || fresh || !this.sharedFilesRead || at - this.sharedFilesRead.at > SHARED_FILES_FRESH_MS) {
       try {
-        if (this.options.sharedCatalogReady && !await this.options.sharedCatalogReady()) throw new SharedCatalogUnavailable();
+        if (!ready) throw new SharedCatalogUnavailable();
         const workspaces = new Set((await this.options.listWorkspaces()).map(w => w.id));
         this.sharedFilesRead = { at, files: new Map((await this.options.listSharedFiles())
           .filter(f => f.sharing?.state === "active" && !f.sharingPending && workspaces.has(f.workspaceId)).map(f => [f.fileId, f])) };
@@ -1012,7 +1015,8 @@ export class LocalAuthoringStyleStore {
           saves: count(c?.saves), corrections: count(c?.corrections), rejections: count(c?.rejections), kept: count(c?.kept),
           reviewedAt: text(c?.reviewedAt, 40) ? c.reviewedAt as string : null,
           ...(text(c?.shared, 64) && c.shared ? { shared: c.shared as string } : {}),
-          ...(c?.wasShared === true ? { wasShared: true as const } : {}),
+          // A record from before this was kept: a workspace whose shared documents a review saw was a shared one.
+          ...(c?.wasShared === true || (text(c?.shared, 64) && c.shared) ? { wasShared: true as const } : {}),
         }])),
       };
     } catch (error) {

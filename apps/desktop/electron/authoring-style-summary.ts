@@ -4,7 +4,14 @@ import { createTranslator, type AppLocale } from "@/lib/i18n";
 import { isSuspicious } from "./authoring-style-scan";
 
 export type SummarySection = "style" | "procedure" | "structure" | "tex";
-export interface SummaryReply { add: { section: SummarySection; text: string }[]; confirm: number[] }
+export interface SummaryReply {
+  add: { section: SummarySection; text: string }[]; confirm: number[];
+  /**
+   * Every entry of the reply was of the kind asked for. One that was not (a part of the memo that does not exist)
+   * is left out, and the reply is then not taken as a full answer about the earlier suggestions either.
+   */
+  whole: boolean;
+}
 
 export interface SummaryInput {
   locale: AppLocale;
@@ -120,5 +127,5 @@ export function parseSummaryReply(raw: string, input: Pick<SummaryInput, "sample
     if (add.length === MAX_SUMMARY_ADDITIONS) break;
   }
   const confirm = [...new Set(data.confirm as number[])];
-  return { add, confirm };
+  return { add, confirm, whole: data.add.every(entry => SECTIONS.includes((entry as { section: SummarySection }).section)) };
 }

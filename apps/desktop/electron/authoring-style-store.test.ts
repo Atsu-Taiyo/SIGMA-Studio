@@ -994,7 +994,9 @@ describe("automatic authoring style", () => {
       await store.reviewNow("ws1");
       now += 80 * 24 * HOUR;
       const answers = ['{"error":"cannot review"}', '{"add":"none"}', '{"confirm":[]}', "すみません、対応できません。", '{"add":[],"confirm":[{"number":1}]}', '{"add":[],"confirm":["1"]}',
-        '{"add":[],"confirm":[0]}', '{"add":[],"confirm":[999]}', '{"add":[],"confirm":[1.5]}', '{"add":[{"section":"style","text":123}],"confirm":[]}', '{"add":[null],"confirm":[]}'];
+        '{"add":[],"confirm":[0]}', '{"add":[],"confirm":[999]}', '{"add":[],"confirm":[1.5]}', '{"add":[{"section":"style","text":123}],"confirm":[]}', '{"add":[null],"confirm":[]}',
+        // Of the form asked for, but naming a part of the memo that does not exist: not a full answer about the earlier suggestion.
+        '{"add":[{"section":"layout","text":"見出しは中央に置いて書く。"}],"confirm":[]}'];
       for (const [index, answer] of answers.entries()) {
         lib.put("f1", written(...essay(`本人${index + 2}`)));
         summarize.mockImplementation(async () => answer);
@@ -1004,6 +1006,7 @@ describe("automatic authoring style", () => {
       }
       expect(summarize).toHaveBeenCalledTimes(answers.length + 1);
       expect(await fs.readFile(path.join(root, "data/logs/ledger.log"), "utf8")).toContain("Unreadable summary reply");
+      expect(aiAdded(await store.getProfile("ws1"))).toEqual([HABIT.text]);
     });
 
     it("drops an old suggestion only after the AI was asked again and did not stand by it", async () => {
@@ -1469,6 +1472,44 @@ describe("automatic authoring style", () => {
       ready = true;
       shared.entries.clear();
       expect((await store.reviewNow("shared-ws")).autoChanges).toMatchObject([{ kind: "remove", reason: "stale" }]);
+    });
+
+    it("knows a workspace was shared from a record kept before that was noted, and notices signing out while the AI is answering", async () => {
+      const lib = library();
+      const shared = catalog();
+      const essay = (label: string) => Array.from({ length: 12 }, (_, i) => `${label}の第${i}段落では、関数が単調に増加することを先に確かめてから結論を述べる。`);
+      const HABIT = "要点を先に述べてから理由を書く。";
+      shared.put("s1", written(...essay("共有")));
+      let now = new Date("2026-11-17T00:00:00Z");
+      let ready = true;
+      let answer = JSON.stringify({ add: [{ section: "style", text: HABIT }], confirm: [] });
+      const summarize = vi.fn(async () => answer);
+      const options: AuthoringStyleStoreOptions = { ...lib.options, sharedCatalogReady: async () => ready, summarize, now: () => now,
+        listWorkspaces: async () => ready ? shared.options.listWorkspaces() : [], listSharedFiles: async () => ready ? shared.options.listSharedFiles() : [], loadSharedDocument: shared.loadSharedDocument };
+      store = make(options);
+      store.noteProvider("claude");
+      expect((await store.reviewNow("shared-ws")).generatedContent).toContain(HABIT);
+      // The record as an earlier version of the app left it.
+      const file = path.join(root, "data/ai-authoring-style/outcomes.json");
+      const outcomes = JSON.parse(await fs.readFile(file, "utf8"));
+      expect(outcomes.counters["shared-ws"]).toMatchObject({ wasShared: true, shared: expect.any(String) });
+      delete outcomes.counters["shared-ws"].wasShared;
+      await fs.writeFile(file, JSON.stringify(outcomes));
+      now = new Date("2027-02-01T00:00:00Z");
+      ready = false;
+      const offline = make(options);
+      let profile = await offline.reviewNow("shared-ws");
+      expect(profile.generatedContent).toContain(HABIT);
+      expect(profile.autoChanges).toEqual([]);
+      // Signed in; the AI is asked, and the account signs out before its (quick) answer is back.
+      ready = true;
+      shared.put("s1", written(...essay("共有2")), "shared-ws", { updatedAt: "2027-01-31T00:00:00Z" });
+      answer = JSON.stringify({ add: [], confirm: [] });
+      summarize.mockImplementation(async () => { ready = false; return answer; });
+      profile = await store.reviewNow("shared-ws");
+      expect(summarize).toHaveBeenCalledTimes(2);
+      expect(profile.generatedContent).toContain(HABIT);
+      expect(profile.autoChanges).toEqual([]);
     });
 
     it("does not act on a list of shared documents that failed when the review began and came back while it ran", async () => {
