@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { AUTHORING_STYLE_NOTE_LIMIT, type AuthoringStyleSection, type AuthoringStyleSyncView } from "@/lib/ai/authoring-style";
+import { AUTHORING_STYLE_LEARNED_LIMIT, AUTHORING_STYLE_NOTE_LIMIT, type AuthoringStyleSection, type AuthoringStyleSyncView } from "@/lib/ai/authoring-style";
 import type { AppLocale } from "@/lib/i18n";
 import { itemText, SECTION_ORDER, sectionOf } from "./authoring-style-items";
 import { isSuspicious } from "./authoring-style-scan";
@@ -773,7 +773,7 @@ export class AuthoringStyleSync {
   private async plan(workspaceId: string, merged: WorkspaceBundle, device: string): Promise<{ memory: StyleMemory; items: StyleItem[] }> {
     const memory = await this.host.memory.load(workspaceId, this.host.locale(), this.host.now());
     const items = this.restore(merged.items, [memory.items], memory.locale, device);
-    if (renderMemo({ items }, memory.locale).length > AUTHORING_STYLE_NOTE_LIMIT || merged.note.length > AUTHORING_STYLE_NOTE_LIMIT) throw new SyncProblem("limit");
+    if (renderMemo({ items }, memory.locale).length > AUTHORING_STYLE_LEARNED_LIMIT || merged.note.length > AUTHORING_STYLE_NOTE_LIMIT) throw new SyncProblem("limit");
     return { memory, items };
   }
 

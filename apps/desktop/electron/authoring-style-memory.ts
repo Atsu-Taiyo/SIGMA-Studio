@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { AUTHORING_STYLE_NOTE_LIMIT, type AuthoringStyleSection } from "@/lib/ai/authoring-style";
+import { AUTHORING_STYLE_LEARNED_LIMIT, AUTHORING_STYLE_NOTE_LIMIT, type AuthoringStyleSection } from "@/lib/ai/authoring-style";
 import type { AppLocale } from "@/lib/i18n";
 import { itemText, memoLabels, SECTION_ORDER, sectionOf } from "./authoring-style-items";
 
@@ -64,6 +64,20 @@ export interface PendingChange {
   createdAt: string;
 }
 
+/** A habit the review rewrote or removed by itself, kept so that exactly this change can be put back. */
+export interface AppliedChange {
+  id: string;
+  at: string;
+  kind: "rewrite" | "remove";
+  reason: "contradicted" | "stale" | "summary";
+  /** The habit as it was. */
+  before: StyleItem;
+  /** What stands in its place after a rewrite (for a removal, the habit's own key and value). */
+  key: string;
+  value: string;
+}
+export const MAX_APPLIED = 20;
+
 interface UndoSnapshot { at: string; reason: string; items: StyleItem[]; suppressed: string[]; pending: PendingChange[]; dismissed: string[]; declined?: string[] }
 
 export interface StyleMemory {
@@ -80,14 +94,16 @@ export interface StyleMemory {
   /** The writing the AI summary last read, so unchanged writing is not sent twice. */
   summary: { hash: string; at: string } | null;
   undo: UndoSnapshot[];
+  /** Rewrites and removals the review made by itself, newest last. */
+  applied: AppliedChange[];
   renderedHash: string;
   lastReviewedAt: string | null;
   reviewedDocuments: number;
-  lastUpdate: { at: string; added: number; staged: number } | null;
+  lastUpdate: { at: string; added: number; staged: number; rewritten?: number; removed?: number } | null;
 }
 
 /** `approval`: this member's own decision about what another member wrote. Like `sync`, such a line stays on its device. */
-export interface LedgerDraft { actor: "review" | "user" | "sync" | "approval"; action: string; key?: string; before?: string; after?: string }
+export interface LedgerDraft { actor: "review" | "user" | "sync" | "approval"; action: string; key?: string; before?: string; after?: string; reason?: string }
 
 /**
  * In a shared workspace: which of the habits and note lines this member stands behind, by their marks.
@@ -110,11 +126,11 @@ const MAX_TRUST_MARKS = 30_000;
 const MAX_UNDO = 5;
 const MAX_DECLINED = 30;
 // Every line of a memo within the read limit is kept: nothing the user wrote is cut off on reload.
-const MAX_ITEMS = AUTHORING_STYLE_NOTE_LIMIT + 1000;
+const MAX_ITEMS = AUTHORING_STYLE_LEARNED_LIMIT + 1000;
 const MAX_LEDGER_LINES = 400;
 const MEMORY_FILE_LIMIT = 4_000_000;
 // Adopting a hand edit adds headings, so the stored text may run slightly past the editing limit.
-const MEMO_READ_LIMIT = AUTHORING_STYLE_NOTE_LIMIT + 1000;
+const MEMO_READ_LIMIT = AUTHORING_STYLE_LEARNED_LIMIT + 1000;
 /** Holds the hash of the memo being replaced while a commit is under way. */
 const COMMIT_MARK = "learned.pending";
 const TRUST_FILE = "members.json";
@@ -122,7 +138,7 @@ const TRUST_FILE = "members.json";
 const GENERATED_FILES = ["learned.md", "learned.sha256", "learned-evidence.json", "memory.json", "ledger.jsonl", COMMIT_MARK];
 
 const emptyMemory = (locale: AppLocale): StyleMemory => ({
-  version: 2, locale, items: [], suppressed: [], pending: [], dismissed: [], declined: [], summary: null, undo: [],
+  version: 2, locale, items: [], suppressed: [], pending: [], dismissed: [], declined: [], summary: null, undo: [], applied: [],
   renderedHash: styleHash(""), lastReviewedAt: null, reviewedDocuments: 0, lastUpdate: null,
 });
 
@@ -185,9 +201,17 @@ function parseMemory(text: string, locale: AppLocale): StyleMemory {
   if (data?.version !== 2 || !Array.isArray(data.items) || !Array.isArray(data.pending)) throw new Error("Invalid authoring memory");
   const strings = (value: unknown, max: number) => Array.isArray(value) ? value.filter((v): v is string => typeof v === "string").slice(-max) : [];
   const items = (list: unknown[]): StyleItem[] => list.filter((i): i is StyleItem => Boolean(i) && typeof i === "object"
-    && typeof (i as StyleItem).id === "string" && typeof (i as StyleItem).text === "string" && (i as StyleItem).text.length <= AUTHORING_STYLE_NOTE_LIMIT
+    && typeof (i as StyleItem).id === "string" && typeof (i as StyleItem).text === "string" && (i as StyleItem).text.length <= AUTHORING_STYLE_LEARNED_LIMIT
     && ((i as StyleItem).origin === "auto" || (i as StyleItem).origin === "user") && SECTION_ORDER.includes((i as StyleItem).section)
-    && Array.isArray((i as StyleItem).sources)).slice(0, MAX_ITEMS);
+    && Array.isArray((i as StyleItem).sources)).slice(0, MAX_ITEMS)
+    // Where an automatic habit stands follows from what it is about, whichever version wrote it down.
+    .map(i => i.origin === "auto" && i.key ? { ...i, section: sectionOf(i.key) } : i);
+  const applied = (list: unknown): AppliedChange[] => (Array.isArray(list) ? list : []).flatMap((entry: AppliedChange) => {
+    const [before] = items([entry?.before]);
+    return before?.origin === "auto" && before.key && typeof entry.id === "string" && typeof entry.at === "string" && typeof entry.key === "string" && typeof entry.value === "string"
+      && (entry.kind === "rewrite" || entry.kind === "remove") && ["contradicted", "stale", "summary"].includes(entry.reason)
+      ? [{ id: entry.id, at: entry.at, kind: entry.kind, reason: entry.reason, before, key: entry.key, value: entry.value }] : [];
+  }).slice(-MAX_APPLIED);
   const pending = (list: unknown[]): PendingChange[] => list.filter((p): p is PendingChange => Boolean(p) && typeof p === "object"
     && typeof (p as PendingChange).id === "string" && typeof (p as PendingChange).key === "string" && typeof (p as PendingChange).value === "string"
     && ["add", "rewrite", "remove"].includes((p as PendingChange).kind)).slice(0, 60);
@@ -202,11 +226,13 @@ function parseMemory(text: string, locale: AppLocale): StyleMemory {
       suppressed: strings(u?.suppressed, 100), pending: pending(Array.isArray(u?.pending) ? u.pending : []), dismissed: strings(u?.dismissed, 60),
       ...(Array.isArray(u?.declined) ? { declined: strings(u.declined, MAX_DECLINED).filter(text => text.length <= 200) } : {}),
     })),
+    applied: applied(data.applied),
     renderedHash: typeof data.renderedHash === "string" ? data.renderedHash : styleHash(""),
     lastReviewedAt: typeof data.lastReviewedAt === "string" ? data.lastReviewedAt : null,
     reviewedDocuments: Number.isSafeInteger(data.reviewedDocuments) ? data.reviewedDocuments : 0,
     lastUpdate: data.lastUpdate && typeof data.lastUpdate.at === "string"
-      ? { at: data.lastUpdate.at, added: Number(data.lastUpdate.added) || 0, staged: Number(data.lastUpdate.staged) || 0 } : null,
+      ? { at: data.lastUpdate.at, added: Number(data.lastUpdate.added) || 0, staged: Number(data.lastUpdate.staged) || 0,
+        rewritten: Number(data.lastUpdate.rewritten) || 0, removed: Number(data.lastUpdate.removed) || 0 } : null,
   };
 }
 
@@ -268,7 +294,7 @@ export class AuthoringStyleMemory {
     await atomicStyleWrite(path.join(this.dir(workspaceId), "ledger.jsonl"), lines.length ? `${lines.slice(-MAX_LEDGER_LINES).join("\n")}\n` : "");
   }
 
-  private async settings(workspaceId: string | null): Promise<{ enabled?: unknown; aiSummary?: unknown }> {
+  private async settings(workspaceId: string | null): Promise<{ enabled?: unknown; aiSummary?: unknown; autoApply?: unknown }> {
     const text = await boundedRead(path.join(this.dir(workspaceId), "settings.json"), 1000);
     const data = text ? JSON.parse(text) : {};
     return data && typeof data === "object" ? data : {};
@@ -283,6 +309,15 @@ export class AuthoringStyleMemory {
     return (await this.settings(workspaceId)).aiSummary !== false;
   }
 
+  /** Whether the review may rewrite and remove automatic habits without asking. On unless turned off; kept on this device. */
+  async autoApply(workspaceId: string | null): Promise<boolean> {
+    return (await this.settings(workspaceId)).autoApply !== false;
+  }
+
+  async setAutoApply(workspaceId: string | null, autoApply: boolean): Promise<void> {
+    await this.writeSettings(workspaceId, { autoApply });
+  }
+
   async setEnabled(workspaceId: string | null, enabled: boolean): Promise<void> {
     await this.writeSettings(workspaceId, { enabled });
   }
@@ -291,10 +326,10 @@ export class AuthoringStyleMemory {
     await this.writeSettings(workspaceId, { aiSummary });
   }
 
-  async writeSettings(workspaceId: string | null, change: { enabled?: boolean; aiSummary?: boolean }): Promise<void> {
+  async writeSettings(workspaceId: string | null, change: { enabled?: boolean; aiSummary?: boolean; autoApply?: boolean }): Promise<void> {
     const current = await this.settings(workspaceId);
     await atomicStyleWrite(path.join(this.dir(workspaceId), "settings.json"),
-      JSON.stringify({ enabled: current.enabled !== false, aiSummary: current.aiSummary !== false, ...change }));
+      JSON.stringify({ enabled: current.enabled !== false, aiSummary: current.aiSummary !== false, autoApply: current.autoApply !== false, ...change }));
   }
 
   async readNote(workspaceId: string | null): Promise<{ content: string; path: string; revision: string }> {
@@ -371,7 +406,7 @@ export class AuthoringStyleMemory {
 
   /** Save the memo edited in the settings pane. Goes through the same adoption as an external edit. */
   async saveLearned(workspaceId: string, content: string, expectedRevision: string, locale: AppLocale, now: Date): Promise<StyleMemory> {
-    if (typeof content !== "string" || content.length > AUTHORING_STYLE_NOTE_LIMIT) throw new Error("Style memo exceeds 3000 characters");
+    if (typeof content !== "string" || content.length > AUTHORING_STYLE_LEARNED_LIMIT) throw new Error("Style memo exceeds the size limit");
     const current = await this.load(workspaceId, locale, now);
     if (current.renderedHash !== expectedRevision) throw new Error("Style memo changed. Reload before saving.");
     await atomicStyleWrite(path.join(this.dir(workspaceId), "learned.md"), content);
@@ -400,7 +435,7 @@ export class AuthoringStyleMemory {
     }
     if (change.kind !== "remove") {
       const next = change.kind === "add" ? [...memory.items, { section: sectionOf(change.key), origin: "auto", text }] : memory.items.map(i => i === item ? { ...i, text } : i);
-      if (renderMemo({ items: next as StyleItem[] }, locale).length > AUTHORING_STYLE_NOTE_LIMIT) throw new Error("Style memo is full. Remove an item before adding another.");
+      if (renderMemo({ items: next as StyleItem[] }, locale).length > AUTHORING_STYLE_LEARNED_LIMIT) throw new Error("Style memo is full. Remove an item before adding another.");
     }
     snapshotForUndo(memory, "approve", at);
     memory.pending.splice(index, 1);
@@ -442,9 +477,51 @@ export class AuthoringStyleMemory {
     const restored = new Set(texts(previous.items));
     const withdrawn = texts(memory.items).filter(text => !restored.has(text));
     memory.declined = [...(previous.declined ?? memory.declined).filter(text => !restored.has(text) && !withdrawn.includes(text)), ...withdrawn].slice(-MAX_DECLINED);
-    Object.assign(memory, { items: previous.items, suppressed: previous.suppressed, pending: previous.pending, dismissed: previous.dismissed });
+    // What is taken back is not done again by the next review: neither an addition, nor a rewrite, nor a removal.
+    // (Undoing once more puts the list back as it was, with the rest.)
+    const was = new Map(previous.items.filter(i => i.origin === "auto" && i.key).map(i => [i.key!, i]));
+    const held = new Map(memory.items.filter(i => i.origin === "auto" && i.key).map(i => [i.key!, i]));
+    const takenBack = [
+      ...[...held.values()].flatMap(i => !was.has(i.key!) ? [`add:${i.key}:${i.value}`] : was.get(i.key!)!.value !== i.value ? [`rewrite:${i.key}:${i.value}`] : []),
+      ...[...was.values()].filter(i => !held.has(i.key!)).map(i => `remove:${i.key}:${i.value}`),
+    ];
+    Object.assign(memory, { items: previous.items, suppressed: previous.suppressed, pending: previous.pending,
+      dismissed: [...previous.dismissed.filter(entry => !takenBack.includes(entry)), ...takenBack].slice(-60) });
     memory.undo.push(current);
     await this.commit(workspaceId, memory, [{ actor: "user", action: "rollback", before: previous.reason }]);
+    return memory;
+  }
+
+  /** The changes the review made by itself that can still be put back: the memo still stands as they left it. */
+  revertible(memory: StyleMemory): AppliedChange[] {
+    return memory.applied.filter(change => change.kind === "remove" ? !memory.items.some(i => i.key === change.before.key)
+      : memory.items.some(i => i.origin === "auto" && i.key === change.key && i.value === change.value) && (change.key === change.before.key || !memory.items.some(i => i.key === change.before.key)));
+  }
+
+  /**
+   * Put back one habit the review rewrote or removed by itself, as it was. The same change is not made again:
+   * like a staged change that was declined, it is remembered as one the user does not want.
+   */
+  async revertApplied(workspaceId: string, id: string, locale: AppLocale, now: Date): Promise<StyleMemory> {
+    const memory = await this.load(workspaceId, locale, now);
+    const change = this.revertible(memory).find(c => c.id === id);
+    if (!change) throw new Error("Style memo changed. The change can no longer be put back.");
+    // In the language the memo is kept in now; a sentence that no longer passes its check is not brought back.
+    const text = itemText(change.before.key!, change.before.value, locale);
+    if (!text) throw new Error("Style memo changed. The change can no longer be put back.");
+    const restored: StyleItem = { ...change.before, text, section: sectionOf(change.before.key!), lastConfirmedAt: now.toISOString() };
+    const current = change.kind === "rewrite" ? memory.items.find(i => i.key === change.key) : undefined;
+    const next = current ? memory.items.map(i => i === current ? restored : i) : [...memory.items, restored];
+    if (renderMemo({ items: next }, locale).length > AUTHORING_STYLE_LEARNED_LIMIT) throw new Error("Style memo is full. Remove an item before adding another.");
+    snapshotForUndo(memory, "revert", now.toISOString());
+    memory.items = next;
+    memory.applied = memory.applied.filter(c => c !== change);
+    memory.suppressed = memory.suppressed.filter(key => key !== change.before.key);
+    memory.dismissed = [...memory.dismissed, `${change.kind}:${change.before.key}:${change.value}`].slice(-60);
+    // The AI's new wording goes the way of a suggestion its author turned down: it is not suggested again.
+    if (current && isSuggestion(current)) memory.declined = [...memory.declined.filter(sentence => sentence !== current.text), current.text].slice(-MAX_DECLINED);
+    memory.declined = memory.declined.filter(sentence => sentence !== restored.text);
+    await this.commit(workspaceId, memory, [{ actor: "user", action: `revert-${change.kind}`, key: change.before.key!, before: current?.text ?? "", after: restored.text }]);
     return memory;
   }
 

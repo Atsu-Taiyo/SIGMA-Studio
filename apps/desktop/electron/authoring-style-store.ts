@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import type { SigmaDocument } from "@/features/document";
-import { AUTHORING_STYLE_NOTE_LIMIT, type AuthoringStyleMemberEntryView, type AuthoringStyleOutcomes, type AuthoringStyleProfile } from "@/lib/ai/authoring-style";
+import { AUTHORING_STYLE_LEARNED_LIMIT, type AuthoringStyleMemberEntryView, type AuthoringStyleOutcomes, type AuthoringStyleProfile } from "@/lib/ai/authoring-style";
 import { createTranslator, getAppLocale, type AppLocale } from "@/lib/i18n";
 import type { AiResourceContextItem, AiResourceRunContext } from "./ai-resource-store";
 import {
@@ -11,6 +11,7 @@ import {
   MAX_FRAGMENT_LENGTH, type DocumentProjection, type EvidenceUnit, type Fragment, type StyleExample,
 } from "./authoring-style-features";
 import { itemText, memoLabels, SECTION_ORDER } from "./authoring-style-items";
+import { projectLayout, type LayoutProjection } from "./authoring-style-layout";
 import { AuthoringStyleMemory, atomicStyleWrite, renderMemo, type StyleItem, type StyleMemory, type StyleTrust } from "./authoring-style-memory";
 import { planReview, planSummary } from "./authoring-style-review";
 import { isSuspicious, scanLines } from "./authoring-style-scan";
@@ -41,6 +42,8 @@ export const MAX_SUMMARY_SAMPLE_CHARACTERS = 6000;
 const MAX_SUMMARY_EXCERPT = 300;
 const MIN_SUMMARY_SAMPLE_CHARACTERS = 400;
 const MAX_SUMMARY_CORRECTIONS = 6;
+/** The learned memo as placed in a request: all of it, with room for what encoding adds. */
+const MAX_PROMPT_MEMO_LENGTH = AUTHORING_STYLE_LEARNED_LIMIT + 400;
 /** An unattended summary is asked for at most this often per workspace. */
 const SUMMARY_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const REVIEW_IDLE_MS = 15_000;
@@ -398,7 +401,7 @@ export class LocalAuthoringStyleStore {
     if (!start) return;
     const recent = start.files;
     // Documents are read outside the style lock so a long read never delays a save's bookkeeping.
-    const loaded: { file: LocalDocumentMetadata; projection: DocumentProjection }[] = [];
+    const loaded: { file: LocalDocumentMetadata; projection: DocumentProjection; layout: LayoutProjection }[] = [];
     let characters = 0;
     /** A document could not be read: what this review saw is not all there was to see. */
     let unread = false;
@@ -412,7 +415,7 @@ export class LocalAuthoringStyleStore {
       // Not there to be read just now: as with a failed read, this review did not see everything.
       if (!document) { unread = true; continue; }
       const projection = projectDocument(document);
-      loaded.push({ file, projection });
+      loaded.push({ file, projection, layout: projectLayout(document) });
       let length = 0;
       for (const fragment of projection.fragments.values()) length += fragment.area === "structure" ? 0 : fragment.text.length;
       characters += Math.min(length, MAX_REVIEW_DOCUMENT_CHARACTERS);
@@ -422,13 +425,14 @@ export class LocalAuthoringStyleStore {
     const summary = await this.exclusive(async () => {
       if (generation !== this.generation || !await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return null;
       const files = await this.learnableFiles(true);
-      const eligibleFiles = files ? new Set([...files.values()].filter(f => f.workspaceId === workspaceId).map(f => f.fileId)) : null;
+      // A list of shared documents that could not be read says nothing about which documents are gone.
+      const eligibleFiles = files && !this.sharedListFailed ? new Set([...files.values()].filter(f => f.workspaceId === workspaceId).map(f => f.fileId)) : null;
       const outcomes = await this.readOutcomes();
       const units: EvidenceUnit[] = [];
-      const authored: { fileId: string; texts: string[] }[] = [];
+      const authored: { fileId: string; texts: string[]; outline: string }[] = [];
       let remaining = MAX_REVIEW_CHARACTERS;
       let reviewed = 0;
-      for (const { file, projection } of loaded) {
+      for (const { file, projection, layout } of loaded) {
         // A document shared, moved, deleted or saved again while it was being read is not evidence:
         // what was read may no longer match what is recorded about it.
         if (outcomes.overflow?.includes(file.fileId)) continue;
@@ -441,10 +445,10 @@ export class LocalAuthoringStyleStore {
           const ai = tracked.get(blockId);
           return Boolean(ai) && (ai!.state === "edited" || ((ai!.state === "accepted" || ai!.state === "kept") && fragmentHash(fragment) === ai!.hash));
         };
-        const evidence = documentEvidence(file.fileId, projection, isAiText, { characters: Math.min(remaining, MAX_REVIEW_DOCUMENT_CHARACTERS) });
+        const evidence = documentEvidence(file.fileId, projection, isAiText, { characters: Math.min(remaining, MAX_REVIEW_DOCUMENT_CHARACTERS) }, layout);
         remaining -= evidence.characters;
         units.push(...evidence.units);
-        authored.push({ fileId: file.fileId, texts: evidence.texts });
+        authored.push({ fileId: file.fileId, texts: evidence.texts, outline: evidence.outline });
         reviewed++;
       }
       const examples = (await this.eligible(await this.read())).filter(e => e.workspaceId === workspaceId);
@@ -452,7 +456,8 @@ export class LocalAuthoringStyleStore {
       const now = this.now();
       const memory = await this.memory.load(workspaceId, getAppLocale(), now);
       const planned = planReview(memory, mergeObservations(observeWriting(units), observeCorrections(examples)),
-        { now, locale: memory.locale, eligibleFiles, keptSinceLastReview: counters.kept > 0 });
+        // A pass that did not see every document it was due to read changes nothing by itself that it cannot be sure of.
+        { now, locale: memory.locale, eligibleFiles, keptSinceLastReview: counters.kept > 0, autoApply: await this.autoApply(workspaceId) && !unread && !this.sharedListFailed });
       memory.lastReviewedAt = now.toISOString();
       memory.reviewedDocuments = reviewed;
       await this.memory.commit(workspaceId, memory, planned.entries);
@@ -476,7 +481,7 @@ export class LocalAuthoringStyleStore {
       if (!sources.length) return;
       const now = this.now();
       const memory = await this.memory.load(workspaceId, getAppLocale(), now);
-      const planned = planSummary(memory, reply, summary.candidates, { now, locale: memory.locale, sources });
+      const planned = planSummary(memory, reply, summary.candidates, { now, locale: memory.locale, sources, autoApply: summary.input.revise === true && await this.autoApply(workspaceId) });
       memory.summary = { hash: summary.hash, at: now.toISOString() };
       await this.memory.commit(workspaceId, memory, planned.entries);
     });
@@ -488,7 +493,7 @@ export class LocalAuthoringStyleStore {
    * excerpts of the author's own text and a few corrections leave the device,
    * and only to the provider the author last used.
    */
-  private async summaryRequest(workspaceId: string, memory: StyleMemory, authored: readonly { fileId: string; texts: string[] }[],
+  private async summaryRequest(workspaceId: string, memory: StyleMemory, authored: readonly { fileId: string; texts: string[]; outline: string }[],
     examples: readonly StyleExample[], eligibleFiles: ReadonlySet<string> | null, requested: boolean, now: Date) {
     if (!this.options.summarize || !await this.memory.aiSummary(null) || !await this.memory.aiSummary(workspaceId)) return null;
     const provider = await this.lastProvider();
@@ -512,7 +517,9 @@ export class LocalAuthoringStyleStore {
     // A correction of accepted AI text is mostly the AI's sentence, so only edits of the author's own text are sent.
     const corrections = this.selectExamples(examples.filter(e => e.source !== "post-accept"), "").flatMap(e => e.before?.text && e.after?.text
       ? [{ before: e.before.text.slice(0, MAX_SUMMARY_EXCERPT), after: e.after.text.slice(0, MAX_SUMMARY_EXCERPT) }] : []).slice(0, MAX_SUMMARY_CORRECTIONS);
-    const hash = createHash("sha256").update(JSON.stringify([sample, corrections])).digest("hex");
+    // How the documents that were read are built: kinds of blocks only, for the same documents the excerpts came from.
+    const outlines = authored.filter(a => sources.includes(a.fileId) && a.outline && !isSuspicious(a.outline)).map(a => a.outline);
+    const hash = createHash("sha256").update(JSON.stringify(outlines.length ? [sample, corrections, outlines] : [sample, corrections])).digest("hex");
     if (memory.summary?.hash === hash) return null;
     if (!requested) {
       const last = Math.max(this.summaryAttempts.get(workspaceId) ?? 0, memory.summary ? Date.parse(memory.summary.at) : 0);
@@ -530,6 +537,7 @@ export class LocalAuthoringStyleStore {
       locale: memory.locale, sample, corrections,
       existing: scanLines(usable.map(i => i.text.replace(/^- /, "")).join("\n")).text.split("\n").filter(Boolean),
       candidates: suggested.map(i => i.text), declined: memory.declined.filter(isSummaryText).filter(sentence => !waiting.marks.has(declinedMark(sentence))),
+      outlines, revise: await this.autoApply(workspaceId),
     };
     return { provider, input, hash, sources, candidates: suggested.map(i => i.key!) };
   }
@@ -589,7 +597,7 @@ export class LocalAuthoringStyleStore {
       const stored = await this.memory.load(workspaceId, getAppLocale(), this.now());
       // What other members wrote reaches this member's AI only once this member has approved it.
       const waiting = await this.waiting(workspaceId);
-      const learned = this.promptText(scanLines(this.injectedMemo(stored, input.locale, files, workspaceId, waiting)).text);
+      const learned = this.promptText(scanLines(this.injectedMemo(stored, input.locale, files, workspaceId, waiting)).text, MAX_PROMPT_MEMO_LENGTH);
       const ownLines = (content: string) => content.split("\n").filter(line => !waiting.marks.has(noteLineMark(line) ?? "")).join("\n");
       const notes = [(await this.memory.readNote(null)).content, ownLines((await this.memory.readNote(workspaceId)).content)].map(content => this.promptText(scanLines(content).text));
       const selected = this.selectExamples(examples, input.fileId);
@@ -673,9 +681,9 @@ export class LocalAuthoringStyleStore {
     return selected;
   }
 
-  private promptText(text: string): string {
+  private promptText(text: string, limit = 2200): string {
     // Bound the encoded JSON too (control characters and escaping can expand it).
-    while (JSON.stringify(text).length > 2200) text = text.slice(0, Math.floor(text.length * 0.9));
+    while (JSON.stringify(text).length > limit) text = text.slice(0, Math.floor(text.length * 0.9));
     return text;
   }
 
@@ -694,7 +702,14 @@ export class LocalAuthoringStyleStore {
     return this.options.listFiles ? new Map((await this.options.listFiles()).filter(f => !f.sharing && !f.sharingPending).map(f => [f.fileId, f])) : null;
   }
 
+  /** Caller holds the lock. Both the account-wide switch and the workspace's have to be on. */
+  private async autoApply(workspaceId: string): Promise<boolean> {
+    return await this.memory.autoApply(null) && await this.memory.autoApply(workspaceId);
+  }
+
   private sharedFilesRead: { at: number; files: Map<string, LocalDocumentMetadata> } | null = null;
+  /** The last attempt to list the shared documents failed: what is known about them may be out of date. */
+  private sharedListFailed = false;
   /** The shared workspaces as of the last time their documents were listed. */
   private sharedWorkspaces: ReadonlySet<string> = new Set();
 
@@ -713,7 +728,9 @@ export class LocalAuthoringStyleStore {
         this.sharedFilesRead = { at, files: new Map((await this.options.listSharedFiles())
           .filter(f => f.sharing?.state === "active" && !f.sharingPending && workspaces.has(f.workspaceId)).map(f => [f.fileId, f])) };
         this.sharedWorkspaces = workspaces;
+        this.sharedListFailed = false;
       } catch (error) {
+        this.sharedListFailed = true;
         // Signed out or offline: nothing shared is read, and what was learned from it before is left as it is.
         logLedgerEvent(this.dataDir, "authoring-style-read-failed", { error: String(error) });
         return this.sharedFilesRead ? new Map([...personal, ...this.sharedFilesRead.files]) : personal;
@@ -801,7 +818,10 @@ export class LocalAuthoringStyleStore {
         ({ id, section, text, origin, basis, support, documents, firstSeenAt, lastConfirmedAt })),
       pending: (memory?.pending ?? []).map(p => ({ id: p.id, kind: p.kind, reason: p.reason, currentText: p.expectedText,
         proposedText: p.kind === "remove" ? "" : itemText(p.key, p.value, memory!.locale) ?? "", support: p.support })),
-      usage: { characters: generatedContent.length, limit: AUTHORING_STYLE_NOTE_LIMIT },
+      usage: { characters: generatedContent.length, limit: AUTHORING_STYLE_LEARNED_LIMIT },
+      autoApply: await this.memory.autoApply(workspaceId),
+      autoChanges: memory ? this.memory.revertible(memory).map(change => ({ id: change.id, kind: change.kind, reason: change.reason, at: change.at,
+        before: change.before.text.replace(/^- /, ""), after: change.kind === "remove" ? "" : (memory.items.find(i => i.key === change.key)?.text ?? "").replace(/^- /, "") })) : [],
       outcomes: tally,
       lastReviewedAt: memory?.lastReviewedAt ?? null, reviewedDocuments: memory?.reviewedDocuments ?? 0, lastUpdate: memory?.lastUpdate ?? null,
       canUndo: Boolean(memory?.undo.length),
@@ -906,6 +926,15 @@ export class LocalAuthoringStyleStore {
 
   setAiSummary(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile> {
     return this.change(workspaceId, async () => { await this.sync.noteSwitch(workspaceId, "aiSummary", enabled); await this.memory.setAiSummary(workspaceId, enabled); });
+  }
+
+  /** Kept on this device: what a review here does by itself is this device's user's to decide. */
+  setAutoApply(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile> {
+    return this.change(workspaceId, () => this.memory.setAutoApply(workspaceId, enabled));
+  }
+
+  revertAutoChange(input: { workspaceId: string; id: string }): Promise<AuthoringStyleProfile> {
+    return this.change(input.workspaceId, () => this.memory.revertApplied(input.workspaceId, input.id, getAppLocale(), this.now()));
   }
 
   async reviewNow(workspaceId: string): Promise<AuthoringStyleProfile> {

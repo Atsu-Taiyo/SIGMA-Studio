@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { inlineNodesToPlainText, type InlineNode, type SigmaBlock, type SigmaDocument } from "@/features/document";
+import type { LayoutProjection } from "./authoring-style-layout";
 import { changedTexFeatures, formulas, notationVotes } from "./authoring-style-tex";
 
 export const MAX_FRAGMENT_LENGTH = 1800;
@@ -165,13 +166,18 @@ export interface Observation {
   support: number;
   documents: number;
   sources: string[];
+  /** The author mostly does not do this (leaves it empty, keeps the default). Nothing to teach, but a habit that said otherwise no longer holds. */
+  absent?: true;
 }
 
 export const MIN_WRITING_BLOCKS = 3;
 export const MIN_WRITING_SHARE = 0.7;
 export const MIN_CORRECTIONS = 2;
 /** "The author leaves this empty" is not a rule worth teaching; only a positive habit is. */
-const NOT_A_RULE = new Set(["procedure.solution:empty", "procedure.hints:empty", "tex.inlineSize:none", "tex.integralSpacing:none"]);
+const NOT_A_RULE = new Set(["procedure.solution:empty", "procedure.hints:empty", "tex.inlineSize:none", "tex.integralSpacing:none",
+  "layout.problemNumber:decimal", "layout.problemLabel:none", "layout.problemFrame:none", "layout.problemLead:empty", "layout.comment:area",
+  "layout.answerSpace:none", "layout.subquestionList:text", "layout.boxSubtitle:empty", "layout.headingNumber:none", "layout.headingAlign:left",
+  "layout.docTitle:other", "layout.subtitle:none", "layout.columns:1", "layout.pageSize:A4-portrait"]);
 
 /** Habits visible in the author's own text. A value needs several independent blocks and a clear majority. */
 export function observeWriting(units: readonly EvidenceUnit[]): Observation[] {
@@ -187,9 +193,10 @@ export function observeWriting(units: readonly EvidenceUnit[]): Observation[] {
   for (const [key, values] of byKey) {
     const total = [...values.values()].reduce((sum, list) => sum + list.length, 0);
     const [value, supporters] = [...values].sort((a, b) => b[1].length - a[1].length)[0];
-    if (supporters.length < MIN_WRITING_BLOCKS || supporters.length / total < MIN_WRITING_SHARE || NOT_A_RULE.has(`${key}:${value}`)) continue;
+    if (supporters.length < MIN_WRITING_BLOCKS || supporters.length / total < MIN_WRITING_SHARE) continue;
     const files = [...new Set(supporters.map(unit => unit.fileId))];
-    result.push({ key, value, basis: "writing", support: supporters.length, documents: files.length, sources: files.slice(0, 8) });
+    result.push({ key, value, basis: "writing", support: supporters.length, documents: files.length, sources: files.slice(0, 8),
+      ...(NOT_A_RULE.has(`${key}:${value}`) ? { absent: true as const } : {}) });
   }
   return result;
 }
@@ -241,7 +248,8 @@ export function mergeObservations(writing: readonly Observation[], corrections: 
 }
 
 /** Votes of one personal document, leaving out blocks the predicate attributes to the AI. */
-export function documentEvidence(fileId: string, projection: DocumentProjection, isAiText: (blockId: string, fragment: Fragment) => boolean, budget: { characters: number }): { units: EvidenceUnit[]; skippedAi: number; characters: number; texts: string[] } {
+export function documentEvidence(fileId: string, projection: DocumentProjection, isAiText: (blockId: string, fragment: Fragment) => boolean, budget: { characters: number },
+  layout?: LayoutProjection): { units: EvidenceUnit[]; skippedAi: number; characters: number; texts: string[]; outline: string } {
   const units: EvidenceUnit[] = [];
   const texts: string[] = [];
   const authored = new Set<string>();
@@ -265,5 +273,11 @@ export function documentEvidence(fileId: string, projection: DocumentProjection,
       ["procedure.hints", problem.areas.hints.length ? "filled" : "empty"],
     ]) });
   }
-  return { units, skippedAi, characters, texts };
+  // How a block is laid out is the author's doing where its text is: a block the AI built and nobody wrote in says nothing.
+  // The document as a whole speaks for its author when at least as much of it is theirs as is the AI's.
+  const mostlyAuthored = authored.size > 0 && authored.size >= skippedAi;
+  for (const unit of layout?.units ?? []) {
+    if (unit.whole ? mostlyAuthored : unit.fragments.some(id => authored.has(id))) units.push({ fileId, blockId: `${unit.id}:layout`, votes: unit.votes });
+  }
+  return { units, skippedAi, characters, texts, outline: mostlyAuthored ? layout?.outline ?? "" : "" };
 }

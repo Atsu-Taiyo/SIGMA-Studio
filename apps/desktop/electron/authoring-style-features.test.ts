@@ -129,8 +129,8 @@ describe("habits in the author's own writing", () => {
     expect(observeWriting([...prime, unit("d", String.raw`\frac{dy}{dx}`), unit("e", String.raw`\frac{dy}{dx}`)])).toEqual([]);
     const bare = ["a", "b", "c"].map(id => unit(id, String.raw`\sum_{k=1}^n k`));
     expect(bare[0].votes.get("tex.inlineSize")).toBe("none");
-    expect(observeWriting(bare)).toEqual([]);
-    expect(observeWriting([...bare, unit("d", String.raw`\displaystyle\sum_{k=1}^n k`)])).toEqual([]);
+    expect(observeWriting(bare)).toMatchObject([{ key: "tex.inlineSize", value: "none", absent: true }]);
+    expect(observeWriting([...bare, unit("d", String.raw`\displaystyle\sum_{k=1}^n k`)]).filter(o => !o.absent)).toEqual([]);
   });
 
   it("needs several independent blocks and a clear majority before stating a habit", () => {
@@ -139,8 +139,8 @@ describe("habits in the author's own writing", () => {
     expect(observeWriting([unit("a", "plain"), unit("b", "plain"), unit("c", "plain", "f2")])).toEqual([
       { key: "tone.explanation", value: "plain", basis: "writing", support: 3, documents: 2, sources: ["f1", "f2"] }]);
     expect(observeWriting([unit("a", "plain"), unit("b", "plain"), unit("c", "plain"), unit("d", "polite"), unit("e", "polite")])).toEqual([]);
-    // "The author leaves the solution empty" is not turned into a rule.
-    expect(observeWriting(["a", "b", "c"].map(id => ({ fileId: "f", blockId: id, votes: new Map([["procedure.solution", "empty"]]) })))).toEqual([]);
+    // "The author leaves the solution empty" is not turned into a rule: it is only reported as what the author mostly does not do.
+    expect(observeWriting(["a", "b", "c"].map(id => ({ fileId: "f", blockId: id, votes: new Map([["procedure.solution", "empty"]]) })))).toMatchObject([{ key: "procedure.solution", absent: true }]);
   });
 
   it("leaves out text attributed to the AI, respects the character budget and learns problem structure", () => {

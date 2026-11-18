@@ -6,7 +6,7 @@ import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import { Shimmer } from "@/components/ui/Shimmer";
 import { Inline, Stack } from "@/components/ui/layout";
 import { SettingsField, SettingsSection, SettingsStatus, Switch } from "@/components/ui/settings";
-import { AUTHORING_STYLE_NOTE_LIMIT, type AuthoringStyleAPI, type AuthoringStyleItemView, type AuthoringStyleProfile } from "@/lib/ai/authoring-style";
+import { AUTHORING_STYLE_LEARNED_LIMIT, AUTHORING_STYLE_NOTE_LIMIT, type AuthoringStyleAPI, type AuthoringStyleItemView, type AuthoringStyleProfile } from "@/lib/ai/authoring-style";
 import { useT } from "@/lib/i18n/react";
 
 export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api: AuthoringStyleAPI; workspaceId: string | null }) {
@@ -65,6 +65,9 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
         <SettingsField label={t("authoringStyle.aiSummary")} description={t("authoringStyle.aiSummaryDescription")}>
           <Switch label={t("authoringStyle.aiSummary")} checked={profile.aiSummary} disabled={busy || !profile.enabled || (heldOff("aiSummary") && !profile.aiSummary)} onCheckedChange={enabled => void run(() => api.setAiSummary(workspaceId, enabled))} />
         </SettingsField>
+        <SettingsField label={t("authoringStyle.autoApply")} description={t("authoringStyle.autoApplyDescription")}>
+          <Switch label={t("authoringStyle.autoApply")} checked={profile.autoApply} disabled={busy || !profile.enabled} onCheckedChange={enabled => void run(() => api.setAutoApply(workspaceId, enabled))} />
+        </SettingsField>
         {!workspaceId && profile.sync.available && <Stack gap="xs">
           <SettingsField label={t("authoringStyle.sync")} description={t("authoringStyle.syncDescription")}>
             <Switch label={t("authoringStyle.sync")} checked={profile.sync.enabled} disabled={busy || (!profile.sync.enabled && (!profile.sync.signedIn || profile.sync.pro === false))} onCheckedChange={enabled => void run(() => api.setSync(workspaceId, enabled), "all")} />
@@ -95,13 +98,13 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
         </Stack>
         {workspaceId && <Stack gap="xs">
           <label htmlFor="authoring-style-learned">{t("authoringStyle.learned")}</label>
-          <textarea id="authoring-style-learned" className="ai-settings-textarea" value={learned} maxLength={AUTHORING_STYLE_NOTE_LIMIT} disabled={busy} placeholder={t("authoringStyle.empty")} onChange={event => setLearned(event.target.value)} />
+          <textarea id="authoring-style-learned" className="ai-settings-textarea" value={learned} maxLength={AUTHORING_STYLE_LEARNED_LIMIT} disabled={busy} placeholder={t("authoringStyle.empty")} onChange={event => setLearned(event.target.value)} />
           <small className="ai-settings-empty-hint">{t("authoringStyle.learnedHint")}</small>
           <small className="ai-settings-empty-hint" style={{ overflowWrap: "anywhere" }}>{profile.generatedPath}</small>
           <SettingsStatus>
             {t("authoringStyle.usage", { ...profile.usage })}
             {profile.lastReviewedAt && ` / ${t("authoringStyle.reviewed", { date: new Date(profile.lastReviewedAt).toLocaleString(), documents: profile.reviewedDocuments })}`}
-            {profile.lastUpdate && ` / ${t("authoringStyle.updated", { ...profile.lastUpdate })}`}
+            {profile.lastUpdate && ` / ${t("authoringStyle.updated", { rewritten: 0, removed: 0, ...profile.lastUpdate })}`}
           </SettingsStatus>
           <Inline gap="sm">
             <Button size="sm" disabled={busy || !learnedDirty} onClick={() => void run(() => api.saveLearned({ workspaceId, content: learned, expectedRevision: learnedRevision }), "learned")}>{t("authoringStyle.saveLearned")}</Button>
@@ -119,6 +122,18 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
                 </Inline>
               </Stack>
             ))}
+          </Stack>}
+          {profile.autoChanges.length > 0 && <Stack gap="xs" data-testid="authoring-style-auto-changes">
+            <strong>{t("authoringStyle.autoChangesTitle")}</strong>
+            <small className="ai-settings-empty-hint">{t("authoringStyle.autoChangesHint")}</small>
+            <ul>{[...profile.autoChanges].reverse().map(change => <li key={change.id}>
+              <Inline gap="sm">
+                <span>{t(`authoringStyle.autoChange.${change.kind}`, { before: change.before, after: change.after })}</span>
+                <small className="ai-settings-empty-hint" style={{ whiteSpace: "nowrap" }}>{t(`authoringStyle.autoChangeReason.${change.reason}`)} / {new Date(change.at).toLocaleDateString()}</small>
+                <Button tone="ghost" size="sm" aria-label={t("authoringStyle.autoChangeRevertLabel", { text: change.before })} disabled={busy || learnedDirty}
+                  onClick={() => void run(() => api.revertAutoChange({ workspaceId, id: change.id }), "learned")}>{t("authoringStyle.autoChangeRevert")}</Button>
+              </Inline>
+            </li>)}</ul>
           </Stack>}
           {(waiting.length > 0 || declined.length > 0) && <Stack gap="xs" data-testid="authoring-style-member-entries">
             <strong>{t("authoringStyle.memberTitle", { count: waiting.length })}</strong>

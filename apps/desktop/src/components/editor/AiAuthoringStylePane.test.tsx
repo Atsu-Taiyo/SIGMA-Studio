@@ -7,7 +7,7 @@ import type { AuthoringStyleAPI, AuthoringStyleProfile } from "@/lib/ai/authorin
 
 const base: AuthoringStyleProfile = { workspaceId: null, enabled: true, aiSummary: true, aiSummaryProvider: null, userContent: "画面にあるメモ", userPath: "/user.md", revision: "original",
   generatedContent: "", generatedPath: "", generatedRevision: "", exampleCount: 1, items: [], pending: [], usage: { characters: 0, limit: 3000 },
-  outcomes: { kept: 0, edited: 0, reverted: 0, rejected: 0 }, lastReviewedAt: null, reviewedDocuments: 0, lastUpdate: null, canUndo: false, blockedLines: 0, memberEntries: [],
+  outcomes: { kept: 0, edited: 0, reverted: 0, rejected: 0 }, lastReviewedAt: null, reviewedDocuments: 0, lastUpdate: null, autoApply: true, autoChanges: [], canUndo: false, blockedLines: 0, memberEntries: [],
   sync: { available: true, signedIn: true, pro: true, scope: "account", enabled: false, state: "off", lastSyncedAt: null, manage: true, wide: null } };
 
 function mount(api: AuthoringStyleAPI, workspaceId: string | null) {
@@ -22,7 +22,7 @@ function mount(api: AuthoringStyleAPI, workspaceId: string | null) {
 
 function fakeApi(overrides: Partial<AuthoringStyleAPI>, profile: AuthoringStyleProfile): AuthoringStyleAPI {
   const resolved = () => vi.fn().mockResolvedValue(profile);
-  return { read: resolved(), save: resolved(), saveLearned: resolved(), setEnabled: resolved(), setAiSummary: resolved(), reset: resolved(), review: resolved(), resolvePending: resolved(), removeItem: resolved(), undo: resolved(), resolveMemberEntries: resolved(), setSync: resolved(), syncNow: resolved(), relinkSync: resolved(), deleteSynced: resolved(), ...overrides };
+  return { read: resolved(), save: resolved(), saveLearned: resolved(), setEnabled: resolved(), setAiSummary: resolved(), setAutoApply: resolved(), revertAutoChange: resolved(), reset: resolved(), review: resolved(), resolvePending: resolved(), removeItem: resolved(), undo: resolved(), resolveMemberEntries: resolved(), setSync: resolved(), syncNow: resolved(), relinkSync: resolved(), deleteSynced: resolved(), ...overrides };
 }
 
 it("keeps the displayed note's revision when another action returns a newer external note", async () => {
@@ -52,7 +52,7 @@ it("shows the learned memo with its evidence and lets the user decide staged cha
   try {
     await view.render();
     expect(view.host.querySelector<HTMLTextAreaElement>("#authoring-style-learned")!.value).toBe(profile.generatedContent);
-    for (const text of ["そのまま 5・手直し 2・取り消し 1 / 却下した提案 3", "自分の文章 4箇所・教材2件", "AIによる要約・教材3件", "書き換え: 「常体で書く。」→「丁寧体で書く。」（根拠3箇所）", "追加: 「結論を先に書く。」（メモが上限に達しているため保留。根拠2箇所）", "AIが追加した項目", "1項目を追加、1件が確認待ち", "2行あり、AIへは渡していません"]) {
+    for (const text of ["そのまま 5・手直し 2・取り消し 1 / 却下した提案 3", "自分の文章 4箇所・教材2件", "AIによる要約・教材3件", "書き換え: 「常体で書く。」→「丁寧体で書く。」（根拠3箇所）", "追加: 「結論を先に書く。」（メモが上限に達しているため保留。根拠2箇所）", "AIが追加した項目", "1項目を追加、0件を書き換え、0件を削除、1件が確認待ち", "2行あり、AIへは渡していません"]) {
       expect(view.host.textContent).toContain(text);
     }
     await act(async () => view.button("反映する").click());
@@ -71,6 +71,34 @@ it("shows the learned memo with its evidence and lets the user decide staged cha
     expect(api.undo).toHaveBeenCalledWith("ws1");
     expect(view.button("学んだ書き方を保存").disabled).toBe(true);
   } finally { await view.unmount(); }
+});
+
+it("lists what the review changed by itself, lets one change be put back, and has a switch for doing so without asking", async () => {
+  const profile: AuthoringStyleProfile = { ...base, workspaceId: "ws1", generatedContent: "- 丁寧体で書く。\n", generatedRevision: "memo1",
+    lastUpdate: { at: "", added: 0, staged: 0, rewritten: 1, removed: 1 },
+    autoChanges: [{ id: "rewrite:1", kind: "rewrite", reason: "contradicted", at: "2026-11-17T00:00:00Z", before: "常体で書く。", after: "丁寧体で書く。" },
+      { id: "remove:2", kind: "remove", reason: "stale", at: "2026-11-18T00:00:00Z", before: "分数は大きく書く。", after: "" }] };
+  const api = fakeApi({}, profile);
+  const view = mount(api, "ws1");
+  try {
+    await view.render();
+    const list = view.host.querySelector('[data-testid="authoring-style-auto-changes"]')!;
+    // Newest first.
+    expect([...list.querySelectorAll("li")].map(li => li.querySelector("span")!.textContent)).toEqual(["削除: 「分数は大きく書く。」", "書き換え: 「常体で書く。」→「丁寧体で書く。」"]);
+    for (const text of ["自動で反映した変更", "最近は確認できないため", "最近の書き方と食い違ったため", "0項目を追加、1件を書き換え、1件を削除、0件が確認待ち"]) expect(view.host.textContent).toContain(text);
+    await act(async () => view.host.querySelector<HTMLButtonElement>('[aria-label="「常体で書く。」を元に戻す"]')!.click());
+    expect(api.revertAutoChange).toHaveBeenCalledWith({ workspaceId: "ws1", id: "rewrite:1" });
+    const switches = view.host.querySelectorAll<HTMLButtonElement>('[role="switch"]');
+    expect(switches[2].getAttribute("aria-checked")).toBe("true");
+    await act(async () => switches[2].click());
+    expect(api.setAutoApply).toHaveBeenCalledWith("ws1", false);
+  } finally { await view.unmount(); }
+  // Nothing was changed: no list.
+  const none = mount(fakeApi({}, { ...profile, autoChanges: [] }), "ws1");
+  try {
+    await none.render();
+    expect(none.host.querySelector('[data-testid="authoring-style-auto-changes"]')).toBeNull();
+  } finally { await none.unmount(); }
 });
 
 it("keeps an unsaved manual note when only the learned memo is saved", async () => {

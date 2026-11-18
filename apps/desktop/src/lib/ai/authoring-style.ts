@@ -1,5 +1,5 @@
 /** Desktop authoring memory contract. No document or rendering core depends on it. */
-export type AuthoringStyleSection = "style" | "procedure" | "tex" | "custom";
+export type AuthoringStyleSection = "style" | "procedure" | "structure" | "tex" | "custom";
 
 /** One learned habit. `user` items were written or changed by hand and are never touched automatically. */
 export interface AuthoringStyleItemView {
@@ -23,6 +23,17 @@ export interface AuthoringStylePendingView {
   currentText: string;
   proposedText: string;
   support: number;
+}
+
+/** A habit the review rewrote or removed by itself. `after` is empty for a removal. */
+export interface AuthoringStyleAutoChangeView {
+  id: string;
+  kind: "rewrite" | "remove";
+  /** `summary`: the AI the user already uses reworded or withdrew its own earlier suggestion. */
+  reason: "contradicted" | "stale" | "summary";
+  at: string;
+  before: string;
+  after: string;
 }
 
 /** What became of text an accepted AI proposal wrote, and how many proposals were rejected. */
@@ -89,7 +100,11 @@ export interface AuthoringStyleProfile {
   outcomes: AuthoringStyleOutcomes;
   lastReviewedAt: string | null;
   reviewedDocuments: number;
-  lastUpdate: { at: string; added: number; staged: number } | null;
+  lastUpdate: { at: string; added: number; staged: number; rewritten?: number; removed?: number } | null;
+  /** Rewriting and removing automatic habits happens without asking. Off: such changes wait for approval. */
+  autoApply: boolean;
+  /** What the review rewrote or removed by itself and can still be put back, newest last. */
+  autoChanges: AuthoringStyleAutoChangeView[];
   canUndo: boolean;
   /** Lines withheld from the AI because they look like injected instructions. */
   blockedLines: number;
@@ -104,6 +119,10 @@ export interface AuthoringStyleAPI {
   saveLearned(input: { workspaceId: string; content: string; expectedRevision: string }): Promise<AuthoringStyleProfile>;
   setEnabled(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile>;
   setAiSummary(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile>;
+  /** Whether the review rewrites and removes automatic habits without asking. Kept on this device. */
+  setAutoApply(workspaceId: string | null, enabled: boolean): Promise<AuthoringStyleProfile>;
+  /** Put back a habit the review rewrote or removed by itself. The same change is then not made again. */
+  revertAutoChange(input: { workspaceId: string; id: string }): Promise<AuthoringStyleProfile>;
   reset(workspaceId: string | null): Promise<AuthoringStyleProfile>;
   /** Run the background review now instead of waiting for its trigger. */
   review(workspaceId: string): Promise<AuthoringStyleProfile>;
@@ -123,3 +142,8 @@ export interface AuthoringStyleAPI {
 }
 
 export const AUTHORING_STYLE_NOTE_LIMIT = 3000;
+/**
+ * The learned memo holds one more part than the notes do (structure and layout, up to some twenty sentences),
+ * and what does not fit is not learned without asking. So it is given more room than a note.
+ */
+export const AUTHORING_STYLE_LEARNED_LIMIT = 4000;

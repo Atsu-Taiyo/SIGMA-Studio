@@ -380,7 +380,7 @@ describe("account sync of the learned writing style", () => {
   });
 
   it("stops rather than drop anything when the merged memo would not fit", async () => {
-    const long = (prefix: string) => `## 自分で書いた項目\n${Array.from({ length: 40 }, (_, i) => `${prefix}${i}${"あ".repeat(45)}`).join("\n")}\n`;
+    const long = (prefix: string) => `## 自分で書いた項目\n${Array.from({ length: 50 }, (_, i) => `${prefix}${i}${"あ".repeat(45)}`).join("\n")}\n`;
     const a = await device("ws-a");
     const b = await device("ws-b");
     await a.store.saveLearned({ workspaceId: "ws-a", content: long("甲"), expectedRevision: (await a.store.getProfile("ws-a")).generatedRevision });
@@ -825,6 +825,44 @@ describe("account sync of the learned writing style", () => {
         const b = await device("ws-b", { user: () => U2, documents: options.documents });
         return { a, b, profile: await b.store.syncNow("ws-b") };
       }
+
+      it("waits for approval again when the other member's review rewrote it by itself", async () => {
+        const POLITE = ["この関数は単調に増加します。", "最大値は3になります。", "解は存在しません。"];
+        const POLITE_MEMO = "解説・説明は丁寧体（です・ます）で書く。";
+        const document = written(...PLAIN);
+        const a = await device("ws-a", { user: () => U1, documents: { f1: document } });
+        await a.store.reviewNow("ws-a");
+        await a.store.syncNow(null);
+        const b = await device("ws-b", { user: () => U2 });
+        let profile = await b.store.syncNow("ws-b");
+        await b.store.resolveMemberEntries({ workspaceId: "ws-b", ids: profile.memberEntries.map(entry => entry.id), approve: true });
+        expect(await b.given()).toContain(PLAIN_MEMO);
+        // The first member's writing changes, and the review on their device rewrites the habit without asking.
+        document.content = written(...POLITE).content;
+        expect((await a.store.reviewNow("ws-a")).autoChanges).toMatchObject([{ kind: "rewrite", before: PLAIN_MEMO, after: POLITE_MEMO }]);
+        await a.store.syncNow(null);
+        expect(await a.given()).toContain(POLITE_MEMO);
+        profile = await b.store.syncNow("ws-b");
+        // The second member sees the new sentence, but approved the old one: the new one waits.
+        expect(await b.memo()).toContain(POLITE_MEMO);
+        expect(await b.memo()).not.toContain(PLAIN_MEMO);
+        expect(profile.memberEntries.map(({ kind, text }) => ({ kind, text }))).toEqual([{ kind: "item", text: POLITE_MEMO }]);
+        expect(await b.given()).not.toContain("丁寧体");
+        expect(await b.given()).not.toContain("常体");
+        // It was not this device's doing, so there is nothing here to put back; and the switch is not part of the shared copy.
+        expect(profile.autoChanges).toEqual([]);
+        await a.store.setAutoApply("ws-a", false);
+        await a.store.syncNow(null);
+        expect(JSON.stringify(workspaceCopy().content)).not.toContain("autoApply");
+        expect((await b.store.syncNow("ws-b")).autoApply).toBe(true);
+        // Putting the change back on the device that made it reaches the other member as the sentence they had approved.
+        const mine = await a.store.getProfile("ws-a");
+        await a.store.revertAutoChange({ workspaceId: "ws-a", id: mine.autoChanges[0].id });
+        await a.store.syncNow(null);
+        profile = await b.store.syncNow("ws-b");
+        expect(profile.memberEntries).toEqual([]);
+        expect(await b.given()).toContain(PLAIN_MEMO);
+      });
 
       it("is shown but not given to this member's AI until this member approves it", async () => {
         const { a, b, profile } = await two();

@@ -3,8 +3,9 @@ import { createHash } from "node:crypto";
 import { createTranslator, type AppLocale } from "@/lib/i18n";
 import { isSuspicious } from "./authoring-style-scan";
 
-export type SummarySection = "style" | "procedure" | "tex";
-export interface SummaryReply { add: { section: SummarySection; text: string }[]; confirm: number[] }
+export type SummarySection = "style" | "procedure" | "structure" | "tex";
+/** `rewrite` and `remove` name, by number, habits an earlier summary suggested: the AI may reword or withdraw its own. */
+export interface SummaryReply { add: { section: SummarySection; text: string }[]; confirm: number[]; rewrite: { number: number; text: string }[]; remove: number[] }
 
 export interface SummaryInput {
   locale: AppLocale;
@@ -17,15 +18,23 @@ export interface SummaryInput {
   candidates: readonly string[];
   /** Suggestions the author removed or declined. */
   declined: readonly string[];
+  /** Per document, the kinds of its blocks in order (no text of the author's). Empty when layout is not being learned. */
+  outlines?: readonly string[];
+  /** Whether the reply may reword or withdraw earlier suggestions. */
+  revise?: boolean;
 }
 
-const SECTIONS: readonly SummarySection[] = ["style", "procedure", "tex"];
+const SECTIONS: readonly SummarySection[] = ["style", "procedure", "structure", "tex"];
 export const MAX_SUMMARY_ADDITIONS = 3;
 /** As long as the AI is asked to make a sentence; a longer one is dropped, not cut. */
 export const MAX_SUMMARY_TEXT = 60;
 /** A run of this many characters copied from a document is a quotation, not a habit. */
 const QUOTATION_LENGTH = 14;
 
+/** Earlier suggestions one reply may reword, and may withdraw. */
+export const MAX_SUMMARY_REVISIONS = 3;
+
+export const summarySection = (key: string): SummarySection | null => SECTIONS.find(s => key.startsWith(`summary.${s}:`)) ?? null;
 export const summaryKey = (section: SummarySection, text: string) =>
   `summary.${section}:${createHash("sha256").update(text).digest("hex").slice(0, 16)}`;
 
@@ -44,8 +53,8 @@ const NOT_A_WRITING_HABIT: readonly RegExp[] = [
 ];
 // Besides naming nothing of the above, the sentence has to be about writing: it says how something is written, worded or laid out.
 const ABOUT_WRITING: readonly RegExp[] = [
-  /書[くきかいけ]|記[すしさ]|述べ|結[ぶびん]|表記|表[すしさ]|用い|使[うっいわ]|添え|示[すしさ]|並べ|置[くきかい]|始め|終え|まとめ|分け|[揃そろ]え|付け|つけ|入れ|挟[むみん]|改行|空け|区切|語尾|文体|文末|口調|言い回し|数式|記号|記法|見出し|番号|箇条書き|句読点|読点|句点|括弧|かっこ|敬体|常体|丁寧体/u,
-  /\b(?:writ\w*|wrote|word\w*|phras\w*|sentences?|paragraphs?|headings?|number\w*|label\w*|notation|symbols?|punctuat\w*|commas?|tone|style|format\w*|layout|spac\w*|indent\w*|abbreviat\w*|capitali\w*|states?|stating|begins?|starts?|ends?|uses?|using|puts?|places?|lists?)\b/i,
+  /書[くきかいけ]|記[すしさ]|述べ|結[ぶびん]|表記|表[すしさ]|用い|使[うっいわ]|添え|示[すしさ]|並べ|置[くきかい]|始め|終え|まとめ|分け|[揃そろ]え|付け|つけ|入れ|挟[むみん]|改行|空け|区切|語尾|文体|文末|口調|言い回し|数式|記号|記法|見出し|番号|箇条書き|句読点|読点|句点|括弧|かっこ|敬体|常体|丁寧体|枠|囲[むみん]|段組|余白|配置|構成|小問|大問|解答欄|タイトル/u,
+  /\b(?:writ\w*|wrote|word\w*|phras\w*|sentences?|paragraphs?|headings?|number\w*|label\w*|notation|symbols?|punctuat\w*|commas?|tone|style|format\w*|layout|spac\w*|indent\w*|abbreviat\w*|capitali\w*|states?|stating|begins?|starts?|ends?|uses?|using|puts?|places?|lists?|box\w*|fram\w*|columns?|titles?|subtitles?|margins?|blank|order\w*|arrang\w*)\b/i,
 ];
 /** One sentence: once quoted wording is set aside, nothing may follow the first full stop. */
 const QUOTED = /「[^「」]*」|『[^『』]*』|"[^"]*"|“[^“”]*”/gu;
@@ -69,7 +78,7 @@ export function isSummaryText(text: string): boolean {
 
 /** The sentence of a summary habit, or null when the key and text do not belong together. */
 export function summaryText(key: string, value: string): string | null {
-  const section = SECTIONS.find(s => key.startsWith(`summary.${s}:`));
+  const section = summarySection(key);
   return section && isSummaryText(value) && summaryKey(section, value) === key ? value : null;
 }
 
@@ -77,9 +86,11 @@ export function buildSummaryPrompt(input: SummaryInput): string {
   const t = createTranslator(input.locale, "prompt");
   const data = {
     sample: input.sample, corrections: input.corrections, existing: input.existing,
-    candidates: input.candidates.map((text, index) => ({ number: index + 1, text })), declined: input.declined,
+    candidates: input.candidates.map((text, index) => ({ number: index + 1, text })), declined: input.declined, outlines: input.outlines ?? [],
   };
-  return `${t("authoringStyle.summary.instructions", { count: MAX_SUMMARY_ADDITIONS, length: MAX_SUMMARY_TEXT })}\n${JSON.stringify(data)}`;
+  const instructions = [t("authoringStyle.summary.instructions", { count: MAX_SUMMARY_ADDITIONS, length: MAX_SUMMARY_TEXT }),
+    ...(input.revise ? [t("authoringStyle.summary.revise", { count: MAX_SUMMARY_REVISIONS, length: MAX_SUMMARY_TEXT })] : []), t(input.revise ? "authoringStyle.summary.formatRevise" : "authoringStyle.summary.format")];
+  return `${instructions.join("")}\n${JSON.stringify(data)}`;
 }
 
 /**
@@ -90,7 +101,7 @@ export function parseSummaryReply(raw: string, input: Pick<SummaryInput, "sample
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start < 0 || end <= start) return null;
-  let data: { add?: unknown; confirm?: unknown };
+  let data: { add?: unknown; confirm?: unknown; rewrite?: unknown; remove?: unknown };
   try { data = JSON.parse(raw.slice(start, end + 1)); } catch { return null; }
   if (!data || typeof data !== "object") return null;
   const source = input.sample.join("\n");
@@ -98,17 +109,29 @@ export function parseSummaryReply(raw: string, input: Pick<SummaryInput, "sample
     for (let index = 0; index + QUOTATION_LENGTH <= text.length; index++) if (source.includes(text.slice(index, index + QUOTATION_LENGTH))) return true;
     return false;
   };
+  // A memo kept in Japanese takes Japanese sentences: an English one is not how this author writes.
+  const acceptable = (sentence: string) => isSummaryText(sentence) && !(input.locale === "ja" && !JAPANESE.test(sentence)) && !quotes(sentence);
   const add: SummaryReply["add"] = [];
   for (const entry of Array.isArray(data.add) ? data.add : []) {
     const { section, text } = (entry ?? {}) as { section?: unknown; text?: unknown };
     if (typeof text !== "string" || !SECTIONS.includes(section as SummarySection)) continue;
     const sentence = text.trim();
-    // A memo kept in Japanese takes Japanese sentences: an English one is not how this author writes.
-    if (!isSummaryText(sentence) || (input.locale === "ja" && !JAPANESE.test(sentence)) || quotes(sentence) || add.some(a => a.text === sentence)) continue;
+    if (!acceptable(sentence) || add.some(a => a.text === sentence)) continue;
     add.push({ section: section as SummarySection, text: sentence });
     if (add.length === MAX_SUMMARY_ADDITIONS) break;
   }
-  const confirm = [...new Set((Array.isArray(data.confirm) ? data.confirm : [])
+  const numbers = (value: unknown) => [...new Set((Array.isArray(value) ? value : [])
     .filter((n): n is number => Number.isSafeInteger(n) && n >= 1 && n <= input.candidates.length))];
-  return { add, confirm };
+  const confirm = numbers(data.confirm);
+  // A new wording passes the same checks as a new sentence. One that does not is dropped, and the old sentence stays.
+  const rewrite: SummaryReply["rewrite"] = [];
+  for (const entry of Array.isArray(data.rewrite) ? data.rewrite : []) {
+    const { number, text } = (entry ?? {}) as { number?: unknown; text?: unknown };
+    if (rewrite.length === MAX_SUMMARY_REVISIONS || typeof text !== "string" || !numbers([number]).length) continue;
+    const sentence = text.trim();
+    if (!acceptable(sentence) || confirm.includes(number as number) || rewrite.some(r => r.number === number || r.text === sentence) || add.some(a => a.text === sentence)) continue;
+    rewrite.push({ number: number as number, text: sentence });
+  }
+  const remove = numbers(data.remove).filter(n => !confirm.includes(n) && !rewrite.some(r => r.number === n)).slice(0, MAX_SUMMARY_REVISIONS);
+  return { add, confirm, rewrite, remove };
 }

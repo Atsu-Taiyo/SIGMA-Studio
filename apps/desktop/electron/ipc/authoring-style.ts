@@ -34,6 +34,15 @@ export function registerAuthoringStyleIpc(store: LocalAuthoringStyleStore): void
     if (typeof enabled !== "boolean") throw new Error("Invalid enabled flag");
     return store.setAiSummary(scope(workspaceId), enabled);
   });
+  ipcMain.handle("authoring-style:set-auto-apply", (_event, workspaceId: unknown, enabled: unknown) => {
+    if (typeof enabled !== "boolean") throw new Error("Invalid enabled flag");
+    return store.setAutoApply(scope(workspaceId), enabled);
+  });
+  ipcMain.handle("authoring-style:revert-auto-change", (_event, input: unknown) => {
+    const value = record(input);
+    if (typeof value.id !== "string" || value.id.length > 200) throw new Error("Invalid style change");
+    return store.revertAutoChange({ workspaceId: workspace(value.workspaceId), id: value.id });
+  });
   ipcMain.handle("authoring-style:reset", (_event, workspaceId: unknown) => store.reset(scope(workspaceId)));
   ipcMain.handle("authoring-style:save-learned", (_event, input: unknown) => {
     const value = record(input);
