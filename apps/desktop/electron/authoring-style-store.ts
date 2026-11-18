@@ -11,7 +11,7 @@ import {
   MAX_FRAGMENT_LENGTH, type DocumentProjection, type EvidenceUnit, type Fragment, type StyleExample,
 } from "./authoring-style-features";
 import { itemText, memoLabels, SECTION_ORDER } from "./authoring-style-items";
-import { AuthoringStyleMemory, atomicStyleWrite, renderMemo, type StyleItem, type StyleMemory } from "./authoring-style-memory";
+import { AuthoringStyleMemory, atomicStyleWrite, renderMemo, type StyleItem, type StyleMemory, type StyleTrust } from "./authoring-style-memory";
 import { planReview, planSummary } from "./authoring-style-review";
 import { isSuspicious, scanLines } from "./authoring-style-scan";
 import { AuthoringStyleSync, declinedMark, itemMark, noteLineMark, type SyncAccount, type SyncedPart } from "./authoring-style-sync";
@@ -636,8 +636,14 @@ export class LocalAuthoringStyleStore {
    * for this member's approval. A habit this device found in the documents itself does not wait.
    */
   private async waiting(workspaceId: string): Promise<((item: StyleItem) => boolean) & { marks: ReadonlySet<string> }> {
-    const marks = new Set((await this.memory.readTrust(workspaceId)).foreign);
+    const marks = new Set((await this.trust(workspaceId)).foreign);
     return Object.assign((item: StyleItem) => marks.has(itemMark(item)) && !(item.origin === "auto" && item.sources.length > 0), { marks });
+  }
+
+  /** Caller holds the lock. As recorded, or, where nothing was ever recorded, with all of the members' copy waiting. */
+  private async trust(workspaceId: string): Promise<StyleTrust> {
+    const trust = await this.memory.readTrust(workspaceId);
+    return trust.known ? trust : { ...trust, foreign: [...await this.sync.agreedMarks(workspaceId) ?? []] };
   }
 
   private selectExamples(examples: readonly StyleExample[], fileId: string): StyleExample[] {
@@ -770,7 +776,7 @@ export class LocalAuthoringStyleStore {
     const note = await this.memory.readNote(workspaceId);
     const memory = workspaceId === null ? null : await this.memory.load(workspaceId, getAppLocale(), this.now());
     const generatedContent = memory ? renderMemo(memory, memory.locale) : "";
-    const trust = workspaceId === null ? null : await this.memory.readTrust(workspaceId);
+    const trust = workspaceId === null ? null : await this.trust(workspaceId);
     const waiting = workspaceId === null ? null : await this.waiting(workspaceId);
     const declined = new Set(trust?.declined);
     const memberEntries: AuthoringStyleMemberEntryView[] = !waiting ? [] : [
@@ -868,7 +874,7 @@ export class LocalAuthoringStyleStore {
    */
   resolveMemberEntries(input: { workspaceId: string; ids: readonly string[]; approve: boolean }): Promise<AuthoringStyleProfile> {
     return this.change(input.workspaceId, async () => {
-      const trust = await this.memory.readTrust(input.workspaceId);
+      const trust = await this.trust(input.workspaceId);
       const ids = new Set(input.ids.filter(id => trust.foreign.includes(id)));
       if (!ids.size) return;
       const memory = await this.memory.load(input.workspaceId, getAppLocale(), this.now());
@@ -877,8 +883,8 @@ export class LocalAuthoringStyleStore {
         ...(await this.memory.readNote(input.workspaceId)).content.split("\n").flatMap(line => { const id = noteLineMark(line); return id ? [[id, line.trim()] as const] : []; }),
       ]);
       await this.memory.writeTrust(input.workspaceId, input.approve
-        ? { vouched: [...new Set([...trust.vouched, ...ids])].sort(), foreign: trust.foreign.filter(id => !ids.has(id)), declined: trust.declined.filter(id => !ids.has(id)) }
-        : { ...trust, declined: [...new Set([...trust.declined, ...ids])].sort() });
+        ? { known: true, vouched: [...new Set([...trust.vouched, ...ids])].sort(), foreign: trust.foreign.filter(id => !ids.has(id)), declined: trust.declined.filter(id => !ids.has(id)) }
+        : { ...trust, known: true, declined: [...new Set([...trust.declined, ...ids])].sort() });
       await this.memory.record(input.workspaceId, [...ids].map(id => ({ actor: "approval" as const, action: input.approve ? "member-approve" : "member-decline", after: texts.get(id) ?? "" })));
     });
   }

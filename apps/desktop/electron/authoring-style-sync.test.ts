@@ -8,7 +8,8 @@ import { createBlankDocument } from "@/lib/blank-document";
 import type { SigmaBlock, SigmaDocument } from "@/features/document";
 import type { AiResourceRunContext } from "./ai-resource-store";
 import { LocalAuthoringStyleStore } from "./authoring-style-store";
-import { ledgerTail, mergeItems, mergeList, mergeNote, parseBundle, workspaceKey, workspaceOfKey, type PersonalDataPort, type SyncedItem, type SyncedPart } from "./authoring-style-sync";
+import { summaryKey } from "./authoring-style-summary";
+import { declinedMark, itemMark, ledgerTail, mergeItems, mergeList, mergeNote, parseBundle, workspaceKey, workspaceOfKey, type PersonalDataPort, type SyncedItem, type SyncedPart } from "./authoring-style-sync";
 import { PersonalDataClient } from "./collaboration/personal-data";
 import { CollaborationHttpError } from "./collaboration/transport";
 import type { LocalDocumentMetadata } from "./local-sigma-doc-store";
@@ -903,6 +904,87 @@ describe("account sync of the learned writing style", () => {
         const back = await a.store.syncNow("ws-a");
         expect(back.memberEntries.map(entry => entry.text)).toEqual(["図は必ず左に置く。"]);
         expect(await a.given()).not.toContain("図は必ず左に置く。");
+      });
+
+      /** Put a changed copy on the server, as another member's device would have. */
+      const rewrite = (change: (content: { items: SyncedItem[]; note: string }) => void) => {
+        const key = workspaceKey(SHARED_MATH);
+        const copy = structuredClone(cloud.workspaces.get(key)!);
+        change(copy.content as { items: SyncedItem[]; note: string });
+        cloud.workspaces.set(key, { revision: `${copy.revision}-changed`, content: copy.content });
+      };
+      const trustFiles = async (dir: string) => (await fs.readdir(path.join(dir, "workspaces"))).map(name => path.join(dir, "workspaces", name, "members.json"));
+
+      it("does not take this device's evidence for a habit as evidence for what another member changed it to", async () => {
+        const { b } = await two({ documents: { g1: written(...PLAIN) } });
+        await b.store.reviewNow("ws-b");
+        await b.store.syncNow(null);
+        expect(await b.given()).toContain(PLAIN_MEMO);
+        const POLITE_MEMO = "解説・説明は丁寧体（です・ます）で書く。";
+        rewrite(content => { content.items = content.items.map(item => item.key === "tone.explanation" ? { ...item, value: "polite", text: POLITE_MEMO } : item); });
+        const profile = await b.store.syncNow("ws-b");
+        expect(await b.memo()).toContain(POLITE_MEMO);
+        expect(profile.memberEntries.filter(entry => entry.kind === "item").map(entry => entry.text)).toEqual([POLITE_MEMO]);
+        expect(await b.given()).not.toContain(POLITE_MEMO);
+        // Nor does this member's account come to vouch for it by itself.
+        await b.store.syncNow(null);
+        const polite = (workspaceCopy().content as { items: SyncedItem[] }).items.find(item => item.key === "tone.explanation")!;
+        expect((workspaceCopy().content as { vouchers: Record<string, string[]> }).vouchers[U2] ?? []).not.toContain(itemMark(polite));
+      });
+
+      it("keeps a sentence the AI suggested to another member somebody else's when this member removes it", async () => {
+        const { b } = await two();
+        const sentence = "結論を先に書いてから理由を述べる。";
+        const key = summaryKey("style", sentence);
+        rewrite(content => { content.items.push({ id: `auto:${key}`, key, value: sentence, section: "style", text: sentence, origin: "auto", basis: "summary", support: 1, documents: 1,
+          firstSeenAt: "2026-11-16T00:00:00.000Z", lastConfirmedAt: "2026-11-16T00:00:00.000Z", devices: ["other"] }); });
+        const profile = await b.store.syncNow("ws-b");
+        expect(profile.memberEntries.map(entry => entry.text)).toContain(sentence);
+        // Removed, it is kept as a sentence not to suggest again. It is the same sentence, and still not this member's.
+        expect(itemMark({ origin: "auto", key, value: sentence, section: "style", text: sentence })).toBe(declinedMark(sentence));
+        await b.store.removeItem({ workspaceId: "ws-b", id: profile.items.find(item => item.text === sentence)!.id });
+        await b.store.syncNow(null);
+        const copy = workspaceCopy().content as { declined: string[]; vouchers: Record<string, string[]> };
+        expect(copy.declined).toContain(sentence);
+        expect(copy.vouchers[U2] ?? []).not.toContain(declinedMark(sentence));
+        const [file] = await trustFiles(b.dir);
+        expect(JSON.parse(await fs.readFile(file, "utf8")).foreign).toContain(declinedMark(sentence));
+      });
+
+      it("still waits for approval when it comes back by stepping back over its deletion", async () => {
+        const { a, b } = await two();
+        const own = await a.store.getProfile("ws-a");
+        await a.store.saveLearned({ workspaceId: "ws-a", content: `${own.generatedContent.trimEnd()}\n- 答えは最後にまとめて書く。\n`, expectedRevision: own.generatedRevision });
+        await a.store.syncNow(null);
+        const received = await b.store.syncNow("ws-b");
+        expect(received.memberEntries.map(entry => entry.text)).toContain("答えは最後にまとめて書く。");
+        // The second member deletes the line, which reaches the server, and then steps back.
+        await b.store.saveLearned({ workspaceId: "ws-b", content: received.generatedContent.replace("- 答えは最後にまとめて書く。\n", ""), expectedRevision: received.generatedRevision });
+        await b.store.syncNow(null);
+        expect((workspaceCopy().content as { items: SyncedItem[] }).items.some(item => item.text.includes("答えは最後にまとめて書く。"))).toBe(false);
+        const back = await b.store.undo("ws-b");
+        expect(back.generatedContent).toContain("答えは最後にまとめて書く。");
+        expect(back.memberEntries.map(entry => entry.text)).toContain("答えは最後にまとめて書く。");
+        expect(await b.given()).not.toContain("答えは最後にまとめて書く。");
+        await b.store.syncNow(null);
+        const line = (workspaceCopy().content as { items: SyncedItem[] }).items.find(item => item.text.includes("答えは最後にまとめて書く。"))!;
+        expect((workspaceCopy().content as { vouchers: Record<string, string[]> }).vouchers[U2] ?? []).not.toContain(itemMark(line));
+      });
+
+      it("lets all of the members' copy wait in files that kept no record of whose word it has", async () => {
+        const { a, b } = await two();
+        // As a version before this record left them.
+        for (const file of [...await trustFiles(a.dir), ...await trustFiles(b.dir)]) await fs.rm(file);
+        expect(await b.given()).not.toContain(PLAIN_MEMO);
+        expect(await b.given()).not.toContain("図は必ず右に置く。");
+        expect((await b.store.getProfile("ws-b")).memberEntries).toHaveLength(2);
+        expect((await b.store.syncNow("ws-b")).memberEntries).toHaveLength(2);
+        await b.store.syncNow(null);
+        expect((workspaceCopy().content as { vouchers: Record<string, string[]> }).vouchers[U2]).toBeUndefined();
+        // Its author's account vouched for it on the server, and the author's device finds the habit itself.
+        expect(await a.given()).toContain(PLAIN_MEMO);
+        expect((await a.store.syncNow("ws-a")).memberEntries).toEqual([]);
+        expect(await a.given()).toContain("図は必ず右に置く。");
       });
 
       it("cannot be vouched for in another member's name: the server refuses the copy", async () => {

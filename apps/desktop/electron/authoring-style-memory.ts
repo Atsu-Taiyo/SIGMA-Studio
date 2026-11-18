@@ -94,7 +94,11 @@ export interface LedgerDraft { actor: "review" | "user" | "sync" | "approval"; a
  * `foreign` came from other members and is not given to this member's AI until approved (then it moves to
  * `vouched`). `declined` is the part of `foreign` this member chose not to use, so it is not asked about again.
  */
-export interface StyleTrust { vouched: string[]; foreign: string[]; declined: string[] }
+export interface StyleTrust {
+  vouched: string[]; foreign: string[]; declined: string[];
+  /** False while nothing was ever recorded: these files were last written by a version that kept no such record. */
+  known: boolean;
+}
 const MAX_TRUST_MARKS = 4000;
 
 const MAX_UNDO = 5;
@@ -226,11 +230,11 @@ export class AuthoringStyleMemory {
     const data: unknown = JSON.parse(await boundedRead(path.join(this.dir(workspaceId), TRUST_FILE), 400_000) || "null");
     const list = (value: unknown) => Array.isArray(value) ? value.filter((mark): mark is string => typeof mark === "string" && /^[0-9a-f]{20}$/.test(mark)).slice(0, MAX_TRUST_MARKS) : [];
     const record = data && typeof data === "object" ? data as Record<string, unknown> : {};
-    return { vouched: list(record.vouched), foreign: list(record.foreign), declined: list(record.declined) };
+    return { vouched: list(record.vouched), foreign: list(record.foreign), declined: list(record.declined), known: data !== null };
   }
 
   async writeTrust(workspaceId: string, trust: StyleTrust): Promise<void> {
-    await atomicStyleWrite(path.join(this.dir(workspaceId), TRUST_FILE), JSON.stringify({ version: 1, ...trust }));
+    await atomicStyleWrite(path.join(this.dir(workspaceId), TRUST_FILE), JSON.stringify({ version: 1, vouched: trust.vouched, foreign: trust.foreign, declined: trust.declined }));
   }
 
   /** A line for the ledger about something that did not change the memo. */

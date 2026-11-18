@@ -126,7 +126,7 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
             <ul>{waiting.map(entry => <li key={entry.id}>
               <Inline gap="sm">
                 <span>{entry.text}</span>
-                <small className="ai-settings-empty-hint"><strong>{t(`authoringStyle.memberKind.${entry.kind}`)}</strong></small>
+                <small className="ai-settings-empty-hint" style={{ whiteSpace: "nowrap" }}><strong>{t(`authoringStyle.memberKind.${entry.kind}`)}</strong></small>
                 <Button size="sm" aria-label={t("authoringStyle.memberApproveLabel", { text: entry.text })} disabled={busy} onClick={() => decide([entry.id], true)}>{t("authoringStyle.memberApprove")}</Button>
                 <Button tone="ghost" size="sm" aria-label={t("authoringStyle.memberDeclineLabel", { text: entry.text })} disabled={busy} onClick={() => decide([entry.id], false)}>{t("authoringStyle.memberDecline")}</Button>
               </Inline>
@@ -137,7 +137,7 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
               <ul>{declined.map(entry => <li key={entry.id}>
                 <Inline gap="sm">
                   <span>{entry.text}</span>
-                  <small className="ai-settings-empty-hint"><strong>{t(`authoringStyle.memberKind.${entry.kind}`)}</strong></small>
+                  <small className="ai-settings-empty-hint" style={{ whiteSpace: "nowrap" }}><strong>{t(`authoringStyle.memberKind.${entry.kind}`)}</strong></small>
                   <Button tone="ghost" size="sm" aria-label={t("authoringStyle.memberApproveLabel", { text: entry.text })} disabled={busy} onClick={() => decide([entry.id], true)}>{t("authoringStyle.memberApprove")}</Button>
                 </Inline>
               </li>)}</ul>

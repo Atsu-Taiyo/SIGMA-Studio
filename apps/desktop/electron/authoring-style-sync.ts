@@ -40,6 +40,7 @@ const MAX_OPAQUE_ITEMS = 100;
 const MAX_SUPPRESSED = 100;
 const MAX_USER_LINE = 500;
 const MAX_VOUCHES = 2000;
+const MAX_FOREIGN = 3000;
 const ACCOUNT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MARK = /^[0-9a-f]{20}$/;
 /** A ledger line recording that a change arrived by sync. It stays on the device it arrived on: the change itself is on record where it was made. */
@@ -131,13 +132,18 @@ const identity = (item: Pick<SyncedItem, "origin" | "key" | "section" | "text">)
 const statement = (item: Pick<SyncedItem, "origin" | "key" | "value" | "section" | "text">) =>
   item.origin === "auto" && item.key ? `${item.key}\n${item.value}` : `${item.section}\n${item.text}`;
 
-const mark = (kind: "item" | "note" | "declined", content: string) => hash(`${kind}\n${content}`).slice(0, 20);
-/** What a member vouches for when they vouch for a habit: what it says, not how well it is supported. */
-export const itemMark = (item: Pick<SyncedItem, "origin" | "key" | "value" | "section" | "text">) => mark("item", statement(item));
+const mark = (kind: "item" | "note" | "sentence", content: string) => hash(`${kind}\n${content}`).slice(0, 20);
+/**
+ * What a member vouches for when they vouch for a habit: what it says, not how well it is supported.
+ * A sentence the AI suggested is vouched for as that sentence, wherever it stands: once removed it is kept as
+ * one not to suggest again, and is then still the same member's sentence, approved or not.
+ */
+export const itemMark = (item: Pick<SyncedItem, "origin" | "key" | "value" | "section" | "text">) =>
+  item.origin === "auto" && item.key?.startsWith("summary.") ? mark("sentence", item.text) : mark("item", statement(item));
 /** A note is vouched for line by line. Null for an empty line: there is nothing to vouch for. */
 export const noteLineMark = (line: string) => line.trim() ? mark("note", line.trim()) : null;
 /** A sentence the AI suggested and someone turned down. It is named to the AI again (so as not to be suggested twice), so it has a mark too. */
-export const declinedMark = (sentence: string) => mark("declined", sentence);
+export const declinedMark = (sentence: string) => mark("sentence", sentence);
 /** Every mark a workspace's style holds. */
 function marksOf(items: readonly Pick<SyncedItem, "origin" | "key" | "value" | "section" | "text">[], note: string, declined: readonly string[]): Set<string> {
   return new Set([...items.map(itemMark), ...note.split("\n").flatMap(line => noteLineMark(line) ?? []), ...declined.map(declinedMark)]);
@@ -495,6 +501,16 @@ export class AuthoringStyleSync {
     return { manage: Boolean(workspace.manager) || !linked, wide: linked ? settings(agreed!.settings) : null };
   }
 
+  /**
+   * Caller holds the style lock. The marks of everything in the members' copy these files last agreed on, or
+   * null when they hold no such copy. For files without a record of what waits for approval, all of it waits.
+   */
+  async agreedMarks(workspaceId: string): Promise<Set<string> | null> {
+    const state = await this.state();
+    const agreed = state.scopes[state.keys[workspaceId] ?? ""]?.base as WorkspaceBundle | null | undefined;
+    return agreed?.kind === "workspace" ? marksOf(agreed.items, agreed.note, agreed.declined) : null;
+  }
+
   /** Caller holds the style lock. Shared workspaces whose style this member may not reset: it is all members'. */
   async unmanaged(): Promise<string[]> {
     const state = await this.state();
@@ -708,7 +724,8 @@ export class AuthoringStyleSync {
       if (sentence === null) return [];
       return [{ id: mine?.id ?? item.id, key: item.origin === "auto" ? item.key : null, value: item.value,
         section: item.origin === "auto" && item.key ? sectionOf(item.key) : item.section, text: sentence, origin: item.origin, basis: item.basis,
-        support: item.support, documents: item.documents, sources: mine?.sources ?? [], firstSeenAt: item.firstSeenAt, lastConfirmedAt: item.lastConfirmedAt,
+        // The evidence this device holds is for what its own item says. It says nothing for a habit another member changed.
+        support: item.support, documents: item.documents, sources: mine && statement(mine) === statement(item) ? mine.sources : [], firstSeenAt: item.firstSeenAt, lastConfirmedAt: item.lastConfirmedAt,
         devices: item.devices.filter(d => d !== device) }];
     });
   }
@@ -883,10 +900,16 @@ export class AuthoringStyleSync {
         const trust = await this.host.memory.readTrust(workspaceId);
         const present = marksOf(result.items, result.note, result.declined);
         const approved = new Set([...trust.vouched, ...(remoteCopy?.vouchers[me] ?? [])]);
-        const waiting = new Set(trust.foreign);
+        // Files that held the members' copy before any such record was kept: whose word each part of it has is
+        // not known, so all of it waits, except what the account vouched for or this device finds itself.
+        const waiting = new Set(trust.known ? trust.foreign : before?.kind === "workspace" ? marksOf(before.items, before.note, before.declined) : []);
         const vouched = [...present].filter(m => approved.has(m) || derived.has(m) || (own.has(m) && !waiting.has(m))).sort();
         const mineNow = new Set(vouched);
-        const nextTrust: StyleTrust = { vouched, foreign: [...present].filter(m => !mineNow.has(m)).sort(), declined: trust.declined.filter(m => present.has(m) && !mineNow.has(m)) };
+        // What waits keeps waiting when it is gone: stepping back to before it was deleted brings it back as
+        // somebody else's, not as this member's. Only when the list is full does what is gone make room.
+        const kept = [...new Set([...waiting, ...[...present].filter(m => !mineNow.has(m))])].filter(m => !mineNow.has(m));
+        const foreign = kept.length <= MAX_FOREIGN ? kept : [...kept.filter(m => !present.has(m)).slice(-Math.max(0, MAX_FOREIGN - present.size)), ...kept.filter(m => present.has(m))];
+        const nextTrust: StyleTrust = { known: true, vouched, foreign, declined: trust.declined.filter(m => foreign.includes(m)) };
         result.vouchers = Object.fromEntries([
           // The others' lists as they stand, less what is gone. Nothing is ever added to them here.
           ...Object.entries(remoteCopy?.vouchers ?? {}).filter(([account]) => account !== me).map(([account, list]) => [account, list.filter(m => present.has(m))] as const).filter(([, list]) => list.length),
@@ -897,12 +920,15 @@ export class AuthoringStyleSync {
         // Reset on another device: what this device collected before the reset goes as well.
         const reset = (mode === "merge" && result.generation > local.generation)
           || (mode === "link" && Boolean(base && theirs) && (theirs as WorkspaceBundle).generation > (base as WorkspaceBundle).generation);
+        // What waits for approval is on record before what it is about is in these files: should the run stop in
+        // between, nothing another member wrote is there without its mark.
+        const sameTrust = trust.known && JSON.stringify([nextTrust.vouched, nextTrust.foreign, nextTrust.declined]) === JSON.stringify([trust.vouched, trust.foreign, trust.declined]);
         if (comparable(result) !== comparable(local)) {
           const plan = await this.plan(workspaceId, result, state.device);
+          if (!sameTrust) await this.host.memory.writeTrust(workspaceId, nextTrust);
           if (reset) await this.host.forget(workspaceId);
           await this.adopt(workspaceId, local, result, state.device, reset, plan);
-        }
-        if (JSON.stringify(nextTrust) !== JSON.stringify(trust)) await this.host.memory.writeTrust(workspaceId, nextTrust);
+        } else if (!sameTrust) await this.host.memory.writeTrust(workspaceId, nextTrust);
         const heldNow = await this.switches(workspaceId, mine.settings, result.settings);
         await journal(heldNow, result.generation);
         return { result, held: heldNow, carried, empty: !result.items.length && !result.opaque.length && !result.note && !result.ledger.length && !result.suppressed.length
