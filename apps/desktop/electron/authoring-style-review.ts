@@ -98,6 +98,8 @@ function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "l
       return false;
     }
     touch();
+    // A sentence the AI reworded is gone on purpose: no other device's confirmation of it brings it back next to its rewording.
+    if (next.key !== item.key) memory.dismissed = [...memory.dismissed, `gone:${item.key}`].slice(-60);
     applied({ kind: "rewrite", reason, before: structuredClone(item), key: next.key, value: next.value });
     result.entries.push({ actor: "review", action: "auto-rewrite", reason, key: item.key, before: item.text, after: next.text });
     unstage(item.key);
@@ -114,6 +116,8 @@ function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "l
       return false;
     }
     touch();
+    // Withdrawn by the AI that suggested it, as against merely not confirmed for a long time.
+    if (reason === "summary") memory.dismissed = [...memory.dismissed, `gone:${item.key}`].slice(-60);
     applied({ kind: "remove", reason, before: structuredClone(item), key: item.key, value: item.value });
     result.entries.push({ actor: "review", action: "auto-remove", reason, key: item.key, before: item.text, after: "" });
     unstage(item.key);
@@ -183,7 +187,7 @@ export function planSummary(memory: StyleMemory, reply: SummaryReply, candidates
     if (item) { pass.confirm(item, evidence); settled.add(number); }
   }
   const taken = new Set(memory.items.map(i => i.text.replace(/^- /, "")));
-  const fresh = (key: string, text: string) => !taken.has(text) && !memory.declined.includes(text) && !memory.suppressed.includes(key)
+  const fresh = (key: string, text: string) => !taken.has(text) && !memory.declined.includes(text) && !memory.suppressed.includes(key) && !memory.dismissed.includes(`gone:${key}`)
     && !memory.items.some(i => i.key === key) && !memory.pending.some(p => p.key === key) && itemText(key, text, context.locale) === text;
   for (const { number, text } of reply.rewrite) {
     const item = suggested(number);

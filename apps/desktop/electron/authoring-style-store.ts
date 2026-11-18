@@ -615,13 +615,20 @@ export class LocalAuthoringStyleStore {
         title: t("authoringStyle.title"), description: t("authoringStyle.description"), tags: [],
         content: `${t("authoringStyle.guidance")}\n${JSON.stringify(selected)}`,
       };
-      const memory = [{ scope: "user", manual: notes[0] }, { scope: "workspace", workspaceId, manual: notes[1], learned }];
+      const memory = [{ scope: "user", manual: notes[0] }, { scope: "workspace", workspaceId, manual: notes[1] }];
       const resourceNotes: AiResourceContextItem = {
         id: "authoring-style-memory", kind: "skill", loadMode: "always",
         title: t("authoringStyle.memoryTitle"), description: "", tags: [],
         content: `${t("authoringStyle.memoryGuidance")}\n${JSON.stringify({ memory, references })}`,
       };
-      return { ...context, always: [...context.always, ...(selected.length ? [resource] : []), resourceNotes] };
+      // The learned memo is a resource of its own: each resource is cut at a fixed length when the request is put
+      // together, and next to two full notes the memo's end would be what is cut.
+      const resourceLearned: AiResourceContextItem = {
+        id: "authoring-style-learned", kind: "skill", loadMode: "always",
+        title: t("authoringStyle.learnedTitle"), description: "", tags: [],
+        content: `${t("authoringStyle.learnedGuidance")}\n${JSON.stringify({ scope: "workspace", workspaceId, learned })}`,
+      };
+      return { ...context, always: [...context.always, ...(selected.length ? [resource] : []), resourceNotes, ...(learned ? [resourceLearned] : [])] };
     });
   }
 

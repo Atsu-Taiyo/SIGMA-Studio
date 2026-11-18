@@ -117,15 +117,14 @@ describe("account sync of the learned writing style", () => {
     const learned = async () => {
       const context: AiResourceRunContext = { provider: "codex", always: [], explicit: [] };
       const resources = await store.augmentRunContext(context, { workspaceId, fileId: files[0]?.file.fileId ?? "none", locale: "ja", visibleFileIds: new Set([files[0]?.file.fileId ?? "none"]) });
-      const memory = resources.always.find(r => r.id === "authoring-style-memory");
-      return memory ? JSON.parse(memory.content!.split("\n").slice(1).join("\n")).memory[1].learned as string : "";
+      const memory = resources.always.find(r => r.id === "authoring-style-learned");
+      return memory ? JSON.parse(memory.content!.split("\n").slice(1).join("\n")).learned as string : "";
     };
     /** What of the workspace's style an AI request is given: the learned habits and the workspace's note. */
     const given = async () => {
       const resources = await store.augmentRunContext({ provider: "codex", always: [], explicit: [] }, { workspaceId, fileId: files[0]?.file.fileId ?? "none", locale: "ja", visibleFileIds: new Set([files[0]?.file.fileId ?? "none"]) });
-      const memory = resources.always.find(r => r.id === "authoring-style-memory");
-      const workspace = memory ? JSON.parse(memory.content!.split("\n").slice(1).join("\n")).memory[1] as { learned: string; manual: string } : { learned: "", manual: "" };
-      return `${workspace.learned}\n${workspace.manual}`;
+      const read = (id: string) => { const found = resources.always.find(r => r.id === id); return found ? JSON.parse(found.content!.split("\n").slice(1).join("\n")) : null; };
+      return `${read("authoring-style-learned")?.learned ?? ""}\n${read("authoring-style-memory")?.memory[1].manual ?? ""}`;
     };
     return { store, workspaceId, dir, learned, given, memo: async () => (await store.getProfile(workspaceId)).generatedContent };
   }
@@ -378,6 +377,34 @@ describe("account sync of the learned writing style", () => {
     expect(profile.canUndo).toBe(false);
     expect(await a.memo()).toBe("");
   });
+
+  for (const first of ["the device that put it back", "the other device"] as const) {
+    it(`keeps a change put back on one device when another device's review made the same change by itself (${first} syncs first)`, async () => {
+      const POLITE = ["この関数は単調に増加します。", "最大値は3になります。", "解は存在しません。"];
+      const documents = [written(...PLAIN), written(...PLAIN)];
+      const a = await device("ws-a", { documents: { f1: documents[0] } });
+      const b = await device("ws-b", { documents: { f1: documents[1] } });
+      await a.store.reviewNow("ws-a");
+      await a.store.setSync(null, true);
+      await b.store.setSync(null, true);
+      await b.store.reviewNow("ws-b");
+      await b.store.syncNow(null);
+      await a.store.syncNow(null);
+      // Both reviews rewrite the habit before either device syncs. One of the two users puts it back.
+      for (const document of documents) document.content = written(...POLITE).content;
+      const rewritten = await a.store.reviewNow("ws-a");
+      expect((await b.store.reviewNow("ws-b")).generatedContent).toContain("丁寧体");
+      await a.store.revertAutoChange({ workspaceId: "ws-a", id: rewritten.autoChanges[0].id });
+      const order = first === "the other device" ? [b, a, b, a] : [a, b, a, b];
+      for (const device of order) await device.store.syncNow(null);
+      for (const device of [a, b]) {
+        expect(await device.memo()).toContain(PLAIN_MEMO);
+        expect(await device.memo()).not.toContain("丁寧体");
+        // And the reviews leave it there, on both.
+        expect((await device.store.reviewNow(device.workspaceId)).generatedContent).toContain(PLAIN_MEMO);
+      }
+    });
+  }
 
   it("does not bring back, when two devices first meet, a habit whose adding was undone on one of them", async () => {
     const a = await device("ws-a", { documents: { f1: written(...PLAIN) } });
@@ -1454,11 +1481,23 @@ describe("merging two devices' copies", () => {
     expect(keys(mergeItems(base, [], confirmed))).toEqual(["tone=plain"]);
     expect(keys(mergeItems(base, confirmed, []))).toEqual(["tone=plain"]);
     // Deleted by its author, or its adding undone: the deletion stands whatever a review said since.
-    expect(keys(mergeItems(base, [], confirmed, entry => entry.key === "tone"))).toEqual([]);
-    // A sentence the AI suggested is not brought back either: where it is gone, an AI reworded or withdrew it.
+    expect(keys(mergeItems(base, [], confirmed, { unwanted: entry => entry.key === "tone" }))).toEqual([]);
+    // The same for a sentence the AI suggested: one that merely went unconfirmed on one device stays where another's AI stood by it,
     const suggested = (text: string, extra: Partial<SyncedItem> = {}) => item(summaryKey("style", text), text, { basis: "summary", text, ...extra });
-    expect(keys(mergeItems([suggested("要点を先に述べる。")], [suggested("要点を先に述べ、理由を続ける。")], [suggested("要点を先に述べる。", { lastConfirmedAt: "2026-12-20" })])).map(key => key.split("=")[1]))
-      .toEqual(["要点を先に述べ、理由を続ける。"]);
+    const old = suggested("要点を先に述べる。");
+    const stoodBy = suggested("要点を先に述べる。", { lastConfirmedAt: "2026-12-20" });
+    const texts = (items: SyncedItem[]) => items.map(entry => entry.text);
+    expect(texts(mergeItems([old], [], [stoodBy]))).toEqual(["要点を先に述べる。"]);
+    // but one an AI reworded or withdrew is gone on purpose, and does not come back next to its own rewording.
+    expect(texts(mergeItems([old], [suggested("要点を先に述べ、理由を続ける。")], [stoodBy], { unwanted: entry => entry.key === old.key }))).toEqual(["要点を先に述べ、理由を続ける。"]);
+    // A habit put back after a review removed it stays, though the other device still has it removed.
+    expect(keys(mergeItems(base, base, [], { restored: entry => entry.key === "tone" }))).toEqual(["tone=plain"]);
+    // A wording somebody put back from does not return because another device's review made the same change.
+    const polite = [item("tone", "polite", { lastConfirmedAt: "2026-12-20" })];
+    const refused = { refused: (entry: SyncedItem) => entry.value === "polite" };
+    expect(keys(mergeItems([item("tone", "plain")], [item("tone", "plain")], polite, refused))).toEqual(["tone=plain"]);
+    expect(keys(mergeItems([item("tone", "plain")], polite, [item("tone", "plain")], refused))).toEqual(["tone=plain"]);
+    expect(keys(mergeItems([item("tone", "plain")], polite, [item("tone", "plain")]))).toEqual(["tone=polite"]);
     // A line somebody wrote is never brought back that way.
     expect(keys(mergeItems([line("消す行")], [], [{ ...line("消す行"), lastConfirmedAt: "2026-12-20" }]))).toEqual([]);
   });

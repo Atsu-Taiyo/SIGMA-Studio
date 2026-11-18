@@ -523,7 +523,7 @@ export class AuthoringStyleMemory {
     snapshotForUndo(memory, "revert", now.toISOString());
     memory.items = next;
     memory.applied = memory.applied.filter(c => c !== change);
-    memory.dismissed = [...memory.dismissed, `${change.kind}:${change.before.key}:${change.value}`].slice(-60);
+    memory.dismissed = [...memory.dismissed.filter(entry => entry !== `gone:${change.before.key}`), `${change.kind}:${change.before.key}:${change.value}`].slice(-60);
     // The AI's new wording goes the way of a suggestion its author turned down: it is not suggested again.
     if (current && isSuggestion(current)) memory.declined = [...memory.declined.filter(sentence => sentence !== current.text), current.text].slice(-MAX_DECLINED);
     memory.declined = memory.declined.filter(sentence => sentence !== restored.text);

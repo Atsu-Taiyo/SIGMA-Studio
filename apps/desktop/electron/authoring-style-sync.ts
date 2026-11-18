@@ -179,15 +179,24 @@ export function mergeList(base: readonly string[] | undefined, local: readonly s
   return Number.isFinite(max) ? merged.slice(-max) : merged;
 }
 
+/** What the members decided about automatic habits, which a merge of two reviews' work has to respect. */
+export interface MergeRules {
+  /** Taken out on purpose (deleted, its adding undone or declined, or reworded or withdrawn by the AI that suggested it). It does not come back. */
+  unwanted?: (item: SyncedItem) => boolean;
+  /** What a habit was automatically rewritten to, and somebody put back. The other wording stands. */
+  refused?: (item: SyncedItem) => boolean;
+  /** Automatically removed, and somebody put it back (or declined the removal). It stays. */
+  restored?: (item: SyncedItem) => boolean;
+}
+
 /**
- * `unwanted`: automatic habits somebody took out on purpose (deleted, or undid the adding of). Any other removal
- * of an automatic habit is a review finding it no longer confirmed, and yields to a device that confirmed it since.
+ * A removal of an automatic habit that nobody made on purpose is a review finding it no longer confirmed, and
+ * yields to a device whose review confirmed it since.
  */
-export function mergeItems(base: readonly SyncedItem[] | undefined, local: readonly SyncedItem[], remote: readonly SyncedItem[], unwanted: (item: SyncedItem) => boolean = () => false): SyncedItem[] {
+export function mergeItems(base: readonly SyncedItem[] | undefined, local: readonly SyncedItem[], remote: readonly SyncedItem[], rules: MergeRules = {}): SyncedItem[] {
   const index = (list: readonly SyncedItem[]) => new Map(list.map(item => [identity(item), item]));
-  // Not a sentence the AI suggested: one that is gone was reworded or withdrawn by an AI that was asked about it,
-  // and bringing it back would put it next to its own rewording.
-  const reconfirmed = (item: SyncedItem, was: SyncedItem) => item.origin === "auto" && item.basis !== "summary" && item.lastConfirmedAt > was.lastConfirmedAt && !unwanted(item);
+  const unwanted = (item: SyncedItem) => rules.unwanted?.(item) ?? false;
+  const stays = (item: SyncedItem, was: SyncedItem) => item.origin === "auto" && !unwanted(item) && (item.lastConfirmedAt > was.lastConfirmedAt || (rules.restored?.(item) ?? false));
   const before = index(base ?? []);
   const theirs = index(remote);
   const result: SyncedItem[] = [];
@@ -200,10 +209,13 @@ export function mergeItems(base: readonly SyncedItem[] | undefined, local: reado
     const was = before.get(id);
     if (!other) {
       // Removed on another device, unless it was changed here since, or confirmed here since by a review.
-      if (!was || statement(was) !== statement(mine) || reconfirmed(mine, was)) result.push(mine);
+      if (!was || statement(was) !== statement(mine) || stays(mine, was)) result.push(mine);
       continue;
     }
-    const winner = statement(mine) === statement(other) || (was && statement(was) === statement(other)) ? mine : other;
+    const chosen = statement(mine) === statement(other) || (was && statement(was) === statement(other)) ? mine : other;
+    const loser = chosen === mine ? other : mine;
+    // A wording somebody put back from does not win over the one they put back to, whichever device's review made it.
+    const winner = statement(mine) !== statement(other) && rules.refused?.(chosen) && !rules.refused(loser) ? loser : chosen;
     // The same on whichever device merges: otherwise two devices would keep sending each other their own version.
     const rank = (item: SyncedItem) => `${item.lastConfirmedAt}\n${String(item.support).padStart(9, "0")}\n${String(item.documents).padStart(9, "0")}\n${item.basis}`;
     const fresher = statement(mine) !== statement(other) ? winner : rank(other) > rank(mine) ? other : mine;
@@ -217,7 +229,7 @@ export function mergeItems(base: readonly SyncedItem[] | undefined, local: reado
     seen.add(id);
     const was = before.get(id);
     // Removed here, unless another device changed it since, or its review confirmed it since.
-    if (!was || statement(was) !== statement(other) || reconfirmed(other, was)) result.push(other);
+    if (!was || statement(was) !== statement(other) || stays(other, was)) result.push(other);
   }
   return result;
 }
@@ -278,14 +290,15 @@ function mergeLearned(base: Learned | undefined, local: Learned, remote: Learned
   const suppressed = mergeList(was?.suppressed, local.suppressed, remote.suppressed);
   const declined = mergeList(was?.declined, local.declined, remote.declined, 30);
   const dismissed = mergeList(was?.dismissed, local.dismissed, remote.dismissed, 60);
-  /** Taken out on purpose on some device: deleted, its adding undone or declined, or (a sentence of the AI's) turned down. */
+  /** Taken out on purpose on some device: deleted, its adding undone or declined, or (a sentence of the AI's) turned down, reworded or withdrawn. */
   const unwanted = (item: SyncedItem) => Boolean(item.key) && (suppressed.includes(item.key!) || dismissed.includes(`add:${item.key}:${item.value}`)
-    || (item.basis === "summary" && declined.includes(item.text)));
+    || dismissed.includes(`gone:${item.key}`) || (item.basis === "summary" && declined.includes(item.text)));
+  const rules: MergeRules = { unwanted, refused: item => dismissed.includes(`rewrite:${item.key}:${item.value}`), restored: item => dismissed.includes(`remove:${item.key}:${item.value}`) };
   return {
     generation: remote.generation, suppressed, declined, dismissed,
     // A removal its author made always wins: no device learns again, or keeps, what was taken out on purpose.
     // With or without a history in common: what one side holds and the other took out on purpose does not stay.
-    items: mergeItems(was?.items, local.items, remote.items, unwanted).filter(item => item.origin !== "auto" || !unwanted(item)),
+    items: mergeItems(was?.items, local.items, remote.items, rules).filter(item => item.origin !== "auto" || !unwanted(item)),
     // With no history in common (a copy that replaced a lost one), what this device carried for others is kept next to theirs.
     opaque: was ? remote.opaque : [...new Map([...remote.opaque, ...local.opaque].map(entry => [JSON.stringify(entry), entry])).values()].slice(0, MAX_OPAQUE_ITEMS),
   };
