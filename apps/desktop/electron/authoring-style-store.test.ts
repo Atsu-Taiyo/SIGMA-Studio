@@ -974,6 +974,14 @@ describe("automatic authoring style", () => {
       now += 80 * 24 * HOUR;
       lib.put("f1", written(...essay("本人5")));
       expect(aiAdded(await store.reviewNow("ws1"))).toEqual([HABIT.text]);
+      // Undoing the putting back and putting it back once more leaves no record that the sentence was turned down.
+      const turnedDown = async () => JSON.parse(await fs.readFile(path.join(styleDir(), "memory.json"), "utf8")).declined as string[];
+      profile = await store.undo("ws1");
+      expect(aiAdded(profile)).toEqual([]);
+      expect(await turnedDown()).toEqual([HABIT.text]);
+      profile = await store.revertAutoChange({ workspaceId: "ws1", id: profile.autoChanges[0].id });
+      expect(aiAdded(profile)).toEqual([HABIT.text]);
+      expect(await turnedDown()).toEqual([]);
     });
 
     it("does not take an answer of some other form for the AI having nothing to confirm", async () => {
@@ -1429,6 +1437,38 @@ describe("automatic authoring style", () => {
       // Once the list can be read and the documents really are gone, the habit goes.
       shared.entries.clear();
       expect((await make({ ...lib.options, ...shared.options }).reviewNow("shared-ws")).autoChanges).toMatchObject([{ kind: "remove", reason: "stale" }]);
+    });
+
+    it("does not take being signed out for the shared documents being gone, also after a restart, while other workspaces go on as usual", async () => {
+      const lib = library();
+      const shared = catalog();
+      shared.put("s1", written(...PLAIN));
+      lib.put("f1", written(...PLAIN));
+      let ready = true;
+      // As the app's own lists do: signed out, they are simply empty.
+      const options: AuthoringStyleStoreOptions = { ...lib.options, sharedCatalogReady: async () => ready,
+        listWorkspaces: async () => ready ? shared.options.listWorkspaces() : [], listSharedFiles: async () => ready ? shared.options.listSharedFiles() : [], loadSharedDocument: shared.loadSharedDocument };
+      store = make(options);
+      expect((await store.reviewNow("shared-ws")).generatedContent).toContain("常体");
+      expect((await store.reviewNow("ws1")).generatedContent).toContain("常体");
+      ready = false;
+      lib.put("f1", written(...POLITE));
+      for (const signedOut of [store, make(options)]) {
+        const profile = await signedOut.reviewNow("shared-ws");
+        expect(profile.generatedContent).toContain("常体");
+        expect(profile.autoChanges).toEqual([]);
+        expect(profile.pending.filter(p => p.kind !== "remove")).toEqual([]);
+      }
+      // A workspace that is not shared has nothing to wait for.
+      const own = await make(options).reviewNow("ws1");
+      expect(own.generatedContent).toContain("丁寧体");
+      expect(own.autoChanges).toHaveLength(1);
+      // Being signed out is not logged as a failure.
+      expect(await fs.readFile(path.join(root, "data/logs/ledger.log"), "utf8").catch(() => "")).not.toContain("authoring-style-read-failed");
+      // Signed in again, with the documents really gone, the habit goes.
+      ready = true;
+      shared.entries.clear();
+      expect((await store.reviewNow("shared-ws")).autoChanges).toMatchObject([{ kind: "remove", reason: "stale" }]);
     });
 
     it("does not act on a list of shared documents that failed when the review began and came back while it ran", async () => {

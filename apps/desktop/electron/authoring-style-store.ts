@@ -80,6 +80,11 @@ interface Counters {
   saves: number; corrections: number; rejections: number; kept: number; reviewedAt: string | null;
   /** Shared workspaces only: which documents the last review saw, and how recent each was. */
   shared?: string;
+  /**
+   * The workspace was a shared one when the list of shared workspaces could last be told. Kept across restarts:
+   * signed out or offline, its documents are not listed, which must not read as their being gone.
+   */
+  wasShared?: true;
 }
 interface Outcomes {
   version: 1;
@@ -114,6 +119,11 @@ export interface AuthoringStyleStoreOptions {
    * them and belongs to all its members. Without it nothing is learned from shared documents.
    */
   listSharedFiles?: () => Promise<LocalDocumentMetadata[]>;
+  /**
+   * Whether the list of shared workspaces and documents can be told right now (signed in, catalog loaded).
+   * While it cannot, the lists come back empty, which is not the same as there being nothing shared.
+   */
+  sharedCatalogReady?: () => Promise<boolean>;
   /** Reads a shared document for the review. It is only read: nothing here ever changes one. */
   loadSharedDocument?: (fileId: string) => Promise<SigmaDocument | null>;
   /** The signed-in account's store on the collaboration server. Without it nothing is synced. */
@@ -133,6 +143,8 @@ function same(a: Fragment | null | undefined, b: Fragment | null | undefined): b
 function sharedSignature(files: readonly LocalDocumentMetadata[]): string {
   return createHash("sha256").update(files.filter(f => f.sharing).map(f => `${f.fileId}\n${f.updatedAt}`).sort().join("\n")).digest("hex");
 }
+
+class SharedCatalogUnavailable extends Error {}
 
 const emptyCounters = (): Counters => ({ saves: 0, corrections: 0, rejections: 0, kept: 0, reviewedAt: null });
 
@@ -396,7 +408,7 @@ export class LocalAuthoringStyleStore {
       const files = await this.learnableFiles(true);
       const mine = files ? [...files.values()].filter(f => f.workspaceId === workspaceId) : [];
       // Which documents there are to read is decided here. A list that could not be read then is not made good by one that can be read later.
-      return { listed: !this.sharedListFailed, signature: this.sharedWorkspaces.has(workspaceId) ? sharedSignature(mine) : null,
+      return { failed: this.sharedListFailed, signature: this.sharedWorkspaces.has(workspaceId) ? sharedSignature(mine) : null,
         files: mine.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, this.options.reviewDocuments ?? DEFAULT_REVIEW_DOCUMENTS) };
     });
     if (!start) return;
@@ -427,9 +439,13 @@ export class LocalAuthoringStyleStore {
       if (generation !== this.generation || !await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return null;
       const files = await this.learnableFiles(true);
       // A list of shared documents that could not be read says nothing about which documents are gone.
-      const listed = start.listed && !this.sharedListFailed;
-      const eligibleFiles = files && listed ? new Set([...files.values()].filter(f => f.workspaceId === workspaceId).map(f => f.fileId)) : null;
       const outcomes = await this.readOutcomes();
+      // What is shared could not be told at some point of this review. That matters for a workspace that is shared,
+      // or was when that could last be told: its documents are then not listed, and the review did not see them.
+      const untold = start.failed || this.sharedListFailed;
+      const wasShared = untold ? this.sharedWorkspaces.has(workspaceId) || Boolean(outcomes.counters[workspaceId]?.wasShared) : this.sharedWorkspaces.has(workspaceId);
+      const listed = !(untold && wasShared);
+      const eligibleFiles = files && listed ? new Set([...files.values()].filter(f => f.workspaceId === workspaceId).map(f => f.fileId)) : null;
       const units: EvidenceUnit[] = [];
       const authored: { fileId: string; texts: string[]; outline: string }[] = [];
       /** A document that was read is left out after all: like one that could not be read, it is evidence this pass did not see. */
@@ -465,9 +481,10 @@ export class LocalAuthoringStyleStore {
       memory.lastReviewedAt = now.toISOString();
       memory.reviewedDocuments = reviewed;
       await this.memory.commit(workspaceId, memory, planned.entries);
-      outcomes.counters[workspaceId] = { ...emptyCounters(), reviewedAt: now.toISOString(), ...(start.signature !== null && !unread ? { shared: start.signature } : {}) };
+      outcomes.counters[workspaceId] = { ...emptyCounters(), reviewedAt: now.toISOString(), ...(start.signature !== null && !unread ? { shared: start.signature } : {}),
+        ...(wasShared ? { wasShared: true as const } : {}) };
       await this.writeOutcomes(outcomes);
-      return this.summaryRequest(workspaceId, memory, authored, examples, eligibleFiles, requested, now, !unread && !skipped && listed);
+      return this.summaryRequest(workspaceId, memory, authored, examples, eligibleFiles, requested, now, !unread && !skipped && listed, wasShared);
     });
     this.sync.soon();
     if (!summary) return;
@@ -486,7 +503,7 @@ export class LocalAuthoringStyleStore {
       const now = this.now();
       const memory = await this.memory.load(workspaceId, getAppLocale(), now);
       // The list of shared documents was read once more just above: failing there counts like failing earlier in this review.
-      const complete = summary.complete && !this.sharedListFailed;
+      const complete = summary.complete && !(this.sharedListFailed && summary.wasShared);
       const planned = planSummary(memory, reply, summary.candidates, { now, locale: memory.locale, sources, autoApply: await this.autoApply(workspaceId), complete });
       // What was asked on the strength of an incomplete reading is asked again once everything can be read.
       if (complete) memory.summary = { hash: summary.hash, at: now.toISOString() };
@@ -501,7 +518,7 @@ export class LocalAuthoringStyleStore {
    * and only to the provider the author last used.
    */
   private async summaryRequest(workspaceId: string, memory: StyleMemory, authored: readonly { fileId: string; texts: string[]; outline: string }[],
-    examples: readonly StyleExample[], eligibleFiles: ReadonlySet<string> | null, requested: boolean, now: Date, complete: boolean) {
+    examples: readonly StyleExample[], eligibleFiles: ReadonlySet<string> | null, requested: boolean, now: Date, complete: boolean, wasShared: boolean) {
     if (!this.options.summarize || !await this.memory.aiSummary(null) || !await this.memory.aiSummary(workspaceId)) return null;
     const provider = await this.lastProvider();
     if (!provider) return null;
@@ -547,7 +564,7 @@ export class LocalAuthoringStyleStore {
       outlines,
     };
     // As for the counting pass: when what was read is not everything, a suggestion left unconfirmed is not taken for stale.
-    return { provider, input, hash, sources, candidates: suggested.map(i => i.key!), complete };
+    return { provider, input, hash, sources, candidates: suggested.map(i => i.key!), complete, wasShared };
   }
 
   /** Remember which AI the author uses, so the review asks that one and no other. */
@@ -743,6 +760,7 @@ export class LocalAuthoringStyleStore {
     const at = Date.now();
     if (fresh || !this.sharedFilesRead || at - this.sharedFilesRead.at > SHARED_FILES_FRESH_MS) {
       try {
+        if (this.options.sharedCatalogReady && !await this.options.sharedCatalogReady()) throw new SharedCatalogUnavailable();
         const workspaces = new Set((await this.options.listWorkspaces()).map(w => w.id));
         this.sharedFilesRead = { at, files: new Map((await this.options.listSharedFiles())
           .filter(f => f.sharing?.state === "active" && !f.sharingPending && workspaces.has(f.workspaceId)).map(f => [f.fileId, f])) };
@@ -751,7 +769,8 @@ export class LocalAuthoringStyleStore {
       } catch (error) {
         this.sharedListFailed = true;
         // Signed out or offline: nothing shared is read, and what was learned from it before is left as it is.
-        logLedgerEvent(this.dataDir, "authoring-style-read-failed", { error: String(error) });
+        // (Being signed out is an everyday state, not a failure worth a line in the log each time.)
+        if (!(error instanceof SharedCatalogUnavailable)) logLedgerEvent(this.dataDir, "authoring-style-read-failed", { error: String(error) });
         return this.sharedFilesRead ? new Map([...personal, ...this.sharedFilesRead.files]) : personal;
       }
     }
@@ -993,6 +1012,7 @@ export class LocalAuthoringStyleStore {
           saves: count(c?.saves), corrections: count(c?.corrections), rejections: count(c?.rejections), kept: count(c?.kept),
           reviewedAt: text(c?.reviewedAt, 40) ? c.reviewedAt as string : null,
           ...(text(c?.shared, 64) && c.shared ? { shared: c.shared as string } : {}),
+          ...(c?.wasShared === true ? { wasShared: true as const } : {}),
         }])),
       };
     } catch (error) {

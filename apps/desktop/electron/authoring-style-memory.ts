@@ -168,6 +168,9 @@ export function renderMemo(memory: Pick<StyleMemory, "items">, locale: AppLocale
 function settleDecisions(memory: StyleMemory): void {
   const held = new Set(memory.items.filter(i => i.origin === "auto" && i.key).flatMap(i => [`add:${i.key}:${i.value}`, `rewrite:${i.key}:${i.value}`]));
   memory.dismissed = memory.dismissed.filter(entry => !held.has(entry));
+  // Nor is a sentence of the AI's that stands there on record as one its author turned down.
+  const sentences = new Set(memory.items.filter(isSuggestion).map(i => i.text));
+  memory.declined = memory.declined.filter(sentence => !sentences.has(sentence));
 }
 
 export function snapshotForUndo(memory: StyleMemory, reason: string, at: string): void {

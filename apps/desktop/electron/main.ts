@@ -213,6 +213,8 @@ const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH, {
       // Resetting it for everyone, and the switches that hold for everyone, are for its owner and admins.
       ? [{ id, key: workspaceKey(sharing.target.catalogNodeId), readOnly: sharing.role === "viewer", manager: sharing.role === "owner" || sharing.role === "admin" }] : []);
   },
+  // Signed out, loading or offline, the lists below come back empty. That is "cannot tell", not "nothing is shared".
+  sharedCatalogReady: async () => (await sharedCatalog.status()).state === "ready",
   // A shared workspace's style is learned from all of its documents, whoever wrote them. They are only read.
   listSharedFiles: async () => (await sharedCatalog.listFiles()).filter(file => file.sharing),
   loadSharedDocument: fileId => sharedCatalog.preview(fileId, { assets: false }),
