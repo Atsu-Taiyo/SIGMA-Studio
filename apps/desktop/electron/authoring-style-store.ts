@@ -646,7 +646,8 @@ export class LocalAuthoringStyleStore {
     const account = this.sync.accountHash();
     // Kept for another account that used this device: what that account stood behind is not the word of the one signed in now.
     if (trust.known && trust.account !== null && account !== null && trust.account !== account) {
-      const foreign = [...new Set([...trust.foreign, ...await this.sync.agreedMarks(workspaceId) ?? []])];
+      // That includes everything it vouched for, whether or not these files still hold the copy it was agreed in.
+      const foreign = [...new Set([...trust.foreign, ...trust.vouched, ...await this.sync.agreedMarks(workspaceId) ?? []])];
       return { known: true, account, vouched: [], foreign, declined: trust.declined.filter(mark => foreign.includes(mark)) };
     }
     return trust.known ? trust : { ...trust, account, foreign: [...await this.sync.agreedMarks(workspaceId) ?? []] };

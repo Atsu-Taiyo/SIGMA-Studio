@@ -1042,6 +1042,28 @@ describe("account sync of the learned writing style", () => {
         expect((workspaceCopy().content as { vouchers: Record<string, string[]> }).vouchers[U3]).toBeUndefined();
       });
 
+      it("does not pass approvals on to another account even after the first one deleted its copy and with it the sync history", async () => {
+        const a = await device("ws-a", { user: () => U1, documents: { f1: written(...PLAIN) } });
+        await a.store.reviewNow("ws-a");
+        await a.store.saveProfile({ workspaceId: "ws-a", content: "図は必ず右に置く。", expectedRevision: (await a.store.getProfile("ws-a")).revision });
+        await a.store.syncNow(null);
+        let user = U2;
+        const b = await device("ws-b", { user: () => user });
+        const first = await b.store.syncNow("ws-b");
+        await b.store.resolveMemberEntries({ workspaceId: "ws-b", ids: first.memberEntries.map(entry => entry.id), approve: true });
+        await b.store.syncNow(null);
+        await b.store.deleteSynced(null);
+        expect(await b.given()).toContain("図は必ず右に置く。");
+        user = U3;
+        expect(await b.given()).not.toContain(PLAIN_MEMO);
+        expect(await b.given()).not.toContain("図は必ず右に置く。");
+        await b.store.setSync(null, true);
+        const relinked = await b.store.relinkSync("ws-b");
+        expect(relinked.memberEntries.map(entry => entry.text).sort()).toEqual([PLAIN_MEMO, "図は必ず右に置く。"].sort());
+        expect(await b.given()).not.toContain("図は必ず右に置く。");
+        expect((workspaceCopy().content as { vouchers: Record<string, string[]> }).vouchers[U3]).toBeUndefined();
+      });
+
       it("cannot be vouched for in another member's name: the server refuses the copy", async () => {
         const { a, b } = await two();
         await b.store.syncNow(null);

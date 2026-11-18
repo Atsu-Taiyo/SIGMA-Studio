@@ -548,10 +548,10 @@ export class AuthoringStyleSync {
     // documents itself still needs none). What was only ever on this device stays its own.
     for (const [workspaceId, key] of Object.entries(state.keys)) {
       const agreed = state.scopes[key]?.base as WorkspaceBundle | null | undefined;
-      if (agreed?.kind !== "workspace") continue;
       const trust = await this.host.memory.readTrust(workspaceId);
-      if (trust.known && trust.account === hash(userId)) continue;
-      const foreign = [...new Set([...trust.foreign, ...marksOf(agreed.items, agreed.note, agreed.declined)])].slice(-MAX_FOREIGN);
+      if ((trust.known && trust.account === hash(userId)) || (!trust.known && agreed?.kind !== "workspace")) continue;
+      // Whatever the previous account stood behind waits too, whether or not these files still hold the copy it was agreed in.
+      const foreign = [...new Set([...trust.foreign, ...trust.vouched, ...(agreed?.kind === "workspace" ? marksOf(agreed.items, agreed.note, agreed.declined) : [])])].slice(-MAX_FOREIGN);
       await this.host.memory.writeTrust(workspaceId, { known: true, account: hash(userId), vouched: [], foreign, declined: trust.declined.filter(m => foreign.includes(m)) });
     }
     // What was agreed with the previous account, and how often it was reset, says nothing about this one.
@@ -932,7 +932,8 @@ export class AuthoringStyleSync {
         const approved = new Set([...(theirRecord ? [] : trust.vouched), ...(remoteCopy?.vouchers[me] ?? [])]);
         // Files that held the members' copy before any such record was kept (or kept it for another account): whose
         // word each part of it has is not known, so all of it waits, except what the account vouched for or this device finds itself.
-        const waiting = new Set([...(trust.known ? trust.foreign : []), ...(!trust.known || theirRecord ? (before?.kind === "workspace" ? marksOf(before.items, before.note, before.declined) : []) : [])]);
+        const waiting = new Set([...(trust.known ? trust.foreign : []), ...(theirRecord ? trust.vouched : []),
+          ...(!trust.known || theirRecord ? (before?.kind === "workspace" ? marksOf(before.items, before.note, before.declined) : []) : [])]);
         const vouched = [...present].filter(m => approved.has(m) || derived.has(m) || (own.has(m) && !waiting.has(m))).sort();
         const mineNow = new Set(vouched);
         // What waits keeps waiting when it is gone: stepping back to before it was deleted brings it back as
