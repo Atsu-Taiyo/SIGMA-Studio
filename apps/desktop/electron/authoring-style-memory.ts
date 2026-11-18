@@ -482,7 +482,8 @@ export class AuthoringStyleMemory {
     // (Undoing once more puts the list back as it was, with the rest.)
     const was = new Map(previous.items.filter(i => i.origin === "auto" && i.key).map(i => [i.key!, i]));
     const held = new Map(memory.items.filter(i => i.origin === "auto" && i.key).map(i => [i.key!, i]));
-    const takenBack = [
+    // Undoing an undo is not taking anything back: the list goes back as it was before the first undo.
+    const takenBack = previous.reason === "rollback" ? [] : [
       ...[...held.values()].flatMap(i => !was.has(i.key!) ? [`add:${i.key}:${i.value}`] : was.get(i.key!)!.value !== i.value ? [`rewrite:${i.key}:${i.value}`] : []),
       ...[...was.values()].filter(i => !held.has(i.key!)).map(i => `remove:${i.key}:${i.value}`),
     ];

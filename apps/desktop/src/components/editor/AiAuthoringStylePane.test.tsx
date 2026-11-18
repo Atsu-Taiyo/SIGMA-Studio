@@ -84,7 +84,7 @@ it("lists what the review changed by itself, lets one change be put back, and ha
     await view.render();
     const list = view.host.querySelector('[data-testid="authoring-style-auto-changes"]')!;
     // Newest first.
-    expect([...list.querySelectorAll("li")].map(li => li.querySelector("span")!.textContent)).toEqual(["削除: 「分数は大きく書く。」", "書き換え: 「常体で書く。」→「丁寧体で書く。」"]);
+    expect([...list.querySelectorAll("span")].map(span => span.textContent)).toEqual(["削除: 「分数は大きく書く。」", "書き換え: 「常体で書く。」→「丁寧体で書く。」"]);
     for (const text of ["自動で反映した変更", "最近は確認できないため", "最近の書き方と食い違ったため", "0項目を追加、1件を書き換え、1件を削除、0件が確認待ち"]) expect(view.host.textContent).toContain(text);
     await act(async () => view.host.querySelector<HTMLButtonElement>('[aria-label="「常体で書く。」を元に戻す"]')!.click());
     expect(api.revertAutoChange).toHaveBeenCalledWith({ workspaceId: "ws1", id: "rewrite:1" });

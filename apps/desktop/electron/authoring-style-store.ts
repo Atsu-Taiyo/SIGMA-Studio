@@ -430,6 +430,8 @@ export class LocalAuthoringStyleStore {
       const outcomes = await this.readOutcomes();
       const units: EvidenceUnit[] = [];
       const authored: { fileId: string; texts: string[]; outline: string }[] = [];
+      /** A document that was read is left out after all: like one that could not be read, it is evidence this pass did not see. */
+      let skipped = false;
       let remaining = MAX_REVIEW_CHARACTERS;
       let reviewed = 0;
       for (const { file, projection, layout } of loaded) {
@@ -438,7 +440,7 @@ export class LocalAuthoringStyleStore {
         if (outcomes.overflow?.includes(file.fileId)) continue;
         const current = files?.get(file.fileId);
         // A shared document has no revision of this device's to go by: when it was last changed stands in for it.
-        if (files && (current?.workspaceId !== workspaceId || current.revision !== file.revision || current.updatedAt !== file.updatedAt)) continue;
+        if (files && (current?.workspaceId !== workspaceId || current.revision !== file.revision || current.updatedAt !== file.updatedAt)) { skipped = true; continue; }
         const tracked = new Map(outcomes.blocks.filter(b => b.fileId === file.fileId).map(b => [b.blockId, b]));
         // Text the AI wrote and the author left alone, or only touched up, is not the author's writing.
         const isAiText = (blockId: string, fragment: Fragment) => {
@@ -457,13 +459,13 @@ export class LocalAuthoringStyleStore {
       const memory = await this.memory.load(workspaceId, getAppLocale(), now);
       const planned = planReview(memory, mergeObservations(observeWriting(units), observeCorrections(examples)),
         // A pass that did not see every document it was due to read changes nothing by itself that it cannot be sure of.
-        { now, locale: memory.locale, eligibleFiles, keptSinceLastReview: counters.kept > 0, autoApply: await this.autoApply(workspaceId), complete: !unread && !this.sharedListFailed });
+        { now, locale: memory.locale, eligibleFiles, keptSinceLastReview: counters.kept > 0, autoApply: await this.autoApply(workspaceId), complete: !unread && !skipped && !this.sharedListFailed });
       memory.lastReviewedAt = now.toISOString();
       memory.reviewedDocuments = reviewed;
       await this.memory.commit(workspaceId, memory, planned.entries);
       outcomes.counters[workspaceId] = { ...emptyCounters(), reviewedAt: now.toISOString(), ...(start.signature !== null && !unread ? { shared: start.signature } : {}) };
       await this.writeOutcomes(outcomes);
-      return this.summaryRequest(workspaceId, memory, authored, examples, eligibleFiles, requested, now, !unread && !this.sharedListFailed);
+      return this.summaryRequest(workspaceId, memory, authored, examples, eligibleFiles, requested, now, !unread && !skipped && !this.sharedListFailed);
     });
     this.sync.soon();
     if (!summary) return;
@@ -683,7 +685,10 @@ export class LocalAuthoringStyleStore {
   }
 
   private promptText(text: string, limit = 2200): string {
-    // Bound the encoded JSON too (control characters and escaping can expand it).
+    // A control character or half of a surrogate pair says nothing about how to write, and encodes to six characters.
+    // Read as a space, what is left can at most double (quotes and backslashes), which the memo's limit allows for.
+    text = text.replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, " ").replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "\ufffd");
+    // Bound the encoded JSON too (escaping can expand it).
     while (JSON.stringify(text).length > limit) text = text.slice(0, Math.floor(text.length * 0.9));
     return text;
   }

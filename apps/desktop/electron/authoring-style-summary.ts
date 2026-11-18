@@ -107,7 +107,9 @@ export function parseSummaryReply(raw: string, input: Pick<SummaryInput, "sample
   if (start < 0 || end <= start) return null;
   let data: { add?: unknown; confirm?: unknown; rewrite?: unknown; remove?: unknown };
   try { data = JSON.parse(raw.slice(start, end + 1)); } catch { return null; }
-  if (!data || typeof data !== "object") return null;
+  // Only a reply of the form asked for says anything. An error message, or an answer to some other question, is
+  // not "nothing to add and nothing confirmed": taken as that, it would count against the earlier suggestions.
+  if (!data || typeof data !== "object" || !Array.isArray(data.add) || !Array.isArray(data.confirm)) return null;
   const source = input.sample.join("\n");
   const quotes = (text: string) => {
     for (let index = 0; index + QUOTATION_LENGTH <= text.length; index++) if (source.includes(text.slice(index, index + QUOTATION_LENGTH))) return true;

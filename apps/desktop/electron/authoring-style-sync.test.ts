@@ -1430,6 +1430,58 @@ describe("merging two devices' copies", () => {
     expect(merged).toMatchObject({ devices: ["a", "b"], lastConfirmedAt: "2026-11-05", support: 9, firstSeenAt: "2026-10-01" });
   });
 
+  it("lets a review's fresh confirmation outlast another device's removal, but not a removal made on purpose", () => {
+    const base = [item("tone", "plain"), item("ending", "nasai")];
+    const confirmed = [item("tone", "plain", { lastConfirmedAt: "2026-12-20" }), item("ending", "nasai")];
+    // One device's review dropped both as no longer confirmed. The other confirmed one of them since.
+    expect(keys(mergeItems(base, [], confirmed))).toEqual(["tone=plain"]);
+    expect(keys(mergeItems(base, confirmed, []))).toEqual(["tone=plain"]);
+    // Deleted by its author, or its adding undone: the deletion stands whatever a review said since.
+    expect(keys(mergeItems(base, [], confirmed, entry => entry.key === "tone"))).toEqual([]);
+    // A line somebody wrote is never brought back that way.
+    expect(keys(mergeItems([line("消す行")], [], [{ ...line("消す行"), lastConfirmedAt: "2026-12-20" }]))).toEqual([]);
+  });
+
+  it("keeps a habit one member's review dropped while another member's review had just confirmed it", async () => {
+    const roots: string[] = [];
+    const cloud = server();
+    let now = new Date("2026-11-17T00:00:00Z");
+    const make = async (workspaceId: string, user: string, document: SigmaDocument | null) => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-style-sync-"));
+      roots.push(root);
+      const file: LocalDocumentMetadata = { fileId: "f1", workspaceId, folderId: null, title: "演習", docId: "f1", revision: 1, createdAt: "", updatedAt: "2026-11-01T00:00:00Z" };
+      return new LocalAuthoringStyleStore(root, { reviewIdleMs: null, now: () => now, listFiles: async () => document ? [file] : [], loadDocument: async () => document,
+        listWorkspaces: async () => [{ id: workspaceId, key: workspaceKey(SHARED_MATH), manager: true }], sync: { client: cloud.port(() => user), userId: () => user, entitled: async () => true } });
+    };
+    const kept = written(...PLAIN);
+    const a = await make("ws-a", U1, kept);
+    const gone = written(...PLAIN);
+    const b = await make("ws-b", U1, gone);
+    try {
+      await a.reviewNow("ws-a");
+      await a.setSync(null, true);
+      await b.setSync(null, true);
+      await b.reviewNow("ws-b");
+      await b.syncNow(null);
+      await a.syncNow(null);
+      // Much later, the second device no longer sees the habit and drops it; the first has just confirmed it again.
+      now = new Date("2027-01-20T00:00:00Z");
+      gone.content = written("別の話題のメモ").content;
+      await a.reviewNow("ws-a");
+      expect((await b.reviewNow("ws-b")).autoChanges).toMatchObject([{ kind: "remove", reason: "stale" }]);
+      await a.syncNow(null);
+      const profile = await b.syncNow("ws-b");
+      expect(profile.generatedContent).toContain(PLAIN_MEMO);
+      expect((await a.syncNow("ws-a")).generatedContent).toContain(PLAIN_MEMO);
+      // It is back, so there is nothing left to put back; and the next review here leaves it, as another device holds its evidence.
+      expect(profile.autoChanges).toEqual([]);
+      expect((await b.reviewNow("ws-b")).generatedContent).toContain(PLAIN_MEMO);
+    } finally {
+      for (const store of [a, b]) { store.dispose(); await store.flush(); }
+      for (const root of roots) await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("merges lists and notes without losing an addition", () => {
     expect(mergeList(["x", "y"], ["x", "y", "mine"], ["y", "theirs"], 10)).toEqual(["y", "mine", "theirs"]);
     expect(mergeNote("a\nb", "a\nb", "a\nc")).toBe("a\nc");

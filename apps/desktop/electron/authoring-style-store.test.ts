@@ -489,8 +489,10 @@ describe("automatic authoring style", () => {
       profile = await store.reviewNow("ws1");
       expect(profile.generatedContent).toContain(TONE.plain);
       expect(profile.pending).toEqual([]);
-      // Undoing the undo lifts that again.
+      // Undoing the undo lifts that again, and is not itself a change taken back: the habit goes on following the evidence.
       expect((await store.undo("ws1")).generatedContent).toContain(TONE.polite);
+      lib.put("f1", written(...PLAIN));
+      expect((await store.reviewNow("ws1")).generatedContent).toContain(TONE.plain);
     });
 
     it("puts back one change it made, long after other changes, and then leaves the habit alone", async () => {
@@ -574,6 +576,13 @@ describe("automatic authoring style", () => {
       const learned = await learnedFor(store);
       expect(learned).toContain("式0は");
       expect(learned).toContain("式79は \\alpha\\beta\\gamma\\delta を \"この順\" に並べて書く。");
+      // Characters that encode to six each are read as spaces rather than pushing the end of the memo out.
+      const odd = Array.from({ length: 40 }, (_, n) => `- 行${n}は${"\u0001".repeat(40)}と\ud800を含めて書く。`).join("\n");
+      profile = await store.saveLearned({ workspaceId: "ws1", content: odd, expectedRevision: profile.generatedRevision });
+      const cleaned = await learnedFor(store);
+      expect(cleaned).toContain("行39は");
+      expect(cleaned).not.toContain("\u0001");
+      expect(JSON.stringify(cleaned)).not.toContain("\\ud800");
     });
 
     it("never rewrites or removes a line the user wrote, or the notes", async () => {
@@ -606,6 +615,31 @@ describe("automatic authoring style", () => {
       const profile = await store.reviewNow("ws1");
       expect(profile.generatedContent).not.toContain("解答欄に解答");
       expect(profile.autoChanges).toMatchObject([{ kind: "remove", reason: "contradicted", before: "問題には解答欄に解答・解説を書く。" }]);
+    });
+
+    it("only stages such changes when a document was saved again while the review was reading", async () => {
+      const lib = library();
+      lib.put("f1", written(...PLAIN));
+      lib.put("f2", written(...PLAIN), { updatedAt: "2026-11-02T00:00:00Z" });
+      store = make(lib.options);
+      await store.reviewNow("ws1");
+      // Both documents now end politely, but the larger one is saved once more while the review reads it: what
+      // was read of it is set aside, and what is left is not everything.
+      lib.put("f1", written(...POLITE));
+      lib.put("f2", written(...PLAIN, ...PLAIN, ...PLAIN), { updatedAt: "2026-11-02T00:00:00Z" });
+      lib.loadDocument.mockImplementationOnce(async fileId => {
+        const read = lib.entries.get(fileId)!.document;
+        lib.put("f2", written(...PLAIN, ...PLAIN, ...PLAIN), { updatedAt: "2026-11-03T00:00:00Z", revision: 2 });
+        return read;
+      });
+      let profile = await store.reviewNow("ws1");
+      expect(profile.generatedContent).toContain(TONE.plain);
+      expect(profile.autoChanges).toEqual([]);
+      expect(profile.pending).toMatchObject([{ kind: "rewrite", proposedText: TONE.polite }]);
+      // Read in full, the evidence says otherwise, and the staged change is withdrawn.
+      profile = await store.reviewNow("ws1");
+      expect(profile.generatedContent).toContain(TONE.plain);
+      expect(profile.pending).toEqual([]);
     });
 
     it("only stages such changes while a document could not be read, and while the switch is off; the switch stays on this device", async () => {
@@ -958,6 +992,26 @@ describe("automatic authoring style", () => {
       expect(aiAdded(profile)).toEqual([HABIT.text]);
       expect(profile.autoChanges).toEqual([]);
       expect(profile.pending.filter(p => p.kind !== "remove")).toEqual([]);
+    });
+
+    it("does not take an answer of some other form for the AI having nothing to confirm", async () => {
+      const lib = library();
+      lib.put("f1", written(...essay("本人")));
+      let now = NOW;
+      const summarize = vi.fn(async () => reply([HABIT]));
+      store = make({ ...lib.options, summarize, now: () => new Date(now) });
+      store.noteProvider("claude");
+      await store.reviewNow("ws1");
+      now += 80 * 24 * HOUR;
+      for (const [index, answer] of ['{"error":"cannot review"}', '{"add":"none"}', '{"confirm":[]}', "すみません、対応できません。"].entries()) {
+        lib.put("f1", written(...essay(`本人${index + 2}`)));
+        summarize.mockImplementation(async () => answer);
+        const profile = await store.reviewNow("ws1");
+        expect(aiAdded(profile), answer).toEqual([HABIT.text]);
+        expect(profile.autoChanges).toEqual([]);
+      }
+      expect(summarize).toHaveBeenCalledTimes(5);
+      expect(await fs.readFile(path.join(root, "data/logs/ledger.log"), "utf8")).toContain("Unreadable summary reply");
     });
 
     it("drops an old suggestion only after the AI was asked again and did not stand by it", async () => {

@@ -89,7 +89,7 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
         {profile.blockedLines > 0 && <SettingsStatus tone="error">{t("authoringStyle.blocked", { count: profile.blockedLines })}</SettingsStatus>}
         <Stack gap="xs">
           <label htmlFor="authoring-style-note">{t("authoringStyle.manual")}</label>
-          <textarea id="authoring-style-note" className="ai-settings-textarea" value={content} maxLength={AUTHORING_STYLE_NOTE_LIMIT} disabled={busy} onChange={event => setContent(event.target.value)} />
+          <textarea id="authoring-style-note" className="ai-settings-textarea" rows={5} value={content} maxLength={AUTHORING_STYLE_NOTE_LIMIT} disabled={busy} onChange={event => setContent(event.target.value)} />
           <small className="ai-settings-empty-hint" style={{ overflowWrap: "anywhere" }}>{profile.userPath}</small>
           <Inline gap="sm">
             <Button size="sm" disabled={busy || !dirty} onClick={() => void run(() => api.save({ workspaceId, content, expectedRevision: draftRevision }), "note")}>{t("authoringStyle.save")}</Button>
@@ -98,7 +98,7 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
         </Stack>
         {workspaceId && <Stack gap="xs">
           <label htmlFor="authoring-style-learned">{t("authoringStyle.learned")}</label>
-          <textarea id="authoring-style-learned" className="ai-settings-textarea" value={learned} maxLength={AUTHORING_STYLE_LEARNED_LIMIT} disabled={busy} placeholder={t("authoringStyle.empty")} onChange={event => setLearned(event.target.value)} />
+          <textarea id="authoring-style-learned" className="ai-settings-textarea" rows={14} value={learned} maxLength={AUTHORING_STYLE_LEARNED_LIMIT} disabled={busy} placeholder={t("authoringStyle.empty")} onChange={event => setLearned(event.target.value)} />
           <small className="ai-settings-empty-hint">{t("authoringStyle.learnedHint")}</small>
           <small className="ai-settings-empty-hint" style={{ overflowWrap: "anywhere" }}>{profile.generatedPath}</small>
           <SettingsStatus>
@@ -126,14 +126,16 @@ export function AiAuthoringStylePane({ api, workspaceId, id }: { id: string; api
           {profile.autoChanges.length > 0 && <Stack gap="xs" data-testid="authoring-style-auto-changes">
             <strong>{t("authoringStyle.autoChangesTitle")}</strong>
             <small className="ai-settings-empty-hint">{t("authoringStyle.autoChangesHint")}</small>
-            <ul>{[...profile.autoChanges].reverse().map(change => <li key={change.id}>
-              <Inline gap="sm">
+            {[...profile.autoChanges].reverse().map(change => (
+              <Stack key={change.id} gap="xs" className="ai-settings-empty-hint">
                 <span>{t(`authoringStyle.autoChange.${change.kind}`, { before: change.before, after: change.after })}</span>
-                <small className="ai-settings-empty-hint" style={{ whiteSpace: "nowrap" }}>{t(`authoringStyle.autoChangeReason.${change.reason}`)} / {new Date(change.at).toLocaleDateString()}</small>
-                <Button tone="ghost" size="sm" aria-label={t("authoringStyle.autoChangeRevertLabel", { text: change.before })} disabled={busy || learnedDirty}
-                  onClick={() => void run(() => api.revertAutoChange({ workspaceId, id: change.id }), "learned")}>{t("authoringStyle.autoChangeRevert")}</Button>
-              </Inline>
-            </li>)}</ul>
+                <Inline gap="sm">
+                  <small>{t(`authoringStyle.autoChangeReason.${change.reason}`)} / {new Date(change.at).toLocaleDateString()}</small>
+                  <Button tone="ghost" size="sm" aria-label={t("authoringStyle.autoChangeRevertLabel", { text: change.before })} disabled={busy || learnedDirty}
+                    onClick={() => void run(() => api.revertAutoChange({ workspaceId, id: change.id }), "learned")}>{t("authoringStyle.autoChangeRevert")}</Button>
+                </Inline>
+              </Stack>
+            ))}
           </Stack>}
           {(waiting.length > 0 || declined.length > 0) && <Stack gap="xs" data-testid="authoring-style-member-entries">
             <strong>{t("authoringStyle.memberTitle", { count: waiting.length })}</strong>

@@ -179,8 +179,13 @@ export function mergeList(base: readonly string[] | undefined, local: readonly s
   return Number.isFinite(max) ? merged.slice(-max) : merged;
 }
 
-export function mergeItems(base: readonly SyncedItem[] | undefined, local: readonly SyncedItem[], remote: readonly SyncedItem[]): SyncedItem[] {
+/**
+ * `unwanted`: automatic habits somebody took out on purpose (deleted, or undid the adding of). Any other removal
+ * of an automatic habit is a review finding it no longer confirmed, and yields to a device that confirmed it since.
+ */
+export function mergeItems(base: readonly SyncedItem[] | undefined, local: readonly SyncedItem[], remote: readonly SyncedItem[], unwanted: (item: SyncedItem) => boolean = () => false): SyncedItem[] {
   const index = (list: readonly SyncedItem[]) => new Map(list.map(item => [identity(item), item]));
+  const reconfirmed = (item: SyncedItem, was: SyncedItem) => item.origin === "auto" && item.lastConfirmedAt > was.lastConfirmedAt && !unwanted(item);
   const before = index(base ?? []);
   const theirs = index(remote);
   const result: SyncedItem[] = [];
@@ -192,8 +197,8 @@ export function mergeItems(base: readonly SyncedItem[] | undefined, local: reado
     const other = theirs.get(id);
     const was = before.get(id);
     if (!other) {
-      // Removed on another device, unless it was changed here since.
-      if (!was || statement(was) !== statement(mine)) result.push(mine);
+      // Removed on another device, unless it was changed here since, or confirmed here since by a review.
+      if (!was || statement(was) !== statement(mine) || reconfirmed(mine, was)) result.push(mine);
       continue;
     }
     const winner = statement(mine) === statement(other) || (was && statement(was) === statement(other)) ? mine : other;
@@ -209,8 +214,8 @@ export function mergeItems(base: readonly SyncedItem[] | undefined, local: reado
     if (seen.has(id)) continue;
     seen.add(id);
     const was = before.get(id);
-    // Removed here, unless another device changed it since.
-    if (!was || statement(was) !== statement(other)) result.push(other);
+    // Removed here, unless another device changed it since, or its review confirmed it since.
+    if (!was || statement(was) !== statement(other) || reconfirmed(other, was)) result.push(other);
   }
   return result;
 }
@@ -270,10 +275,12 @@ function mergeLearned(base: Learned | undefined, local: Learned, remote: Learned
   // Not cut short here: dropping a record of a removal would let the habit come back. An overlong list stops the sync instead.
   const suppressed = mergeList(was?.suppressed, local.suppressed, remote.suppressed);
   const declined = mergeList(was?.declined, local.declined, remote.declined, 30);
+  const dismissed = mergeList(was?.dismissed, local.dismissed, remote.dismissed, 60);
   return {
-    generation: remote.generation, suppressed, declined, dismissed: mergeList(was?.dismissed, local.dismissed, remote.dismissed, 60),
-    // A removal always wins: no device learns again, or keeps, what its author took out.
-    items: mergeItems(was?.items, local.items, remote.items)
+    generation: remote.generation, suppressed, declined, dismissed,
+    // A removal its author made always wins: no device learns again, or keeps, what was taken out on purpose.
+    items: mergeItems(was?.items, local.items, remote.items, item => Boolean(item.key) && (suppressed.includes(item.key!) || dismissed.includes(`add:${item.key}:${item.value}`)
+      || (item.basis === "summary" && declined.includes(item.text))))
       .filter(item => item.origin !== "auto" || !item.key || (!suppressed.includes(item.key) && !(item.basis === "summary" && declined.includes(item.text)))),
     // With no history in common (a copy that replaced a lost one), what this device carried for others is kept next to theirs.
     opaque: was ? remote.opaque : [...new Map([...remote.opaque, ...local.opaque].map(entry => [JSON.stringify(entry), entry])).values()].slice(0, MAX_OPAQUE_ITEMS),
