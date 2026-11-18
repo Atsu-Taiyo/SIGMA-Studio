@@ -387,6 +387,19 @@ describe("account sync of the learned writing style", () => {
     expect(stored("user-2")).toContain(PLAIN_MEMO);
   });
 
+  it("belongs to the first account from the first run on, even when that run stops halfway", async () => {
+    let user = "user-1";
+    const a = await device("ws-a", { user: () => user });
+    await a.store.saveProfile({ workspaceId: null, content: "一人目のメモ。", expectedRevision: (await a.store.getProfile(null)).revision });
+    // The very first sync fails after signing in.
+    cloud.state.offline = true;
+    expect((await a.store.syncNow(null)).sync.state).toBe("error");
+    cloud.state.offline = false;
+    user = "user-2";
+    expect((await a.store.syncNow(null)).sync.state).toBe("other-account");
+    expect(stored("user-2")).not.toContain("一人目のメモ。");
+  });
+
   it("deletes the account's copy on request and leaves the device's files", async () => {
     const a = await device("ws-a", { documents: { f1: written(...PLAIN) } });
     await a.store.reviewNow("ws-a");

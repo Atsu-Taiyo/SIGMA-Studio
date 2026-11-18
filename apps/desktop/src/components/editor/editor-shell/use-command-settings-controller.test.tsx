@@ -35,5 +35,12 @@ it("takes up settings another device changed, and does not bring removed command
     expect(current.customCommands).toEqual([]);
     expect(current.shortcutOverrides).toEqual({ "edit.undo": { primary: true, key: "y" } });
     expect(setCommandConfig).toHaveBeenLastCalledWith({ commandShortcuts: { "edit.undo": { primary: true, key: "y" } }, customCommands: [] });
+    // The old storage has done its job once the settings file holds the settings: a restart must not bring it back.
+    expect(localStorage.getItem(EDITOR_CUSTOM_COMMANDS_STORAGE_KEY)).toBeNull();
+    await act(async () => root.unmount());
+    const again = createRoot(host);
+    await act(async () => again.render(<Probe />));
+    expect(current.customCommands).toEqual([]);
+    await act(async () => again.unmount());
   } finally { await act(async () => root.unmount()); }
 });

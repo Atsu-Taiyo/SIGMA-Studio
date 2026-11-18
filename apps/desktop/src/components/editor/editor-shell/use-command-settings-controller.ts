@@ -70,7 +70,12 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
         commandShortcuts: Object.keys(shortcutOverrides).length > 0 ? shortcutOverrides : null,
         customCommands,
       }).then((result) => {
-        if (!cancelled && !result.ok) {
+        if (result.ok) {
+          // 設定ファイルに入ったので、旧保存先は役目を終えた。残しておくと、最後の1件を消した後
+          // (設定ファイルから項目ごと消える) の次の起動で、古い内容が戻ってきてしまう。
+          saveEditorShortcutOverrides({});
+          saveEditorCustomCommands([]);
+        } else if (!cancelled) {
           setCommandSettingsError(result.error ?? tEditor("status.shortcutsSaveFailed"));
         }
       }).catch(() => {

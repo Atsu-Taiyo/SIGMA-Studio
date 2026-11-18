@@ -546,7 +546,12 @@ export class AuthoringStyleSync {
     if (!start.enabled || (start.account && start.account !== hash(userId))) return;
     // Nothing is sent, or asked for, on an account whose plan does not include sync.
     if (!await this.askPlan(userId)) throw new SyncProblem("pro-required");
-    this.alive(run);
+    // These files are this account's from here on, before anything is merged: should the run stop halfway,
+    // another account signing in later is asked first instead of being merged with what this one left behind.
+    await this.host.exclusive(async () => {
+      const state = await this.current(run);
+      if (!state.account) await this.write({ ...state, account: hash(userId) });
+    });
     await this.scope(GLOBAL_KEY, null, run);
     for (const part of this.host.parts ?? []) await this.part(part, run);
     // A shared workspace is the same one on every device: the server's id for it is the key.
