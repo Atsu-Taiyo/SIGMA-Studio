@@ -1064,6 +1064,36 @@ describe("account sync of the learned writing style", () => {
         expect((workspaceCopy().content as { vouchers: Record<string, string[]> }).vouchers[U3]).toBeUndefined();
       });
 
+      it("keeps what one account approved and then deleted somebody else's for the next account that steps back to it", async () => {
+        const a = await device("ws-a", { user: () => U1 });
+        const own = await a.store.getProfile("ws-a");
+        await a.store.saveLearned({ workspaceId: "ws-a", content: "- 答えは最後にまとめて書く。\n", expectedRevision: own.generatedRevision });
+        await a.store.syncNow(null);
+        let user = U2;
+        const b = await device("ws-b", { user: () => user });
+        const received = await b.store.syncNow("ws-b");
+        await b.store.resolveMemberEntries({ workspaceId: "ws-b", ids: received.memberEntries.map(entry => entry.id), approve: true });
+        expect(await b.given()).toContain("答えは最後にまとめて書く。");
+        const approved = await b.store.getProfile("ws-b");
+        await b.store.saveLearned({ workspaceId: "ws-b", content: approved.generatedContent.replace("- 答えは最後にまとめて書く。\n", ""), expectedRevision: approved.generatedRevision });
+        await b.store.syncNow(null);
+        // For the account that approved it, stepping back brings back a line it stands behind.
+        expect((await b.store.undo("ws-b")).memberEntries).toEqual([]);
+        expect(await b.given()).toContain("答えは最後にまとめて書く。");
+        await b.store.undo("ws-b");
+        await b.store.syncNow(null);
+        // Another account signs in and steps back to it.
+        user = U3;
+        const back = await b.store.undo("ws-b");
+        expect(back.generatedContent).toContain("答えは最後にまとめて書く。");
+        expect(back.memberEntries.map(entry => entry.text)).toEqual(["答えは最後にまとめて書く。"]);
+        expect(await b.given()).not.toContain("答えは最後にまとめて書く。");
+        const relinked = await b.store.relinkSync("ws-b");
+        expect(relinked.memberEntries.map(entry => entry.text)).toEqual(["答えは最後にまとめて書く。"]);
+        expect(await b.given()).not.toContain("答えは最後にまとめて書く。");
+        expect((workspaceCopy().content as { vouchers: Record<string, string[]> }).vouchers[U3]).toBeUndefined();
+      });
+
       it("cannot be vouched for in another member's name: the server refuses the copy", async () => {
         const { a, b } = await two();
         await b.store.syncNow(null);

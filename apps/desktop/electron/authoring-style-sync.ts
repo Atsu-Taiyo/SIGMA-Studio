@@ -940,7 +940,10 @@ export class AuthoringStyleSync {
         // somebody else's, not as this member's. Only when the list is full does what is gone make room.
         const kept = [...new Set([...waiting, ...[...present].filter(m => !mineNow.has(m))])].filter(m => !mineNow.has(m));
         const foreign = kept.length <= MAX_FOREIGN ? kept : [...kept.filter(m => !present.has(m)).slice(-Math.max(0, MAX_FOREIGN - present.size)), ...kept.filter(m => present.has(m))];
-        const nextTrust: StyleTrust = { known: true, account: hash(run.userId), vouched, foreign, declined: trust.declined.filter(m => foreign.includes(m)) };
+        // What this account stood behind stays on record when it is gone, as what waits does: brought back by
+        // stepping back, it is this account's still, and another account's to approve should one sign in here.
+        const gone = theirRecord ? [] : trust.vouched.filter(m => !present.has(m) && !foreign.includes(m)).slice(-MAX_FOREIGN);
+        const nextTrust: StyleTrust = { known: true, account: hash(run.userId), vouched: [...gone, ...vouched], foreign, declined: trust.declined.filter(m => foreign.includes(m)) };
         result.vouchers = Object.fromEntries([
           // The others' lists as they stand, less what is gone. Nothing is ever added to them here.
           ...Object.entries(remoteCopy?.vouchers ?? {}).filter(([account]) => account !== me).map(([account, list]) => [account, list.filter(m => present.has(m))] as const).filter(([, list]) => list.length),
