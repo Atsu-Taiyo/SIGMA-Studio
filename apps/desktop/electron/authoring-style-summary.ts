@@ -5,7 +5,11 @@ import { isSuspicious } from "./authoring-style-scan";
 
 export type SummarySection = "style" | "procedure" | "structure" | "tex";
 /** `rewrite` and `remove` name, by number, habits an earlier summary suggested: the AI may reword or withdraw its own. */
-export interface SummaryReply { add: { section: SummarySection; text: string }[]; confirm: number[]; rewrite: { number: number; text: string }[]; remove: number[] }
+export interface SummaryReply {
+  add: { section: SummarySection; text: string }[]; confirm: number[]; rewrite: { number: number; text: string }[]; remove: number[];
+  /** Earlier suggestions the AI tried to reword in a way that did not pass the checks. They stay as they are: not reworded, and not taken for abandoned. */
+  kept: number[];
+}
 
 export interface SummaryInput {
   locale: AppLocale;
@@ -125,13 +129,16 @@ export function parseSummaryReply(raw: string, input: Pick<SummaryInput, "sample
   const confirm = numbers(data.confirm);
   // A new wording passes the same checks as a new sentence. One that does not is dropped, and the old sentence stays.
   const rewrite: SummaryReply["rewrite"] = [];
+  const kept: number[] = [];
   for (const entry of Array.isArray(data.rewrite) ? data.rewrite : []) {
     const { number, text } = (entry ?? {}) as { number?: unknown; text?: unknown };
-    if (rewrite.length === MAX_SUMMARY_REVISIONS || typeof text !== "string" || !numbers([number]).length) continue;
-    const sentence = text.trim();
-    if (!acceptable(sentence) || confirm.includes(number as number) || rewrite.some(r => r.number === number || r.text === sentence) || add.some(a => a.text === sentence)) continue;
-    rewrite.push({ number: number as number, text: sentence });
+    if (!numbers([number]).length) continue;
+    const sentence = typeof text === "string" ? text.trim() : "";
+    if (rewrite.length < MAX_SUMMARY_REVISIONS && acceptable(sentence) && !confirm.includes(number as number) && !rewrite.some(r => r.number === number || r.text === sentence) && !add.some(a => a.text === sentence)) {
+      rewrite.push({ number: number as number, text: sentence });
+    } else if (!kept.includes(number as number)) kept.push(number as number);
   }
-  const remove = numbers(data.remove).filter(n => !confirm.includes(n) && !rewrite.some(r => r.number === n)).slice(0, MAX_SUMMARY_REVISIONS);
-  return { add, confirm, rewrite, remove };
+  // Naming a suggestion for rewording is not withdrawing it, whatever became of the new wording.
+  const remove = numbers(data.remove).filter(n => !confirm.includes(n) && !kept.includes(n) && !rewrite.some(r => r.number === n)).slice(0, MAX_SUMMARY_REVISIONS);
+  return { add, confirm, rewrite, remove, kept: kept.filter(n => !rewrite.some(r => r.number === n)) };
 }

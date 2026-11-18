@@ -800,6 +800,8 @@ export class AuthoringStyleSync {
         dismissed: rebased.dismissed, declined: rebased.declined, pending: step.pending.filter(p => !rebased.suppressed.includes(p.key)) };
     });
     Object.assign(memory, { items, suppressed: merged.suppressed, dismissed: merged.dismissed, declined: merged.declined } satisfies Partial<StyleMemory>);
+    // Nor can a change the review made before a reset be put back after it.
+    if (reset) memory.applied = [];
     // A staged change whose habit is gone, or already there, has nothing left to decide. Nor has one staged before a reset.
     memory.pending = reset ? [] : memory.pending.filter(p => !merged.suppressed.includes(p.key) && (p.kind !== "add" || !items.some(item => item.key === p.key)));
     await files.writeLedger(workspaceId, reset ? merged.ledger : mergeLedger(await files.ledgerLines(workspaceId), merged.ledger));

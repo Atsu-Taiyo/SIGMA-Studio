@@ -23,6 +23,8 @@ export const BOX_CATEGORIES = ["definition", "theorem", "point", "example", "sum
 export const LAYOUT_KINDS = ["heading", "text", "list", "quote", "code", "divider", "problem", "columns", "box"] as const;
 const HEADING_SYMBOLS = "■□◆◇●○◎▼▶★☆";
 export const MAX_SEQUENCE_KINDS = 6;
+/** Blocks that may come before a repeated unit: a title, a subtitle, a box of formulas. */
+export const MAX_SEQUENCE_LEAD = 3;
 export const MAX_OUTLINE_LENGTH = 300;
 /** Space under a problem that is room to write in, not just a gap between blocks. */
 const ANSWER_SPACE_AFTER_PX = 40;
@@ -85,12 +87,12 @@ const match = (table: readonly (readonly [RegExp, string])[], text: string) => t
 
 /**
  * The order of block kinds, with runs of one kind counted once. A sequence that repeats a unit is written
- * as that unit in brackets, after up to two blocks that lead in. Undefined when there is no such order to name.
+ * as that unit in brackets, after the few blocks that lead in. Undefined when there is no such order to name.
  */
 export function sequenceOf(kinds: readonly string[]): string | undefined {
   const runs = kinds.filter((kind, index) => kind !== kinds[index - 1]);
   if (runs.length < 2) return undefined;
-  for (let lead = 0; lead <= 2; lead++) {
+  for (let lead = 0; lead <= MAX_SEQUENCE_LEAD; lead++) {
     const rest = runs.slice(lead);
     for (let size = 2; size <= 4; size++) {
       if (rest.length >= size * 2 && rest.length % size === 0 && rest.every((kind, index) => kind === rest[index % size])) {

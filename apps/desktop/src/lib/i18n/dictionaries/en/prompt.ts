@@ -22,7 +22,7 @@ export const prompt = {
       layout: {
         problemNumber: { none: "Do not give problems an automatic number.", fullwidth: "Number problems with full-width digits." },
         problemLabel: "Begin a problem with a label of the form \"{{value}}\".",
-        problemLabels: { daimon: "第1問", mon: "問1", bracket: "【1】", square: "[1]", reidai: "例題", renshu: "練習", dot: "1." },
+        problemLabels: { daimon: "dai-1-mon (Question 1)", mon: "toi-1 (Q1)", bracket: "a number in lenticular brackets", square: "[1]", reidai: "reidai (worked example)", renshu: "renshu (exercise)", dot: "1." },
         problemFrame: "Put a frame around each problem (frame style {{value}}).",
         problemLead: { filled: "Write a lead line (the line beside the number) for each problem.", hidden: "Do not use the lead line of a problem; start from the problem text." },
         comment: {
@@ -39,14 +39,14 @@ export const prompt = {
         boxTitle: { titled: "Give each box a title.", untitled: "Do not give boxes a title." },
         boxSubtitle: { filled: "Add a subtitle next to the title of a box." },
         headingNumber: {
-          chapter: "Begin headings in the form 第1章.",
-          section: "Begin headings in the form 第1節.",
-          sign: "Begin headings in the form §1.",
+          chapter: "Begin headings in the form dai-1-sho (Chapter 1).",
+          section: "Begin headings in the form dai-1-setsu (Section 1).",
+          sign: "Begin headings with a section sign and a number.",
           nested: "Begin headings with a nested number such as 1.1.",
           dot: "Begin headings with a number of the form 1.",
           paren: "Begin headings with a number of the form (1).",
-          bracket: "Write headings inside 【 】.",
-          symbol: "Begin headings with a mark such as ■.",
+          bracket: "Write headings inside lenticular brackets.",
+          symbol: "Begin headings with a mark such as a filled square.",
         },
         headingDepth: "Use headings down to level {{value}}.",
         headingAlign: { center: "Center headings.", right: "Align headings to the right." },

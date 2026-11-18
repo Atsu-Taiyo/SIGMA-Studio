@@ -78,7 +78,7 @@ export interface AppliedChange {
 }
 export const MAX_APPLIED = 20;
 
-interface UndoSnapshot { at: string; reason: string; items: StyleItem[]; suppressed: string[]; pending: PendingChange[]; dismissed: string[]; declined?: string[] }
+interface UndoSnapshot { at: string; reason: string; items: StyleItem[]; suppressed: string[]; pending: PendingChange[]; dismissed: string[]; declined?: string[]; applied?: AppliedChange[] }
 
 export interface StyleMemory {
   version: 2;
@@ -157,7 +157,7 @@ export function renderMemo(memory: Pick<StyleMemory, "items">, locale: AppLocale
 }
 
 export function snapshotForUndo(memory: StyleMemory, reason: string, at: string): void {
-  memory.undo.push(structuredClone({ at, reason, items: memory.items, suppressed: memory.suppressed, pending: memory.pending, dismissed: memory.dismissed, declined: memory.declined }));
+  memory.undo.push(structuredClone({ at, reason, items: memory.items, suppressed: memory.suppressed, pending: memory.pending, dismissed: memory.dismissed, declined: memory.declined, applied: memory.applied }));
   memory.undo = memory.undo.slice(-MAX_UNDO);
 }
 
@@ -225,6 +225,7 @@ function parseMemory(text: string, locale: AppLocale): StyleMemory {
       at: String(u?.at ?? ""), reason: String(u?.reason ?? ""), items: items(Array.isArray(u?.items) ? u.items : []),
       suppressed: strings(u?.suppressed, 100), pending: pending(Array.isArray(u?.pending) ? u.pending : []), dismissed: strings(u?.dismissed, 60),
       ...(Array.isArray(u?.declined) ? { declined: strings(u.declined, MAX_DECLINED).filter(text => text.length <= 200) } : {}),
+      ...(Array.isArray(u?.applied) ? { applied: applied(u.applied) } : {}),
     })),
     applied: applied(data.applied),
     renderedHash: typeof data.renderedHash === "string" ? data.renderedHash : styleHash(""),
@@ -471,7 +472,7 @@ export class AuthoringStyleMemory {
     const memory = await this.load(workspaceId, locale, now);
     const previous = memory.undo.pop();
     if (!previous) throw new Error("Nothing to undo");
-    const current = structuredClone({ at: now.toISOString(), reason: "rollback", items: memory.items, suppressed: memory.suppressed, pending: memory.pending, dismissed: memory.dismissed, declined: memory.declined });
+    const current = structuredClone({ at: now.toISOString(), reason: "rollback", items: memory.items, suppressed: memory.suppressed, pending: memory.pending, dismissed: memory.dismissed, declined: memory.declined, applied: memory.applied });
     // Taking back what the AI added tells it not to suggest the sentence again; redoing lifts that.
     const texts = (items: readonly StyleItem[]) => items.filter(isSuggestion).map(i => i.text);
     const restored = new Set(texts(previous.items));
@@ -487,6 +488,8 @@ export class AuthoringStyleMemory {
     ];
     Object.assign(memory, { items: previous.items, suppressed: previous.suppressed, pending: previous.pending,
       dismissed: [...previous.dismissed.filter(entry => !takenBack.includes(entry)), ...takenBack].slice(-60) });
+    // Which changes can be put back one by one goes back with the memo they belong to.
+    if (previous.applied) memory.applied = previous.applied;
     memory.undo.push(current);
     await this.commit(workspaceId, memory, [{ actor: "user", action: "rollback", before: previous.reason }]);
     return memory;
@@ -494,7 +497,8 @@ export class AuthoringStyleMemory {
 
   /** The changes the review made by itself that can still be put back: the memo still stands as they left it. */
   revertible(memory: StyleMemory): AppliedChange[] {
-    return memory.applied.filter(change => change.kind === "remove" ? !memory.items.some(i => i.key === change.before.key)
+    // A habit somebody has since deleted by hand is not brought back by way of an older change.
+    return memory.applied.filter(change => !memory.suppressed.includes(change.before.key!)).filter(change => change.kind === "remove" ? !memory.items.some(i => i.key === change.before.key)
       : memory.items.some(i => i.origin === "auto" && i.key === change.key && i.value === change.value) && (change.key === change.before.key || !memory.items.some(i => i.key === change.before.key)));
   }
 
@@ -516,7 +520,6 @@ export class AuthoringStyleMemory {
     snapshotForUndo(memory, "revert", now.toISOString());
     memory.items = next;
     memory.applied = memory.applied.filter(c => c !== change);
-    memory.suppressed = memory.suppressed.filter(key => key !== change.before.key);
     memory.dismissed = [...memory.dismissed, `${change.kind}:${change.before.key}:${change.value}`].slice(-60);
     // The AI's new wording goes the way of a suggestion its author turned down: it is not suggested again.
     if (current && isSuggestion(current)) memory.declined = [...memory.declined.filter(sentence => sentence !== current.text), current.text].slice(-MAX_DECLINED);

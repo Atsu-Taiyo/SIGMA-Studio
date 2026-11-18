@@ -357,6 +357,28 @@ describe("account sync of the learned writing style", () => {
     expect(await b.memo()).toBe("");
   });
 
+  it("does not let a change the review made before a reset be put back after it", async () => {
+    const document = written(...PLAIN);
+    const a = await device("ws-a", { documents: { f1: document } });
+    await a.store.reviewNow("ws-a");
+    await a.store.setSync(null, true);
+    const b = await device("ws-b");
+    await b.store.setSync(null, true);
+    // The habit is no longer seen on the first device, and its review takes it out by itself.
+    document.content = written("別の話題のメモ").content;
+    now = new Date("2027-01-10T00:00:00Z");
+    expect((await a.store.reviewNow("ws-a")).autoChanges).toMatchObject([{ kind: "remove", before: PLAIN_MEMO }]);
+    await a.store.syncNow(null);
+    // The other device resets the workspace's style. What was removed before that is gone for good.
+    await b.store.syncNow(null);
+    await b.store.reset("ws-b");
+    await b.store.syncNow(null);
+    const profile = await a.store.syncNow("ws-a");
+    expect(profile.autoChanges).toEqual([]);
+    expect(profile.canUndo).toBe(false);
+    expect(await a.memo()).toBe("");
+  });
+
   it("keeps what another device added when the last local change is undone", async () => {
     const a = await device("ws-a", { documents: { f1: written(...PLAIN) } });
     const b = await device("ws-b");

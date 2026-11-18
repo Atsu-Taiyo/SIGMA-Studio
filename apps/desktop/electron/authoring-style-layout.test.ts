@@ -71,6 +71,11 @@ describe("how a document is laid out", () => {
     expect(sequenceOf(["heading", "box", "problem", "problem", "problem"])).toBe("heading>box>problem");
     expect(sequenceOf(["heading", "text", "problem", "text", "problem", "text", "problem"])).toBe("heading>(text>problem)");
     expect(sequenceOf(["box", "problem", "box", "problem"])).toBe("(box>problem)");
+    // A title, a subtitle and a box of formulas may lead in to the unit that repeats.
+    expect(sequenceOf(["heading", "text", "box", "problem", "box", "problem", "box"])).toBe("heading>text>box>(problem>box)");
+    expect(sequenceOf(["heading", "text", "box", "list", "problem", "box", "problem", "box"])).toBeUndefined();
+    expect(itemText("layout.sequence", "heading>text>box>(problem>box)", "ja")).toBe("教材のブロックは「見出し → 本文 → 枠囲み → 〔問題 → 枠囲み〕の繰り返し」の順に並べる。");
+    expect(itemText("layout.sequence", "heading>text>box>list>(problem>box)", "ja")).toBeNull();
     expect(sequenceOf(["problem", "problem"])).toBeUndefined();
     expect(sequenceOf(["heading", "text", "box", "list", "problem", "quote", "code", "text"])).toBeUndefined();
     const document = doc([h("t", 1, "確認テスト"), p("blank", ""), box("b", "fancybox", "注意", [p("bp", "時間は10分。")]), problem("q1", { prompt: [p("q1p", "解け。")] }), problem("q2", { prompt: [p("q2p", "示せ。")] })],

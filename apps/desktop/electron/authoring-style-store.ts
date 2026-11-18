@@ -42,8 +42,8 @@ export const MAX_SUMMARY_SAMPLE_CHARACTERS = 6000;
 const MAX_SUMMARY_EXCERPT = 300;
 const MIN_SUMMARY_SAMPLE_CHARACTERS = 400;
 const MAX_SUMMARY_CORRECTIONS = 6;
-/** The learned memo as placed in a request: all of it, with room for what encoding adds. */
-const MAX_PROMPT_MEMO_LENGTH = AUTHORING_STYLE_LEARNED_LIMIT + 400;
+/** The learned memo as placed in a request: all of it. Encoding can double it (every `\\` of a TeX command, every line break). */
+const MAX_PROMPT_MEMO_LENGTH = AUTHORING_STYLE_LEARNED_LIMIT * 2 + 400;
 /** An unattended summary is asked for at most this often per workspace. */
 const SUMMARY_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const REVIEW_IDLE_MS = 15_000;
@@ -457,13 +457,13 @@ export class LocalAuthoringStyleStore {
       const memory = await this.memory.load(workspaceId, getAppLocale(), now);
       const planned = planReview(memory, mergeObservations(observeWriting(units), observeCorrections(examples)),
         // A pass that did not see every document it was due to read changes nothing by itself that it cannot be sure of.
-        { now, locale: memory.locale, eligibleFiles, keptSinceLastReview: counters.kept > 0, autoApply: await this.autoApply(workspaceId) && !unread && !this.sharedListFailed });
+        { now, locale: memory.locale, eligibleFiles, keptSinceLastReview: counters.kept > 0, autoApply: await this.autoApply(workspaceId), complete: !unread && !this.sharedListFailed });
       memory.lastReviewedAt = now.toISOString();
       memory.reviewedDocuments = reviewed;
       await this.memory.commit(workspaceId, memory, planned.entries);
       outcomes.counters[workspaceId] = { ...emptyCounters(), reviewedAt: now.toISOString(), ...(start.signature !== null && !unread ? { shared: start.signature } : {}) };
       await this.writeOutcomes(outcomes);
-      return this.summaryRequest(workspaceId, memory, authored, examples, eligibleFiles, requested, now);
+      return this.summaryRequest(workspaceId, memory, authored, examples, eligibleFiles, requested, now, !unread && !this.sharedListFailed);
     });
     this.sync.soon();
     if (!summary) return;
@@ -481,7 +481,7 @@ export class LocalAuthoringStyleStore {
       if (!sources.length) return;
       const now = this.now();
       const memory = await this.memory.load(workspaceId, getAppLocale(), now);
-      const planned = planSummary(memory, reply, summary.candidates, { now, locale: memory.locale, sources, autoApply: summary.input.revise === true && await this.autoApply(workspaceId) });
+      const planned = planSummary(memory, reply, summary.candidates, { now, locale: memory.locale, sources, autoApply: await this.autoApply(workspaceId), complete: summary.input.revise === true });
       memory.summary = { hash: summary.hash, at: now.toISOString() };
       await this.memory.commit(workspaceId, memory, planned.entries);
     });
@@ -494,7 +494,7 @@ export class LocalAuthoringStyleStore {
    * and only to the provider the author last used.
    */
   private async summaryRequest(workspaceId: string, memory: StyleMemory, authored: readonly { fileId: string; texts: string[]; outline: string }[],
-    examples: readonly StyleExample[], eligibleFiles: ReadonlySet<string> | null, requested: boolean, now: Date) {
+    examples: readonly StyleExample[], eligibleFiles: ReadonlySet<string> | null, requested: boolean, now: Date, complete: boolean) {
     if (!this.options.summarize || !await this.memory.aiSummary(null) || !await this.memory.aiSummary(workspaceId)) return null;
     const provider = await this.lastProvider();
     if (!provider) return null;
@@ -537,7 +537,8 @@ export class LocalAuthoringStyleStore {
       locale: memory.locale, sample, corrections,
       existing: scanLines(usable.map(i => i.text.replace(/^- /, "")).join("\n")).text.split("\n").filter(Boolean),
       candidates: suggested.map(i => i.text), declined: memory.declined.filter(isSummaryText).filter(sentence => !waiting.marks.has(declinedMark(sentence))),
-      outlines, revise: await this.autoApply(workspaceId),
+      // As for the counting pass: what was read is not everything, so the AI is not asked to change what is there.
+      outlines, revise: complete && await this.autoApply(workspaceId),
     };
     return { provider, input, hash, sources, candidates: suggested.map(i => i.key!) };
   }

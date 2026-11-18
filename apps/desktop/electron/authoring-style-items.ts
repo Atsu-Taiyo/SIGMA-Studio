@@ -1,6 +1,6 @@
 import type { AuthoringStyleSection } from "@/lib/ai/authoring-style";
 import { createTranslator, type AppLocale } from "@/lib/i18n";
-import { BOX_CATEGORIES, BOX_STYLE_IDS, LAYOUT_KINDS, MAX_SEQUENCE_KINDS, PROBLEM_FRAME_IDS } from "./authoring-style-layout";
+import { BOX_CATEGORIES, BOX_STYLE_IDS, LAYOUT_KINDS, MAX_SEQUENCE_KINDS, MAX_SEQUENCE_LEAD, PROBLEM_FRAME_IDS } from "./authoring-style-layout";
 import { summaryText } from "./authoring-style-summary";
 
 type Loose = (key: string, options?: Record<string, unknown>) => string;
@@ -53,11 +53,11 @@ const PAGE_SIZE = /^(A4|A3|B5|B4)-(portrait|landscape)$/;
 
 /** The order of blocks in words, or null when the value is not one `sequenceOf` makes. */
 function sequenceText(value: string, t: Loose): string | null {
-  const [, lead = "", repeated, rest] = value.match(/^((?:[a-z]+>){0,2})\(([a-z>]+)\)$|^([a-z>]+)$/) ?? [];
+  const [, lead = "", repeated, rest] = value.match(/^((?:[a-z]+>)*)\(([a-z>]+)\)$|^([a-z>]+)$/) ?? [];
   const names = (part: string) => part.split(">").filter(Boolean);
   const kinds = [...names(lead), ...names(repeated ?? rest ?? "")];
   const whole = repeated ? `${lead}${repeated}` : rest;
-  if (!whole || kinds.length < 2 || kinds.length > MAX_SEQUENCE_KINDS || whole !== kinds.join(">") || kinds.some(kind => !(LAYOUT_KINDS as readonly string[]).includes(kind))) return null;
+  if (!whole || kinds.length < 2 || kinds.length > MAX_SEQUENCE_KINDS + 1 || names(lead).length > MAX_SEQUENCE_LEAD || (!repeated && kinds.length > MAX_SEQUENCE_KINDS) || whole !== kinds.join(">") || kinds.some(kind => !(LAYOUT_KINDS as readonly string[]).includes(kind))) return null;
   const words = (list: string[]) => list.map(kind => t(`authoringStyle.memo.layout.kinds.${kind}`)).join(" → ");
   const order = repeated ? [...(lead ? [words(names(lead))] : []), t("authoringStyle.memo.layout.sequenceRepeat", { value: words(names(repeated)) })].join(" → ") : words(kinds);
   return t("authoringStyle.memo.layout.sequence", { value: order, interpolation: { escapeValue: false } });

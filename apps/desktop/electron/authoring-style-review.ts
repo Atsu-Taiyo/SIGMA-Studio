@@ -17,11 +17,13 @@ export interface ReviewContext {
   eligibleFiles: ReadonlySet<string> | null;
   /** Accepted AI text survived a later editing session since the previous review. */
   keptSinceLastReview: boolean;
-  /**
-   * Rewrite and remove automatic habits without asking. False when the user turned that off, or when this
-   * pass did not see everything it should have (a document could not be read): such changes are then only staged.
-   */
+  /** The user's switch: rewrite and remove automatic habits without asking. Off: such changes are only staged. */
   autoApply: boolean;
+  /**
+   * This pass saw everything it should have. When it did not (a document or the list of shared documents could
+   * not be read), it changes nothing by itself that it cannot be sure of: rewrites and removals are only staged.
+   */
+  complete: boolean;
 }
 
 export interface ReviewResult { added: number; staged: number; rewritten: number; removed: number; entries: LedgerDraft[] }
@@ -35,8 +37,9 @@ type Evidence = Pick<StyleItem, "support" | "documents" | "sources"> & { basis: 
  * With `autoApply` off, rewriting and removing are only staged for the user, as is adding past the size limit.
  * Lines the user wrote are never touched, and neither are the notes.
  */
-function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "locale" | "autoApply">) {
+function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "locale" | "autoApply" | "complete">) {
   const now = context.now.toISOString();
+  const apply = context.autoApply && context.complete;
   const result: ReviewResult = { added: 0, staged: 0, rewritten: 0, removed: 0, entries: [] };
   let snapshotTaken = false;
   const touch = () => { if (!snapshotTaken) snapshotForUndo(memory, "review", now); snapshotTaken = true; };
@@ -89,7 +92,7 @@ function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "l
     if (item.origin !== "auto" || !item.key || memory.dismissed.includes(`rewrite:${item.key}:${next.value}`)) return false;
     const changed: StyleItem = { ...item, ...evidence, id: `auto:${next.key}`, key: next.key, value: next.value, section: sectionOf(next.key), text: next.text, lastConfirmedAt: now };
     const fits = renderMemo({ items: memory.items.map(i => i === item ? changed : i) }, context.locale).length <= AUTHORING_STYLE_LEARNED_LIMIT;
-    if (!context.autoApply || !fits) {
+    if (!apply || !fits) {
       // A sentence of the AI's has no staged form: with automatic changes off it is simply left as it is.
       if (next.key === item.key) stage({ id: `rewrite:${item.key}`, kind: "rewrite", reason: "contradicted", key: item.key, value: next.value, expectedText: item.text, ...evidence, createdAt: now });
       return false;
@@ -105,7 +108,7 @@ function unattended(memory: StyleMemory, context: Pick<ReviewContext, "now" | "l
   /** Take an automatic habit out. It is not suppressed: evidence that comes back brings it back. */
   const remove = (item: StyleItem, reason: AppliedChange["reason"]): boolean => {
     if (item.origin !== "auto" || !item.key || memory.dismissed.includes(`remove:${item.key}:${item.value}`)) return false;
-    if (!context.autoApply) {
+    if (!apply) {
       if (reason !== "summary") stage({ id: `remove:${item.key}`, kind: "remove", reason: reason === "stale" ? "stale" : "contradicted", key: item.key, value: item.value, expectedText: item.text,
         basis: item.basis ?? "writing", support: item.support, documents: item.documents, sources: item.sources, createdAt: now });
       return false;
@@ -170,11 +173,11 @@ export function planReview(memory: StyleMemory, observations: readonly Observati
  * request, is recorded in the ledger as the AI's doing, and can be taken back.
  */
 export function planSummary(memory: StyleMemory, reply: SummaryReply, candidates: readonly string[],
-  context: Pick<ReviewContext, "now" | "locale" | "autoApply"> & { sources: readonly string[] }): ReviewResult {
+  context: Pick<ReviewContext, "now" | "locale" | "autoApply" | "complete"> & { sources: readonly string[] }): ReviewResult {
   const pass = unattended(memory, context);
   const evidence: Evidence = { basis: "summary", support: context.sources.length, documents: context.sources.length, sources: context.sources.slice(0, 8) };
   const suggested = (number: number) => memory.items.find(i => i.origin === "auto" && i.basis === "summary" && i.key === candidates[number - 1]);
-  const settled = new Set<number>();
+  const settled = new Set<number>(reply.kept);
   for (const number of reply.confirm) {
     const item = suggested(number);
     if (item) { pass.confirm(item, evidence); settled.add(number); }
@@ -194,8 +197,9 @@ export function planSummary(memory: StyleMemory, reply: SummaryReply, candidates
     const item = suggested(number);
     if (item && !settled.has(number)) { settled.add(number); pass.remove(item, "summary"); }
   }
-  // Asked about again and not stood by, for long enough: the suggestion has gone stale.
-  candidates.forEach((_, index) => {
+  // Asked about again and not stood by, for long enough: the suggestion has gone stale. (With automatic changes
+  // off, the counting pass has already staged its removal.)
+  if (context.autoApply && context.complete) candidates.forEach((_, index) => {
     const item = suggested(index + 1);
     if (item && !settled.has(index + 1) && context.now.getTime() - Date.parse(item.lastConfirmedAt) > STALE_AFTER_MS) pass.remove(item, "stale");
   });
