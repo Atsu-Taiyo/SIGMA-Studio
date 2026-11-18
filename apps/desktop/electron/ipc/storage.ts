@@ -41,6 +41,8 @@ export interface RegisterStorageIpcDeps {
    * 判定するために使う。承認IPC・revert等ここを通らない保存経路では呼ばない。
    */
   recordRendererSave: (fileId: string) => void;
+  /** 却下されたAI提案の教材。派生データ(書き方の学習)用で、却下処理の成否には関わらない。 */
+  onProposalsRejected?: (fileIds: string[]) => void;
   /** 新しい空の教材に当てる用紙設定 (直前に開いていた教材のもの)。無ければ既定の用紙。 */
   readNewDocumentPageSetup?: () => NewDocumentPageSetup | null;
 }
@@ -62,6 +64,10 @@ export function registerStorageIpc(deps: RegisterStorageIpcDeps): void {
     runPostSaveHooks,
     translate: te,
   });
+
+  const notifyRejected = (proposals: readonly ({ fileId: string } | null | undefined)[]) => {
+    try { deps.onProposalsRejected?.(proposals.flatMap(proposal => proposal ? [proposal.fileId] : [])); } catch { /* derived data only */ }
+  };
 
   ipcMain.handle("storage:initialize-workspace", async (_event, payload: unknown) => {
     try {
@@ -300,6 +306,7 @@ export function registerStorageIpc(deps: RegisterStorageIpcDeps): void {
   ipcMain.handle("storage:reject-mcp-edit-proposal", async (_event, proposalId: string) => {
     try {
       const proposal = await localMcpProposalStore.resolveProposal(proposalId, "rejected", te("electron.proposal.desktopRejected"));
+      notifyRejected([proposal]);
       broadcastLocalStoreChange({ type: "mcpProposal", proposalId, change: "changed", timestamp: Date.now() });
       return { ok: true, proposal };
     } catch (error) {
@@ -324,6 +331,7 @@ export function registerStorageIpc(deps: RegisterStorageIpcDeps): void {
 
     const { rejected, failed } = await localMcpProposalStore.rejectProposals(proposalIds, reason);
     if (rejected.length > 0) {
+      notifyRejected(rejected);
       broadcastLocalStoreChange({
         type: "mcpProposal",
         change: "changed",

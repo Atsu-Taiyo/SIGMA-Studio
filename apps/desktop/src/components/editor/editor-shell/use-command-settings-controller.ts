@@ -3,7 +3,7 @@
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { loadEditorCustomCommands,loadEditorShortcutOverrides,parseEditorCustomCommands,parseEditorShortcutOverrides,saveEditorCustomCommands,saveEditorShortcutOverrides,type EditorCustomCommandDefinition,type EditorShortcutOverrides } from "@/lib/editor-command-shortcuts";
 import { getAppLocale,normalizeLocale,setAppLocale } from "@/lib/i18n";
-import { useCallback,useEffect,useState } from "react";
+import { useCallback,useEffect,useRef,useState } from "react";
 import { tEditor } from "./editor-translations";
 
 export function useCommandSettingsController(setCommandSettingsOpen: (open: boolean) => void, setStatusMessage: (message: string) => void) {
@@ -15,6 +15,9 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
   ));
   const [commandSettingsLoaded, setCommandSettingsLoaded] = useState(() => !getDesktopBridge()?.settings);
   const [commandSettingsError, setCommandSettingsError] = useState<string | null>(null);
+  // いま画面が持っている割り当て。同期の読み直しが、読んでいる間の手元の変更を古い内容で上書きしないために見る。
+  const held = useRef({ shortcutOverrides, customCommands });
+  useEffect(() => { held.current = { shortcutOverrides, customCommands }; }, [shortcutOverrides, customCommands]);
   useEffect(() => {
     const bridge = getDesktopBridge();
     if (!bridge?.settings) {
@@ -22,7 +25,9 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
     }
 
     let canceled = false;
-    void bridge.settings.get().then((settings) => {
+    const load = (synced = false) => {
+      const before = held.current;
+      void bridge.settings!.get().then((settings) => {
       if (canceled) {
         return;
       }
@@ -36,20 +41,38 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
       }
       const storedShortcutOverrides = parseEditorShortcutOverrides(JSON.stringify(settings.commandShortcuts ?? {}));
       const storedCustomCommands = parseEditorCustomCommands(JSON.stringify(settings.customCommands ?? []));
-      const legacyShortcutOverrides = settings.hasCommandShortcuts ? {} : loadEditorShortcutOverrides();
-      const legacyCustomCommands = settings.hasCustomCommands ? [] : loadEditorCustomCommands();
-      setShortcutOverrides(Object.keys(storedShortcutOverrides).length > 0 ? storedShortcutOverrides : legacyShortcutOverrides);
-      setCustomCommands(storedCustomCommands.length > 0 ? storedCustomCommands : legacyCustomCommands);
+      // 旧保存先からの引き継ぎは起動時の1回だけ。同期で空になったものを、古い localStorage で生き返らせない。
+      const legacyShortcutOverrides = synced || settings.hasCommandShortcuts ? {} : loadEditorShortcutOverrides();
+      const legacyCustomCommands = synced || settings.hasCustomCommands ? [] : loadEditorCustomCommands();
+      const nextShortcutOverrides = Object.keys(storedShortcutOverrides).length > 0 ? storedShortcutOverrides : legacyShortcutOverrides;
+      const nextCustomCommands = storedCustomCommands.length > 0 ? storedCustomCommands : legacyCustomCommands;
+      if (synced) {
+        // 読んでいる間にこの画面で割り当てを変えたなら、その変更が新しい。古い読み取りでは上書きしない。
+        if (held.current !== before) {
+          return;
+        }
+        // 変わっていないものは置き直さない (表示言語だけが変わった同期で、割り当てを保存し直さないため)。
+        if (JSON.stringify(nextShortcutOverrides) !== JSON.stringify(before.shortcutOverrides)) setShortcutOverrides(nextShortcutOverrides);
+        if (JSON.stringify(nextCustomCommands) !== JSON.stringify(before.customCommands)) setCustomCommands(nextCustomCommands);
+        return;
+      }
+      setShortcutOverrides(nextShortcutOverrides);
+      setCustomCommands(nextCustomCommands);
       setCommandSettingsError(null);
       setCommandSettingsLoaded(true);
     }).catch(() => {
-      if (!canceled) {
+      if (!canceled && !synced) {
         setCommandSettingsError(tEditor("status.shortcutsLoadFailed"));
       }
     });
+    };
+    load();
+    // アカウントの同期でほかの端末の設定が入ったら、同じ手順で読み直す。
+    const stop = bridge.settings.onSynced?.(() => load(true));
 
     return () => {
       canceled = true;
+      stop?.();
     };
   }, []);
 
@@ -65,7 +88,12 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
         commandShortcuts: Object.keys(shortcutOverrides).length > 0 ? shortcutOverrides : null,
         customCommands,
       }).then((result) => {
-        if (!cancelled && !result.ok) {
+        if (result.ok) {
+          // 設定ファイルに入ったので、旧保存先は役目を終えた。残しておくと、最後の1件を消した後
+          // (設定ファイルから項目ごと消える) の次の起動で、古い内容が戻ってきてしまう。
+          saveEditorShortcutOverrides({});
+          saveEditorCustomCommands([]);
+        } else if (!cancelled) {
           setCommandSettingsError(result.error ?? tEditor("status.shortcutsSaveFailed"));
         }
       }).catch(() => {

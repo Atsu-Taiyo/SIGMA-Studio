@@ -52,6 +52,9 @@ import {
 } from "./desktop-settings";
 import { AUTO_APPLY_DEFER_MS, shouldDeferAutoApply } from "./auto-apply-defer";
 import { LocalSigmaDocStore, type LocalStoreChangeEvent } from "./local-sigma-doc-store";
+import { appSettingsPart } from "./app-settings-sync";
+import { workspaceKey } from "./authoring-style-sync";
+import { LocalAuthoringStyleStore } from "./authoring-style-store";
 import { LocalMaterialStore } from "./local-material-store";
 import { LocalTemplateStore } from "./local-template-store";
 import {
@@ -69,6 +72,8 @@ import { registerTikzIpc } from "./ipc/tikz";
 import { assertUsableCliBinPath } from "./cli-spawn";
 import { registerCodexIpc } from "./ipc/codex";
 import { registerAiEditIpc } from "./ipc/ai-edit";
+import { registerAuthoringStyleIpc } from "./ipc/authoring-style";
+import { runToollessPrompt } from "./ai-skill-draft";
 import { registerAiResourcesIpc } from "./ipc/ai-resources";
 import { registerFileIpc } from "./ipc/file";
 import { ApplicationFontStore } from "./application-font-store";
@@ -193,7 +198,44 @@ let stopLocalStoreWatch: (() => void) | null = null;
 let stopLocalProposalWatch: (() => void) | null = null;
 let stopAiResourceWatch: (() => void) | null = null;
 let stopAiSettingsWatch: (() => void) | null = null;
-const localSigmaDocStore = new LocalSigmaDocStore(USER_DATA_PATH);
+const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH, {
+  // A document bound to a shared one is a stand-in for it: what it holds is not this author's writing alone.
+  listFiles: async () => {
+    const bound = new Set(collaborationSessions.bindings().map(binding => binding.fileId));
+    return (await localSigmaDocStore.listFiles()).filter(file => !bound.has(file.fileId));
+  },
+  loadDocument: fileId => localSigmaDocStore.loadDocument(fileId),
+  // Only shared workspaces are synced, each under the id the server knows it by, as one copy for all members. The others stay on this device.
+  listWorkspaces: async () => {
+    const result = await sharedCatalog.overview();
+    return result.state !== "ready" ? [] : result.overview.workspaces.flatMap(({ id, sharing }) => sharing?.state === "active" && sharing.target.kind === "workspace"
+      // Whoever cannot edit the workspace's documents does not change the style its members share either.
+      // Resetting it for everyone, and the switches that hold for everyone, are for its owner and admins.
+      ? [{ id, key: workspaceKey(sharing.target.catalogNodeId), readOnly: sharing.role === "viewer", manager: sharing.role === "owner" || sharing.role === "admin" }] : []);
+  },
+  // Signed out, loading or offline, the lists below come back empty. That is "cannot tell", not "nothing is shared".
+  sharedCatalogReady: async () => (await sharedCatalog.status()).state === "ready",
+  // A shared workspace's style is learned from all of its documents, whoever wrote them. They are only read.
+  listSharedFiles: async () => (await sharedCatalog.listFiles()).filter(file => file.sharing),
+  loadSharedDocument: fileId => sharedCatalog.preview(fileId, { assets: false }),
+  // Keeps the author's note and the settings in step across a Pro account's devices, and a shared workspace's style across its members.
+  sync: { client: { read: (userId, key, signal) => collaborationSessions.personalData.read(userId, key, signal),
+    write: (userId, key, content, revision, signal) => collaborationSessions.personalData.write(userId, key, content, revision, signal),
+    removeAll: userId => collaborationSessions.personalData.removeAll(userId) }, userId: () => collaborationSessions.actorId(), available: () => Boolean(collaborationSessions.auth),
+    // The same answer the sharing limits and the plan dialog go by. A trial has what Pro has.
+    entitled: async () => ["pro", "trial"].includes((await collaborationSessions.request<{ plan?: string }>("/catalog/capabilities")).plan ?? "") },
+  syncParts: [appSettingsPart(() => SIGMA_STUDIO_DATA_PATH, change => {
+    if (change.uiLocale) { setAppLocale(change.uiLocale); codexAppServerClient.setUiLocale(change.uiLocale); }
+    if (change.aiWebSearchEnabled !== undefined) codexAppServerClient.setWebSearchEnabled(change.aiWebSearchEnabled);
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send("settings:synced");
+  })],
+  // The same tool-less single call the skill editor uses, to the provider the author already uses.
+  summarize: ({ provider, prompt }) => runToollessPrompt(provider, prompt,
+    { claude: claudeStreamClient, geminiSkillDraft: geminiSkillDraftClient, codex: codexAppServerClient }, `authoring-style-${crypto.randomUUID()}`, 90_000),
+});
+const localSigmaDocStore = new LocalSigmaDocStore(USER_DATA_PATH, {
+  onDocumentSaved: event => localAuthoringStyleStore.observe(event),
+});
 protocol.registerSchemesAsPrivileged([
   { scheme: "sigma-app-font", privileges: { secure: true, corsEnabled: true, supportFetchAPI: true, stream: true } },
   { scheme: "sigma-doc-storage", privileges: { secure: true, supportFetchAPI: false, stream: true } },
@@ -1552,6 +1594,8 @@ function startAiSettingsWatch(): void {
     const settings = readDesktopSettingsSync(SIGMA_STUDIO_DATA_PATH);
     codexAppServerClient.setWebSearchEnabled(isAiWebSearchEnabled(settings));
     scheduleAutoApplyCheck();
+    // The language and the shortcuts live in this file too: send a change on to the account's other devices.
+    localAuthoringStyleStore.sync.soon();
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send("ai-settings:changed");
     }
@@ -1659,6 +1703,7 @@ function registerIpc() {
     dataDir: SIGMA_STUDIO_DATA_PATH,
     localSigmaDocStore,
     localAiResourceStore,
+    localAuthoringStyleStore,
     localAiEditRunLogStore,
     localAiEditChatRoomStore,
     localMcpProposalStore,
@@ -1671,6 +1716,8 @@ function registerIpc() {
     resolveMcpServerScriptPath,
     pendingRenderDocuments,
   });
+
+  registerAuthoringStyleIpc(localAuthoringStyleStore);
 
   registerAiResourcesIpc({
     localAiResourceStore,
@@ -1703,6 +1750,7 @@ function registerIpc() {
     broadcastLocalStoreChange,
     runPostSaveHooks,
     recordRendererSave,
+    onProposalsRejected: fileIds => localAuthoringStyleStore.recordRejected(fileIds),
     readNewDocumentPageSetup: () => readNewDocumentPageSetup(SIGMA_STUDIO_DATA_PATH),
   });
 
@@ -1749,6 +1797,10 @@ app.whenReady().then(async () => {
 
   try {
     await collaborationSessions.initialize();
+    // Account sync of the writing style: once the saved sign-in is known, then from time to time.
+    // It does nothing unless the user turned it on, and a failure only waits for the next round.
+    localAuthoringStyleStore.sync.soon(3000);
+    setInterval(() => localAuthoringStyleStore.sync.soon(0), 15 * 60_000).unref();
     pluginAuthReady.resolve();
     stopSessionBridge = await startSessionBridge(collaborationSessions, localSigmaDocStore);
   } catch (error) {
@@ -1788,11 +1840,22 @@ app.whenReady().then(async () => {
   }
 });
 
+let authoringStyleFlushedForQuit = false;
+let authoringStyleQuitFlush: Promise<void> | undefined;
 app.on("before-quit", (event) => {
   if (mainWindow && !mainWindow.isDestroyed() && !allowMainWindowClose) {
     event.preventDefault();
     quitAfterMainWindowClose = true;
     mainWindow.close();
+    return;
+  }
+  if (!authoringStyleFlushedForQuit) {
+    event.preventDefault();
+    localAuthoringStyleStore.dispose();
+    authoringStyleQuitFlush ??= localAuthoringStyleStore.flush().finally(() => {
+      authoringStyleFlushedForQuit = true;
+      app.quit();
+    });
     return;
   }
   codexAppServerClient.dispose();
