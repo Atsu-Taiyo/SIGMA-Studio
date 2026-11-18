@@ -1687,6 +1687,50 @@ describe("automatic authoring style", () => {
       expect(profile.autoChanges).toMatchObject([{ kind: "remove", reason: "stale", before: HABIT }]);
     });
 
+    it("reads the shared documents once more before changing a habit by itself, and only then", async () => {
+      const lib = library();
+      const shared = catalog();
+      shared.put("s1", written(...PLAIN), "shared-ws", { updatedAt: "2026-11-02T00:00:00Z" });
+      shared.put("s2", written(...PLAIN), "shared-ws", { updatedAt: "2026-11-01T00:00:00Z" });
+      store = make({ ...lib.options, ...shared.options });
+      expect((await store.reviewNow("shared-ws")).generatedContent).toContain("常体");
+      // Nothing to change: each document is read once.
+      shared.loadSharedDocument.mockClear();
+      await store.reviewNow("shared-ws");
+      expect(shared.loadSharedDocument).toHaveBeenCalledTimes(2);
+
+      // Both documents turn polite. While the review is reading the second, a member turns the first back; the
+      // catalog's entry for it does not change.
+      const polite = written(...POLITE, ...POLITE);
+      shared.put("s1", polite, "shared-ws", { updatedAt: "2026-11-02T00:00:00Z" });
+      shared.put("s2", polite, "shared-ws", { updatedAt: "2026-11-01T00:00:00Z" });
+      shared.loadSharedDocument.mockClear();
+      let reads = 0;
+      shared.loadSharedDocument.mockImplementation(async (fileId: string) => {
+        if (++reads === 2) shared.put("s1", written(...PLAIN, ...PLAIN, ...PLAIN, ...PLAIN, ...PLAIN), "shared-ws", { updatedAt: "2026-11-02T00:00:00Z" });
+        return shared.entries.get(fileId)?.document ?? null;
+      });
+      let profile = await store.reviewNow("shared-ws");
+      // What was read no longer stands: the rewrite is offered, not made.
+      expect(profile.generatedContent).toContain("常体");
+      expect(profile.autoChanges).toEqual([]);
+      expect(profile.pending).toMatchObject([{ kind: "rewrite", reason: "contradicted" }]);
+      expect(reads).toBeGreaterThan(2);
+      // The next review reads what is there now, which bears the habit out, and withdraws the offer.
+      profile = await store.reviewNow("shared-ws");
+      expect(profile.generatedContent).toContain("常体");
+      expect(profile.pending).toEqual([]);
+
+      // With the documents holding still, the same change is made, after the second reading.
+      shared.put("s1", polite, "shared-ws", { updatedAt: "2026-11-02T00:00:00Z" });
+      reads = 0;
+      shared.loadSharedDocument.mockImplementation(async (fileId: string) => { reads++; return shared.entries.get(fileId)?.document ?? null; });
+      profile = await store.reviewNow("shared-ws");
+      expect(profile.generatedContent).toContain("丁寧体");
+      expect(profile.autoChanges).toMatchObject([{ kind: "rewrite" }]);
+      expect(reads).toBe(4);
+    });
+
     it("does not act on a list of shared documents that failed when the review began and came back while it ran", async () => {
       const lib = library();
       const shared = catalog();

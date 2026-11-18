@@ -444,7 +444,22 @@ export class LocalAuthoringStyleStore {
     }
     // Bring in acceptances saved while reading, so their text is attributed to the AI below.
     await this.flush();
-    const summary = await this.exclusive(async () => {
+    // The catalog's date for a shared document does not move when a member edits its text, so whether one changed
+    // since it was read can only be told by reading it again. That is done (outside the lock, like the first
+    // reading) where it matters: before a change the review would make by itself, and before an answer of the AI
+    // can count against an earlier suggestion.
+    const sharedUnchanged = async (): Promise<boolean> => {
+      for (const { file, fingerprint } of loaded) {
+        if (!file.sharing) continue;
+        try {
+          const document = await this.options.loadSharedDocument?.(file.fileId);
+          if (!document || contentFingerprint(projectDocument(document), projectLayout(document)) !== fingerprint) return false;
+        } catch { return false; }
+      }
+      return true;
+    };
+    /** `verified`: whether the shared documents read the same again. Null before that was looked into. */
+    const count = (verified: boolean | null) => this.exclusive(async () => {
       if (generation !== this.generation || !await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)) return null;
       const files = await this.learnableFiles(true);
       // A list of shared documents that could not be read says nothing about which documents are gone.
@@ -487,17 +502,26 @@ export class LocalAuthoringStyleStore {
       const counters = outcomes.counters[workspaceId] ??= emptyCounters();
       const now = this.now();
       const memory = await this.memory.load(workspaceId, getAppLocale(), now);
-      const planned = planReview(memory, mergeObservations(observeWriting(units), observeCorrections(examples)),
-        // A pass that did not see every document it was due to read changes nothing by itself that it cannot be sure of.
-        { now, locale: memory.locale, eligibleFiles, keptSinceLastReview: counters.kept > 0, autoApply: await this.autoApply(workspaceId), complete: !unread && !skipped && listed });
+      const observations = mergeObservations(observeWriting(units), observeCorrections(examples));
+      // A pass that did not see every document it was due to read changes nothing by itself that it cannot be sure of.
+      const context = { now, locale: memory.locale, eligibleFiles, keptSinceLastReview: counters.kept > 0, autoApply: await this.autoApply(workspaceId), complete: !unread && !skipped && listed && verified !== false };
+      if (verified === null && context.complete && context.autoApply && loaded.some(({ file }) => file.sharing)) {
+        // Tried on a copy: only a pass that would rewrite or remove something by itself is worth the second reading.
+        const trial = planReview(structuredClone(memory), observations, context);
+        if (trial.rewritten + trial.removed > 0) return "verify" as const;
+      }
+      const planned = planReview(memory, observations, context);
       memory.lastReviewedAt = now.toISOString();
       memory.reviewedDocuments = reviewed;
       await this.memory.commit(workspaceId, memory, planned.entries);
       outcomes.counters[workspaceId] = { ...emptyCounters(), reviewedAt: now.toISOString(), ...(start.signature !== null && !unread ? { shared: start.signature } : {}),
         ...(wasShared ? { wasShared: true as const } : {}) };
       await this.writeOutcomes(outcomes);
-      return this.summaryRequest(workspaceId, memory, authored, examples, eligibleFiles, requested, now, !unread && !skipped && listed, wasShared);
+      return this.summaryRequest(workspaceId, memory, authored, examples, eligibleFiles, requested, now, context.complete, wasShared);
     });
+    let summary = await count(null);
+    if (summary === "verify") summary = await count(await sharedUnchanged());
+    if (summary === "verify") return;
     this.sync.soon();
     if (!summary) return;
     // The AI is asked outside the lock: saving and AI requests never wait for it.
@@ -506,20 +530,8 @@ export class LocalAuthoringStyleStore {
     catch (error) { logLedgerEvent(this.dataDir, "authoring-style-summary-failed", { error: String(error) }); return; }
     const reply = parseSummaryReply(raw, summary.input);
     if (!reply) { logLedgerEvent(this.dataDir, "authoring-style-summary-failed", { error: "Unreadable summary reply" }); return; }
-    // A member may have rewritten a shared document while the AI was answering, and the catalog's date for it does
-    // not move with its text. Where the answer could count against an earlier suggestion, the shared documents are
-    // read once more (outside the lock, like the first time) and compared with what the AI was asked about.
-    let sharedUnchanged = true;
-    if (summary.candidates.length) {
-      for (const { file, fingerprint } of loaded) {
-        if (!file.sharing) continue;
-        try {
-          const document = await this.options.loadSharedDocument?.(file.fileId);
-          if (!document || contentFingerprint(projectDocument(document), projectLayout(document)) !== fingerprint) sharedUnchanged = false;
-        } catch { sharedUnchanged = false; }
-        if (!sharedUnchanged) break;
-      }
-    }
+    // A member may have rewritten a shared document while the AI was answering.
+    const sharedSame = !summary.candidates.length || await sharedUnchanged();
     await this.exclusive(async () => {
       if (generation !== this.generation || !await this.memory.enabled(null) || !await this.memory.enabled(workspaceId)
         || !await this.memory.aiSummary(null) || !await this.memory.aiSummary(workspaceId)) return;
@@ -535,7 +547,7 @@ export class LocalAuthoringStyleStore {
         const current = files?.get(file.fileId);
         return !files || (current?.workspaceId === workspaceId && current.revision === file.revision && current.updatedAt === file.updatedAt);
       });
-      const complete = summary.complete && unchanged && sharedUnchanged && !(this.sharedListFailed && summary.wasShared);
+      const complete = summary.complete && unchanged && sharedSame && !(this.sharedListFailed && summary.wasShared);
       const planned = planSummary(memory, reply, summary.candidates, { now, locale: memory.locale, sources, autoApply: await this.autoApply(workspaceId), complete });
       // What was asked on the strength of an incomplete reading is asked again once everything can be read.
       if (complete) memory.summary = { hash: summary.hash, at: now.toISOString() };
