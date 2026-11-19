@@ -4,6 +4,8 @@ import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 
 const APP_ROOT = path.resolve(__dirname, "../..");
+// The POSIX locale variables alone do not make the renderer English on every platform (macOS keeps its own list).
+const LAUNCH_ARGS = ["--lang=en-US", APP_ROOT];
 
 /** An English system, so that a lost choice shows up as the detected English instead of the default Japanese. */
 function launchEnv(profile: string): Record<string, string> {
@@ -44,9 +46,11 @@ test("Japanese chosen on an English system stays Japanese after reloads and rest
   test.setTimeout(180_000);
   const profile = await mkdtemp(path.join(tmpdir(), "sigma-ui-locale-"));
   try {
-    let app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env: launchEnv(profile) });
+    let app = await electron.launch({ args: LAUNCH_ARGS, cwd: APP_ROOT, env: launchEnv(profile) });
     try {
       const page = await open(app);
+      // The renderer would fall back to English: losing the choice below shows as English.
+      expect(await page.evaluate(() => navigator.language)).toMatch(/^en/);
       // Chosen as early as the bridge exists: the renderer's first read of the settings may still be on its way back.
       await page.evaluate(async () => {
         localStorage.setItem("sigma-studio:ui-locale", "ja");
@@ -73,10 +77,12 @@ test("Japanese chosen on an English system stays Japanese after reloads and rest
         let release!: () => void;
         const released = new Promise<void>(resolve => { release = resolve; });
         state.releaseSettingsRead = release;
+        // Every read until the release is held, so the one the screen goes by is among them (React's development
+        // Strict Mode starts a second one and drops the first).
         handlers.set("settings:get", async (...args: unknown[]) => {
           const answer = await read(...args) as Record<string, unknown>;
-          if (state.heldSettingsRead) return answer;
-          state.heldSettingsRead = { released: false, commandSavesAfter: 0 };
+          if (state.heldSettingsRead?.released) return answer;
+          state.heldSettingsRead ??= { released: false, commandSavesAfter: 0 };
           // Let go once the test has chosen the language, or after a while at the latest.
           await Promise.race([released, new Promise(resolve => setTimeout(resolve, 20_000))]);
           state.heldSettingsRead.released = true;
@@ -113,7 +119,7 @@ test("Japanese chosen on an English system stays Japanese after reloads and rest
     } finally { await close(app); }
 
     // A real restart with the same profile takes the language from the settings file.
-    app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env: launchEnv(profile) });
+    app = await electron.launch({ args: LAUNCH_ARGS, cwd: APP_ROOT, env: launchEnv(profile) });
     try {
       const page = await open(app);
       await expectJapanese(page);
