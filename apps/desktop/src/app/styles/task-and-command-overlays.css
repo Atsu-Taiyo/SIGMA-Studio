@@ -548,7 +548,10 @@
 .paged-render .page-break-marker,
 .paged-render .overlay-comment-marker,
 .paged-render .block-comment-marker,
-.paged-render .ai-inline-catcher {
+.paged-render .ai-inline-catcher,
+/* The "curve outside the visible range" notice is an authoring hint drawn
+   inside the graph SVG. It must not be printed onto handouts/PDF. */
+.paged-render .graph2d-error-text {
   visibility: hidden;
 }
 

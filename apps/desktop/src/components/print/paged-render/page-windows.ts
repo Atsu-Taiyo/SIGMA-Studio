@@ -19,7 +19,10 @@ import { getEffectiveZoom } from "@/features/rendering/adapters";
  * These are copies of the canonical measured boxes, not a second layout pass.
  */
 export function preserveSettledTextBlockHeights(source: HTMLElement, clone: HTMLElement): void {
-  const selector = ".text-flow-editor :is(p, h1, h2, h3, h4, h5, h6)";
+  // Problem-number markers are inline-block boxes beside the first lead line;
+  // re-measured at PDF paint time they grow by a fraction of a pixel each, which
+  // accumulates per problem down the document (imported handouts: ~0.1 px/page).
+  const selector = ".text-flow-editor :is(p, h1, h2, h3, h4, h5, h6), .problem-number-marker";
   const originals = source.querySelectorAll<HTMLElement>(selector);
   const copies = clone.querySelectorAll<HTMLElement>(selector);
   if (originals.length !== copies.length) throw new Error("Output text clone differs from settled canvas");
