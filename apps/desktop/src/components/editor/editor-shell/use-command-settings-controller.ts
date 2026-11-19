@@ -34,7 +34,11 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
         return;
       }
       // 表示言語は端末ごとの設定で、アカウントの同期では変わらない。同期による読み直しでは触らない。
-      if (!synced && readStoredAppLocale() === storedLocaleBefore) {
+      const storedLocaleNow = readStoredAppLocale();
+      if (!synced && storedLocaleNow !== storedLocaleBefore) {
+        // 読んでいる間に選ばれた言語が新しい。古い読み取りは書き戻さず、画面だけをその言語にそろえる。
+        if (storedLocaleNow) setAppLocale(storedLocaleNow);
+      } else if (!synced) {
         // settings.json が表示言語の正本。未設定 (null) の初回起動だけは、ストア側の
         // OSロケール検出結果を採用したうえで settings.json へ書き戻す。書き戻さないと
         // main / MCP プロセスが日本語、画面だけ英語という食い違いが残り続ける。

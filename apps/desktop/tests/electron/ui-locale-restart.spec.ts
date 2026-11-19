@@ -116,6 +116,8 @@ test("Japanese chosen on an English system stays Japanese after reloads and rest
       // The late answer (no language yet) does not put English back into either store.
       expect(await page.evaluate(() => localStorage.getItem("sigma-studio:ui-locale"))).toBe("ja");
       expect((await page.evaluate(() => window.desktopAPI!.settings!.get())).uiLocale).toBe("ja");
+      // The running screen follows the newer choice right away, without waiting for a reload.
+      await expectJapanese(page);
       await page.reload();
       await expectJapanese(page);
       expect((await page.evaluate(() => window.desktopAPI!.settings!.get())).uiLocale).toBe("ja");

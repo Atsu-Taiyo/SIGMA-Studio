@@ -65,7 +65,11 @@ it("takes up settings another device changed, and does not bring removed command
 
 it("keeps a language chosen while the first settings read is under way, and a synced reload never changes the language", async () => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const { UI_LOCALE_STORAGE_KEY } = await import("@/lib/i18n");
+  const { UI_LOCALE_STORAGE_KEY, getAppLocale, setAppLocale } = await import("@/lib/i18n");
+  // The screen starts out in the detected English, cached.
+  setAppLocale("en");
+  localStorage.removeItem(UI_LOCALE_STORAGE_KEY);
+  expect(getAppLocale()).toBe("en");
   // A first launch: nothing in the settings file, the system language is detected.
   let stored: Record<string, unknown> = { commandShortcuts: {}, customCommands: [], hasCommandShortcuts: true, hasCustomCommands: true, uiLocale: null };
   let release!: () => void;
@@ -84,6 +88,8 @@ it("keeps a language chosen while the first settings read is under way, and a sy
     localStorage.setItem(UI_LOCALE_STORAGE_KEY, "ja");
     await act(async () => release());
     expect(localStorage.getItem(UI_LOCALE_STORAGE_KEY)).toBe("ja");
+    // The running screen takes up the newer choice too, not only the next start.
+    expect(getAppLocale()).toBe("ja");
     expect(setUiLocale).not.toHaveBeenCalled();
 
     // Settings another device changed are read again: the language on this device stays as it is.
