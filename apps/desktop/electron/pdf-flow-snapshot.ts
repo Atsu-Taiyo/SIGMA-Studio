@@ -14,10 +14,29 @@ export const SNAPSHOT_PDF_FLOW_SOURCE = `((doc) => {
     // nearest ancestor it ends (a last child's bottom margin can collapse through
     // unpadded ancestors), else the outermost such ancestor's bottom edge. Each
     // editor answers for its own space only.
-    let end = root;
-    while (!end.nextElementSibling && end.parentElement && !end.parentElement.matches(".page-flow")) end = end.parentElement;
-    const next = end.nextElementSibling;
-    const parent = next ? null : end.parentElement;
+    // Out-of-flow siblings (e.g. a column resize handle) do not follow in flow.
+    // A margin cannot collapse out of a grid/flex item (an independent column)
+    // or past a non-block container, so the walk stops at that item and
+    // measures its bottom: the column gets back the space it lost.
+    const inFlowNext = (element) => {
+      let next = element.nextElementSibling;
+      while (next) {
+        const s = view.getComputedStyle(next);
+        if (s.display !== "none" && s.position !== "absolute" && s.position !== "fixed") return next;
+        next = next.nextElementSibling;
+      }
+      return null;
+    };
+    const blockFlow = (element) => !element || element.matches(".page-flow")
+      || ["block", "list-item"].includes(view.getComputedStyle(element).display);
+    let end = root, next = null, parent = null;
+    for (;;) {
+      next = inFlowNext(end);
+      if (next) break;
+      const up = end.parentElement;
+      if (!up || up.matches(".page-flow") || !blockFlow(up) || !blockFlow(up.parentElement)) { parent = up; break; }
+      end = up;
+    }
     return {
       root, rect, next, nextRect: next ? next.getBoundingClientRect() : null,
       parent, parentRect: parent ? parent.getBoundingClientRect() : null,
