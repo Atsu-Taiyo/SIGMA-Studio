@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { ensurePageLayout, type OverlayShape, type SigmaDocument } from "@/features/document";
+import { createEmptyEditorDocument } from "@/lib/blank-document";
 import { areSigmaDocumentsEquivalent } from "@/lib/document-equivalence";
 import { createTranslator } from "@/lib/i18n";
 import * as storage from "@/lib/storage";
@@ -55,7 +56,7 @@ afterEach(() => {
  * save debounce. `expireDebounce` is that timer running out; the storage stubs call it while their
  * write is in flight, which is the window the close-time save used to lose.
  */
-function setup(initial: SigmaDocument, saved: SigmaDocument) {
+function setup(initial: SigmaDocument, saved: SigmaDocument, configure?: (ports: Ports) => void) {
   const ref = <T,>(current: T) => ({ current }) as RefObject<T>;
   const documentRef = ref(initial);
   const lastSavedDocumentRef = ref(saved);
@@ -127,6 +128,7 @@ function setup(initial: SigmaDocument, saved: SigmaDocument) {
       refreshDocumentMetadatas: vi.fn(async () => undefined),
     },
   };
+  configure?.(ports);
   function Probe() { boundary = useDocumentSaveBoundary(ports); return null; }
   act(() => root.render(<Probe />));
 
@@ -210,5 +212,139 @@ describe("boundary save waiting for an earlier autosave", () => {
     expect(fixture.writes).toHaveLength(1);
     expect(savedShape(fixture.writes[0])).toMatchObject({ x: 220 });
     expect(fixture.isCurrentDocumentDirty()).toBe(false);
+  });
+});
+
+describe("document open failure save guard", () => {
+  const OTHER_FILE_ID = "file_open_failed";
+  const EDITED_BODY = "編集後の本文";
+
+  function documentWithBody(text: string): SigmaDocument {
+    return {
+      ...createEmptyEditorDocument(),
+      docId: "doc_save_boundary",
+      content: [{ type: "paragraph", id: "body", children: [{ type: "text", text }] }],
+    };
+  }
+
+  function readSaveState(ports: Ports) {
+    return {
+      lastSavedDocument: ports.lastSavedDocumentRef.current,
+      lastSavedDirtyRevision: ports.lastSavedDirtyRevisionRef.current,
+      documentObservedRevision: ports.documentObservedRevisionRef.current,
+      lastSyncedDocument: ports.lastSyncedDocumentRef.current,
+      successfulDocumentSaves: ports.successfulDocumentSavesRef.current,
+    };
+  }
+
+  function setupOpenFailure(initial: SigmaDocument, failedFileId = FILE_ID) {
+    const saved = documentWithBody("保存済みの本文");
+    let initialSaveState!: ReturnType<typeof readSaveState>;
+    const fixture = setup(initial, saved, (ports) => {
+      ports.documentOpenFailureRef.current = {
+        fileId: failedFileId,
+        title: "読込に失敗した教材",
+        error: "JSON parse failed",
+        kind: "json",
+        failures: [],
+      };
+      ports.successfulDocumentSavesRef.current.set(FILE_ID, {
+        fileId: FILE_ID,
+        document: saved,
+        revision: 1,
+        dirtyRevision: 0,
+      });
+      initialSaveState = structuredClone(readSaveState(ports));
+    });
+    expect(fixture.isCurrentDocumentDirty()).toBe(true);
+    return { ...fixture, initialSaveState };
+  }
+
+  function expectSaveSuppressed({ ports, initialSaveState }: ReturnType<typeof setupOpenFailure>) {
+    expect(storage.saveDocumentRecord).not.toHaveBeenCalled();
+    expect(storage.captureDocumentVersion).not.toHaveBeenCalled();
+    expect(readSaveState(ports)).toEqual(initialSaveState);
+  }
+
+  function expectDocumentSaved(ports: Ports) {
+    const calls = vi.mocked(storage.saveDocumentRecord).mock.calls;
+    expect(calls).toHaveLength(1);
+    const [[write]] = calls;
+    expect(write).toMatchObject({
+      fileId: FILE_ID,
+      document: {
+        content: [{ type: "paragraph", id: "body", children: [{ type: "text", text: EDITED_BODY }] }],
+      },
+      observedRevision: 1,
+    });
+    expect(ports.lastSavedDocumentRef.current).toEqual(write.document);
+    expect(ports.lastSavedDirtyRevisionRef.current).toBe(1);
+    expect(ports.documentObservedRevisionRef.current).toBe(2);
+    expect(ports.isCurrentDocumentDirty()).toBe(false);
+  }
+
+  it("suppresses a direct save for the failed file", async () => {
+    const fixture = setupOpenFailure(createEmptyEditorDocument());
+
+    await act(async () => {
+      expect(await boundary.saveCurrentDocumentRecord()).toMatchObject({ ok: true });
+    });
+
+    expectSaveSuppressed(fixture);
+  });
+
+  it("suppresses autosave for the failed file", async () => {
+    const fixture = setupOpenFailure(createEmptyEditorDocument());
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+
+    expectSaveSuppressed(fixture);
+  });
+
+  it.each(["tab-switch", "app-close"] as const)("skips the %s boundary save for the failed file", async (origin) => {
+    const fixture = setupOpenFailure(createEmptyEditorDocument());
+
+    await act(async () => {
+      expect(await boundary.attemptBoundarySave(origin)).toMatchObject({
+        ok: true,
+        skipped: true,
+        skippedReason: "document-open-failed",
+      });
+    });
+
+    expectSaveSuppressed(fixture);
+  });
+
+  it("saves directly when the open failure belongs to another file", async () => {
+    const { ports } = setupOpenFailure(documentWithBody(EDITED_BODY), OTHER_FILE_ID);
+
+    await act(async () => {
+      expect(await boundary.saveCurrentDocumentRecord()).toMatchObject({ ok: true, revision: 2 });
+    });
+
+    expectDocumentSaved(ports);
+  });
+
+  it("autosaves after 450 ms when the open failure belongs to another file", async () => {
+    const { ports } = setupOpenFailure(documentWithBody(EDITED_BODY), OTHER_FILE_ID);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(449); });
+    expect(storage.saveDocumentRecord).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+
+    expectDocumentSaved(ports);
+  });
+
+  it.each(["tab-switch", "app-close"] as const)("saves at the %s boundary when the open failure belongs to another file", async (origin) => {
+    const { ports } = setupOpenFailure(documentWithBody(EDITED_BODY), OTHER_FILE_ID);
+
+    await act(async () => {
+      const result = await boundary.attemptBoundarySave(origin);
+      expect(result).toMatchObject({ ok: true, revision: 2 });
+      expect(result.skipped).not.toBe(true);
+    });
+
+    expectDocumentSaved(ports);
+    expect(storage.saveDocumentRecord).toHaveBeenCalledWith(expect.anything(), { origin });
   });
 });
