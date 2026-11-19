@@ -27,6 +27,7 @@ export {
   getAppLocale,
   getServerAppLocale,
   readStoredAppLocale,
+  getAppLocaleRevision,
   setAppLocale,
   subscribeAppLocale,
 } from "./locale-store";

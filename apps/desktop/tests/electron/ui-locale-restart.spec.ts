@@ -13,6 +13,8 @@ function launchEnv(profile: string): Record<string, string> {
     ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
     SIGMA_STUDIO_USER_DATA_DIR: profile, SIGMA_COLLABORATION_URL: "", SIGMA_SUPABASE_URL: "", SIGMA_SUPABASE_ANON_KEY: "",
     LANG: "en_US.UTF-8", LC_ALL: "en_US.UTF-8", LANGUAGE: "en_US",
+    // No AI agent: an installed Codex would otherwise write into the throwaway profile while it is being removed.
+    SIGMA_STUDIO_CODEX_BIN: path.join(profile, "no-codex"),
   };
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.SIGMA_STUDIO_DEV_SERVER_URL;

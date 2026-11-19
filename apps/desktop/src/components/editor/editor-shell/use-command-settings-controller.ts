@@ -2,7 +2,7 @@
 
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { loadEditorCustomCommands,loadEditorShortcutOverrides,parseEditorCustomCommands,parseEditorShortcutOverrides,saveEditorCustomCommands,saveEditorShortcutOverrides,type EditorCustomCommandDefinition,type EditorShortcutOverrides } from "@/lib/editor-command-shortcuts";
-import { getAppLocale,normalizeLocale,readStoredAppLocale,setAppLocale } from "@/lib/i18n";
+import { getAppLocale,getAppLocaleRevision,normalizeLocale,readStoredAppLocale,setAppLocale } from "@/lib/i18n";
 import { useCallback,useEffect,useRef,useState } from "react";
 import { tEditor } from "./editor-translations";
 
@@ -51,9 +51,11 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
           const settingsBridge = bridge.settings!;
           if (settingsBridge.initUiLocale) {
             const storedBeforeInit = readStoredAppLocale();
+            const revisionBeforeInit = getAppLocaleRevision();
             void settingsBridge.initUiLocale(fallbackLocale).then((result) => {
               // 返事を待つ間にこの画面で言語が選ばれたら、そちらが新しい。古い返事では戻さない。
-              if (canceled || readStoredAppLocale() !== storedBeforeInit) return;
+              // 同じ言語へ選び直した場合も値は同じなので、変更回数でも見る。
+              if (canceled || readStoredAppLocale() !== storedBeforeInit || getAppLocaleRevision() !== revisionBeforeInit) return;
               if (result.ok && result.uiLocale && result.uiLocale !== getAppLocale()) setAppLocale(result.uiLocale);
             }).catch(() => undefined);
           } else {

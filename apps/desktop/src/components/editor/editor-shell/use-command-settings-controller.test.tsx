@@ -159,3 +159,20 @@ it("does not let a late first-launch reply undo a language chosen while it was o
     expect(localStorage.getItem(UI_LOCALE_STORAGE_KEY)).toBe("ja");
   } finally { await act(async () => root.unmount()); }
 });
+
+it("does not let a late first-launch reply win after the language is switched away and back while it was on its way", async () => {
+  const { UI_LOCALE_STORAGE_KEY, getAppLocale, setAppLocale } = await import("@/lib/i18n");
+  setAppLocale("ja");
+  // Japanese is on screen and in this window; the settings file has no language yet and the reply will say English.
+  let answerInit!: () => void;
+  const { root, init, release } = await startWithHeldRead({ uiLocale: null }, () => new Promise(resolve => { answerInit = () => resolve({ ok: true, uiLocale: "en" }); }));
+  try {
+    await act(async () => release());
+    expect(init).toHaveBeenCalledWith("ja");
+    await act(async () => setAppLocale("en"));
+    await act(async () => setAppLocale("ja"));
+    await act(async () => answerInit());
+    expect(getAppLocale()).toBe("ja");
+    expect(localStorage.getItem(UI_LOCALE_STORAGE_KEY)).toBe("ja");
+  } finally { await act(async () => root.unmount()); }
+});
