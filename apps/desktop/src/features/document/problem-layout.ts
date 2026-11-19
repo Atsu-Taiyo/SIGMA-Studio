@@ -69,5 +69,6 @@ export function getProblemFrameLayoutStyle(frame: ProblemFrame | undefined): Lay
 
 export function formatProblemNumberLabel(value: number, numbering?: ProblemNumbering): string {
   const text = String(value);
-  return numbering?.format === "fullwidth" ? text.replace(/\d/g, digit => String.fromCharCode(digit.charCodeAt(0) + 0xfee0)) : text;
+  const fullwidth = numbering?.format === "fullwidth" || (numbering?.format === "fullwidthSingleDigit" && text.length === 1);
+  return fullwidth ? text.replace(/\d/g, digit => String.fromCharCode(digit.charCodeAt(0) + 0xfee0)) : text;
 }

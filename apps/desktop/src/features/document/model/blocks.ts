@@ -295,7 +295,11 @@ export interface ProblemNumbering {
   value?: number;
   fontFamily?: string;
   fontWeight?: number;
-  format?: "decimal" | "fullwidth";
+  /**
+   * `fullwidthSingleDigit`: one-digit numbers in full-width digits, longer ones in ASCII
+   * (１…９, 10, 11), derived from the computed number so renumbering keeps the rule.
+   */
+  format?: "decimal" | "fullwidth" | "fullwidthSingleDigit";
   widthPx?: number;
   heightPx?: number;
   gapPx?: number;

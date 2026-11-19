@@ -537,7 +537,7 @@ const ProblemNodeSchema = BaseNodeSchema.extend({
       value: z.number().int().positive().optional(),
       fontFamily: z.string().refine(isSafeCssFontFamily).optional(),
       fontWeight: z.number().int().min(100).max(900).optional(),
-      format: z.enum(["decimal", "fullwidth"]).optional(),
+      format: z.enum(["decimal", "fullwidth", "fullwidthSingleDigit"]).optional(),
       widthPx: z.number().positive().max(256).optional(),
       heightPx: z.number().positive().max(256).optional(),
       gapPx: z.number().min(0).max(256).optional(),

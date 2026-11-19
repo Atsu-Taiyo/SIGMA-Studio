@@ -36,6 +36,11 @@ describe("problem dimensions", () => {
     expect(getProblemAreaLayoutStyle({ minHeightMm: 8 })).toEqual({});
     expect(getProblemFrameLayoutStyle({ enabled: true })).toEqual({});
     expect(formatProblemNumberLabel(12)).toBe("12");
+    // The digit width follows the computed number, so renumbering across 9/10 keeps the rule.
+    expect(formatProblemNumberLabel(9, { format: "fullwidthSingleDigit" })).toBe("９");
+    expect(formatProblemNumberLabel(10, { format: "fullwidthSingleDigit" })).toBe("10");
+    const parsed = parseSigmaDocument({ ...sampleDocument, content: [{ type: "problem", id: "p", tags: [], lead: [], prompt: [], solution: [], hints: [], numbering: { enabled: true, format: "fullwidthSingleDigit" } }] });
+    expect((parsed.content[0] as ProblemNode).numbering?.format).toBe("fullwidthSingleDigit");
     expect(getProblemAreaLayoutStyle({ offsetXPx: 0 }, "280px").left).toBe("calc(280px + 0px)");
     expect(getProblemAreaLayoutStyle({ offsetXPx: -1 }, 280).left).toBe("calc(280px + -1px)");
     expect(getProblemAreaLayoutStyle({ offsetXPx: 9 })).toMatchObject({ left: "calc(0px + 9px)", position: "relative" });

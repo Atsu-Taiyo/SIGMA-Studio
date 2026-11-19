@@ -123,7 +123,7 @@ export function projectLayout(document: SigmaDocument): LayoutProjection {
           const heights = Object.values(block.areaLayout ?? {}).some(area => (area?.minHeightMm ?? 0) > 0);
           const frame = block.frame?.enabled ? (block.frame.styleId === "custom" && !block.frame.custom ? "fancybox" : block.frame.styleId ?? "fancybox") : "none";
           unit(block.id, textIds([block]), [
-            ["layout.problemNumber", block.numbering?.enabled === false ? "none" : block.numbering?.format === "fullwidth" ? "fullwidth" : "decimal"],
+            ["layout.problemNumber", block.numbering?.enabled === false ? "none" : block.numbering?.format === "fullwidth" || block.numbering?.format === "fullwidthSingleDigit" ? "fullwidth" : "decimal"],
             ["layout.problemLabel", match(PROBLEM_LABELS, firstText(block.lead) || firstText(block.prompt)) ?? "none"],
             ["layout.problemFrame", PROBLEM_FRAME_IDS.includes(frame) ? frame : "none"],
             ["layout.problemLead", filled(block.lead) ? "filled" : block.areaLayout?.lead?.hidden ? "hidden" : "empty"],

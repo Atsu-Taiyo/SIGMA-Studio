@@ -175,6 +175,7 @@ export function ProblemSettingsDialog({ problem, onChange, onClose }: ProblemSet
                           options={[
                             { value: "decimal", label: "1, 2, 3" },
                             { value: "fullwidth", label: "１, ２, ３" },
+                            { value: "fullwidthSingleDigit", label: "１, ２, …, 10, 11" },
                           ]}
                           onChange={(format) => onChange((current) => ({
                             ...current,
