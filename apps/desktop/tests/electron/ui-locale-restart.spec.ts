@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
@@ -16,16 +16,6 @@ function launchEnv(profile: string): Record<string, string> {
   delete env.SIGMA_STUDIO_DEV_SERVER_URL;
   if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
   return env;
-}
-
-async function findSettingsFile(root: string): Promise<string> {
-  for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
-    if (entry.isFile() && entry.name === "settings.json") {
-      const file = path.join(entry.parentPath, entry.name);
-      if ("uiLocale" in (JSON.parse(await readFile(file, "utf8")) as object)) return file;
-    }
-  }
-  throw new Error("No settings file with a language");
 }
 
 async function open(app: ElectronApplication): Promise<Page> {
@@ -60,37 +50,40 @@ test("Japanese chosen on an English system stays Japanese after reloads and rest
         await expectJapanese(page);
       }
 
-      // Make the race certain, as on a first launch: no language in the settings file yet and the detected
-      // English on screen. The settings are read, then the answer is held back while Japanese is chosen.
-      // The late answer (no language yet) must not put English back.
-      const settingsFile = await findSettingsFile(profile);
-      const raw = JSON.parse(await readFile(settingsFile, "utf8")) as Record<string, unknown>;
-      delete raw.uiLocale;
-      await writeFile(settingsFile, JSON.stringify(raw));
-      await page.evaluate(() => localStorage.setItem("sigma-studio:ui-locale", "en"));
+      // Make the race certain, as on a first launch: English on screen, the renderer's first read of the settings is
+      // answered as from a file without a language yet, and that answer is held back while Japanese is chosen.
+      // The late answer must not put English back.
+      await page.evaluate(async () => {
+        await window.desktopAPI!.settings!.setUiLocale!("en");
+        localStorage.setItem("sigma-studio:ui-locale", "en");
+      });
       await app.evaluate(({ ipcMain }) => {
         const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => Promise<unknown>> })._invokeHandlers;
-        const original = handlers.get("settings:get");
-        if (!original) throw new Error("settings:get is not registered");
-        const state = globalThis as unknown as { heldSettingsRead?: { holding: boolean; released: boolean; uiLocale?: unknown } };
+        const read = handlers.get("settings:get");
+        const saveCommands = handlers.get("settings:set-command-config");
+        if (!read || !saveCommands) throw new Error("The settings handlers are not registered");
+        const state = globalThis as unknown as { heldSettingsRead?: { released: boolean; commandSavesAfter: number }; releaseSettingsRead?: () => void };
         let release!: () => void;
         const released = new Promise<void>(resolve => { release = resolve; });
+        state.releaseSettingsRead = release;
         handlers.set("settings:get", async (...args: unknown[]) => {
-          const answer = await original(...args) as { uiLocale?: unknown };
-          if (!state.heldSettingsRead) {
-            state.heldSettingsRead = { holding: true, released: false, uiLocale: answer.uiLocale };
-            // Let go once the test has chosen the language, or after a while at the latest.
-            await Promise.race([released, new Promise(resolve => setTimeout(resolve, 20_000))]);
-            state.heldSettingsRead.released = true;
-          }
-          return answer;
+          const answer = await read(...args) as Record<string, unknown>;
+          if (state.heldSettingsRead) return answer;
+          state.heldSettingsRead = { released: false, commandSavesAfter: 0 };
+          // Let go once the test has chosen the language, or after a while at the latest.
+          await Promise.race([released, new Promise(resolve => setTimeout(resolve, 20_000))]);
+          state.heldSettingsRead.released = true;
+          return { ...answer, uiLocale: null };
         });
-        (globalThis as unknown as { releaseSettingsRead: () => void }).releaseSettingsRead = release;
+        // The renderer saves the shortcuts once it has taken up that first answer: proof the late answer was handled.
+        handlers.set("settings:set-command-config", async (...args: unknown[]) => {
+          if (state.heldSettingsRead?.released) state.heldSettingsRead.commandSavesAfter++;
+          return saveCommands(...args);
+        });
       });
       await page.reload();
-      // The renderer's first read has the file as it was: no language yet.
-      await expect.poll(() => app.evaluate(() => (globalThis as unknown as { heldSettingsRead?: { holding: boolean; uiLocale?: unknown } }).heldSettingsRead ?? null))
-        .toEqual({ holding: true, released: false, uiLocale: null });
+      await expect.poll(() => app.evaluate(() => (globalThis as unknown as { heldSettingsRead?: unknown }).heldSettingsRead ?? null))
+        .toEqual({ released: false, commandSavesAfter: 0 });
       await expect(page.locator("html")).toHaveAttribute("lang", "en");
       // Japanese is chosen meanwhile the way the Electron specs seed it before a reload: written to the settings
       // file and to this window's storage directly, without the running screen being told. This is what raced the
@@ -100,9 +93,9 @@ test("Japanese chosen on an English system stays Japanese after reloads and rest
         localStorage.setItem("sigma-studio:ui-locale", "ja");
       });
       await app.evaluate(() => (globalThis as unknown as { releaseSettingsRead: () => void }).releaseSettingsRead());
-      await expect.poll(() => app.evaluate(() => (globalThis as unknown as { heldSettingsRead: { released: boolean } }).heldSettingsRead.released)).toBe(true);
+      await expect.poll(() => app.evaluate(() => (globalThis as unknown as { heldSettingsRead: { commandSavesAfter: number } }).heldSettingsRead.commandSavesAfter))
+        .toBeGreaterThan(0);
       // The late answer (no language yet) does not put English back into either store.
-      await page.waitForTimeout(1500);
       expect(await page.evaluate(() => localStorage.getItem("sigma-studio:ui-locale"))).toBe("ja");
       expect((await page.evaluate(() => window.desktopAPI!.settings!.get())).uiLocale).toBe("ja");
       await page.reload();
