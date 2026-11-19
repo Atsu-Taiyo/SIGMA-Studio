@@ -546,6 +546,7 @@ const ProblemNodeSchema = BaseNodeSchema.extend({
       borderStyle: z.enum(["solid", "double", "none"]).optional(),
       outlineWidthPx: z.number().min(0).max(24).optional(),
       outlineOffsetPx: z.number().min(0).max(128).optional(),
+      textAlign: z.enum(["center", "start"]).optional(),
       textOffsetXPx: z.number().min(-128).max(128).optional(),
       textOffsetYPx: z.number().min(-128).max(128).optional(),
       offsetXPx: z.number().min(-256).max(256).optional(),

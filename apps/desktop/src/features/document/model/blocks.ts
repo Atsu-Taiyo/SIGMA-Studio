@@ -308,6 +308,11 @@ export interface ProblemNumbering {
   borderStyle?: "solid" | "double" | "none";
   outlineWidthPx?: number;
   outlineOffsetPx?: number;
+  /**
+   * `start`: the label starts `textOffsetXPx` inside the box (inner left edge) for any
+   * number width; default `center`: `textOffsetXPx` shifts the centred label.
+   */
+  textAlign?: "center" | "start";
   textOffsetXPx?: number;
   textOffsetYPx?: number;
   offsetXPx?: number;
