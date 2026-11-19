@@ -287,69 +287,26 @@
   line-height: 1.55;
 }
 
-.ai-chat-empty-card {
-  padding: var(--space-md);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--surface-soft);
-}
-
-.ai-chat-empty-card-title {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.ai-chat-empty-card strong {
-  color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.ai-chat-empty-card p {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-size: 12px;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  white-space: pre-wrap;
-}
-
+/* よく使う依頼の入口。同じ形の小さな丸ボタンを折り返して並べる (見出しや枠は置かない)。 */
 .ai-chat-empty-presets {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-xs);
   width: 100%;
 }
 
-.ai-chat-empty-presets-title {
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.ai-chat-empty-presets-grid {
-  width: 100%;
-}
-
-/* クイック操作: 線画アイコン + 短いラベルの同じ形のタイル。Button のトーン規則より強くするため
-   属性つきで指定する。選択中の色ではなく、薄い面の差だけで反応を示す。 */
-.ai-chat-empty-presets-grid .ai-chat-empty-preset[data-preset] {
-  width: 100%;
-  justify-content: flex-start;
-  gap: var(--space-sm);
+/* Button のトーン規則より強くするため属性つきで指定する。薄い面の差だけで反応を示す。 */
+.ai-chat-empty-presets .ai-chat-empty-preset[data-preset] {
+  gap: var(--space-xs);
   border-color: var(--border-subtle);
+  border-radius: var(--radius-round);
   background: var(--background);
   color: var(--text-primary);
-  font-weight: 600;
+  font-weight: 500;
 }
 
-.ai-chat-empty-presets-grid .ai-chat-empty-preset[data-preset]:hover:not(:disabled) {
+.ai-chat-empty-presets .ai-chat-empty-preset[data-preset]:hover:not(:disabled) {
   border-color: var(--border);
   background: var(--surface-soft);
 }
@@ -363,12 +320,6 @@
 .ai-chat-empty-preset:hover svg,
 .ai-chat-empty-preset:focus-visible svg {
   color: var(--text-primary);
-}
-
-.ai-chat-empty-preset span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .ai-edit-panel[data-gated="true"] {
@@ -2194,6 +2145,12 @@
   background: var(--surface-soft);
   color: var(--text-primary);
   outline: none;
+}
+
+/* 内蔵AIは名前だけ。切り替えるものが無い会話では、押せない見た目にせず静かな札として置く。 */
+.ai-chat-model-button[data-built-in="true"]:disabled {
+  opacity: 1;
+  cursor: default;
 }
 
 .ai-chat-model-button:disabled {

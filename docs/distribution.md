@@ -25,6 +25,14 @@ npm exec --workspace @sigma-studio/desktop -- cross-env ELECTRON_RUN_AS_NODE=1 e
 
 OSごとの検証、ビルド成功、署名・インストール後の動作確認は別々に記録してください。
 
+## 配布物に入れる依存
+
+`electron-builder` は `apps/desktop/package.json` の `dependencies` を、使っているかどうかに関係なく配布物の `node_modules` へ入れます。画面 (Next の静的出力 `out/`) にだけ束ねられるパッケージは `devDependencies` に置きます (`next`・フォント・PowerPoint 取込・エディタ・3D など)。`dependencies` に置くのは、main・preload・ローカル MCP サーバーが実行時に `require` するものと、`build-electron.mjs` が main へ束ねるもの (mathlive・i18next・yjs など) だけです。
+
+- 取り違えは `npm run electron:build` が止めます: 束ねずに残した import が `dependencies` に無ければビルドが失敗します (`findUnpackagedExternals`)。
+- 画面専用のパッケージを `dependencies` へ戻すと `scripts/desktop-packaged-externals.test.mjs` が落ちます。
+- この整理で macOS arm64 の `.app` は 937MB から 462MB (zip で 400MB から 185MB) になりました (v0.539.0 時点の実測、未署名)。
+
 ## リリース運用
 
 `v*` タグでReleaseワークフローが起動し、macOS/Windowsの配布物を下書きReleaseへアップロードします。手動実行も対象タグを選択してください。

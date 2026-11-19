@@ -31,7 +31,7 @@ export function runContextDirPath(userDataPath: string): string {
   return path.join(userDataPath, DATA_DIR_NAME, RUN_CONTEXT_DIR_NAME);
 }
 
-export type AiEditRunContextProvider = "claude" | "chatgpt" | "antigravity";
+export type AiEditRunContextProvider = "claude" | "chatgpt" | "antigravity" | "sigma";
 
 // runId が渡された場合は provider-runId 単位のファイル名にする (同一providerでの並行実行を
 // 分離するため)。省略時は従来どおり provider 単位の静的ファイル名で、これはアプリ起動時に
@@ -184,7 +184,7 @@ export const AiEditRunContextSchema = z.object({
   version: z.literal(1),
   runId: z.string().min(1),
   createdAt: z.string().min(1),
-  provider: z.enum(["claude", "chatgpt", "antigravity"]),
+  provider: z.enum(["claude", "chatgpt", "antigravity", "sigma"]),
   fileId: z.string().min(1),
   fileRevision: z.number().int().nonnegative(),
   selectedId: z.string().min(1).nullable(),

@@ -84,7 +84,7 @@ export interface AuthoringStyleProfile {
   /** The review may send excerpts of the author's writing to the AI they already use. */
   aiSummary: boolean;
   /** The provider such a summary would be asked of; null until an AI request has been made. */
-  aiSummaryProvider: "chatgpt" | "claude" | "antigravity" | null;
+  aiSummaryProvider: "sigma" | "chatgpt" | "claude" | "antigravity" | null;
   userContent: string;
   userPath: string;
   revision: string;

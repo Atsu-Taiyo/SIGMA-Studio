@@ -5,6 +5,7 @@ import {
   type AiEditReasoningEffort,
 } from "@/lib/ai/sigma-doc-edit-schema";
 import {
+  BUILT_IN_AI_PROVIDER,
   DEFAULT_CLAUDE_AI_EDIT_MODEL,
   DEFAULT_GEMINI_AI_EDIT_MODEL,
   type AiProvider,
@@ -21,7 +22,8 @@ export interface AiModelPreferences {
 }
 
 const DEFAULT_PREFERENCES: AiModelPreferences = {
-  provider: "chatgpt",
+  // 既定は内蔵AI。利用者のアカウント連携なしで使える。
+  provider: BUILT_IN_AI_PROVIDER,
   model: DEFAULT_AI_EDIT_MODEL,
   claudeModel: DEFAULT_CLAUDE_AI_EDIT_MODEL,
   geminiModel: DEFAULT_GEMINI_AI_EDIT_MODEL,
@@ -29,7 +31,7 @@ const DEFAULT_PREFERENCES: AiModelPreferences = {
 };
 
 function isAiProvider(value: unknown): value is AiProvider {
-  return value === "chatgpt" || value === "claude" || value === "antigravity";
+  return value === "chatgpt" || value === "claude" || value === "antigravity" || value === "sigma";
 }
 
 function isAiEditModel(value: unknown): value is AiEditModel {

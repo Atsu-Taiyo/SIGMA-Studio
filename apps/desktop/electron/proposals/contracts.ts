@@ -19,12 +19,12 @@ export type LocalMcpEditProposalStatus = "pending" | "approved" | "rejected" | "
 // electron側 (main/preload/mcp server) の唯一の宣言。sigma-studio-mcp-launch.ts はこれを
 // 再エクスポートして使い、renderer 側は electron を import できないため src/types/desktop.d.ts
 // に同じ union をミラーした DesktopMcpEditProposalProvider を宣言している (2箇所が上限)。
-export type McpEditProposalProvider = "claude" | "chatgpt" | "antigravity";
+export type McpEditProposalProvider = "claude" | "chatgpt" | "antigravity" | "sigma";
 
 // electron側でこのunionを検証する唯一のバリデータ。sigma-studio-mcp-launch.ts と
 // mcp/sigma-doc-mcp-server-core.ts の両方がこれを使う (重複した if/switch ガードを避けるため)。
 export function parseMcpProposalProvider(value: unknown): McpEditProposalProvider | null {
-  return value === "claude" || value === "chatgpt" || value === "antigravity" ? value : null;
+  return value === "claude" || value === "chatgpt" || value === "antigravity" || value === "sigma" ? value : null;
 }
 
 // MCPサーバー (Phase 1: Agentic RAG) が書き込み系ツール呼び出し時にオプションで渡す

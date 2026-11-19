@@ -1,5 +1,5 @@
 "use client";
-import { AntigravityMark, ClaudeMark, OpenAiMark } from "@/components/branding/provider-logos";
+import { AntigravityMark, ClaudeMark, OpenAiMark, SigmaAiMark } from "@/components/branding/provider-logos";
 import { type AiProvider } from "@/lib/ai/ai-providers";
 import { useT } from "@/lib/i18n/react";
 
@@ -15,6 +15,19 @@ export function ProviderSwitch({
   const t = useT("ai");
   return (
     <div className="ai-provider-switch" role="radiogroup" aria-label={t("composer.providerSwitchAria")}>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={provider === "sigma"}
+        aria-label="SIGMA AI"
+        title="SIGMA AI"
+        className="ai-provider-switch-item"
+        data-active={provider === "sigma"}
+        onClick={() => onChange("sigma")}
+        disabled={disabled}
+      >
+        <SigmaAiMark size={14} />
+      </button>
       <button
         type="button"
         role="radio"

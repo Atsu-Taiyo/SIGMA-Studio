@@ -102,6 +102,7 @@ export const ai = {
       codex: "AI is unavailable",
       claude: "Claude is unavailable",
       gemini: "Antigravity is unavailable",
+      sigma: "SIGMA AI is unavailable",
     },
     account: {
       codex: "ChatGPT account",
@@ -439,6 +440,15 @@ export const ai = {
       unavailableTitle: "Claude Code not found",
       stepPastePath: "Paste the full path it printed into Open settings \u2192 the Claude tab \u2192 Claude Code and save",
     },
+    sigma: {
+      checkingText: "Checking that SIGMA AI is ready. One moment.",
+      unavailableTitle: "SIGMA AI is unavailable",
+      unavailableText: "This app has no SIGMA AI gateway or runtime. You can switch to another AI from the settings.",
+      planTitle: "SIGMA AI is available on the Pro plan",
+      planText: "Sign in and use it on the Pro plan (or during a trial). Your own Claude, ChatGPT or Antigravity can be connected from the settings on any plan.",
+      retry: "Check again",
+      useOtherAi: "Use another AI",
+    },
     gemini: {
       checkingText: "Checking the Antigravity connection. This will only take a moment.",
       loggedOutTitle: "Antigravity needs a one-time sign-in",
@@ -453,8 +463,6 @@ export const ai = {
     generatedImageUnavailable: "Could not load the original generated image. Showing the preview.",
     emptyTitle: "Edit the material by talking to the AI",
     emptyBody: "The AI drafts the edits. You can review them in the preview before applying.",
-    referenceTarget: "Reference",
-    referenceHint: "Select a block and its contents will show up here.",
     quickActions: "Quick actions",
     noContent: "No content",
     chat: "Chat",

@@ -7,6 +7,8 @@ import { spawnCliProcess } from "./cli-spawn";
 import { buildCodexChildEnv, type CodexAppServerClient } from "./codex-app-server-client";
 import type { ClaudeStreamClient } from "./claude-stream-client";
 import type { GeminiHeadlessClient } from "./gemini-headless-client";
+import type { DshHarnessClient } from "./dsh-harness-client";
+import { describeSigmaUnavailable, SIGMA_AI_DISPLAY_NAME } from "./sigma-edit";
 import { AI_FRAME_DRAWING, normalizeFrameSvg } from "@/features/document/custom-frame";
 import { parseSkillFile, SKILL_CONTENT_MAX_LENGTH } from "@/lib/ai/skill-frontmatter";
 import type { AiProvider } from "@/lib/ai/ai-providers";
@@ -108,6 +110,8 @@ export interface AiSkillDraftDeps {
   /** 専用workspaceDir(MCP設定なし)で構築済みのAntigravityクライアント。 */
   geminiSkillDraft: GeminiHeadlessClient;
   codex: CodexAppServerClient;
+  /** 内蔵AI (dsh)。道具を持たせない 1 回の問い合わせに使う。作業ディレクトリは専用の空の場所。 */
+  sigma?: { client: DshHarnessClient; cwd: string };
 }
 
 export async function generateAiSkillDraft(
@@ -162,7 +166,9 @@ export async function generateAiSkillDraft(
 }
 
 function runProvider(provider: AiProvider, deps: AiSkillDraftDeps, fullPrompt: string, runId: string, options: AiSkillDraftRunOptions): Promise<string> {
-  return provider === "claude"
+  return provider === "sigma"
+    ? generateWithSigma(deps.sigma, fullPrompt, runId, options)
+    : provider === "claude"
     ? generateWithClaude(deps.claude, fullPrompt, runId, options)
     : provider === "antigravity"
     ? generateWithGemini(deps.geminiSkillDraft, fullPrompt, runId, options)
@@ -398,6 +404,54 @@ async function runClaudeDraft(
     }
     if (result.isError || !result.finalText.trim()) {
       throw new Error(result.finalText.trim() || ta("desktop.skillDraft.providerFailed", { provider: "Claude" }));
+    }
+    return result.finalText;
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
+
+/**
+ * 内蔵AI (dsh) への、道具を持たせない 1 回の問い合わせ。別のプロバイダへ黙って回さない:
+ * 使えないときは理由つきで失敗させる。
+ */
+async function generateWithSigma(
+  sigma: AiSkillDraftDeps["sigma"],
+  fullPrompt: string,
+  runId: string,
+  { onDelta, onReasoning, timeoutMs }: AiSkillDraftRunOptions,
+): Promise<string> {
+  if (!sigma) {
+    throw new Error(ta("desktop.skillDraft.providerFailed", { provider: SIGMA_AI_DISPLAY_NAME }));
+  }
+  const status = await sigma.client.getStatus();
+  if (!status.available) {
+    throw new Error(describeSigmaUnavailable(status));
+  }
+  let timedOut = false;
+  const timeoutHandle = setTimeout(() => {
+    timedOut = true;
+    sigma.client.cancelRun(runId);
+  }, timeoutMs);
+  try {
+    const result = await sigma.client.runTurn({
+      runId,
+      instruction: fullPrompt,
+      images: [],
+      resumeSessionId: null,
+      cwd: sigma.cwd,
+      mcp: null,
+      systemPrompt: "",
+      onText: text => onDelta?.(text),
+      onReasoning: text => onReasoning?.(text),
+      onToolUse: () => {},
+      onToolResult: () => {},
+    });
+    if (result.cancelled) {
+      throw new Error(timedOut ? ta("desktop.skillDraft.timedOut") : ta("desktop.skillDraft.cancelled"));
+    }
+    if (result.isError || !result.finalText.trim()) {
+      throw new Error(result.errorMessage ?? ta("desktop.skillDraft.providerFailed", { provider: SIGMA_AI_DISPLAY_NAME }));
     }
     return result.finalText;
   } finally {

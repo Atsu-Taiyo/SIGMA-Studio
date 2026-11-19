@@ -77,7 +77,7 @@ interface LocalAiEditRunLogRecord {
     changedIds: string[];
     agentThreadId: string | null;
     repaired: boolean;
-    runtime: "codex-mcp" | "claude-mcp" | "antigravity-mcp" | null;
+    runtime: "codex-mcp" | "claude-mcp" | "antigravity-mcp" | "sigma-mcp" | null;
   };
   error?: string;
   events: Array<{

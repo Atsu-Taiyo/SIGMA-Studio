@@ -10,13 +10,14 @@ import { frameChatStore } from "../application/frame-chat-store";
 import { AiFrameDrawingPanel } from "./AiFrameDrawingPanel";
 
 const connectionKinds = vi.hoisted(() => ({
+  sigma: "unavailable",
   chatgpt: "unavailable",
   claude: "loggedIn",
   antigravity: "loggedOut",
 }));
 
 vi.mock("@/lib/ai/ai-connection", () => {
-  const connection = (provider: "chatgpt" | "claude" | "antigravity") => ({
+  const connection = (provider: "sigma" | "chatgpt" | "claude" | "antigravity") => ({
     state: { kind: connectionKinds[provider] },
     status: null,
     loading: false,
@@ -26,6 +27,7 @@ vi.mock("@/lib/ai/ai-connection", () => {
     useAiConnection: () => connection("chatgpt"),
     useClaudeConnection: () => connection("claude"),
     useGeminiConnection: () => connection("antigravity"),
+    useSigmaAiConnection: () => connection("sigma"),
   };
 });
 

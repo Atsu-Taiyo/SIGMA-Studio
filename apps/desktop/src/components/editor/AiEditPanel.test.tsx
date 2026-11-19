@@ -1291,7 +1291,7 @@ describe("ProviderSwitch", () => {
 describe("ChatEmptyState quick actions", () => {
   it("shows every quick action as an icon tile and offers SVG figures and proofreading", () => {
     setAppLocale("ja");
-    const html = renderToStaticMarkup(<ChatEmptyState reference={null} onSelectPreset={() => {}} />);
+    const html = renderToStaticMarkup(<ChatEmptyState onSelectPreset={() => {}} />);
 
     expect(AI_ACTION_PRESET_IDS).toEqual(expect.arrayContaining(["figure", "proofread"]));
     for (const id of AI_ACTION_PRESET_IDS) {

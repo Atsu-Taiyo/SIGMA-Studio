@@ -7,11 +7,18 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { buildElectron } from './build-electron.mjs';
 import { developmentCollaborationEnv } from './collaboration-build-config.mjs';
+import { developmentSigmaAiEnv } from './sigma-ai-build-config.mjs';
 
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repository = path.resolve(root, '../..');
-const env = developmentCollaborationEnv(repository);
+const env = developmentSigmaAiEnv(repository, developmentCollaborationEnv(repository));
+// 内蔵AIの中継の URL とトークンは Electron の main だけが使う。Next の開発サーバー (とその中で
+// 動くコード) には渡さない。
+const rendererEnv = Object.fromEntries(Object.entries(env).filter(([name]) => !name.startsWith('SIGMA_AI_')));
+// 内蔵AI (DeepSeek Harness) は Electron 内蔵の Node では動かない。この開発スクリプトを
+// 動かしている Node をそのまま使わせる (明示の指定があればそちらを優先)。
+env.SIGMA_STUDIO_NODE_BIN ||= process.execPath;
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.NEXT_PUBLIC_TARGET;
 const session = randomUUID();
@@ -101,7 +108,7 @@ async function run() {
   if (stopping) return;
   const url = `http://127.0.0.1:${port}/`;
   renderer = start(process.execPath, [require.resolve('next/dist/bin/next'), 'dev', '--hostname', '127.0.0.1', '--port', String(port)], {
-    env: { ...env, SIGMA_STUDIO_DEV_SESSION: session },
+    env: { ...rendererEnv, SIGMA_STUDIO_DEV_SESSION: session },
   });
   renderer.on('error', (error) => { console.error(error); void shutdown(1); });
   renderer.on('exit', (code) => { if (!stopping) void shutdown(code || 1); });

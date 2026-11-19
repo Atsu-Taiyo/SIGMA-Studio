@@ -70,6 +70,7 @@ function register() {
     codexAppServerClient: codexClient as never,
     claudeStreamClient: stubCliClient as never,
     geminiHeadlessClient: stubCliClient as never,
+    dshHarnessClient: stubCliClient as never,
     getMainWindow: () => null,
     openExternalUrl: vi.fn(),
   });

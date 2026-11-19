@@ -330,6 +330,12 @@ const desktopAPI = {
     },
   },
 
+  sigmaAi: {
+    getStatus(): Promise<unknown> {
+      return ipcRenderer.invoke("sigma-ai:get-status");
+    },
+  },
+
   aiEdit: {
     getGeneratedImage(runId: string, imageId: string): Promise<{ dataUrl: string | null }> {
       return ipcRenderer.invoke("ai-edit:generated-image", runId, imageId);

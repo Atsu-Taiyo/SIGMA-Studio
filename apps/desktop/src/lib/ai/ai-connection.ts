@@ -12,7 +12,7 @@ import { useT } from "@/lib/i18n/react";
  * `window` の無い環境では既定ロケール (日本語) に落ちるので既存の期待値は不変。
  */
 const DEFAULT_AI_TRANSLATE = createCurrentLocaleTranslator("ai");
-import type { DesktopAPI, DesktopClaudeStatus, DesktopCodexStatus, DesktopGeminiStatus } from "@/types/desktop";
+import type { DesktopAPI, DesktopClaudeStatus, DesktopCodexStatus, DesktopGeminiStatus, DesktopSigmaAiStatus } from "@/types/desktop";
 
 /**
  * Generic connection hook for the local-CLI-backed providers (Claude, Gemini):
@@ -207,6 +207,37 @@ export function useGeminiConnection(): GeminiConnection {
     fallbackGeminiStatus,
     resolveGeminiConnectionState,
   );
+}
+
+/**
+ * 内蔵AI (SIGMA AI) の状態。ログインもインストールも無く、アプリが用意した接続先と
+ * 実行環境が揃っていれば使える。状態は起動中に変わらないので、通知は購読しない。
+ */
+export function resolveSigmaAiConnectionState(status: DesktopSigmaAiStatus | null, t: Translate<"ai"> = DEFAULT_AI_TRANSLATE): AiConnectionStateView {
+  if (!status) {
+    return { kind: "checking", tone: "muted", label: t("connection.checking"), accountLabel: null };
+  }
+  if (!status.available) {
+    return { kind: "unavailable", tone: "error", label: t("connection.unavailable.sigma"), accountLabel: null };
+  }
+  return { kind: "loggedIn", tone: "connected", label: t("connection.connected"), accountLabel: status.modelLabel };
+}
+
+export type SigmaAiConnection = CliProviderConnection<DesktopSigmaAiStatus>;
+
+function fallbackSigmaAiStatus(message: string): DesktopSigmaAiStatus {
+  return { available: false, loggedIn: false, model: "", modelLabel: "", unavailableReason: "runtime", error: message };
+}
+
+const NO_STATUS_CHANGES = () => () => {};
+
+function sigmaAiBridgeSection(bridge: DesktopAPI): CliProviderBridgeSection<DesktopSigmaAiStatus> | undefined {
+  const section = bridge.sigmaAi;
+  return section ? { getStatus: () => section.getStatus(), onStatusChange: NO_STATUS_CHANGES } : undefined;
+}
+
+export function useSigmaAiConnection(): SigmaAiConnection {
+  return useCliProviderConnection(sigmaAiBridgeSection, fallbackSigmaAiStatus, resolveSigmaAiConnectionState);
 }
 
 export interface AiConnection {
