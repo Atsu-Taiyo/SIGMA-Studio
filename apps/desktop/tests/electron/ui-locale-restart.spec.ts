@@ -47,22 +47,35 @@ async function expectJapanese(page: Page): Promise<void> {
   await expect(page.getByPlaceholder("Search all workspaces", { exact: true })).toHaveCount(0);
 }
 
-async function holdSettingsReads(app: ElectronApplication): Promise<void> {
-  await app.evaluate(({ ipcMain }) => {
+async function holdSettingsReads(app: ElectronApplication, holdInit = false): Promise<void> {
+  await app.evaluate(({ ipcMain }, holdInit) => {
     const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => Promise<unknown>> })._invokeHandlers;
     const state = globalThis as unknown as {
       heldSettingsRead?: { released: boolean; commandSavesAfter: number };
       releaseSettingsRead?: () => void;
-      originalSettingsHandlers?: { read: (...args: unknown[]) => Promise<unknown>; saveCommands: (...args: unknown[]) => Promise<unknown> };
+      originalSettingsHandlers?: { read: (...args: unknown[]) => Promise<unknown>; saveCommands: (...args: unknown[]) => Promise<unknown>; init: (...args: unknown[]) => Promise<unknown> };
+      heldInit?: { pending: boolean; release: () => void };
     };
     // Armed again for a later round: wrap the original handlers, not the earlier wrappers.
     if (!state.originalSettingsHandlers) {
       const read = handlers.get("settings:get");
       const saveCommands = handlers.get("settings:set-command-config");
-      if (!read || !saveCommands) throw new Error("The settings handlers are not registered");
-      state.originalSettingsHandlers = { read, saveCommands };
+      const init = handlers.get("settings:init-ui-locale");
+      if (!read || !saveCommands || !init) throw new Error("The settings handlers are not registered");
+      state.originalSettingsHandlers = { read, saveCommands, init };
     }
-    const { read, saveCommands } = state.originalSettingsHandlers;
+    const { read, saveCommands, init } = state.originalSettingsHandlers;
+    // Optionally the reply about the first-launch language is held too: it is computed at once, and handed back late.
+    let releaseInit!: () => void;
+    const initReleased = new Promise<void>(resolve => { releaseInit = resolve; });
+    state.heldInit = { pending: false, release: releaseInit };
+    handlers.set("settings:init-ui-locale", async (...args: unknown[]) => {
+      const answer = await init(...args);
+      if (!holdInit) return answer;
+      state.heldInit!.pending = true;
+      await initReleased;
+      return answer;
+    });
     state.heldSettingsRead = undefined;
     let release!: () => void;
     const released = new Promise<void>(resolve => { release = resolve; });
@@ -83,7 +96,7 @@ async function holdSettingsReads(app: ElectronApplication): Promise<void> {
       if (state.heldSettingsRead?.released) state.heldSettingsRead.commandSavesAfter++;
       return saveCommands(...args);
     });
-  });
+  }, holdInit);
 }
 
 test("Japanese chosen on an English system stays Japanese after reloads and restarts, even when chosen while the first settings read is under way", async () => {
@@ -153,6 +166,36 @@ test("Japanese chosen on an English system stays Japanese after reloads and rest
       await app.evaluate(() => (globalThis as unknown as { releaseSettingsRead: () => void }).releaseSettingsRead());
       await expect.poll(() => app.evaluate(() => (globalThis as unknown as { heldSettingsRead: { commandSavesAfter: number } }).heldSettingsRead.commandSavesAfter))
         .toBeGreaterThan(0);
+      await expectJapanese(page);
+      expect((await page.evaluate(() => window.desktopAPI!.settings!.get())).uiLocale).toBe("ja");
+      await page.reload();
+      await expectJapanese(page);
+
+      // And once more with the reply about the first-launch language late: English is what the settings file held
+      // when it was asked, Japanese is chosen before the reply arrives, and the reply must not switch back.
+      await page.evaluate(async () => {
+        await window.desktopAPI!.settings!.setUiLocale!("en");
+        localStorage.setItem("sigma-studio:ui-locale", "en");
+      });
+      await holdSettingsReads(app, true);
+      await page.reload();
+      await expect.poll(() => app.evaluate(() => (globalThis as unknown as { heldSettingsRead?: unknown }).heldSettingsRead ?? null))
+        .toEqual({ released: false, commandSavesAfter: 0 });
+      await app.evaluate(() => (globalThis as unknown as { releaseSettingsRead: () => void }).releaseSettingsRead());
+      await expect.poll(() => app.evaluate(() => (globalThis as unknown as { heldInit: { pending: boolean } }).heldInit.pending)).toBe(true);
+      // Chosen the way the settings dialog does it: both stores, and the running screen is told.
+      await page.evaluate(async () => {
+        await window.desktopAPI!.settings!.setUiLocale!("ja");
+        localStorage.setItem("sigma-studio:ui-locale", "ja");
+        window.dispatchEvent(new CustomEvent("sigma-studio:ui-locale-change"));
+      });
+      await expectJapanese(page);
+      await app.evaluate(() => (globalThis as unknown as { heldInit: { release: () => void } }).heldInit.release());
+      await expect.poll(() => app.evaluate(() => (globalThis as unknown as { heldSettingsRead: { commandSavesAfter: number } }).heldSettingsRead.commandSavesAfter))
+        .toBeGreaterThan(0);
+      // Give the late reply its turn in the renderer before looking.
+      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 500)));
+      expect(await page.evaluate(() => localStorage.getItem("sigma-studio:ui-locale"))).toBe("ja");
       await expectJapanese(page);
       expect((await page.evaluate(() => window.desktopAPI!.settings!.get())).uiLocale).toBe("ja");
       await page.reload();

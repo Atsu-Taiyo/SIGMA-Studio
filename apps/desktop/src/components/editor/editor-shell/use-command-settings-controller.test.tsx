@@ -142,3 +142,20 @@ it("follows the settings file when this window's copy of the language is cleared
     expect(init).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); }
 });
+
+it("does not let a late first-launch reply undo a language chosen while it was on its way", async () => {
+  const { UI_LOCALE_STORAGE_KEY, getAppLocale, setAppLocale } = await import("@/lib/i18n");
+  setAppLocale("en");
+  localStorage.removeItem(UI_LOCALE_STORAGE_KEY);
+  let answerInit!: () => void;
+  const { root, init, release } = await startWithHeldRead({ uiLocale: null }, () => new Promise(resolve => { answerInit = () => resolve({ ok: true, uiLocale: "en" }); }));
+  try {
+    await act(async () => release());
+    expect(init).toHaveBeenCalledWith("en");
+    // Japanese is chosen in the settings dialog before the reply about the first launch arrives.
+    await act(async () => setAppLocale("ja"));
+    await act(async () => answerInit());
+    expect(getAppLocale()).toBe("ja");
+    expect(localStorage.getItem(UI_LOCALE_STORAGE_KEY)).toBe("ja");
+  } finally { await act(async () => root.unmount()); }
+});

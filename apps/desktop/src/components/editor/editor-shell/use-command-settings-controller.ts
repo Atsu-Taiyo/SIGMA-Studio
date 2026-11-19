@@ -50,8 +50,11 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
           // まだ言語が無いときだけ書く。読んでいる間に別の経路で選ばれていれば、その言語に合わせる。
           const settingsBridge = bridge.settings!;
           if (settingsBridge.initUiLocale) {
+            const storedBeforeInit = readStoredAppLocale();
             void settingsBridge.initUiLocale(fallbackLocale).then((result) => {
-              if (!canceled && result.ok && result.uiLocale && result.uiLocale !== getAppLocale()) setAppLocale(result.uiLocale);
+              // 返事を待つ間にこの画面で言語が選ばれたら、そちらが新しい。古い返事では戻さない。
+              if (canceled || readStoredAppLocale() !== storedBeforeInit) return;
+              if (result.ok && result.uiLocale && result.uiLocale !== getAppLocale()) setAppLocale(result.uiLocale);
             }).catch(() => undefined);
           } else {
             void settingsBridge.setUiLocale?.(fallbackLocale);
