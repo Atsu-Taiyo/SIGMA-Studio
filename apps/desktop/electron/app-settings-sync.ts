@@ -1,7 +1,6 @@
-import type { AppLocale } from "@/lib/i18n";
 import type { SyncedPart } from "./authoring-style-sync";
 import {
-  isAiWebSearchEnabled, normalizeDesktopCommandShortcuts, normalizeDesktopCustomCommands, normalizeUiLocale,
+  isAiWebSearchEnabled, normalizeDesktopCommandShortcuts, normalizeDesktopCustomCommands,
   readDesktopSettingsSync, transactDesktopSettings, type DesktopSettings,
 } from "./desktop-settings";
 
@@ -10,6 +9,8 @@ import {
  * account under the same switch as the writing style.
  *
  * Only what is listed here is ever sent. Left on the device on purpose:
+ * the display language (each device keeps the language its user chose there; a
+ * `uiLocale` that earlier versions wrote to the account is ignored and dropped),
  * paths to the AI command line tools, imported fonts and the editor font (the
  * files are on this machine), the page setup remembered from the last document
  * (it can hold images), whether verified AI proposals are applied without asking
@@ -20,14 +21,12 @@ export const APP_SETTINGS_KEY = "app-settings";
 export interface SyncedAppSettings {
   version: 1;
   kind: "app-settings";
-  /** Null while no language was chosen on any device: each one then follows its system. */
-  uiLocale: AppLocale | null;
   commandShortcuts: Record<string, unknown>;
   customCommands: { id: string }[];
   aiWebSearchEnabled: boolean;
 }
 
-export type AppSettingsChange = Pick<DesktopSettings, "uiLocale" | "commandShortcuts" | "customCommands" | "aiWebSearchEnabled">;
+export type AppSettingsChange = Pick<DesktopSettings, "commandShortcuts" | "customCommands" | "aiWebSearchEnabled">;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
@@ -62,8 +61,9 @@ function mergeRecord<T>(agreed: boolean, base: Record<string, T>, local: Record<
 export function parseAppSettings(value: unknown): SyncedAppSettings | null {
   if (!isRecord(value) || value.version !== 1 || value.kind !== "app-settings") return null;
   // What arrives is read by the same checks as the settings file itself: nothing else gets through.
+  // The display language stays on each device, so a `uiLocale` written by an earlier version is not read.
   return {
-    version: 1, kind: "app-settings", uiLocale: normalizeUiLocale(value.uiLocale) ?? null,
+    version: 1, kind: "app-settings",
     commandShortcuts: normalizeDesktopCommandShortcuts(value.commandShortcuts),
     customCommands: normalizeDesktopCustomCommands(value.customCommands) as { id: string }[],
     aiWebSearchEnabled: value.aiWebSearchEnabled !== false,
@@ -78,7 +78,6 @@ export function mergeAppSettings(base: SyncedAppSettings | null, local: SyncedAp
   const order = [...new Set([...local.customCommands, ...remote.customCommands].map(command => command.id))];
   return {
     version: 1, kind: "app-settings",
-    uiLocale: pick(agreed, base?.uiLocale ?? undefined, local.uiLocale ?? undefined, remote.uiLocale ?? undefined) ?? null,
     commandShortcuts: mergeRecord(agreed, base?.commandShortcuts ?? {}, local.commandShortcuts, remote.commandShortcuts),
     customCommands: order.flatMap(id => commands[id] ? [commands[id]] : []),
     // Meeting for the first time, a device that has web search off keeps it off everywhere until its user says otherwise.
@@ -87,7 +86,7 @@ export function mergeAppSettings(base: SyncedAppSettings | null, local: SyncedAp
 }
 
 function comparable(settings: SyncedAppSettings): string {
-  return stable([settings.uiLocale, settings.commandShortcuts, [...settings.customCommands].sort((a, b) => a.id.localeCompare(b.id)), settings.aiWebSearchEnabled]);
+  return stable([settings.commandShortcuts, [...settings.customCommands].sort((a, b) => a.id.localeCompare(b.id)), settings.aiWebSearchEnabled]);
 }
 
 export function readAppSettings(dataDir: string): SyncedAppSettings {
@@ -96,7 +95,7 @@ export function readAppSettings(dataDir: string): SyncedAppSettings {
 
 function fromDesktop(settings: DesktopSettings): SyncedAppSettings {
   return {
-    version: 1, kind: "app-settings", uiLocale: settings.uiLocale ?? null,
+    version: 1, kind: "app-settings",
     commandShortcuts: normalizeDesktopCommandShortcuts(settings.commandShortcuts),
     customCommands: normalizeDesktopCustomCommands(settings.customCommands) as { id: string }[],
     aiWebSearchEnabled: isAiWebSearchEnabled(settings),
@@ -105,7 +104,7 @@ function fromDesktop(settings: DesktopSettings): SyncedAppSettings {
 
 /**
  * `applied` is told which settings another device changed, after they are in the settings file:
- * the running app has to take them up (language, the AI's web search, the shortcuts on screen).
+ * the running app has to take them up (the AI's web search, the shortcuts on screen).
  */
 export function appSettingsPart(dataDir: () => string, applied: (change: AppSettingsChange) => void): SyncedPart<SyncedAppSettings> {
   return {
@@ -113,14 +112,13 @@ export function appSettingsPart(dataDir: () => string, applied: (change: AppSett
     parse: parseAppSettings,
     merge: mergeAppSettings,
     comparable,
-    empty: settings => settings.uiLocale === null && !Object.keys(settings.commandShortcuts).length && !settings.customCommands.length && settings.aiWebSearchEnabled,
+    empty: settings => !Object.keys(settings.commandShortcuts).length && !settings.customCommands.length && settings.aiWebSearchEnabled,
     // Read, merged and written in one go, in line with every other write to the settings file: a change the
     // user makes meanwhile is either read here or written after this, never lost in between.
     update: merge => transactDesktopSettings(dataDir(), async (current, write) => {
       const previous = fromDesktop(current);
       const next = merge(previous);
       const change: AppSettingsChange = {};
-      if (next.uiLocale && next.uiLocale !== previous.uiLocale) change.uiLocale = next.uiLocale;
       if (!same(next.commandShortcuts, previous.commandShortcuts)) change.commandShortcuts = next.commandShortcuts;
       if (comparable({ ...previous, customCommands: next.customCommands }) !== comparable(previous)) change.customCommands = next.customCommands;
       if (next.aiWebSearchEnabled !== previous.aiWebSearchEnabled) change.aiWebSearchEnabled = next.aiWebSearchEnabled;

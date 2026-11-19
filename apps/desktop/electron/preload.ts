@@ -190,6 +190,9 @@ const desktopAPI = {
     setUiLocale(value: string): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("settings:set-ui-locale", value);
     },
+    initUiLocale(value: string): Promise<{ ok: boolean; uiLocale?: "ja" | "en"; error?: string }> {
+      return ipcRenderer.invoke("settings:init-ui-locale", value);
+    },
     onSynced(handler: () => void): () => void {
       const listener = () => handler();
       ipcRenderer.on("settings:synced", listener);

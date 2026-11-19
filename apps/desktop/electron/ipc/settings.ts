@@ -11,6 +11,7 @@ import {
   normalizeUiLocale,
   parseDesktopCommandSettingsPayload,
   readDesktopSettingsSync,
+  transactDesktopSettings,
   writeDesktopSettings,
 } from "../desktop-settings";
 
@@ -50,6 +51,26 @@ export function registerSettingsIpc(deps: RegisterSettingsIpcDeps): void {
     // アプリ再起動まで残る。Claude/Antigravity は turn ごとに渡し直すので不要。
     codexAppServerClient.setUiLocale(uiLocale);
     return { ok: true };
+  });
+
+  // 初回起動で検出した言語を書くための入口。読んでから書くまでをほかの書き込みと同じ列で行い、
+  // その間にもう言語が選ばれていればそちらを残して返す (起動直後の古い読み取りで選択を消さない)。
+  ipcMain.handle("settings:init-ui-locale", async (_event, value: unknown) => {
+    const detected = normalizeUiLocale(value);
+    if (!detected) {
+      return { ok: false, error: te("electron.settings.unsupportedLocale") };
+    }
+    const uiLocale = await transactDesktopSettings(dataDir, async (current, write) => {
+      const existing = normalizeUiLocale(current.uiLocale);
+      if (existing) {
+        return existing;
+      }
+      await write({ uiLocale: detected });
+      return detected;
+    });
+    setAppLocale(uiLocale);
+    codexAppServerClient.setUiLocale(uiLocale);
+    return { ok: true, uiLocale };
   });
 
   ipcMain.handle("settings:set-ai-auto-apply-verified-proposals", async (_event, value: unknown) => {
