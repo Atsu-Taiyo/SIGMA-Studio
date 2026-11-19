@@ -10,10 +10,14 @@ export const SNAPSHOT_PDF_FLOW_SOURCE = `((doc) => {
   const entries = Array.from(doc.querySelectorAll(".page-flow .ProseMirror")).map((root) => {
     const rect = root.getBoundingClientRect();
     const style = view.getComputedStyle(root);
-    // What follows the editor: its next sibling, or (only for a last child) its
-    // parent's bottom edge. Each editor answers for its own space only.
-    const next = root.nextElementSibling;
-    const parent = next ? null : root.parentElement;
+    // What follows the editor in flow: the next sibling of the editor or of the
+    // nearest ancestor it ends (a last child's bottom margin can collapse through
+    // unpadded ancestors), else the outermost such ancestor's bottom edge. Each
+    // editor answers for its own space only.
+    let end = root;
+    while (!end.nextElementSibling && end.parentElement && !end.parentElement.matches(".page-flow")) end = end.parentElement;
+    const next = end.nextElementSibling;
+    const parent = next ? null : end.parentElement;
     return {
       root, rect, next, nextRect: next ? next.getBoundingClientRect() : null,
       parent, parentRect: parent ? parent.getBoundingClientRect() : null,
