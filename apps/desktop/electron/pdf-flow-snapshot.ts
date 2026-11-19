@@ -7,17 +7,21 @@
 export const SNAPSHOT_PDF_FLOW_SOURCE = `((doc) => {
   const view = doc.defaultView;
   if (!view) return;
-  const entries = Array.from(doc.querySelectorAll(".page-flow .ProseMirror")).map((root) => {
+  const entries = Array.from(doc.querySelectorAll(".page-flow .ProseMirror")).filter((root) => {
+    const box = root.getBoundingClientRect();
+    return box.width > 0 && box.height > 0;
+  }).map((root) => {
     const rect = root.getBoundingClientRect();
     const style = view.getComputedStyle(root);
     // What follows the editor in flow: the next sibling of the editor or of the
     // nearest ancestor it ends (a last child's bottom margin can collapse through
-    // unpadded ancestors), else the outermost such ancestor's bottom edge. Each
-    // editor answers for its own space only.
+    // unpadded ancestors). Each editor answers for its own space only.
     // Out-of-flow siblings (e.g. a column resize handle) do not follow in flow.
-    // A margin cannot collapse out of a grid/flex item (an independent column)
-    // or past a non-block container, so the walk stops at that item and
-    // measures its bottom: the column gets back the space it lost.
+    // When nothing follows inside the boundary (the fixed-height page flow, or a
+    // grid/flex item, i.e. an independent column that may be stretched to its
+    // row), a zero-height probe is placed at the end of the content: it marks
+    // where the content ends, which neither the stretched column's box nor the
+    // fixed page flow does. Past a non-block container the walk stops at it.
     const inFlowNext = (element) => {
       let next = element.nextElementSibling;
       while (next) {
@@ -29,16 +33,26 @@ export const SNAPSHOT_PDF_FLOW_SOURCE = `((doc) => {
     };
     const blockFlow = (element) => !element || element.matches(".page-flow")
       || ["block", "list-item"].includes(view.getComputedStyle(element).display);
-    let end = root, next = null, parent = null;
+    let end = root, next = null, parent = null, probe = null;
     for (;;) {
       next = inFlowNext(end);
       if (next) break;
       const up = end.parentElement;
-      if (!up || up.matches(".page-flow") || !blockFlow(up) || !blockFlow(up.parentElement)) { parent = up; break; }
+      if (!up || !blockFlow(up)) { parent = up; break; }
+      if (up.matches(".page-flow") || !blockFlow(up.parentElement)) {
+        // A flow-root box does not let margins collapse through it, so it sits
+        // right after the last child's bottom margin and adds no height.
+        probe = doc.createElement("div");
+        probe.setAttribute("aria-hidden", "true");
+        probe.style.cssText = "display:flow-root;height:0;margin:0;padding:0;border:0";
+        end.after(probe);
+        next = probe;
+        break;
+      }
       end = up;
     }
     return {
-      root, rect, next, nextRect: next ? next.getBoundingClientRect() : null,
+      root, rect, next, probe, nextRect: next ? next.getBoundingClientRect() : null,
       parent, parentRect: parent ? parent.getBoundingClientRect() : null,
       marginTop: parseFloat(style.marginTop) || 0,
       marginBottom: parseFloat(style.marginBottom) || 0,
@@ -46,7 +60,7 @@ export const SNAPSHOT_PDF_FLOW_SOURCE = `((doc) => {
       borderTop: parseFloat(style.borderTopWidth) || 0,
       children: Array.from(root.children).map((element) => ({ element, rect: element.getBoundingClientRect() })),
     };
-  }).filter(({ rect }) => rect.width > 0 && rect.height > 0);
+  });
 
   // Read every box before writing: nested editors and successive flow units
   // must all use the same settled layout.
@@ -80,6 +94,9 @@ export const SNAPSHOT_PDF_FLOW_SOURCE = `((doc) => {
       : parent && parentRect ? parentRect.bottom - parent.getBoundingClientRect().bottom : 0;
     if (Math.abs(bottomDelta) > 0.001) root.style.marginBottom = (marginBottom + bottomDelta) + "px";
   }
+  // The probes only measured; inside a fixed-height flow or an independent
+  // column they never changed the layout, so removing them changes nothing.
+  for (const { probe } of entries) probe?.remove();
   // Any residual (e.g. a horizontal difference) is applied as before.
   for (const { root, rect } of entries) {
     const current = root.getBoundingClientRect();
