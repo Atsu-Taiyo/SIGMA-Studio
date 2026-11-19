@@ -20,11 +20,16 @@ function launchEnv(profile: string): Record<string, string> {
   return env;
 }
 
-/** Quits, but does not let a slow shutdown of this throwaway profile use up the test's time. */
+/** Quits, but does not let a slow shutdown of this throwaway profile use up the test's time. Returns once the process is gone. */
 async function close(app: ElectronApplication): Promise<void> {
-  const quit = app.close().catch(() => undefined);
-  const late = await Promise.race([quit.then(() => false), new Promise<boolean>(resolve => setTimeout(() => resolve(true), 30_000))]);
-  if (late) app.process().kill("SIGKILL");
+  const child = app.process();
+  const exited = child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise<void>(resolve => child.once("exit", () => resolve()));
+  const quit = app.close().then(() => true, () => false);
+  const closed = await Promise.race([quit, new Promise<boolean>(resolve => setTimeout(() => resolve(false), 30_000))]);
+  if (!closed) child.kill("SIGKILL");
+  await exited;
 }
 
 async function open(app: ElectronApplication): Promise<Page> {
@@ -83,8 +88,8 @@ test("Japanese chosen on an English system stays Japanese after reloads and rest
           const answer = await read(...args) as Record<string, unknown>;
           if (state.heldSettingsRead?.released) return answer;
           state.heldSettingsRead ??= { released: false, commandSavesAfter: 0 };
-          // Let go once the test has chosen the language, or after a while at the latest.
-          await Promise.race([released, new Promise(resolve => setTimeout(resolve, 20_000))]);
+          // Let go only once the test has chosen the language; if that never happens the test times out.
+          await released;
           state.heldSettingsRead.released = true;
           return { ...answer, uiLocale: null };
         });
