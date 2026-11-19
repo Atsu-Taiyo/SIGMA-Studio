@@ -1242,7 +1242,6 @@
   --problem-number-text-offset-y: initial;
   --problem-number-text-align: initial;
   --problem-number-text-start: initial;
-  --problem-number-text-end: initial;
   --problem-frame-border-width: initial;
   --problem-frame-border-radius: initial;
 }
@@ -1672,7 +1671,7 @@
   outline-offset: var(--problem-number-outline-offset, 0px);
   white-space: nowrap;
   padding-left: calc(var(--problem-number-padding-x, 0.24em) + var(--problem-number-text-start, max(0px, calc(var(--problem-number-text-offset-x, 0px) * 2))));
-  padding-right: calc(var(--problem-number-padding-x, 0.24em) + var(--problem-number-text-end, max(0px, calc(var(--problem-number-text-offset-x, 0px) * -2))));
+  padding-right: calc(var(--problem-number-padding-x, 0.24em) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * -2)));
   padding-top: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * 2)));
   padding-bottom: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * -2)));
 }

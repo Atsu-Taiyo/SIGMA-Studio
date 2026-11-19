@@ -23,11 +23,11 @@ export function getProblemNumberLayoutStyle(numbering: ProblemNumbering | undefi
   if (style["--problem-number-width"]) style["--problem-number-padding-x"] = "0px";
   // Start alignment: the label starts at a fixed inset from the box's inner left
   // edge, whatever the number's width (textOffsetXPx is that inset), so a
-  // renumbered problem (9 → 10) keeps the same left edge.
+  // renumbered problem (9 → 10) keeps the same left edge. The inset is never
+  // negative, so the right padding (from the same offset) stays 0.
   if (numbering.textAlign === "start") {
     style["--problem-number-text-align"] = "start";
     style["--problem-number-text-start"] = finite(numbering.textOffsetXPx, 0, 128) ? `${numbering.textOffsetXPx}px` : "0px";
-    style["--problem-number-text-end"] = "0px";
   }
   if (["solid", "double", "none"].includes(numbering.borderStyle ?? "")) style["--problem-number-border-style"] = numbering.borderStyle!;
   return style;

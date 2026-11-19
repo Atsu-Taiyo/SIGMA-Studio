@@ -43,7 +43,7 @@ describe("problem dimensions", () => {
     expect((parsed.content[0] as ProblemNode).numbering?.format).toBe("fullwidthSingleDigit");
     // Start alignment: the inset is the same for any number width (no per-number offset).
     const start = { textAlign: "start" as const, textOffsetXPx: 1.26, widthPx: 19.29 };
-    expect(getProblemNumberLayoutStyle(start)).toMatchObject({ "--problem-number-text-align": "start", "--problem-number-text-start": "1.26px", "--problem-number-text-end": "0px" });
+    expect(getProblemNumberLayoutStyle(start)).toMatchObject({ "--problem-number-text-align": "start", "--problem-number-text-start": "1.26px" });
     expect(getProblemNumberLayoutStyle({ textOffsetXPx: 2 })["--problem-number-text-align"]).toBeUndefined();
     const aligned = parseSigmaDocument({ ...sampleDocument, content: [{ type: "problem", id: "p", tags: [], lead: [], prompt: [], solution: [], hints: [], numbering: { enabled: true, ...start } }] });
     expect((aligned.content[0] as ProblemNode).numbering?.textAlign).toBe("start");
