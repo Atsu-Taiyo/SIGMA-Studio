@@ -550,8 +550,9 @@
 .paged-render .block-comment-marker,
 .paged-render .ai-inline-catcher,
 /* The "curve outside the visible range" notice is an authoring hint drawn
-   inside the graph SVG. It must not be printed onto handouts/PDF. */
-.paged-render .graph2d-error-text {
+   inside the graph SVG. It must not be printed onto handouts/PDF. Real graph
+   errors (invalid range, no evaluable curve) keep printing. */
+.paged-render .graph2d-visibility-warning {
   visibility: hidden;
 }
 

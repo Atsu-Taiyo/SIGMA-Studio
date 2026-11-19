@@ -1769,7 +1769,7 @@ li[data-list-marker-typography]::marker {
 .print-problem-area-content.with-number {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  align-items: baseline;
+  align-items: start;
   column-gap: var(--problem-number-gap, 8px);
 }
 

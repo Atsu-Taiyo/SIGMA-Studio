@@ -1632,13 +1632,15 @@
   margin-bottom: -6px;
 }
 
-/* 番号の箱と導入文の1行目は、ベースラインを揃えて同じ行に置く。番号は問題の最初の行の一部として
-   レイアウトされるので、編集面・印刷とも同じ位置になり、実測による後からの移動は要らない。
-   箱が行より高いとき (番号を大きくしたとき) も、行は番号の文字と同じベースラインに並ぶ。 */
+/* 番号の箱と導入文は、同じグリッド行の上端から並べる。どちらの位置も CSS だけで決まり、
+   実測による後からの移動 (translate) も、本文の行の基線への依存もない。PDF 出力では本文の
+   段落が実測の箱に固定される (electron/pdf-flow-snapshot.ts) ので、行に依存する揃え方は
+   印刷だけずれる。上端揃えなら編集面・印刷とも同じ位置になる。番号の上下位置は
+   `numbering.offsetYPx` で決める。 */
 .problem-area-paper-content.with-number {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  align-items: baseline;
+  align-items: start;
   column-gap: var(--problem-number-gap, 8px);
 }
 

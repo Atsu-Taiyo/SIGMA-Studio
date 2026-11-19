@@ -964,7 +964,7 @@ function Graph2DPreviewComponent({
         </g>
 
         {visibilityWarnings.length > 0 && (
-          <text x={spec.width / 2} y={spec.height / 2} textAnchor="middle" className="graph2d-error-text">
+          <text x={spec.width / 2} y={spec.height / 2} textAnchor="middle" className="graph2d-error-text graph2d-visibility-warning">
             {formatGraphWarning(visibilityWarnings[0], tShape)}
           </text>
         )}

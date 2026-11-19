@@ -155,11 +155,6 @@
   overflow-wrap: anywhere;
 }
 
-/* 導入文の行は、番号の箱が高いときに箱の縦の中央へ置く (紙面と同じ見え方)。 */
-.previewLead :global(.problem-area-paper-content.with-number) > .previewText {
-  align-self: center;
-}
-
 .previewEmpty {
   color: var(--text-disabled);
 }
