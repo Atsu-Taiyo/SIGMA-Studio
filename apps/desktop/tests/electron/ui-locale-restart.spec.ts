@@ -72,21 +72,37 @@ test("Japanese chosen on an English system stays Japanese after reloads and rest
         const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => Promise<unknown>> })._invokeHandlers;
         const original = handlers.get("settings:get");
         if (!original) throw new Error("settings:get is not registered");
-        let held = false;
+        const state = globalThis as unknown as { heldSettingsRead?: { holding: boolean; released: boolean; uiLocale?: unknown } };
+        let release!: () => void;
+        const released = new Promise<void>(resolve => { release = resolve; });
         handlers.set("settings:get", async (...args: unknown[]) => {
-          const answer = await original(...args);
-          if (!held) { held = true; await new Promise(resolve => setTimeout(resolve, 3000)); }
+          const answer = await original(...args) as { uiLocale?: unknown };
+          if (!state.heldSettingsRead) {
+            state.heldSettingsRead = { holding: true, released: false, uiLocale: answer.uiLocale };
+            // Let go once the test has chosen the language, or after a while at the latest.
+            await Promise.race([released, new Promise(resolve => setTimeout(resolve, 20_000))]);
+            state.heldSettingsRead.released = true;
+          }
           return answer;
         });
+        (globalThis as unknown as { releaseSettingsRead: () => void }).releaseSettingsRead = release;
       });
       await page.reload();
-      await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+      // The renderer's first read has the file as it was: no language yet.
+      await expect.poll(() => app.evaluate(() => (globalThis as unknown as { heldSettingsRead?: { holding: boolean; uiLocale?: unknown } }).heldSettingsRead ?? null))
+        .toEqual({ holding: true, released: false, uiLocale: null });
+      await expect(page.locator("html")).toHaveAttribute("lang", "en");
+      // Japanese is chosen meanwhile the way the Electron specs seed it before a reload: written to the settings
+      // file and to this window's storage directly, without the running screen being told. This is what raced the
+      // late first read in CI and left the app English after the reload.
       await page.evaluate(async () => {
-        localStorage.setItem("sigma-studio:ui-locale", "ja");
         await window.desktopAPI!.settings!.setUiLocale!("ja");
+        localStorage.setItem("sigma-studio:ui-locale", "ja");
       });
-      // Past the held answer.
-      await page.waitForTimeout(4000);
+      await app.evaluate(() => (globalThis as unknown as { releaseSettingsRead: () => void }).releaseSettingsRead());
+      await expect.poll(() => app.evaluate(() => (globalThis as unknown as { heldSettingsRead: { released: boolean } }).heldSettingsRead.released)).toBe(true);
+      // The late answer (no language yet) does not put English back into either store.
+      await page.waitForTimeout(1500);
       expect(await page.evaluate(() => localStorage.getItem("sigma-studio:ui-locale"))).toBe("ja");
       expect((await page.evaluate(() => window.desktopAPI!.settings!.get())).uiLocale).toBe("ja");
       await page.reload();
