@@ -278,6 +278,7 @@ describe("document open failure save guard", () => {
       observedRevision: 1,
     });
     expect(ports.lastSavedDocumentRef.current).toEqual(write.document);
+    expect(ports.lastSyncedDocumentRef.current).toEqual(write.document);
     expect(ports.lastSavedDirtyRevisionRef.current).toBe(1);
     expect(ports.documentObservedRevisionRef.current).toBe(2);
     expect(ports.isCurrentDocumentDirty()).toBe(false);
