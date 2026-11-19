@@ -113,7 +113,7 @@ describe("buildGeminiEditPrompt", () => {
     const prompt = buildGeminiEditPrompt({ locale: "ja", instruction: "三角形を追加して", fileId: "file_abc" });
     expect(prompt).toContain("file_abc");
     expect(prompt).toContain("三角形を追加して");
-    expect(prompt).toContain("sigma-studio-local");
+    expect(prompt).toContain("sigma-studio-workspace");
   });
 });
 
@@ -128,6 +128,13 @@ describe("runGeminiEditForIpc", () => {
         onEvent: () => {},
       }),
     ).rejects.toThrow("ログイン");
+  });
+
+  it("surfaces a failed account probe instead of asking a signed-in user to log in again", async () => {
+    const { client } = createFakeGemini({ status: { loggedIn: false, error: "model service unavailable" } });
+    await expect(runGeminiEditForIpc({
+      locale: "ja", gemini: client, payload: { instruction: "edit", fileId: "file_1", document: FAKE_DOCUMENT }, onEvent: () => {},
+    })).rejects.toThrow("model service unavailable");
   });
 
   it("rejects with an install hint when gemini is unavailable", async () => {

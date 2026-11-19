@@ -1,8 +1,9 @@
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import os, { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { LocalAiEditChatRoomStore } from "./ai-edit-chat-room-store";
 import * as cliSpawn from "./cli-spawn";
 
 import {
@@ -92,12 +93,13 @@ function restoreEnv(key: string, value: string | undefined): void {
   process.env[key] = value;
 }
 
-function startHangingTurn(client: GeminiHeadlessClient, runId: string) {
+function startHangingTurn(client: GeminiHeadlessClient, runId: string, resumeSessionId?: string) {
   let announceReady!: () => void;
   const ready = new Promise<void>((resolve) => { announceReady = resolve; });
   const result = client.runTurn({
     instruction: "hang",
     runId,
+    resumeSessionId,
     onDelta: (delta) => {
       if (delta === "fake-gemini-ready") announceReady();
     },
@@ -200,7 +202,6 @@ describe("GeminiHeadlessClient", () => {
     expect(catalog.models).toEqual([{
       id: "Gemini 3.5 Flash (High)",
       label: "Gemini 3.5 Flash (High)",
-      isDefault: true,
     }]);
   });
 
@@ -212,11 +213,11 @@ describe("GeminiHeadlessClient", () => {
       ),
     });
     expect((await client.listModels()).models.map((model) => model.id)).toEqual([
-      "Gemini 3.8 Flash (High)", "Gemini 3.8 Flash (Low)",
+      "gemini-3.8-flash-high", "gemini-3.8-flash-low",
     ]);
     await client.runTurn({ instruction: "hello", model: "Gemini 3.5 Flash (Low)" });
     const { argv } = readFakeCapture(dir);
-    expect(argv[argv.indexOf("--model") + 1]).toBe("Gemini 3.8 Flash (Low)");
+    expect(argv[argv.indexOf("--model") + 1]).toBe("gemini-3.8-flash-low");
   });
 
   it("resolves automatic and retired selections again after the CLI catalog changes", async () => {
@@ -227,11 +228,11 @@ describe("GeminiHeadlessClient", () => {
     advertise("Future Model A");
     await client.runTurn({ instruction: "hello" });
     let argv = readFakeCapture(dir).argv;
-    expect(argv[argv.indexOf("--model") + 1]).toBe("Future Model A");
+    expect(argv).not.toContain("--model");
     advertise("Future Model B");
     await client.runTurn({ instruction: "hello again", model: "Future Model A" });
     argv = readFakeCapture(dir).argv;
-    expect(argv[argv.indexOf("--model") + 1]).toBe("Future Model B");
+    expect(argv).not.toContain("--model");
   });
 
   it("omits --model when automatic selection has no catalog", async () => {
@@ -261,6 +262,11 @@ describe("GeminiHeadlessClient", () => {
     expect(status.available).toBe(true);
     expect(status.loggedIn).toBe(true);
     expect(status.error).toBeNull();
+  });
+
+  it("rejects an IDE launcher that prints a version but lacks the headless flags", async () => {
+    const { client } = createClient({ binSource: '#!/bin/sh\necho "Antigravity IDE 2.6.0"\n' });
+    expect((await client.getStatus()).available).toBe(false);
   });
 
   it("getStatus reports unavailable when the agy binary is missing", async () => {
@@ -364,46 +370,18 @@ describe("GeminiHeadlessClient", () => {
     expect(readFileSync(probeLogPath, "utf8").trim().split("\n").filter(Boolean)).toHaveLength(1);
   });
 
-  it("spawns agy with the instruction as the print value, flags, and the requested cwd", async () => {
+  it("sends a single NDJSON user frame, disables slash expansion and runs in the editor workspace", async () => {
     const { client, dir, workspaceDir } = createClient();
-
-    await client.runTurn({ instruction: "hello", model: "Gemini 3.5 Flash (High)" });
+    const instruction = '/model "文章"\n' + '日本語 & %PATH% | '.repeat(12000);
+    await client.runTurn({ instruction });
     const capture = readFakeCapture(dir);
-
-    expect(capture.argv[0]).toBe("--print=hello");
-    expect(capture.argv.slice(1, 5)).toEqual([
-      "--print-timeout",
-      "8m",
-      "--model",
-      "Gemini 3.5 Flash (High)",
+    expect(capture.argv).toEqual([
+      "--input-format", "stream-json", "--output-format", "stream-json", "--disable-slash-commands",
+      "--print-timeout", "480s", "--model", "Gemini 3.5 Flash (High)", "--settings", expect.any(String),
     ]);
-    const logFileIndex = capture.argv.indexOf("--log-file");
-    expect(logFileIndex).toBeGreaterThanOrEqual(0);
-    expect(typeof capture.argv[logFileIndex + 1]).toBe("string");
-    expect(capture.argv[logFileIndex + 1].length).toBeGreaterThan(0);
-    expect(capture.argv).not.toContain("--dangerously-skip-permissions");
+    expect(capture.stdin.trim().split("\n")).toHaveLength(1);
+    expect(JSON.parse(capture.stdin)).toEqual({ event: "user", message: { content: instruction } });
     expect(realpathSync(capture.cwd)).toBe(realpathSync(workspaceDir));
-  });
-
-  it("passes the instruction through verbatim on posix, with no shell escaping applied", async () => {
-    // macOS / Linux は `shell: false` 固定なので、Windows 用のクォートやキャレットが 1 文字でも
-    // 混ざったら値が壊れる。「エスケープが posix 経路へ漏れていない」ことの直接の確認。
-    const { client, dir } = createClient();
-    const instruction = 'say "hi" & echo %PATH% | cat ^ (x) !';
-
-    await client.runTurn({ instruction, model: "Gemini 3.5 Flash (High)" });
-
-    expect(readFakeCapture(dir).argv[0]).toBe(`--print=${instruction}`);
-  });
-
-  it("keeps a multi-line instruction intact on posix", async () => {
-    // Windows の `.cmd` 経路では改行が表現できず理由付きで失敗するが、posix では従来どおり通る。
-    const { client, dir } = createClient();
-    const instruction = "line1\nline2\nline3";
-
-    await client.runTurn({ instruction, model: "Gemini 3.5 Flash (High)" });
-
-    expect(readFakeCapture(dir).argv[0]).toBe(`--print=${instruction}`);
   });
 
   it("spawns with a per-run workspaceDir override instead of the constructor workspaceDir when provided, and creates the directory", async () => {
@@ -417,19 +395,6 @@ describe("GeminiHeadlessClient", () => {
     const capture = readFakeCapture(dir);
     expect(realpathSync(capture.cwd)).toBe(realpathSync(perRunWorkspaceDir));
     expect(realpathSync(perRunWorkspaceDir)).not.toBe(realpathSync(workspaceDir));
-  });
-
-  it("passes the complete instruction as the print value without using stdin", async () => {
-    const { client, dir } = createClient();
-    const dangerousInstruction = 'line one\nline two "quoted" \'quoted\' & echo injected | rm -rf / < in > out';
-
-    await client.runTurn({ instruction: dangerousInstruction, model: "Gemini 3.5 Flash (High)" });
-    const capture = readFakeCapture(dir);
-
-    expect(capture.stdin).toBe("");
-    expect(capture.prompt).toBe(dangerousInstruction);
-    expect(capture.argv[0]).toBe(`--print=${dangerousInstruction}`);
-    expect(capture.argv[0]).not.toMatch(/^--print=@/);
   });
 
   it("uses the default model when the turn does not specify one", async () => {
@@ -484,11 +449,11 @@ describe("GeminiHeadlessClient", () => {
     expect(deltas.length).toBeGreaterThan(1);
   });
 
-  it("streams the reply as it arrives when asked to (agy --output-format stream-json), and only then", async () => {
+  it("streams the reply as it arrives for ordinary editor turns", async () => {
     const { client, dir } = createClient({ binSource: AGY_STREAM_JSON_BIN });
     const deltas: string[] = [];
 
-    const streamed = await client.runTurn({ instruction: "draw", streamOutput: true, onDelta: (d) => deltas.push(d) });
+    const streamed = await client.runTurn({ instruction: "draw", onDelta: (d) => deltas.push(d) });
 
     // The CLI ends the answer with a newline-only delta and reports the whole text in `result`.
     expect(deltas).toEqual(["前置き。", "<svg/>", "\n"]);
@@ -496,14 +461,25 @@ describe("GeminiHeadlessClient", () => {
     const argv = readFakeCapture(dir).argv;
     expect(argv.slice(argv.indexOf("--output-format"), argv.indexOf("--output-format") + 2)).toEqual(["--output-format", "stream-json"]);
 
-    const plain = await client.runTurn({ instruction: "draw" });
-    expect(readFakeCapture(dir).argv).not.toContain("--output-format");
-    expect(plain.finalText).toBe("plain answer");
+  });
+
+  it("pairs native tool activity by step index even for DONE-only steps", async () => {
+    const toolStep = (state: string, index: number) => `send(${JSON.stringify({ event: "step_update",
+      step_update: { step_type: "tool", step_index: index, tool_name: "read_file", state },
+    })});`;
+    const source = AGY_STREAM_JSON_BIN.replace('if (printArg.includes("FAIL"))',
+      [toolStep("ACTIVE", 4), toolStep("ACTIVE", 4), toolStep("DONE", 4), toolStep("DONE", 5), 'if (printArg.includes("FAIL"))'].join("\n"));
+    const { client } = createClient({ binSource: source });
+    const onToolUse = vi.fn();
+    const onToolResult = vi.fn();
+    await client.runTurn({ instruction: "hello", onToolUse, onToolResult });
+    expect(onToolUse.mock.calls.map(([tool]) => tool.id)).toEqual(["agy-step-4", "agy-step-5"]);
+    expect(onToolResult.mock.calls.map(([tool]) => tool.toolUseId)).toEqual(["agy-step-4", "agy-step-5"]);
   });
 
   it("reports an agy stream-json failure as an error result with its message", async () => {
     const { client } = createClient({ binSource: AGY_STREAM_JSON_BIN });
-    const result = await client.runTurn({ instruction: "FAIL please", streamOutput: true });
+    const result = await client.runTurn({ instruction: "FAIL please" });
     expect(result).toMatchObject({ isError: true, errorMessage: "quota exceeded" });
   });
 
@@ -537,14 +513,65 @@ describe("GeminiHeadlessClient", () => {
     expect(result.finalText).toBe("ECHO:noise tolerant");
   });
 
-  it("recovers the conversation id from --log-file when the CLI streams no JSON events at all (F2/F3: real print-mode stdout is plain text only)", async () => {
-    const { client } = createClient({ binSource: PLAIN_TEXT_NO_JSON_BIN });
+  it("rejects an incomplete stream even when agy exits zero", async () => {
+    const source = AGY_STREAM_JSON_BIN.split('send({ event: "result", result: { conversation_id: "conv-1", status: "SUCCESS"')[0];
+    const { client } = createClient({ binSource: source });
+    await expect(client.runTurn({ instruction: "draw" })).rejects.toThrow(/result/);
+  });
 
-    const result = await client.runTurn({ instruction: "hello" });
+  it("retains the conversation ID from an active step when the first turn is cancelled", async () => {
+    const source = HANG_BIN.slice(0, HANG_BIN.indexOf('send({ type: "init"')) + `
+send({ event: "step_update", step_update: { conversation_id: "running-conversation", step_type: "agent_response", text_delta: "fake-gemini-ready" } });
+setInterval(() => {}, 1000);`;
+    const { client } = createClient({ binSource: source });
+    const turn = startHangingTurn(client, "cancel-first-turn");
+    try {
+      await turn.ready;
+      expect(client.cancelRun("cancel-first-turn")).toBe(true);
+      expect(await turn.result).toMatchObject({ cancelled: true, sessionId: "running-conversation" });
+    } finally {
+      client.cancelRun("cancel-first-turn");
+    }
+  });
 
-    expect(result.isError).toBe(false);
-    expect(result.finalText).toContain("プレーンテキストの応答です。");
-    expect(result.sessionId).toBe("conv-plain-12345678");
+  it("keeps the known conversation across cancel, room save and reopen before the CLI announces an ID", async () => {
+    const source = HANG_BIN.split("\n").filter((line) => !line.startsWith('send({ type: "init"')).join("\n");
+    const { client, dir } = createClient({ binSource: source });
+    const turn = startHangingTurn(client, "cancel-continuation", "previous-turn-id");
+    try {
+      await turn.ready;
+      client.cancelRun("cancel-continuation");
+      const result = await turn.result;
+      expect(result).toMatchObject({ cancelled: true, sessionId: "previous-turn-id" });
+      const now = new Date().toISOString();
+      const store = new LocalAiEditChatRoomStore(dir);
+      await store.saveRoom({ version: 1, id: "room", documentIdentityKey: "file", title: "test", provider: "antigravity",
+        agentThreadId: result.sessionId, createdAt: now, updatedAt: now, turns: [] });
+      expect(await new LocalAiEditChatRoomStore(dir).listRooms("file")).toMatchObject([{ agentThreadId: "previous-turn-id" }]);
+    } finally {
+      client.cancelRun("cancel-continuation");
+    }
+  });
+
+  it("reads the CLI settings from the OS profile even when the shell home differs", async () => {
+    const { dir, fakeGeminiBin, workspaceDir } = createClient();
+    vi.spyOn(os, "homedir").mockReturnValue(dir);
+    const profile = path.join(dir, ".gemini", "antigravity-cli");
+    mkdirSync(profile, { recursive: true });
+    writeFileSync(path.join(profile, "settings.json"), "{invalid");
+    const client = new GeminiHeadlessClient({ geminiBin: fakeGeminiBin, workspaceDir });
+    await expect(client.runTurn({ instruction: "hello" })).rejects.toBeInstanceOf(SyntaxError);
+  });
+
+  it("uses the authoritative result ID and delivers a final-only response", async () => {
+    const source = AGY_STREAM_JSON_BIN.replace('if (printArg.includes("FAIL"))', 'if (true)')
+      .replace('status: "ERROR", error: "quota exceeded"', 'status: "SUCCESS", response: "ready"')
+      .replace('result: { conversation_id: "conv-1"', 'result: { conversation_id: "final-id"')
+      .replace('process.exit(1);','process.exit(0);');
+    const { client } = createClient({ binSource: source });
+    const onDelta = vi.fn();
+    expect(await client.runTurn({ instruction: "hello", onDelta })).toMatchObject({ sessionId: "final-id", finalText: "ready", isError: false });
+    expect(onDelta).toHaveBeenCalledExactlyOnceWith("ready");
   });
 
   it("reports a headless MCP permission denial from stderr as an error even when agy exits successfully", async () => {
@@ -673,7 +700,7 @@ describe("GeminiHeadlessClient", () => {
     let turnProcess: ReturnType<typeof spawn> | undefined;
     vi.spyOn(cliSpawn, "spawnCliProcess").mockImplementation((...args) => {
       const child = spawn(...args);
-      if (args[1].some((argument) => argument.startsWith("--print="))) turnProcess = child;
+      if (args[1].includes("--input-format")) turnProcess = child;
       return child;
     });
     const runId = "run_gemini_cancel_2";
@@ -704,16 +731,14 @@ const FAKE_GEMINI_BIN = `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
 
-if (process.argv.includes("--version")) {
-  console.log("0.49.0");
+if (process.argv.includes("--help")) {
+  console.log("--input-format --output-format --settings");
   process.exit(0);
 }
 
 const argv = process.argv.slice(2);
 const stdin = fs.readFileSync(0, "utf8");
-const printArg = argv.find((arg) => arg.startsWith("--print="));
-const printValue = printArg ? printArg.slice("--print=".length) : "";
-const prompt = printValue.startsWith("@") ? fs.readFileSync(printValue.slice(1), "utf8") : (printValue || stdin);
+const prompt = stdin ? JSON.parse(stdin).message.content : "";
 fs.writeFileSync(path.join(process.cwd(), "..", "fake-capture.json"), JSON.stringify({
   argv,
   env: process.env,
@@ -737,7 +762,7 @@ if (resumeIndex >= 0 && argv[resumeIndex + 1] === "gsess_unknown") {
 const sessionId = resumeIndex >= 0 ? argv[resumeIndex + 1] : "gsess_" + process.pid;
 
 send({ type: "init", timestamp: "2026-07-02T00:00:00.000Z", session_id: sessionId, model: "Gemini 3.5 Flash (High)" });
-send({ type: "message", timestamp: "2026-07-02T00:00:00.000Z", role: "user", content: prompt });
+send({ type: "message", timestamp: "2026-07-02T00:00:00.000Z", role: "user", content: prompt.slice(0, 256) });
 process.stdout.write("this line is not json\\n");
 send({ type: "some_future_event", value: 1 });
 process.stderr.write("[WARNING] user hook noise\\n");
@@ -749,7 +774,7 @@ if (prompt.includes("BLOCKED")) {
   send({ type: "error", timestamp: "2026-07-02T00:00:00.000Z", severity: "warning", message: "Tool execution blocked: AGENT_EXECUTION_BLOCKED" });
 }
 send({ type: "message", timestamp: "2026-07-02T00:00:00.000Z", role: "assistant", content: "ECHO:", delta: true });
-send({ type: "message", timestamp: "2026-07-02T00:00:00.000Z", role: "assistant", content: prompt, delta: true });
+send({ type: "message", timestamp: "2026-07-02T00:00:00.000Z", role: "assistant", content: prompt.slice(0, 256), delta: true });
 send({ type: "result", timestamp: "2026-07-02T00:00:00.000Z", status: "success", stats: {} });
 process.exit(0);
 `;
@@ -759,20 +784,16 @@ process.exit(0);
 const AGY_STREAM_JSON_BIN = `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
-if (process.argv.includes("--version")) { console.log("agy-fake"); process.exit(0); }
+if (process.argv.includes("--help")) { console.log("--input-format --output-format --settings"); process.exit(0); }
 const argv = process.argv.slice(2);
 fs.writeFileSync(path.join(process.cwd(), "..", "fake-capture.json"), JSON.stringify({ argv, env: process.env, cwd: process.cwd() }));
 if (argv.includes("models")) { console.log("Gemini 3.5 Flash (High)"); process.exit(0); }
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
-const printArg = argv.find((arg) => arg.startsWith("--print=")) || "";
-if (!argv.includes("--output-format")) {
-  process.stdout.write("plain answer\\n");
-  process.exit(0);
-}
+const printArg = JSON.parse(fs.readFileSync(0, "utf8")).message.content;
 send({ event: "init", conversation_id: "conv-1", init: { cwd: process.cwd(), tools: [] } });
 send({ event: "step_update", step_update: { conversation_id: "conv-1", step_index: 0, state: "DONE", step_type: "user_input" } });
 if (printArg.includes("FAIL")) {
-  send({ event: "result", result: { conversation_id: "conv-1", status: "ERROR", error: { message: "quota exceeded" } } });
+  send({ event: "result", result: { conversation_id: "conv-1", status: "ERROR", error: "quota exceeded" } });
   process.exit(1);
 }
 send({ event: "step_update", step_update: { step_index: 1, state: "ACTIVE", step_type: "agent_response", text_delta: "前置き。" } });
@@ -782,45 +803,9 @@ send({ event: "result", result: { conversation_id: "conv-1", status: "SUCCESS", 
 process.exit(0);
 `;
 
-// F2 (実機確認): printモードのstdoutは最終応答のプレーンテキストのみで、コードが期待するJSON
-// イベント (init/message/tool_use/result) は一切流れない。F3: 会話IDは --log-file に書かれる
-// `printmode.go:179] Print mode: conversation=<uuid>, sending message` の行から回収する。
-const PLAIN_TEXT_NO_JSON_BIN = `#!/usr/bin/env node
-const fs = require("node:fs");
-const path = require("node:path");
-
-if (process.argv.includes("--version")) {
-  console.log("0.49.0");
-  process.exit(0);
-}
-
-const argv = process.argv.slice(2);
-const stdin = fs.readFileSync(0, "utf8");
-const printArg = argv.find((arg) => arg.startsWith("--print="));
-const printValue = printArg ? printArg.slice("--print=".length) : "";
-const prompt = printValue.startsWith("@") ? fs.readFileSync(printValue.slice(1), "utf8") : (printValue || stdin);
-fs.writeFileSync(path.join(process.cwd(), "..", "fake-capture.json"), JSON.stringify({
-  argv,
-  env: process.env,
-  cwd: process.cwd(),
-  stdin,
-  prompt,
-}, null, 2));
-
-const logFileIndex = argv.indexOf("--log-file");
-const logFilePath = argv[logFileIndex + 1];
-fs.writeFileSync(
-  logFilePath,
-  "I0706 12:00:00.000000 1 printmode.go:179] Print mode: conversation=conv-plain-12345678, sending message\\n",
-);
-
-process.stdout.write("プレーンテキストの応答です。\\n");
-process.exit(0);
-`;
-
 const HEADLESS_PERMISSION_DENIED_BIN = `#!/usr/bin/env node
-if (process.argv.includes("--version")) {
-  console.log("1.1.5");
+if (process.argv.includes("--help")) {
+  console.log("--input-format --output-format --settings");
   process.exit(0);
 }
 if (process.argv.includes("models")) {
@@ -832,8 +817,8 @@ process.exit(0);
 `;
 
 const HEADLESS_READ_PERMISSION_DENIED_BIN = `#!/usr/bin/env node
-if (process.argv.includes("--version")) {
-  console.log("1.1.5");
+if (process.argv.includes("--help")) {
+  console.log("--input-format --output-format --settings");
   process.exit(0);
 }
 if (process.argv.includes("models")) {
@@ -846,14 +831,14 @@ process.exit(0);
 
 // 未ログインの実機挙動 (live probe): stdout に JSON を出さず、stderr にヒント、exit 41。
 const AUTH_ERROR_BIN = `#!/usr/bin/env node
-if (process.argv.includes("--version")) { console.log("0.49.0"); process.exit(0); }
+if (process.argv.includes("--help")) { console.log("--input-format --output-format --settings"); process.exit(0); }
 process.stderr.write("Please run agy to authenticate\\n");
 process.exit(41);
 `;
 
 // result イベント自体が status:"error" を運ぶケース (モデルエラー等)。
 const RESULT_ERROR_BIN = `#!/usr/bin/env node
-if (process.argv.includes("--version")) { console.log("0.49.0"); process.exit(0); }
+if (process.argv.includes("--help")) { console.log("--input-format --output-format --settings"); process.exit(0); }
 function send(message) { process.stdout.write(JSON.stringify(message) + "\\n"); }
 send({ type: "init", timestamp: "2026-07-02T00:00:00.000Z", session_id: "gsess_err", model: "Gemini 3.5 Flash (High)" });
 send({ type: "result", timestamp: "2026-07-02T00:00:00.000Z", status: "error", error: { type: "QuotaError", message: "Quota exceeded for model" }, stats: {} });
@@ -862,14 +847,14 @@ process.exit(1);
 
 // result を返さずに落ちるケース。
 const EXIT_BIN = `#!/usr/bin/env node
-if (process.argv.includes("--version")) { console.log("0.49.0"); process.exit(0); }
+if (process.argv.includes("--help")) { console.log("--input-format --output-format --settings"); process.exit(0); }
 process.stderr.write("boom\\n");
 setTimeout(() => process.exit(1), 50);
 `;
 
 // 応答しないままハングするケース (timeout kill の検証用)。
 const HANG_BIN = `#!/usr/bin/env node
-if (process.argv.includes("--version")) { console.log("0.49.0"); process.exit(0); }
+if (process.argv.includes("--help")) { console.log("--input-format --output-format --settings"); process.exit(0); }
 function send(message) { process.stdout.write(JSON.stringify(message) + "\\n"); }
 send({ type: "init", timestamp: "2026-07-02T00:00:00.000Z", session_id: "gsess_hang", model: "Gemini 3.5 Flash (High)" });
 send({ type: "message", role: "assistant", delta: true, content: "fake-gemini-ready" });
@@ -878,7 +863,7 @@ setInterval(() => {}, 1000);
 
 // HANG_BIN と同じだが SIGTERM を無視する: cancelRun() の SIGKILL エスカレーションのテスト用。
 const HANG_IGNORE_SIGTERM_BIN = `#!/usr/bin/env node
-if (process.argv.includes("--version")) { console.log("0.49.0"); process.exit(0); }
+if (process.argv.includes("--help")) { console.log("--input-format --output-format --settings"); process.exit(0); }
 const fs = require("node:fs");
 const path = require("node:path");
 process.on("SIGTERM", () => fs.writeFileSync(path.join(process.cwd(), "fake-sigterm-seen"), "SIGTERM"));
@@ -892,7 +877,7 @@ setInterval(() => {}, 1000);
 // プローブ回数を1回に抑えることを検証するため)。
 const COUNTING_UNAVAILABLE_BIN = `#!/usr/bin/env node
 const fs = require("node:fs");
-if (process.argv.includes("--version")) {
+if (process.argv.includes("--help")) {
   fs.appendFileSync(__PROBE_LOG__, "probe\\n");
   process.exit(1);
 }
