@@ -39,11 +39,17 @@ export function GraphSettingsSection({
   title,
   count,
   defaultOpen = true,
+  collapsedNotice,
   children,
 }: {
   title: string;
   count?: number;
   defaultOpen?: boolean;
+  /**
+   * Shown under the header only while the section is collapsed, so a problem inside stays visible.
+   * Pass "" when there is nothing to say: the live region stays mounted for sections that use it.
+   */
+  collapsedNotice?: string;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -61,8 +67,94 @@ export function GraphSettingsSection({
         <span className="editor-settings-accordion-title">{title}</span>
         {count !== undefined && count > 0 && <span className="editor-settings-accordion-count">{count}</span>}
       </button>
+      {/* live region は常にマウントし、畳んでいる間だけ文言を入れる (挿入と同時の読み上げは不安定)。 */}
+      {collapsedNotice !== undefined && (
+        <p
+          className="editor-settings-accordion-notice"
+          role="status"
+          data-empty={!open && collapsedNotice ? undefined : "true"}
+        >
+          {!open && collapsedNotice ? collapsedNotice : ""}
+        </p>
+      )}
       {open && <Stack className="editor-settings-accordion-body" id={bodyId} gap="sm">{children}</Stack>}
     </section>
+  );
+}
+
+/**
+ * One "label | controls" row of the graph settings panel.
+ *
+ * Every setting in the 2D graph panel — a function's expression, type, line style and domain, and
+ * the graph's ranges, ticks and axes — is laid out with this row, so the label column lines up
+ * across cards and sections and each control sits next to the word that names it. Before, the line
+ * style lived in a hover popover, the function type and domain behind a "details" disclosure, and
+ * the ranges in a separate collapsed section with stacked headings: three different patterns for
+ * what is one list of settings.
+ *
+ * With `htmlFor` the label is a real `<label>` for a single control. Otherwise the row is a named
+ * group (`role="group"` + `aria-labelledby`), so a screen reader announces the row name before the
+ * controls inside it, which keep their own specific names.
+ */
+export function GraphFieldRow({
+  label,
+  htmlFor,
+  groupLabel,
+  testId,
+  children,
+}: {
+  label: ReactNode;
+  htmlFor?: string;
+  /** Overrides the group name when the visible word alone is too short out of context. */
+  groupLabel?: string;
+  testId?: string;
+  children: ReactNode;
+}) {
+  const labelId = useId();
+  if (htmlFor) {
+    return (
+      <div className={styles.fieldRow} data-graph-field-row="" data-testid={testId}>
+        <label id={labelId} className={styles.fieldLabel} htmlFor={htmlFor}>{label}</label>
+        <div className={styles.fieldControl}>{children}</div>
+      </div>
+    );
+  }
+  return (
+    <div
+      className={styles.fieldRow}
+      role="group"
+      aria-labelledby={groupLabel ? undefined : labelId}
+      aria-label={groupLabel}
+      data-graph-field-row=""
+      data-testid={testId}
+    >
+      <span id={labelId} className={styles.fieldLabel}>{label}</span>
+      <div className={styles.fieldControl}>{children}</div>
+    </div>
+  );
+}
+
+/**
+ * A titled run of `GraphFieldRow`s inside a section (e.g. 範囲 / 目盛 / 軸 under 座標軸と範囲).
+ *
+ * The title is a heading, not a group name: the group words (目盛) repeat the names of controls
+ * inside (the 目盛 checkbox), and a same-named group around them would make "目盛" ambiguous to
+ * assistive tech and to label lookups. Headings still give heading navigation.
+ */
+export function GraphFieldGroup({
+  title,
+  testId,
+  children,
+}: {
+  title: string;
+  testId?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={styles.fieldGroup} data-testid={testId}>
+      <h3 className={styles.fieldGroupTitle}>{title}</h3>
+      {children}
+    </div>
   );
 }
 

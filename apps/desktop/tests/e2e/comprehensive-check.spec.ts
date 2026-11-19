@@ -57,15 +57,12 @@ test("Flow 3: configures graph functions, color, and ticks", async ({ page }) =>
   await page.getByRole("button", { name: "関数を追加" }).click();
   await expect(curves).toHaveCount(2);
 
-  // `⋯` は hover で開く (graph2d.spec.ts の openGraphItemActions と同じ手順)。
-  await page.locator('.graph-curve-editor:has([data-testid="overlay-graph-curve-actions"])').hover();
-  await page.getByTestId("overlay-graph-curve-actions").hover();
-  await expect(page.getByRole("dialog", { name: "関数 1 の操作" })).toBeVisible();
+  // 線の色は関数カードの「線」の行にある (hover メニューを開かずに届く)。
   await page.getByTestId("overlay-graph-color-select").click();
   await page.locator('.color-popover [role="option"][title="#dc2626"]').first().click();
   await expect(curves.first()).toHaveAttribute("stroke", "#dc2626");
 
-  await expandGraphDisclosure(page, "表示範囲");
+  await expandGraphDisclosure(page, "座標軸と範囲");
   await page.getByLabel("目盛", { exact: true }).check();
   await expect(page.locator(".graph2d-ticks")).toHaveCount(1);
   await page.getByLabel("グリッド", { exact: true }).check();
