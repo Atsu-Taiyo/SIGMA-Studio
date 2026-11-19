@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import os from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
+import type { SigmaDocument } from "@/features/document";
 
 const APP_ROOT = path.resolve(__dirname, "../..");
 const MAIN_ENTRY = path.join(APP_ROOT, "dist-electron/main.cjs");
@@ -10,7 +11,7 @@ const DEV_URL = process.env.SIGMA_STUDIO_DEV_SERVER_URL;
 const PREPARED = existsSync(MAIN_ENTRY) && (Boolean(DEV_URL) || existsSync(path.join(APP_ROOT, "out/index.html")));
 const BODY = ".page-flow .ProseMirror";
 
-function source(text: string) {
+function source(text: string): SigmaDocument {
   return {
     version: "2.0", docId: "shared-source-id", metadata: { title: "Original" },
     content: [{ type: "paragraph", id: "paragraph", children: [{ type: "text", text }] }],
@@ -110,5 +111,62 @@ test("opens startup/second-instance/macOS files through real storage and preserv
   } finally {
     await app?.close();
     rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("quitting after a managed document fails to open preserves its bytes and reopens after repair", async () => {
+  expect(PREPARED, "Build Electron and either the static renderer or a private development server first.").toBe(true);
+  test.setTimeout(150_000);
+  const profile = mkdtempSync(path.join(os.tmpdir(), "sigma-managed-open-failure-"));
+  const env: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    SIGMA_STUDIO_USER_DATA_DIR: profile,
+    SIGMA_STUDIO_CODEX_BIN: path.join(profile, "no-codex"),
+    SIGMA_COLLABORATION_URL: "",
+    SIGMA_SUPABASE_URL: "",
+    SIGMA_SUPABASE_ANON_KEY: "",
+  };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const launch = () => electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env, chromiumSandbox: true });
+  let app: ElectronApplication | undefined;
+  try {
+    app = await launch();
+    const firstPage = await app.firstWindow();
+    await expect(firstPage.locator("[data-startup-splash]")).toHaveCount(0);
+    const seeded = await firstPage.evaluate(async (document) => {
+      const storage = window.desktopAPI!.storage;
+      const { file } = await storage.createFileFromDocument({ document });
+      await storage.saveWorkspace({ openFileIds: [file.fileId], activeFileId: file.fileId });
+      return { dataDir: (await storage.getDataDir()).path, fileId: file.fileId };
+    }, source("RECOVERED_BODY"));
+    await app.close();
+    app = undefined;
+
+    const filePath = path.join(seeded.dataDir, "documents", `${encodeURIComponent(seeded.fileId)}.sigmadoc.json`);
+    const original = readFileSync(filePath);
+    const damaged = Buffer.from('{"version":"2.0","content":[');
+    writeFileSync(filePath, damaged);
+
+    app = await launch();
+    const failedPage = await app.firstWindow();
+    await expect(failedPage.getByTestId("document-open-failure")).toBeVisible({ timeout: 30_000 });
+    expect(readFileSync(filePath)).toEqual(damaged);
+    const child = app.process();
+    await app.close();
+    app = undefined;
+    expect(child.exitCode).toBe(0);
+    expect(readFileSync(filePath)).toEqual(damaged);
+
+    writeFileSync(filePath, original);
+    app = await launch();
+    const repairedPage = await app.firstWindow();
+    await expect(repairedPage.locator(BODY).first()).toContainText("RECOVERED_BODY", { timeout: 30_000 });
+    await expect(repairedPage.getByTestId("document-open-failure")).toHaveCount(0);
+  } finally {
+    try {
+      await app?.close();
+    } finally {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    }
   }
 });
