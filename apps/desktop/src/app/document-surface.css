@@ -1769,13 +1769,8 @@ li[data-list-marker-typography]::marker {
 .print-problem-area-content.with-number {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  align-items: start;
+  align-items: baseline;
   column-gap: var(--problem-number-gap, 8px);
-}
-
-/* 番号の箱が導入文の行より高いときは、行を箱の縦の中央に置く (編集面と同じ規則)。 */
-[data-problem-area="lead"] > .print-problem-area-content.with-number > .print-problem-area-body {
-  align-self: center;
 }
 
 .print-problem-area-fragment .print-problem-area-content.with-number {

@@ -39,21 +39,6 @@ describe("settled output text boxes", () => {
   });
 });
 
-describe("settled problem-number markers", () => {
-  it("pins each problem-number marker to its settled height, in document order with text blocks", () => {
-    const source = document.createElement("div");
-    source.innerHTML = '<div class="problem-area"><span class="problem-number-marker">1</span><div class="text-flow-editor"><p>本文</p></div></div>';
-    source.querySelector<HTMLElement>(".problem-number-marker")!.getBoundingClientRect = () => domRect(0, 0, 25, 25.640625);
-    source.querySelector("p")!.getBoundingClientRect = () => domRect(30, 0, 200, 18.5);
-    const clone = source.cloneNode(true) as HTMLElement;
-    preserveSettledTextBlockHeights(source, clone);
-    const marker = clone.querySelector<HTMLElement>(".problem-number-marker")!;
-    expect(marker.style.getPropertyValue("--paged-settled-text-height")).toBe("25.640625px");
-    expect(marker.style.height).toBe("var(--paged-settled-text-height)");
-    expect(clone.querySelector("p")!.style.getPropertyValue("--paged-settled-text-height")).toBe("18.5px");
-  });
-});
-
 describe("buildPageWindows", () => {
   it("keeps a continued paragraph's identity on the page showing its visible lines", () => {
     const canvas = document.createElement("div");

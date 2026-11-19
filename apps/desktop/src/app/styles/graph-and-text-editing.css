@@ -1632,18 +1632,14 @@
   margin-bottom: -6px;
 }
 
+/* 番号の箱と導入文の1行目は、ベースラインを揃えて同じ行に置く。番号は問題の最初の行の一部として
+   レイアウトされるので、編集面・印刷とも同じ位置になり、実測による後からの移動は要らない。
+   箱が行より高いとき (番号を大きくしたとき) も、行は番号の文字と同じベースラインに並ぶ。 */
 .problem-area-paper-content.with-number {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  align-items: start;
+  align-items: baseline;
   column-gap: var(--problem-number-gap, 8px);
-}
-
-/* 導入文は番号の右隣の1行。番号の箱が行より高いとき (番号を大きくしたとき) は、行を箱の上端に
-   寄せず、箱の縦の中央へ下げる。下げ幅は `useProblemLeadCentering` が実測して置く。translate なので
-   エリアの高さ (ページ割り) は変わらない。 */
-.problem-area-paper-body[data-lead-offset] {
-  translate: 0 var(--problem-lead-offset, 0px);
 }
 
 .problem-number-marker {
