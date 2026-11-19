@@ -2,7 +2,7 @@
 
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { loadEditorCustomCommands,loadEditorShortcutOverrides,parseEditorCustomCommands,parseEditorShortcutOverrides,saveEditorCustomCommands,saveEditorShortcutOverrides,type EditorCustomCommandDefinition,type EditorShortcutOverrides } from "@/lib/editor-command-shortcuts";
-import { getAppLocale,normalizeLocale,setAppLocale } from "@/lib/i18n";
+import { getAppLocale,getAppLocaleRevision,normalizeLocale,readStoredAppLocale,setAppLocale } from "@/lib/i18n";
 import { useCallback,useEffect,useRef,useState } from "react";
 import { tEditor } from "./editor-translations";
 
@@ -27,17 +27,41 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
     let canceled = false;
     const load = (synced = false) => {
       const before = held.current;
+      // 読み込みの間にこの画面 (設定の言語切替など) で言語が選ばれたら、そちらが新しい。
+      const storedLocaleBefore = readStoredAppLocale();
       void bridge.settings!.get().then((settings) => {
       if (canceled) {
         return;
       }
-      // settings.json が表示言語の正本。未設定 (null) の初回起動だけは、ストア側の
-      // OSロケール検出結果を採用したうえで settings.json へ書き戻す。書き戻さないと
-      // main / MCP プロセスが日本語、画面だけ英語という食い違いが残り続ける。
-      const desktopLocale = normalizeLocale(settings.uiLocale ?? null);
-      setAppLocale(desktopLocale ?? getAppLocale());
-      if (!desktopLocale) {
-        void bridge.settings?.setUiLocale?.(getAppLocale());
+      // 表示言語は端末ごとの設定で、アカウントの同期では変わらない。同期による読み直しでは触らない。
+      const storedLocaleNow = readStoredAppLocale();
+      if (!synced && storedLocaleNow && storedLocaleNow !== storedLocaleBefore) {
+        // 読んでいる間に選ばれた言語が新しい。古い読み取りは書き戻さず、画面だけをその言語にそろえる。
+        setAppLocale(storedLocaleNow);
+      } else if (!synced) {
+        // settings.json が表示言語の正本。未設定 (null) の初回起動だけは、ストア側の
+        // OSロケール検出結果を採用したうえで settings.json へ書き戻す。書き戻さないと
+        // main / MCP プロセスが日本語、画面だけ英語という食い違いが残り続ける。
+        // 検出結果はキャッシュなので、このウィンドウに保存済みの値があればそちらを優先する。
+        const desktopLocale = normalizeLocale(settings.uiLocale ?? null);
+        const fallbackLocale = storedLocaleNow ?? getAppLocale();
+        setAppLocale(desktopLocale ?? fallbackLocale);
+        if (!desktopLocale) {
+          // まだ言語が無いときだけ書く。読んでいる間に別の経路で選ばれていれば、その言語に合わせる。
+          const settingsBridge = bridge.settings!;
+          if (settingsBridge.initUiLocale) {
+            const storedBeforeInit = readStoredAppLocale();
+            const revisionBeforeInit = getAppLocaleRevision();
+            void settingsBridge.initUiLocale(fallbackLocale).then((result) => {
+              // 返事を待つ間にこの画面で言語が選ばれたら、そちらが新しい。古い返事では戻さない。
+              // 同じ言語へ選び直した場合も値は同じなので、変更回数でも見る。
+              if (canceled || readStoredAppLocale() !== storedBeforeInit || getAppLocaleRevision() !== revisionBeforeInit) return;
+              if (result.ok && result.uiLocale && result.uiLocale !== getAppLocale()) setAppLocale(result.uiLocale);
+            }).catch(() => undefined);
+          } else {
+            void settingsBridge.setUiLocale?.(fallbackLocale);
+          }
+        }
       }
       const storedShortcutOverrides = parseEditorShortcutOverrides(JSON.stringify(settings.commandShortcuts ?? {}));
       const storedCustomCommands = parseEditorCustomCommands(JSON.stringify(settings.customCommands ?? []));

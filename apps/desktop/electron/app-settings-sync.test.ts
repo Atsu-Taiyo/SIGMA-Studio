@@ -9,7 +9,7 @@ import type { PersonalDataPort } from "./authoring-style-sync";
 import { readDesktopSettingsSync, writeDesktopSettings } from "./desktop-settings";
 
 const settings = (change: Partial<SyncedAppSettings> = {}): SyncedAppSettings =>
-  ({ version: 1, kind: "app-settings", uiLocale: null, commandShortcuts: {}, customCommands: [], aiWebSearchEnabled: true, ...change });
+  ({ version: 1, kind: "app-settings", commandShortcuts: {}, customCommands: [], aiWebSearchEnabled: true, ...change });
 const UNDO = { primary: true, key: "y" };
 const SEARCH = { primary: true, shift: true, key: "f" };
 const command = (id: string, label: string) => ({ id: `custom.${id}`, label, categoryId: "custom", custom: true, actions: [{ type: "command", commandId: "edit.undo" }], defaultBinding: null });
@@ -17,21 +17,20 @@ const command = (id: string, label: string) => ({ id: `custom.${id}`, label, cat
 describe("merging the app's settings of two devices", () => {
   it("keeps what either device has when they meet for the first time, and the account's copy where they differ", () => {
     const merged = mergeAppSettings(null,
-      settings({ uiLocale: "en", commandShortcuts: { "edit.undo": UNDO, "edit.search": SEARCH }, customCommands: [command("a", "A")] }),
-      settings({ uiLocale: "ja", commandShortcuts: { "edit.undo": null }, customCommands: [command("b", "B")], aiWebSearchEnabled: false }));
-    expect(merged).toMatchObject({ uiLocale: "ja", commandShortcuts: { "edit.undo": null, "edit.search": SEARCH }, aiWebSearchEnabled: false });
+      settings({ commandShortcuts: { "edit.undo": UNDO, "edit.search": SEARCH }, customCommands: [command("a", "A")] }),
+      settings({ commandShortcuts: { "edit.undo": null }, customCommands: [command("b", "B")], aiWebSearchEnabled: false }));
+    expect(merged).toMatchObject({ commandShortcuts: { "edit.undo": null, "edit.search": SEARCH }, aiWebSearchEnabled: false });
     expect(merged.customCommands.map(c => c.id)).toEqual(["custom.a", "custom.b"]);
-    // A device that never chose a language takes the account's; an account without one takes the device's.
-    expect(mergeAppSettings(null, settings(), settings({ uiLocale: "en" })).uiLocale).toBe("en");
-    expect(mergeAppSettings(null, settings({ uiLocale: "en" }), settings()).uiLocale).toBe("en");
+    // The display language is not one of the synced settings.
+    expect(merged).not.toHaveProperty("uiLocale");
   });
 
   it("takes each device's change since they last agreed, and a removal as a removal", () => {
-    const base = settings({ uiLocale: "ja", commandShortcuts: { "edit.undo": UNDO, "edit.search": SEARCH }, customCommands: [command("a", "A"), command("b", "B")] });
-    const local = settings({ ...base, uiLocale: "en", commandShortcuts: { "edit.search": SEARCH }, customCommands: [command("a", "A2"), command("b", "B")] });
+    const base = settings({ commandShortcuts: { "edit.undo": UNDO, "edit.search": SEARCH }, customCommands: [command("a", "A"), command("b", "B")] });
+    const local = settings({ ...base, commandShortcuts: { "edit.search": SEARCH }, customCommands: [command("a", "A2"), command("b", "B")] });
     const remote = settings({ ...base, commandShortcuts: { ...base.commandShortcuts, "view.zoomIn": UNDO }, customCommands: [command("a", "A")], aiWebSearchEnabled: false });
     const merged = mergeAppSettings(base, local, remote);
-    expect(merged).toMatchObject({ uiLocale: "en", commandShortcuts: { "edit.search": SEARCH, "view.zoomIn": UNDO }, aiWebSearchEnabled: false });
+    expect(merged).toMatchObject({ commandShortcuts: { "edit.search": SEARCH, "view.zoomIn": UNDO }, aiWebSearchEnabled: false });
     expect(merged.commandShortcuts).not.toHaveProperty("edit.undo");
     expect(merged.customCommands).toEqual([command("a", "A2")]);
   });
@@ -52,6 +51,8 @@ describe("merging the app's settings of two devices", () => {
     const parsed = parseAppSettings({ version: 1, kind: "app-settings", uiLocale: "xx", commandShortcuts: { "edit.undo": UNDO, "not.a.command": UNDO, "edit.search": "rm -rf" },
       customCommands: [command("a", "A"), { id: "../../x", label: "x", actions: [] }], codexBin: "/tmp/evil", aiAutoApplyVerifiedProposals: true });
     expect(parsed).toEqual(settings({ commandShortcuts: { "edit.undo": UNDO }, customCommands: [command("a", "A")] as never }));
+    // A language written to the account by an earlier version is dropped, valid or not.
+    expect(parseAppSettings({ version: 1, kind: "app-settings", uiLocale: "en" })).not.toHaveProperty("uiLocale");
   });
 });
 
@@ -89,7 +90,7 @@ describe("account sync of the app's settings", () => {
     for (const root of roots) await fs.rm(root, { recursive: true, force: true });
   });
 
-  it("brings the language and the shortcuts to another device and tells the running app what changed", async () => {
+  it("brings the shortcuts to another device and tells the running app what changed, but leaves each device's language alone", async () => {
     const a = await device();
     await writeDesktopSettings(a.dataDir, { uiLocale: "en", commandShortcuts: { "edit.undo": UNDO }, customCommands: [command("a", "A")], aiWebSearchEnabled: false });
     await a.sync();
@@ -97,10 +98,11 @@ describe("account sync of the app's settings", () => {
 
     const b = await device();
     await b.sync();
-    expect(b.read()).toMatchObject({ uiLocale: "en", commandShortcuts: { "edit.undo": UNDO }, aiWebSearchEnabled: false });
+    expect(b.read()).toMatchObject({ commandShortcuts: { "edit.undo": UNDO }, aiWebSearchEnabled: false });
+    expect(b.read().uiLocale).toBeUndefined();
     expect(b.read().customCommands).toEqual([command("a", "A")]);
     expect(b.applied).toHaveLength(1);
-    expect(Object.keys(b.applied[0]).sort()).toEqual(["aiWebSearchEnabled", "commandShortcuts", "customCommands", "uiLocale"]);
+    expect(Object.keys(b.applied[0]).sort()).toEqual(["aiWebSearchEnabled", "commandShortcuts", "customCommands"]);
 
     // A change on the second device comes back; one made on both to different shortcuts keeps both.
     await writeDesktopSettings(b.dataDir, { uiLocale: "ja", commandShortcuts: { "edit.undo": UNDO, "edit.search": SEARCH } });
@@ -108,7 +110,9 @@ describe("account sync of the app's settings", () => {
     await b.sync();
     await a.sync();
     await b.sync();
-    for (const each of [a, b]) expect(each.read()).toMatchObject({ uiLocale: "ja", commandShortcuts: { "edit.undo": UNDO, "edit.search": SEARCH, "view.zoomIn": SEARCH } });
+    for (const each of [a, b]) expect(each.read()).toMatchObject({ commandShortcuts: { "edit.undo": UNDO, "edit.search": SEARCH, "view.zoomIn": SEARCH } });
+    expect(a.read().uiLocale).toBe("en");
+    expect(b.read().uiLocale).toBe("ja");
     // Settled: nothing more is written.
     const revision = server.get("app-settings")!.revision;
     await a.sync(); await b.sync();
@@ -117,17 +121,17 @@ describe("account sync of the app's settings", () => {
 
   it("never sends what belongs to one machine, and never changes it there", async () => {
     const a = await device();
-    await writeDesktopSettings(a.dataDir, { uiLocale: "en", codexBin: "/Users/someone/bin/codex", claudeBin: "/opt/claude", editorFontFamily: "Local Font",
+    await writeDesktopSettings(a.dataDir, { uiLocale: "en", aiWebSearchEnabled: false, codexBin: "/Users/someone/bin/codex", claudeBin: "/opt/claude", editorFontFamily: "Local Font",
       customFonts: [{ id: "font1", displayName: "Local", fileName: "local.ttf", cssFamily: "Local", importedAt: "2026-11-01T00:00:00Z" }], aiAutoApplyVerifiedProposals: true });
     await a.sync();
     const sent = JSON.stringify([...server.values()]);
     for (const kept of ["/Users/someone", "/opt/claude", "Local Font", "local.ttf", "aiAutoApply", "newDocumentPageSetup"]) expect(sent).not.toContain(kept);
-    expect(Object.keys((server.get("app-settings")!.content as object)).sort()).toEqual(["aiWebSearchEnabled", "commandShortcuts", "customCommands", "kind", "uiLocale", "version"]);
+    expect(Object.keys((server.get("app-settings")!.content as object)).sort()).toEqual(["aiWebSearchEnabled", "commandShortcuts", "customCommands", "kind", "version"]);
 
     const b = await device();
     await writeDesktopSettings(b.dataDir, { codexBin: "/b/codex", editorFontFamily: "B Font" });
     await b.sync();
-    expect(b.read()).toEqual({ uiLocale: "en", codexBin: "/b/codex", editorFontFamily: "B Font" });
+    expect(b.read()).toEqual({ aiWebSearchEnabled: false, codexBin: "/b/codex", editorFontFamily: "B Font" });
   });
 
   it("keeps a shortcut switched off on one device switched off, instead of taking a new device's default for a change", async () => {
@@ -142,31 +146,47 @@ describe("account sync of the app's settings", () => {
 
   it("does not lose a setting the user changes while another device's change is coming in", async () => {
     const a = await device();
-    await writeDesktopSettings(a.dataDir, { uiLocale: "en" });
+    await writeDesktopSettings(a.dataDir, { customCommands: [command("a", "A")] });
     await a.sync();
     const b = await device();
     await b.sync();
-    await writeDesktopSettings(a.dataDir, { uiLocale: "ja" });
+    await writeDesktopSettings(a.dataDir, { customCommands: [command("a", "A2")] });
     await a.sync();
     // The user's write is queued just before the sync reads the file, and lands while the sync is under way.
     const edit = writeDesktopSettings(b.dataDir, { commandShortcuts: { "edit.search": SEARCH }, codexBin: "/b/codex" });
     await Promise.all([edit, b.sync()]);
-    expect(b.read()).toEqual({ uiLocale: "ja", commandShortcuts: { "edit.search": SEARCH }, codexBin: "/b/codex" });
+    expect(b.read()).toEqual({ customCommands: [command("a", "A2")], commandShortcuts: { "edit.search": SEARCH }, codexBin: "/b/codex" });
     await b.sync(); await a.sync();
-    expect(a.read()).toEqual({ uiLocale: "ja", commandShortcuts: { "edit.search": SEARCH } });
+    expect(a.read()).toEqual({ customCommands: [command("a", "A2")], commandShortcuts: { "edit.search": SEARCH } });
   });
 
   it("sends no settings from an account without Pro", async () => {
     const a = await device(false);
-    await writeDesktopSettings(a.dataDir, { uiLocale: "en" });
+    await writeDesktopSettings(a.dataDir, { commandShortcuts: { "edit.undo": UNDO } });
     expect((await a.sync()).sync.state).toBe("pro-required");
     expect(server.size).toBe(0);
   });
 
-  it("leaves a device without a chosen language to follow its system until some device chooses one", async () => {
+  it("sends nothing for a language chosen on a device, and a language left on the account by an earlier version changes nothing", async () => {
     const a = await device();
+    await writeDesktopSettings(a.dataDir, { uiLocale: "en" });
     await a.sync();
     expect(server.size).toBe(0);
-    expect(a.read().uiLocale).toBeUndefined();
+
+    // An earlier version put a language on the account next to a shortcut.
+    server.set("app-settings", { revision: "old", content: { version: 1, kind: "app-settings", uiLocale: "en", commandShortcuts: { "edit.undo": UNDO }, customCommands: [], aiWebSearchEnabled: true } });
+    const b = await device();
+    await writeDesktopSettings(b.dataDir, { uiLocale: "ja" });
+    await b.sync();
+    expect(b.read()).toEqual({ uiLocale: "ja", commandShortcuts: { "edit.undo": UNDO } });
+    expect(b.applied.every(change => !("uiLocale" in change))).toBe(true);
+    // Whatever goes back to the account no longer carries a language.
+    await writeDesktopSettings(b.dataDir, { commandShortcuts: { "edit.undo": UNDO, "edit.search": SEARCH } });
+    await b.sync();
+    expect(server.get("app-settings")!.revision).not.toBe("old");
+    expect(server.get("app-settings")!.content).not.toHaveProperty("uiLocale");
+    await a.sync();
+    expect(a.read().uiLocale).toBe("en");
+    expect(a.applied.every(change => !("uiLocale" in change))).toBe(true);
   });
 });
