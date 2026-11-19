@@ -45,7 +45,7 @@
     "fast-xml-parser": "^5.12.0",
     "fs-native-extensions": "1.5.3",
     "i18next": "^27.1.0",
-    "jsdom": "^31.0.0",
+    "jsdom": "^31.0.1",
     "jszip": "^3.10.1",
     "katex": "^0.19.1",
     "lib0": "0.2.119",
