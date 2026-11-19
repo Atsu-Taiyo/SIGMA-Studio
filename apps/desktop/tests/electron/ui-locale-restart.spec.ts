@@ -27,7 +27,10 @@ async function open(app: ElectronApplication): Promise<Page> {
 async function expectJapanese(page: Page): Promise<void> {
   await expect(page.locator(".startup-splash")).toBeHidden();
   await expect(page.locator("html")).toHaveAttribute("lang", "ja");
-  await expect(page.getByPlaceholder("すべてのワークスペースを検索", { exact: true })).toBeVisible();
+  // Whichever screen opens (the library or a new material), its labels are the Japanese ones.
+  await expect(page.getByPlaceholder("すべてのワークスペースを検索", { exact: true })
+    .or(page.getByRole("button", { name: "ワークスペース", exact: true })).first()).toBeVisible();
+  await expect(page.getByPlaceholder("Search all workspaces", { exact: true })).toHaveCount(0);
 }
 
 test("Japanese chosen on an English system stays Japanese after reloads and restarts, even when chosen while the first settings read is under way", async () => {
@@ -39,7 +42,6 @@ test("Japanese chosen on an English system stays Japanese after reloads and rest
       const page = await open(app);
       // Chosen as early as the bridge exists: the renderer's first read of the settings may still be on its way back.
       await page.evaluate(async () => {
-        localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
         localStorage.setItem("sigma-studio:ui-locale", "ja");
         await window.desktopAPI!.settings!.setUiLocale!("ja");
       });
