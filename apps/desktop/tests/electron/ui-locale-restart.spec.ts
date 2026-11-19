@@ -18,6 +18,13 @@ function launchEnv(profile: string): Record<string, string> {
   return env;
 }
 
+/** Quits, but does not let a slow shutdown of this throwaway profile use up the test's time. */
+async function close(app: ElectronApplication): Promise<void> {
+  const quit = app.close().catch(() => undefined);
+  const late = await Promise.race([quit.then(() => false), new Promise<boolean>(resolve => setTimeout(() => resolve(true), 30_000))]);
+  if (late) app.process().kill("SIGKILL");
+}
+
 async function open(app: ElectronApplication): Promise<Page> {
   const page = await app.firstWindow();
   await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
@@ -101,17 +108,18 @@ test("Japanese chosen on an English system stays Japanese after reloads and rest
       await page.reload();
       await expectJapanese(page);
       expect((await page.evaluate(() => window.desktopAPI!.settings!.get())).uiLocale).toBe("ja");
-    } finally { await app.close(); }
+      // The window's own copy says English; the settings file, which is the one that counts, says Japanese.
+      await page.evaluate(() => localStorage.setItem("sigma-studio:ui-locale", "en"));
+    } finally { await close(app); }
 
-    // A real restart with the same profile.
-    for (let round = 0; round < 2; round++) {
-      app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env: launchEnv(profile) });
-      try {
-        const page = await open(app);
-        await expectJapanese(page);
-        expect((await page.evaluate(() => window.desktopAPI!.settings!.get())).uiLocale).toBe("ja");
-      } finally { await app.close(); }
-    }
+    // A real restart with the same profile takes the language from the settings file.
+    app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env: launchEnv(profile) });
+    try {
+      const page = await open(app);
+      await expectJapanese(page);
+      expect(await page.evaluate(() => localStorage.getItem("sigma-studio:ui-locale"))).toBe("ja");
+      expect((await page.evaluate(() => window.desktopAPI!.settings!.get())).uiLocale).toBe("ja");
+    } finally { await close(app); }
   } finally {
     await rm(profile, { recursive: true, force: true });
   }
