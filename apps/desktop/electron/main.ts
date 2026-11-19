@@ -225,7 +225,6 @@ const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH, {
     // The same answer the sharing limits and the plan dialog go by. A trial has what Pro has.
     entitled: async () => ["pro", "trial"].includes((await collaborationSessions.request<{ plan?: string }>("/catalog/capabilities")).plan ?? "") },
   syncParts: [appSettingsPart(() => SIGMA_STUDIO_DATA_PATH, change => {
-    if (change.uiLocale) { setAppLocale(change.uiLocale); codexAppServerClient.setUiLocale(change.uiLocale); }
     if (change.aiWebSearchEnabled !== undefined) codexAppServerClient.setWebSearchEnabled(change.aiWebSearchEnabled);
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send("settings:synced");
   })],
@@ -1594,7 +1593,7 @@ function startAiSettingsWatch(): void {
     const settings = readDesktopSettingsSync(SIGMA_STUDIO_DATA_PATH);
     codexAppServerClient.setWebSearchEnabled(isAiWebSearchEnabled(settings));
     scheduleAutoApplyCheck();
-    // The language and the shortcuts live in this file too: send a change on to the account's other devices.
+    // The shortcuts live in this file too: send a change on to the account's other devices. The language stays on this one.
     localAuthoringStyleStore.sync.soon();
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send("ai-settings:changed");
