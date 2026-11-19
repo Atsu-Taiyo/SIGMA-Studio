@@ -56,7 +56,9 @@ test("Japanese chosen on an English system stays Japanese after reloads and rest
       const page = await open(app);
       // The renderer would fall back to English: losing the choice below shows as English.
       expect(await page.evaluate(() => navigator.language)).toMatch(/^en/);
-      // Chosen as early as the bridge exists: the renderer's first read of the settings may still be on its way back.
+      // The first launch has written the detected English to the settings file; the race is left to the gated part below.
+      await expect.poll(() => page.evaluate(async () => (await window.desktopAPI!.settings!.get()).uiLocale)).toBe("en");
+      // Japanese is chosen.
       await page.evaluate(async () => {
         localStorage.setItem("sigma-studio:ui-locale", "ja");
         await window.desktopAPI!.settings!.setUiLocale!("ja");

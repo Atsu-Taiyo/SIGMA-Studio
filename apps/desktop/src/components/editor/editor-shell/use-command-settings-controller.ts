@@ -42,10 +42,12 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
         // settings.json が表示言語の正本。未設定 (null) の初回起動だけは、ストア側の
         // OSロケール検出結果を採用したうえで settings.json へ書き戻す。書き戻さないと
         // main / MCP プロセスが日本語、画面だけ英語という食い違いが残り続ける。
+        // 検出結果はキャッシュなので、このウィンドウに保存済みの値があればそちらを優先する。
         const desktopLocale = normalizeLocale(settings.uiLocale ?? null);
-        setAppLocale(desktopLocale ?? getAppLocale());
+        const fallbackLocale = storedLocaleNow ?? getAppLocale();
+        setAppLocale(desktopLocale ?? fallbackLocale);
         if (!desktopLocale) {
-          void bridge.settings?.setUiLocale?.(getAppLocale());
+          void bridge.settings?.setUiLocale?.(fallbackLocale);
         }
       }
       const storedShortcutOverrides = parseEditorShortcutOverrides(JSON.stringify(settings.commandShortcuts ?? {}));
