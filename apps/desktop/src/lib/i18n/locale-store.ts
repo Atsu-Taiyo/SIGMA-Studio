@@ -48,6 +48,14 @@ function getSnapshot(): AppLocale {
   return cachedSnapshot;
 }
 
+/**
+ * このウィンドウに保存されている表示言語そのもの (検出結果やキャッシュを含めない)。
+ * 非同期の読み込みの間に別の経路で言語が選ばれたかを、読み込みの前後で比べるために使う。
+ */
+export function readStoredAppLocale(): AppLocale | null {
+  return volatileLocale ?? readStoredLocale();
+}
+
 export function getAppLocale(): AppLocale {
   return getSnapshot();
 }

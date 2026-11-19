@@ -62,3 +62,36 @@ it("takes up settings another device changed, and does not bring removed command
     await act(async () => again.unmount());
   } finally { await act(async () => root.unmount()); }
 });
+
+it("keeps a language chosen while the first settings read is under way, and a synced reload never changes the language", async () => {
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const { UI_LOCALE_STORAGE_KEY } = await import("@/lib/i18n");
+  // A first launch: nothing in the settings file, the system language is detected.
+  let stored: Record<string, unknown> = { commandShortcuts: {}, customCommands: [], hasCommandShortcuts: true, hasCustomCommands: true, uiLocale: null };
+  let release!: () => void;
+  let synced = () => {};
+  const setUiLocale = vi.fn().mockResolvedValue({ ok: true });
+  (window as { desktopAPI?: unknown }).desktopAPI = { settings: {
+    get: () => new Promise(resolve => { release = () => resolve(stored); }),
+    setCommandConfig: vi.fn().mockResolvedValue({ ok: true }), setUiLocale,
+    onSynced: (handler: () => void) => { synced = handler; return () => { synced = () => {}; }; },
+  } } as unknown as DesktopAPI;
+  function Probe() { useCommandSettingsController(() => {}, () => {}); return null; }
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(<Probe />));
+    // Japanese is chosen (and saved to the settings file) before the first read comes back.
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "ja");
+    await act(async () => release());
+    expect(localStorage.getItem(UI_LOCALE_STORAGE_KEY)).toBe("ja");
+    expect(setUiLocale).not.toHaveBeenCalled();
+
+    // Settings another device changed are read again: the language on this device stays as it is.
+    stored = { ...stored, uiLocale: "en" };
+    const settings = (window as unknown as { desktopAPI: { settings: { get: () => Promise<unknown> } } }).desktopAPI.settings;
+    settings.get = async () => stored;
+    await act(async () => synced());
+    expect(localStorage.getItem(UI_LOCALE_STORAGE_KEY)).toBe("ja");
+    expect(setUiLocale).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); }
+});

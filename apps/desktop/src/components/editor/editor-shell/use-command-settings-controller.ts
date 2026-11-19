@@ -2,7 +2,7 @@
 
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { loadEditorCustomCommands,loadEditorShortcutOverrides,parseEditorCustomCommands,parseEditorShortcutOverrides,saveEditorCustomCommands,saveEditorShortcutOverrides,type EditorCustomCommandDefinition,type EditorShortcutOverrides } from "@/lib/editor-command-shortcuts";
-import { getAppLocale,normalizeLocale,setAppLocale } from "@/lib/i18n";
+import { getAppLocale,normalizeLocale,readStoredAppLocale,setAppLocale } from "@/lib/i18n";
 import { useCallback,useEffect,useRef,useState } from "react";
 import { tEditor } from "./editor-translations";
 
@@ -27,17 +27,22 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
     let canceled = false;
     const load = (synced = false) => {
       const before = held.current;
+      // 読み込みの間にこの画面 (設定の言語切替など) で言語が選ばれたら、そちらが新しい。
+      const storedLocaleBefore = readStoredAppLocale();
       void bridge.settings!.get().then((settings) => {
       if (canceled) {
         return;
       }
-      // settings.json が表示言語の正本。未設定 (null) の初回起動だけは、ストア側の
-      // OSロケール検出結果を採用したうえで settings.json へ書き戻す。書き戻さないと
-      // main / MCP プロセスが日本語、画面だけ英語という食い違いが残り続ける。
-      const desktopLocale = normalizeLocale(settings.uiLocale ?? null);
-      setAppLocale(desktopLocale ?? getAppLocale());
-      if (!desktopLocale) {
-        void bridge.settings?.setUiLocale?.(getAppLocale());
+      // 表示言語は端末ごとの設定で、アカウントの同期では変わらない。同期による読み直しでは触らない。
+      if (!synced && readStoredAppLocale() === storedLocaleBefore) {
+        // settings.json が表示言語の正本。未設定 (null) の初回起動だけは、ストア側の
+        // OSロケール検出結果を採用したうえで settings.json へ書き戻す。書き戻さないと
+        // main / MCP プロセスが日本語、画面だけ英語という食い違いが残り続ける。
+        const desktopLocale = normalizeLocale(settings.uiLocale ?? null);
+        setAppLocale(desktopLocale ?? getAppLocale());
+        if (!desktopLocale) {
+          void bridge.settings?.setUiLocale?.(getAppLocale());
+        }
       }
       const storedShortcutOverrides = parseEditorShortcutOverrides(JSON.stringify(settings.commandShortcuts ?? {}));
       const storedCustomCommands = parseEditorCustomCommands(JSON.stringify(settings.customCommands ?? []));
