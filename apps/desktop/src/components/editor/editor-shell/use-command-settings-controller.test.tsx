@@ -101,3 +101,44 @@ it("keeps a language chosen while the first settings read is under way, and a sy
     expect(setUiLocale).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); }
 });
+
+async function startWithHeldRead(stored: Record<string, unknown>, initUiLocale: (value: string) => Promise<unknown>) {
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  let release!: () => void;
+  const setUiLocale = vi.fn().mockResolvedValue({ ok: true });
+  const init = vi.fn(initUiLocale);
+  (window as { desktopAPI?: unknown }).desktopAPI = { settings: {
+    get: () => new Promise(resolve => { release = () => resolve({ commandShortcuts: {}, customCommands: [], hasCommandShortcuts: true, hasCustomCommands: true, ...stored }); }),
+    setCommandConfig: vi.fn().mockResolvedValue({ ok: true }), setUiLocale, initUiLocale: init,
+  } } as unknown as DesktopAPI;
+  function Probe() { useCommandSettingsController(() => {}, () => {}); return null; }
+  const root = createRoot(document.createElement("div"));
+  await act(async () => root.render(<Probe />));
+  return { root, setUiLocale, init, release: () => release() };
+}
+
+it("does not overwrite a language saved to the settings file alone while the first read was under way", async () => {
+  const { UI_LOCALE_STORAGE_KEY, getAppLocale, setAppLocale } = await import("@/lib/i18n");
+  setAppLocale("en");
+  localStorage.removeItem(UI_LOCALE_STORAGE_KEY);
+  // The read answers "no language yet", but Japanese reached the settings file meanwhile: only the main process knows.
+  const { root, setUiLocale, init, release } = await startWithHeldRead({ uiLocale: null }, async () => ({ ok: true, uiLocale: "ja" }));
+  try {
+    await act(async () => release());
+    expect(init).toHaveBeenCalledWith("en");
+    expect(setUiLocale).not.toHaveBeenCalled();
+    expect(getAppLocale()).toBe("ja");
+  } finally { await act(async () => root.unmount()); }
+});
+
+it("follows the settings file when this window's copy of the language is cleared during the first read", async () => {
+  const { UI_LOCALE_STORAGE_KEY, getAppLocale, setAppLocale } = await import("@/lib/i18n");
+  setAppLocale("en");
+  const { root, init, release } = await startWithHeldRead({ uiLocale: "ja" }, async () => ({ ok: true }));
+  try {
+    localStorage.removeItem(UI_LOCALE_STORAGE_KEY);
+    await act(async () => release());
+    expect(getAppLocale()).toBe("ja");
+    expect(init).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); }
+});

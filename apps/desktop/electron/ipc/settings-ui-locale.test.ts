@@ -114,3 +114,35 @@ describe("settings:set-ui-locale", () => {
 
 // These tests isolate handler behavior; sender authorization is tested in trusted-ipc.test.ts.
 vi.mock("../trusted-ipc", async () => ({ ipcMain: (await import("electron")).ipcMain }));
+
+describe("settings:init-ui-locale", () => {
+  beforeEach(() => {
+    rmSync(path.join(dataDir, "settings.json"), { force: true });
+    register();
+  });
+
+  it("writes the detected language on a first launch", async () => {
+    await expect(invoke("settings:init-ui-locale", "en")).resolves.toEqual({ ok: true, uiLocale: "en" });
+    expect(readRawSettings().uiLocale).toBe("en");
+    expect(setUiLocale).toHaveBeenCalledWith("en");
+  });
+
+  it("keeps a language already chosen, even one chosen after the renderer read the settings", async () => {
+    await invoke("settings:set-ui-locale", "ja");
+    await expect(invoke("settings:init-ui-locale", "en")).resolves.toEqual({ ok: true, uiLocale: "ja" });
+    expect(readRawSettings().uiLocale).toBe("ja");
+  });
+
+  it("keeps a choice queued just before it", async () => {
+    const choosing = invoke("settings:set-ui-locale", "ja");
+    const initializing = invoke("settings:init-ui-locale", "en");
+    await choosing;
+    await expect(initializing).resolves.toEqual({ ok: true, uiLocale: "ja" });
+    expect(readRawSettings().uiLocale).toBe("ja");
+  });
+
+  it("rejects an unsupported locale", async () => {
+    expect(await invoke("settings:init-ui-locale", "fr")).toMatchObject({ ok: false });
+    expect(readRawSettings().uiLocale).toBeUndefined();
+  });
+});

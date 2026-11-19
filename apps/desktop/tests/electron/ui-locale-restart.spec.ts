@@ -47,6 +47,45 @@ async function expectJapanese(page: Page): Promise<void> {
   await expect(page.getByPlaceholder("Search all workspaces", { exact: true })).toHaveCount(0);
 }
 
+async function holdSettingsReads(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ ipcMain }) => {
+    const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => Promise<unknown>> })._invokeHandlers;
+    const state = globalThis as unknown as {
+      heldSettingsRead?: { released: boolean; commandSavesAfter: number };
+      releaseSettingsRead?: () => void;
+      originalSettingsHandlers?: { read: (...args: unknown[]) => Promise<unknown>; saveCommands: (...args: unknown[]) => Promise<unknown> };
+    };
+    // Armed again for a later round: wrap the original handlers, not the earlier wrappers.
+    if (!state.originalSettingsHandlers) {
+      const read = handlers.get("settings:get");
+      const saveCommands = handlers.get("settings:set-command-config");
+      if (!read || !saveCommands) throw new Error("The settings handlers are not registered");
+      state.originalSettingsHandlers = { read, saveCommands };
+    }
+    const { read, saveCommands } = state.originalSettingsHandlers;
+    state.heldSettingsRead = undefined;
+    let release!: () => void;
+    const released = new Promise<void>(resolve => { release = resolve; });
+    state.releaseSettingsRead = release;
+    // Every read until the release is held, so the one the screen goes by is among them (React's development
+    // Strict Mode starts a second one and drops the first).
+    handlers.set("settings:get", async (...args: unknown[]) => {
+      const answer = await read(...args) as Record<string, unknown>;
+      if (state.heldSettingsRead?.released) return answer;
+      state.heldSettingsRead ??= { released: false, commandSavesAfter: 0 };
+      // Let go only once the test has chosen the language; if that never happens the test times out.
+      await released;
+      state.heldSettingsRead.released = true;
+      return { ...answer, uiLocale: null };
+    });
+    // The renderer saves the shortcuts once it has taken up that first answer: proof the late answer was handled.
+    handlers.set("settings:set-command-config", async (...args: unknown[]) => {
+      if (state.heldSettingsRead?.released) state.heldSettingsRead.commandSavesAfter++;
+      return saveCommands(...args);
+    });
+  });
+}
+
 test("Japanese chosen on an English system stays Japanese after reloads and restarts, even when chosen while the first settings read is under way", async () => {
   test.setTimeout(180_000);
   const profile = await mkdtemp(path.join(tmpdir(), "sigma-ui-locale-"));
@@ -75,32 +114,7 @@ test("Japanese chosen on an English system stays Japanese after reloads and rest
         await window.desktopAPI!.settings!.setUiLocale!("en");
         localStorage.setItem("sigma-studio:ui-locale", "en");
       });
-      await app.evaluate(({ ipcMain }) => {
-        const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => Promise<unknown>> })._invokeHandlers;
-        const read = handlers.get("settings:get");
-        const saveCommands = handlers.get("settings:set-command-config");
-        if (!read || !saveCommands) throw new Error("The settings handlers are not registered");
-        const state = globalThis as unknown as { heldSettingsRead?: { released: boolean; commandSavesAfter: number }; releaseSettingsRead?: () => void };
-        let release!: () => void;
-        const released = new Promise<void>(resolve => { release = resolve; });
-        state.releaseSettingsRead = release;
-        // Every read until the release is held, so the one the screen goes by is among them (React's development
-        // Strict Mode starts a second one and drops the first).
-        handlers.set("settings:get", async (...args: unknown[]) => {
-          const answer = await read(...args) as Record<string, unknown>;
-          if (state.heldSettingsRead?.released) return answer;
-          state.heldSettingsRead ??= { released: false, commandSavesAfter: 0 };
-          // Let go only once the test has chosen the language; if that never happens the test times out.
-          await released;
-          state.heldSettingsRead.released = true;
-          return { ...answer, uiLocale: null };
-        });
-        // The renderer saves the shortcuts once it has taken up that first answer: proof the late answer was handled.
-        handlers.set("settings:set-command-config", async (...args: unknown[]) => {
-          if (state.heldSettingsRead?.released) state.heldSettingsRead.commandSavesAfter++;
-          return saveCommands(...args);
-        });
-      });
+      await holdSettingsReads(app);
       await page.reload();
       await expect.poll(() => app.evaluate(() => (globalThis as unknown as { heldSettingsRead?: unknown }).heldSettingsRead ?? null))
         .toEqual({ released: false, commandSavesAfter: 0 });
@@ -123,6 +137,27 @@ test("Japanese chosen on an English system stays Japanese after reloads and rest
       await page.reload();
       await expectJapanese(page);
       expect((await page.evaluate(() => window.desktopAPI!.settings!.get())).uiLocale).toBe("ja");
+
+      // Again, but Japanese reaches only the settings file (as the language setting of another window would): the
+      // late answer, which says "no language yet", must not write this window's English over it.
+      await page.evaluate(async () => {
+        await window.desktopAPI!.settings!.setUiLocale!("en");
+        localStorage.setItem("sigma-studio:ui-locale", "en");
+      });
+      await holdSettingsReads(app);
+      await page.reload();
+      await expect.poll(() => app.evaluate(() => (globalThis as unknown as { heldSettingsRead?: unknown }).heldSettingsRead ?? null))
+        .toEqual({ released: false, commandSavesAfter: 0 });
+      await expect(page.locator("html")).toHaveAttribute("lang", "en");
+      expect((await page.evaluate(() => window.desktopAPI!.settings!.setUiLocale!("ja"))).ok).toBe(true);
+      await app.evaluate(() => (globalThis as unknown as { releaseSettingsRead: () => void }).releaseSettingsRead());
+      await expect.poll(() => app.evaluate(() => (globalThis as unknown as { heldSettingsRead: { commandSavesAfter: number } }).heldSettingsRead.commandSavesAfter))
+        .toBeGreaterThan(0);
+      await expectJapanese(page);
+      expect((await page.evaluate(() => window.desktopAPI!.settings!.get())).uiLocale).toBe("ja");
+      await page.reload();
+      await expectJapanese(page);
+
       // The window's own copy says English; the settings file, which is the one that counts, says Japanese.
       await page.evaluate(() => localStorage.setItem("sigma-studio:ui-locale", "en"));
     } finally { await close(app); }

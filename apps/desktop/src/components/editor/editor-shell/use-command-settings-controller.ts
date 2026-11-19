@@ -35,9 +35,9 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
       }
       // 表示言語は端末ごとの設定で、アカウントの同期では変わらない。同期による読み直しでは触らない。
       const storedLocaleNow = readStoredAppLocale();
-      if (!synced && storedLocaleNow !== storedLocaleBefore) {
+      if (!synced && storedLocaleNow && storedLocaleNow !== storedLocaleBefore) {
         // 読んでいる間に選ばれた言語が新しい。古い読み取りは書き戻さず、画面だけをその言語にそろえる。
-        if (storedLocaleNow) setAppLocale(storedLocaleNow);
+        setAppLocale(storedLocaleNow);
       } else if (!synced) {
         // settings.json が表示言語の正本。未設定 (null) の初回起動だけは、ストア側の
         // OSロケール検出結果を採用したうえで settings.json へ書き戻す。書き戻さないと
@@ -47,7 +47,15 @@ export function useCommandSettingsController(setCommandSettingsOpen: (open: bool
         const fallbackLocale = storedLocaleNow ?? getAppLocale();
         setAppLocale(desktopLocale ?? fallbackLocale);
         if (!desktopLocale) {
-          void bridge.settings?.setUiLocale?.(fallbackLocale);
+          // まだ言語が無いときだけ書く。読んでいる間に別の経路で選ばれていれば、その言語に合わせる。
+          const settingsBridge = bridge.settings!;
+          if (settingsBridge.initUiLocale) {
+            void settingsBridge.initUiLocale(fallbackLocale).then((result) => {
+              if (!canceled && result.ok && result.uiLocale && result.uiLocale !== getAppLocale()) setAppLocale(result.uiLocale);
+            }).catch(() => undefined);
+          } else {
+            void settingsBridge.setUiLocale?.(fallbackLocale);
+          }
         }
       }
       const storedShortcutOverrides = parseEditorShortcutOverrides(JSON.stringify(settings.commandShortcuts ?? {}));
