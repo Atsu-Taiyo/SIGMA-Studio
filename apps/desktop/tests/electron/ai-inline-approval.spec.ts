@@ -32,6 +32,8 @@ test("a long floating answer keeps approval reachable after resizing and saves t
     await expect(page.locator(".startup-splash")).toBeHidden();
     await page.evaluate(async () => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      // This test supplies ChatGPT's status and answers over IPC.
+      localStorage.setItem("sigma-studio:ai-edit-model-preferences", JSON.stringify({ provider: "chatgpt" }));
       await window.desktopAPI!.settings!.setUiLocale!("ja");
     });
     const source = ensurePageLayout({ ...sampleDocument, docId: "inline_approval", metadata: { title: "承認ボタンの実機検証" }, content: [

@@ -50,6 +50,8 @@ test("the same AI chat goes on after a failed approval, and a write merges the t
     await page.waitForFunction(() => Boolean(window.desktopAPI));
     await page.evaluate(async () => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      // This test supplies ChatGPT's status and answers over IPC.
+      localStorage.setItem("sigma-studio:ai-edit-model-preferences", JSON.stringify({ provider: "chatgpt" }));
       localStorage.setItem("sigma-studio:ui-locale", "ja");
       await window.desktopAPI!.settings!.setUiLocale!("ja");
     });

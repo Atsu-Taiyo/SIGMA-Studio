@@ -57,6 +57,8 @@ async function prepare(app: ElectronApplication, page: Page) {
   });
   await page.evaluate(() => {
     localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true, ribbonCollapsed: false }));
+    // This test supplies ChatGPT's status and records its requests over IPC.
+    localStorage.setItem("sigma-studio:ai-edit-model-preferences", JSON.stringify({ provider: "chatgpt" }));
   });
   await page.reload();
   await page.locator(".text-flow-editor").first().waitFor({ timeout: 180_000 });
