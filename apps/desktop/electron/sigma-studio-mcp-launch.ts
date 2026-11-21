@@ -31,6 +31,8 @@ export interface SigmaStudioMcpLaunchSpec {
   provider: SigmaStudioMcpProvider;
 }
 
+// A legacy global entry can shadow a workspace server with the same name in agy.
+export const ANTIGRAVITY_WORKSPACE_SERVER_NAME = "sigma-studio-workspace";
 export const SIGMA_DOC_MCP_SERVER_NAME = "sigma-studio-local";
 
 export function buildSigmaStudioMcpEnv(input: SigmaStudioMcpLaunchSpec): Record<string, string> {

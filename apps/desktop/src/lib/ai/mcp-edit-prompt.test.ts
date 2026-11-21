@@ -224,7 +224,7 @@ describe("provider prompt parity", () => {
 
   it("uses no Gemini CLI-specific MCP namespace prefix for gemini", () => {
     const prompt = buildMcpEditPrompt({ locale: "ja", provider: "antigravity", instruction: "指示", fileId: "file_1" });
-    expect(prompt).toContain("sigma-studio-local");
+    expect(prompt).toContain("sigma-studio-workspace");
     expect(prompt).not.toContain("mcp_sigma-studio-local_");
     expect(prompt).not.toContain("mcp__");
   });

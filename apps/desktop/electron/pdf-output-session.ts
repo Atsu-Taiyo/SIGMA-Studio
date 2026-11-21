@@ -6,6 +6,7 @@ const te = createCurrentLocaleTranslator("error");
 
 import { FREEZE_ANIMATED_IMAGES_SOURCE } from "./pdf-animated-image-freeze";
 import { SNAPSHOT_PDF_FLOW_SOURCE } from "./pdf-flow-snapshot";
+import { PdfExportProfile } from "./pdf-export-profile";
 import {
   SETTLE_DOCUMENT_FONTS_MAX_ROUNDS,
   SETTLE_DOCUMENT_FONTS_SOURCE,
@@ -26,6 +27,7 @@ interface PreparedPdfPageState extends PdfOutputSessionExpectation {
 
 interface CapturedPdfPage extends PreparedPdfPageState {
   documentHtml: string;
+  timings?: Array<{ stage: string; ms: number }>;
 }
 
 const MM_PER_INCH = 25.4;
@@ -49,17 +51,22 @@ export async function renderPdfOutputSession(
 ): Promise<Buffer> {
   const pagePdfs: Buffer[] = [];
   let hiddenWindow: BrowserWindow | null = null;
+  const profile = new PdfExportProfile();
+  let success = false;
 
   try {
     hiddenWindow = createHiddenPdfWindow(webContents, expectation);
-    await loadHiddenPdfDocument(hiddenWindow, webContents);
+    await profile.measure("window-load", () => loadHiddenPdfDocument(hiddenWindow!, webContents));
 
     for (let pageIndex = 0; pageIndex < expectation.pageCount; pageIndex += 1) {
-      const captured = await capturePdfPage(webContents, expectation, pageIndex);
+      const captured = await profile.measure("capture-ipc", () => capturePdfPage(webContents, expectation, pageIndex), pageIndex);
       assertPreparedPageState(captured, expectation, pageIndex);
+      if (captured.timings) profile.record(captured.timings, pageIndex);
 
-      await writeHiddenPdfPage(hiddenWindow, await inlineSessionImages(captured.documentHtml, resolveImage));
-      const pdf = await hiddenWindow.webContents.printToPDF({
+      const html = await profile.measure("private-images", () => inlineSessionImages(captured.documentHtml, resolveImage), pageIndex);
+      const timings = await profile.measure("prepare-ipc", () => writeHiddenPdfPage(hiddenWindow!, html), pageIndex);
+      if (Array.isArray(timings)) profile.record(timings, pageIndex);
+      const pdf = await profile.measure("print-to-pdf", () => hiddenWindow!.webContents.printToPDF({
         displayHeaderFooter: false,
         margins: { top: 0, bottom: 0, left: 0, right: 0 },
         pageSize: {
@@ -68,8 +75,8 @@ export async function renderPdfOutputSession(
         },
         preferCSSPageSize: true,
         printBackground: true,
-      });
-      await assertPdfPages(pdf, expectation, 1);
+      }), pageIndex);
+      await profile.measure("validate-page", () => assertPdfPages(pdf, expectation, 1), pageIndex);
       pagePdfs.push(pdf);
     }
 
@@ -82,11 +89,13 @@ export async function renderPdfOutputSession(
       expectation.pageCount - 1,
     );
 
-    const merged = await mergePdfPages(pagePdfs, expectation);
-    await assertPdfPages(merged, expectation, expectation.pageCount);
+    const merged = await profile.measure("merge", () => mergePdfPages(pagePdfs, expectation));
+    await profile.measure("validate-merged", () => assertPdfPages(merged, expectation, expectation.pageCount));
+    success = true;
     return merged;
   } finally {
     closeHiddenPdfWindow(hiddenWindow);
+    profile.finish(expectation.pageCount, success);
   }
 }
 
@@ -153,17 +162,22 @@ async function capturePdfPage(
   return webContents.executeJavaScript(buildCapturePageScript(expectation, pageIndex), true) as Promise<CapturedPdfPage>;
 }
 
-async function writeHiddenPdfPage(window: BrowserWindow, documentHtml: string): Promise<void> {
+async function writeHiddenPdfPage(window: BrowserWindow, documentHtml: string): Promise<Array<{ stage: string; ms: number }>> {
   if (window.isDestroyed() || window.webContents.isDestroyed()) {
     throw new Error(te("electron.pdf.previewChanged"));
   }
   const fontsNotReady = te("electron.pdf.fontsNotReady");
-  await window.webContents.executeJavaScript(
+  return window.webContents.executeJavaScript(
     `(() => {
+      const timings = [];
+      const profiling = ${process.env.SIGMA_STUDIO_PDF_PROFILE === "1"};
+      let started = profiling ? performance.now() : 0;
+      const record = (stage) => { if (!profiling) return; const now = performance.now(); timings.push({stage, ms: now - started}); started = now; };
       const html = ${JSON.stringify(documentHtml)};
       document.open();
       document.write(html);
       document.close();
+      record("html-parse");
       const images = Array.from(document.images ?? []);
       const imagesReady = Promise.all(images.map((image) => {
         if (image.complete) {
@@ -177,11 +191,12 @@ async function writeHiddenPdfPage(window: BrowserWindow, documentHtml: string): 
       return imagesReady
         .then(() => {
           if (images.some((image) => image.getAttribute("src") && image.naturalWidth === 0)) throw new Error("PDF_IMAGE_UNAVAILABLE");
+          record("image-load");
         })
         .then(() => (${SETTLE_DOCUMENT_FONTS_SOURCE})(document, ${SETTLE_DOCUMENT_FONTS_MAX_ROUNDS}, ${SETTLE_DOCUMENT_FONTS_TIMEOUT_MS}, ${JSON.stringify(fontsNotReady)}))
-        .then(() => (${SNAPSHOT_PDF_FLOW_SOURCE})(document))
+        .then(() => { record("font-layout-settle"); (${SNAPSHOT_PDF_FLOW_SOURCE})(document); record("flow-snapshot"); })
         .then(() => new Promise((resolve) => {
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
+          requestAnimationFrame(() => requestAnimationFrame(() => { record("paint-frames"); resolve(timings); }));
         }));
     })()`,
     true,
@@ -240,6 +255,10 @@ function buildCapturePageScript(
   return `
     (() => {
       const pdfCaptureMode = "detached-snapshot";
+      const timings = [];
+      const profiling = ${process.env.SIGMA_STUDIO_PDF_PROFILE === "1"};
+      let started = profiling ? performance.now() : 0;
+      const record = (stage) => { if (!profiling) return; const now = performance.now(); timings.push({stage, ms: now - started}); started = now; };
       const expected = ${JSON.stringify(expectation)};
       const pageIndex = ${JSON.stringify(pageIndex)};
       const exportRootId = ${JSON.stringify(PDF_EXPORT_ROOT_ID)};
@@ -271,6 +290,7 @@ function buildCapturePageScript(
 
       const clone = pages[pageIndex].cloneNode(true);
       inlineCanvasBitmaps(pages[pageIndex], clone);
+      record("capture-clone");
 
       const htmlLang = document.documentElement.getAttribute("lang") ?? "";
       const htmlClass = document.documentElement.getAttribute("class") ?? "";
@@ -282,8 +302,9 @@ function buildCapturePageScript(
         .then(() => inlineBlobUrls(clone))
         .then(() => (${FREEZE_ANIMATED_IMAGES_SOURCE})(clone))
         .then(() => {
+          record("capture-assets");
           void pdfCaptureMode;
-          return {
+          const result = {
             ...state,
             documentHtml: [
               "<!DOCTYPE html>",
@@ -305,6 +326,8 @@ function buildCapturePageScript(
               "</body></html>",
             ].join(""),
           };
+          record("capture-serialize-css");
+          return { ...result, timings };
         });
 
       function collectAbsoluteCss() {

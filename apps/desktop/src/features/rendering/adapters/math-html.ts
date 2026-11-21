@@ -6,6 +6,7 @@ import { convertLatexToMarkupCached } from "@/lib/math-tex";
 
 import { sanitizeMathMarkup } from "./math-markup";
 import { escapeHtml } from "./rich-text-html";
+import { measurePerformance } from "@/lib/performance";
 
 /**
  * TeX から数式 markup を作る**唯一の出口**。React の `dangerouslySetInnerHTML`、Tiptap NodeView の
@@ -36,7 +37,7 @@ export function renderMathHtml(
     return cached;
   }
 
-  const html = buildSanitizedMathHtml(tex, environment);
+  const html = measurePerformance("render.math-markup", () => buildSanitizedMathHtml(tex, environment));
   if (sanitizedMarkupCache.size >= SANITIZED_MARKUP_CACHE_LIMIT) {
     const oldest = sanitizedMarkupCache.keys().next().value;
     if (oldest !== undefined) {

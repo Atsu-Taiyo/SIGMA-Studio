@@ -166,7 +166,7 @@ test("keeps an axis label attached while its graph moves and resizes", async ({ 
   await page.mouse.click(initial!.x + initial!.width * 0.3, initial!.y + initial!.height * 0.38);
 
   await openGraphSettingsFromContextMenu(page, graph);
-  await expandGraphDisclosure(page, "軸名");
+  await expandGraphDisclosure(page, "座標軸と範囲");
   await page.getByTestId("overlay-graph-axis-label-x").check();
   const label = page.locator(".overlay-shape-text").first();
   await expect(label).toBeVisible();
@@ -495,7 +495,7 @@ test("moves the settings panel by its header and closes it with Escape", async (
   await expect(panel).toHaveCount(0);
 });
 
-test("edits a curve from its detail-card hover menu without showing actions on the graph", async ({ page }) => {
+test("edits a curve from its card rows, deletes it from the hover menu, and shows no actions on the graph", async ({ page }) => {
   await page.goto(appUrl("/"), { waitUntil: "domcontentloaded" });
   await expect(page.getByText("準備完了")).toBeVisible();
 
@@ -511,7 +511,9 @@ test("edits a curve from its detail-card hover menu without showing actions on t
   await openGraphSettingsFromContextMenu(page, graph);
   await page.getByRole("button", { name: "関数を追加" }).click();
   await expect(page.locator('[data-testid="graph2d-curve"]')).toHaveCount(1);
-  const curveCard = page.locator('.graph-curve-editor:has([data-testid="overlay-graph-expr-input"])').first();
+  const curveCard = page.getByTestId("overlay-graph-curve-card");
+
+  // 削除だけは誤操作を避けるため `⋯` の中に残す。`⋯` は hover / focus で現れる。
   const actionButton = curveCard.getByRole("button", { name: "関数 1 の操作" });
   await page.mouse.move(0, 0);
   await expect(actionButton).toHaveCSS("opacity", "0");
@@ -532,12 +534,19 @@ test("edits a curve from its detail-card hover menu without showing actions on t
     actionsMenuBox!.x >= actionButtonBox!.x + actionButtonBox!.width
       || actionsMenuBox!.x + actionsMenuBox!.width <= actionButtonBox!.x,
   ).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(curveActionsMenu).toHaveCount(0);
+
+  // 関数の種類・線・定義域・ラベルは、hover やメニューを開かずにカードの行から操作できる。
+  for (const name of ["関数 1 の線スタイル", "関数 1 の定義域"]) {
+    await expect(curveCard.getByRole("group", { name, exact: true })).toBeVisible();
+  }
+  await expect(curveCard.getByTestId("overlay-graph-mode-select")).toBeVisible();
   await chooseGraphMenuOption(page, "overlay-graph-stroke-width-select", "太");
   await expect(page.locator('[data-testid="graph2d-curve"]').first()).toHaveAttribute("stroke-width", "3.4");
 
   // 式ラベルはグラフが所有する兄弟 text 図形。曲線と一緒に消えないと所有者不明の図形が残る。
-  await openGraphItemActions(page, "overlay-graph-curve-actions", "関数 1 の操作");
-  await page.getByRole("button", { name: "グラフ上の式を表示" }).click();
+  await curveCard.getByRole("checkbox", { name: "グラフ上に式を表示" }).check();
   await expect(page.locator(".overlay-text-shape")).toHaveCount(1);
 
   await openGraphItemActions(page, "overlay-graph-curve-actions", "関数 1 の操作");
@@ -562,7 +571,7 @@ test("edits a curve from its detail-card hover menu without showing actions on t
   await expect(page.getByRole("dialog", { name: "グラフの設定" })).toHaveCount(0);
 });
 
-test("does not let the card action popovers leak keyboard input to the canvas", async ({ page }) => {
+test("does not let the card's style popovers or action menu leak keyboard input to the canvas", async ({ page }) => {
   await page.goto(appUrl("/"), { waitUntil: "domcontentloaded" });
   await expect(page.getByText("準備完了")).toBeVisible();
 
@@ -576,11 +585,9 @@ test("does not let the card action popovers leak keyboard input to the canvas", 
   await page.getByRole("button", { name: "関数を追加" }).click();
   await expect(page.locator('[data-testid="graph2d-curve"]')).toHaveCount(1);
 
-  const curveActions = page.getByRole("dialog", { name: "関数 1 の操作" });
-  await openGraphItemActions(page, "overlay-graph-curve-actions", "関数 1 の操作");
   // 色・線種・太さの子ポップオーバーは body 直下へ portal される。DOM 上はパネルの
   // 外側なので、パネルの属性だけを見ると、ここでの Delete がキャンバスへ届いて
-  // 選択中のグラフごと消える。線スタイル編集の唯一の経路がここになった。
+  // 選択中のグラフごと消える。
   await page.getByTestId("overlay-graph-color-select").click();
   await expect(page.locator(".color-popover")).toBeVisible();
   const beforeKeys = await page.locator(".overlay-shape.selected").first().boundingBox();
@@ -593,13 +600,21 @@ test("does not let the card action popovers leak keyboard input to the canvas", 
   // Escape は内側から順に畳む。パネルは残る。
   await page.keyboard.press("Escape");
   await expect(page.locator(".color-popover")).toHaveCount(0);
-  await expect(curveActions).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(curveActions).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "グラフの設定" })).toBeVisible();
+
+  // 線種・太さのトリガーはマウスでは focus を取らない (ツールバーと共通の部品)。それでも
+  // Escape で閉じるのはメニューだけで、パネルは残る。
+  for (const testId of ["overlay-graph-dash-select", "overlay-graph-stroke-width-select"]) {
+    await page.getByTestId(testId).locator("button").first().click();
+    await expect(page.getByRole("menuitemradio").first()).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menuitemradio")).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "グラフの設定" })).toBeVisible();
+  }
 
   // hover で開いた `⋯` はフォーカスを奪わない。それでも Escape で閉じるのは
   // `⋯` だけで、パネルごと畳まれてはいけない。
+  const curveActions = page.getByRole("dialog", { name: "関数 1 の操作" });
   await page.getByRole("button", { name: "関数を追加" }).click();
   await expect(page.locator('[data-testid="graph2d-curve"]')).toHaveCount(2);
   await openGraphItemActions(page, "overlay-graph-curve-actions", "関数 1 の操作");
@@ -649,7 +664,7 @@ test("inserts movable graph shapes, edits one, and prints them", async ({ page }
   await openGraphSettingsFromContextMenu(page, overlayGraphs.first());
   await expect(page.locator(".graph-tool-row").getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
   await expect(page.getByRole("button", { name: "関数を追加" })).toBeVisible();
-  await expandGraphDisclosure(page, "表示範囲");
+  await expandGraphDisclosure(page, "座標軸と範囲");
   await expect(page.getByLabel("目盛", { exact: true })).not.toBeChecked();
   await expect(page.getByLabel("グリッド", { exact: true })).not.toBeChecked();
   await expect(page.locator(".overlay-shape.selected .graph2d-axes line")).toHaveCount(2);
@@ -692,16 +707,15 @@ test("inserts movable graph shapes, edits one, and prints them", async ({ page }
   expect(await readMathFieldValue(page, "overlay-graph-expr-input")).toContain("\\cos");
   await expect(page.locator('[data-testid="graph2d-curve"]').last()).toBeVisible();
 
-  await openGraphItemActions(page, "overlay-graph-curve-actions", "関数 1 の操作");
-  const firstCurveLabelShowToggle = page.getByRole("button", { name: "グラフ上の式を表示" });
-  await expect(firstCurveLabelShowToggle).toBeVisible();
-  await firstCurveLabelShowToggle.click();
-  await expect(page.getByRole("button", { name: "グラフ上の式を隠す" })).toBeVisible();
+  const firstCurveLabelToggle = page.getByTestId("overlay-graph-formula-label");
+  await expect(firstCurveLabelToggle).not.toBeChecked();
+  await firstCurveLabelToggle.check();
+  await expect(firstCurveLabelToggle).toBeChecked();
   await expect(page.locator(".overlay-text-shape")).toHaveCount(1);
-  await page.getByRole("button", { name: "グラフ上の式を隠す" }).click();
+  await firstCurveLabelToggle.uncheck();
   await expect(page.locator(".overlay-text-shape")).toHaveCount(0);
 
-  await expandGraphDisclosure(page, "軸名");
+  await expandGraphDisclosure(page, "座標軸と範囲");
   await page.getByTestId("overlay-graph-axis-label-x").check();
   await page.getByTestId("overlay-graph-axis-label-y").check();
   await page.getByTestId("overlay-graph-axis-label-origin").check();
@@ -729,7 +743,7 @@ test("inserts movable graph shapes, edits one, and prints them", async ({ page }
   await page.keyboard.type("u");
   await expect(xAxisLabelEditor).toContainText("u");
   await openGraphSettingsFromContextMenu(page, overlayGraphs.first());
-  await expandGraphDisclosure(page, "軸名");
+  await expandGraphDisclosure(page, "座標軸と範囲");
   await expect(page.getByTestId("overlay-graph-axis-label-text-x")).toBeVisible();
   expect(await readMathFieldValue(page, "overlay-graph-axis-label-text-x")).toContain("u");
 
@@ -742,8 +756,7 @@ test("inserts movable graph shapes, edits one, and prints them", async ({ page }
   await expect(page.locator(".graph2d-container.cropping")).toHaveCount(0);
 
   await openGraphSettingsFromContextMenu(page, overlayGraphs.first());
-  await expandGraphDisclosure(page, "表示範囲");
-  await expandGraphDisclosure(page, "関数 1 の詳細設定");
+  await expandGraphDisclosure(page, "座標軸と範囲");
   await page.getByLabel("軸範囲と同じ").click();
   await setGraphRangeValue(page, "overlay-graph-display-x-range", "-1", "3");
   await setGraphRangeValue(page, "overlay-graph-display-y-range", "-1", "4");
@@ -761,17 +774,16 @@ test("inserts movable graph shapes, edits one, and prints them", async ({ page }
   await page.getByRole("button", { name: "x=f(y)", exact: true }).click();
   await setMathFieldValue(page, "overlay-graph-expr-input", "y^{2}");
   await setGraphRangeValue(page, "overlay-graph-domain-input", "0", "2");
-  await openGraphItemActions(page, "overlay-graph-curve-actions", "関数 1 の操作");
   await chooseGraphMenuOption(page, "overlay-graph-dash-select", "点線");
   await chooseGraphMenuOption(page, "overlay-graph-stroke-width-select", "太");
   expect(await readMathFieldValue(page, "overlay-graph-expr-input")).toContain("y^");
   expect(await readGraphRangeValue(page, "overlay-graph-domain-input")).toContain("2");
-  await expect(page.locator('[data-testid="graph2d-curve"]').first()).toHaveAttribute("stroke-dasharray", /0 /);
+  // 点線は butt cap なので「太さ 太さ×2.2」(graphCurveStrokeDasharray)。太 = 3.4。
+  await expect(page.locator('[data-testid="graph2d-curve"]').first()).toHaveAttribute("stroke-dasharray", "3.4 7.48");
   await expect(page.locator('[data-testid="graph2d-curve"]').first()).toHaveAttribute("stroke-width", "3.4");
 
   await page.getByRole("button", { name: "関数を追加" }).click();
   await expect(page.locator('[data-testid="graph2d-curve"]')).toHaveCount(2);
-  await openGraphItemActions(page, "overlay-graph-curve-actions", "関数 1 の操作");
   await chooseGraphPaletteColor(page, "overlay-graph-color-select", "#dc2626");
   await expect(page.locator('[data-testid="graph2d-curve"]').first()).toHaveAttribute("stroke", "#dc2626");
 
@@ -887,7 +899,7 @@ test("crops graph shapes down to the displayed graph range", async ({ page }) =>
   const beforeBox = await graph.boundingBox();
   expect(beforeBox).not.toBeNull();
 
-  await expandGraphDisclosure(page, "表示範囲");
+  await expandGraphDisclosure(page, "座標軸と範囲");
   await page.getByLabel("軸範囲と同じ").click();
   await setGraphRangeValue(page, "overlay-graph-display-x-range", "-4", "4");
   await setGraphRangeValue(page, "overlay-graph-display-y-range", "-2", "2");
@@ -1290,9 +1302,9 @@ async function getSavedGraphFills(page: import("@playwright/test").Page, index: 
   }, index) as Promise<Array<{ pattern?: string }>>;
 }
 
-// The graph inspector groups settings behind accordion sections ("座標軸・表示範囲")
-// and per-card "詳細" disclosures. Expand the matching trigger before interacting
-// with controls that live inside them. Idempotent: only clicks when collapsed.
+// The graph inspector groups settings into accordion sections ("関数", "座標軸と範囲", …).
+// Expand the matching trigger before interacting with controls that live inside them.
+// Idempotent: only clicks when collapsed (both sections above start open).
 async function expandGraphDisclosure(page: import("@playwright/test").Page, name: string) {
   const trigger = page.getByRole("button", { name, exact: true });
   await expect(trigger).toBeVisible();
