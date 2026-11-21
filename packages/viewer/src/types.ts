@@ -248,6 +248,7 @@ export interface ProblemNumbering {
     fontFamily?: string;
     fontWeight?: number;
     format?: "decimal" | "fullwidth";
+    fullwidthSingleDigit?: boolean;
     widthPx?: number;
     heightPx?: number;
     gapPx?: number;
@@ -256,6 +257,7 @@ export interface ProblemNumbering {
     borderStyle?: "solid" | "double" | "none";
     outlineWidthPx?: number;
     outlineOffsetPx?: number;
+    textAlign?: "center" | "start";
     textOffsetXPx?: number;
     textOffsetYPx?: number;
     offsetXPx?: number;

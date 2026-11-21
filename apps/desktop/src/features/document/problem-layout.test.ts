@@ -36,6 +36,20 @@ describe("problem dimensions", () => {
     expect(getProblemAreaLayoutStyle({ minHeightMm: 8 })).toEqual({});
     expect(getProblemFrameLayoutStyle({ enabled: true })).toEqual({});
     expect(formatProblemNumberLabel(12)).toBe("12");
+    // The digit width follows the computed number, so renumbering across 9/10 keeps the rule.
+    const singleDigit = { format: "fullwidth", fullwidthSingleDigit: true } as const;
+    expect(formatProblemNumberLabel(9, singleDigit)).toBe("９");
+    expect(formatProblemNumberLabel(10, singleDigit)).toBe("10");
+    const parsed = parseSigmaDocument({ ...sampleDocument, content: [{ type: "problem", id: "p", tags: [], lead: [], prompt: [], solution: [], hints: [], numbering: { enabled: true, format: "fullwidthSingleDigit" } }] });
+    const numbering = (parsed.content[0] as ProblemNode).numbering;
+    expect(numbering).toEqual({ enabled: true, format: "fullwidth", fullwidthSingleDigit: true });
+    expect(parseSigmaDocument(JSON.parse(JSON.stringify(parsed)))).toEqual(parsed);
+    // Start alignment: the inset is the same for any number width (no per-number offset).
+    const start = { textAlign: "start" as const, textOffsetXPx: 1.26, widthPx: 19.29 };
+    expect(getProblemNumberLayoutStyle(start)).toMatchObject({ "--problem-number-text-align": "start", "--problem-number-text-start": "1.26px" });
+    expect(getProblemNumberLayoutStyle({ textOffsetXPx: 2 })["--problem-number-text-align"]).toBeUndefined();
+    const aligned = parseSigmaDocument({ ...sampleDocument, content: [{ type: "problem", id: "p", tags: [], lead: [], prompt: [], solution: [], hints: [], numbering: { enabled: true, ...start } }] });
+    expect((aligned.content[0] as ProblemNode).numbering?.textAlign).toBe("start");
     expect(getProblemAreaLayoutStyle({ offsetXPx: 0 }, "280px").left).toBe("calc(280px + 0px)");
     expect(getProblemAreaLayoutStyle({ offsetXPx: -1 }, 280).left).toBe("calc(280px + -1px)");
     expect(getProblemAreaLayoutStyle({ offsetXPx: 9 })).toMatchObject({ left: "calc(0px + 9px)", position: "relative" });

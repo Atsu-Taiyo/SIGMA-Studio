@@ -1625,6 +1625,8 @@ li[data-list-marker-typography]::marker {
   --problem-number-outline-offset: initial;
   --problem-number-text-offset-x: initial;
   --problem-number-text-offset-y: initial;
+  --problem-number-text-align: initial;
+  --problem-number-text-start: initial;
   --problem-frame-border-width: initial;
   --problem-frame-border-radius: initial;
 }
@@ -1782,11 +1784,6 @@ li[data-list-marker-typography]::marker {
   column-gap: var(--problem-number-gap, 8px);
 }
 
-/* 番号の箱が導入文の行より高いときは、行を箱の縦の中央に置く (編集面と同じ規則)。 */
-[data-problem-area="lead"] > .print-problem-area-content.with-number > .print-problem-area-body {
-  align-self: center;
-}
-
 .print-problem-area-fragment .print-problem-area-content.with-number {
   display: block;
 }
@@ -1804,7 +1801,7 @@ li[data-list-marker-typography]::marker {
 .print-problem-number {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: var(--problem-number-text-align, center);
   box-sizing: border-box;
   min-width: var(--problem-number-width, 1.9em);
   width: var(--problem-number-width, auto);
@@ -1816,14 +1813,14 @@ li[data-list-marker-typography]::marker {
   font-weight: var(--problem-number-font-weight, 750);
   font-variant-numeric: tabular-nums;
   line-height: 1.35;
-  text-align: center;
+  text-align: var(--problem-number-text-align, center);
   position: relative;
   left: var(--problem-number-offset-x, 0px);
   top: var(--problem-number-offset-y, 0px);
   outline: var(--problem-number-outline-width, 0px) solid currentColor;
   outline-offset: var(--problem-number-outline-offset, 0px);
   white-space: nowrap;
-  padding-left: calc(var(--problem-number-padding-x, 0.24em) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * 2)));
+  padding-left: calc(var(--problem-number-padding-x, 0.24em) + var(--problem-number-text-start, max(0px, calc(var(--problem-number-text-offset-x, 0px) * 2))));
   padding-right: calc(var(--problem-number-padding-x, 0.24em) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * -2)));
   padding-top: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * 2)));
   padding-bottom: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * -2)));
@@ -2451,7 +2448,7 @@ u:has(.math-preview) .inline-math-node {
   font-weight: var(--problem-number-font-weight, 600);
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: var(--problem-number-text-align, center);
   box-sizing: border-box;
   width: var(--problem-number-width, auto);
   height: var(--problem-number-height, auto);
@@ -2463,7 +2460,7 @@ u:has(.math-preview) .inline-math-node {
   outline: var(--problem-number-outline-width, 0px) solid currentColor;
   outline-offset: var(--problem-number-outline-offset, 0px);
   white-space: nowrap;
-  padding-left: calc(var(--problem-number-padding-x, 0px) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * 2)));
+  padding-left: calc(var(--problem-number-padding-x, 0px) + var(--problem-number-text-start, max(0px, calc(var(--problem-number-text-offset-x, 0px) * 2))));
   padding-right: calc(var(--problem-number-padding-x, 0px) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * -2)));
   padding-top: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * 2)));
   padding-bottom: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * -2)));

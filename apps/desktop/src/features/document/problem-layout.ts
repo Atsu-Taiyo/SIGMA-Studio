@@ -21,6 +21,14 @@ export function getProblemNumberLayoutStyle(numbering: ProblemNumbering | undefi
     ["textOffsetXPx", "text-offset-x", -128, 128], ["textOffsetYPx", "text-offset-y", -128, 128],
   ] as const) if (finite(numbering[key], min, max)) style[`--problem-number-${name}`] = `${numbering[key]}px`;
   if (style["--problem-number-width"]) style["--problem-number-padding-x"] = "0px";
+  // Start alignment: the label starts at a fixed inset from the box's inner left
+  // edge, whatever the number's width (textOffsetXPx is that inset), so a
+  // renumbered problem (9 → 10) keeps the same left edge. The inset is never
+  // negative, so the right padding (from the same offset) stays 0.
+  if (numbering.textAlign === "start") {
+    style["--problem-number-text-align"] = "start";
+    style["--problem-number-text-start"] = finite(numbering.textOffsetXPx, 0, 128) ? `${numbering.textOffsetXPx}px` : "0px";
+  }
   if (["solid", "double", "none"].includes(numbering.borderStyle ?? "")) style["--problem-number-border-style"] = numbering.borderStyle!;
   return style;
 }
@@ -69,5 +77,6 @@ export function getProblemFrameLayoutStyle(frame: ProblemFrame | undefined): Lay
 
 export function formatProblemNumberLabel(value: number, numbering?: ProblemNumbering): string {
   const text = String(value);
-  return numbering?.format === "fullwidth" ? text.replace(/\d/g, digit => String.fromCharCode(digit.charCodeAt(0) + 0xfee0)) : text;
+  const fullwidth = numbering?.format === "fullwidth" && (!numbering.fullwidthSingleDigit || (value >= 1 && value <= 9 && Number.isInteger(value)));
+  return fullwidth ? text.replace(/\d/g, digit => String.fromCharCode(digit.charCodeAt(0) + 0xfee0)) : text;
 }

@@ -178,7 +178,8 @@ describe("viewer stylesheet size", () => {
   // 約 4 KiB の文書用スタイルを加えたため手書き分を 91 KiB にする。dist の 128 KiB は維持する。
   // リストの (a)/(i) 番号の @counter-style 4つと字下げの既定 (印刷・viewer も同じ番号と字下げを描く) で
   // 約 1.9KB 増えたので 94KiB へ上げた。dist の 128 KiB は維持する。
-  const MAX_AUTHORED_CSS_BYTES = 94 * 1024;
+  // 参考書型のタイトルと問題番号の配置は出力でも共有する。配布CSSの上限は128 KiB。
+  const MAX_AUTHORED_CSS_BYTES = 96 * 1024;
   const MAX_DIST_CSS_BYTES = 128 * 1024;
 
   it("keeps the authored CSS (viewer + shared document surface) small", () => {

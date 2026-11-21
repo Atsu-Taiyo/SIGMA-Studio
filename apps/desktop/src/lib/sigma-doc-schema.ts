@@ -537,7 +537,8 @@ const ProblemNodeSchema = BaseNodeSchema.extend({
       value: z.number().int().positive().optional(),
       fontFamily: z.string().refine(isSafeCssFontFamily).optional(),
       fontWeight: z.number().int().min(100).max(900).optional(),
-      format: z.enum(["decimal", "fullwidth"]).optional(),
+      format: z.enum(["decimal", "fullwidth", "fullwidthSingleDigit"]).optional(),
+      fullwidthSingleDigit: z.boolean().optional(),
       widthPx: z.number().positive().max(256).optional(),
       heightPx: z.number().positive().max(256).optional(),
       gapPx: z.number().min(0).max(256).optional(),
@@ -546,11 +547,15 @@ const ProblemNodeSchema = BaseNodeSchema.extend({
       borderStyle: z.enum(["solid", "double", "none"]).optional(),
       outlineWidthPx: z.number().min(0).max(24).optional(),
       outlineOffsetPx: z.number().min(0).max(128).optional(),
+      textAlign: z.enum(["center", "start"]).optional(),
       textOffsetXPx: z.number().min(-128).max(128).optional(),
       textOffsetYPx: z.number().min(-128).max(128).optional(),
       offsetXPx: z.number().min(-256).max(256).optional(),
       offsetYPx: z.number().min(-256).max(256).optional(),
     })
+    .transform(({ format, ...numbering }) => format === "fullwidthSingleDigit"
+      ? { ...numbering, format: "fullwidth" as const, fullwidthSingleDigit: true }
+      : { ...numbering, ...(format === undefined ? {} : { format }) })
     .optional(),
   frame: z
     .object({
