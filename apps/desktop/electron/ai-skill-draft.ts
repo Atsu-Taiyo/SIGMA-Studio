@@ -23,7 +23,7 @@ const ta = createCurrentLocaleTranslator("ai");
 //   空({mcpServers:{}})に差し替えて渡す(runTurnはmcpConfigをper-turn引数として受け取れる)。
 // - Antigravity (agy): 常設の geminiHeadlessClient とは別の GeminiHeadlessClient を、
 //   MCP設定ファイル(mcp_config.json)が書かれていない専用workspaceDirで構築して使う
-//   (agyはワークスペース単位でMCPサーバーを解決するため、cwdを変えるだけでMCPなしにできる)。
+//   (CLIの共有設定にあるサーバーも含め、この呼び出しではMCPツールを拒否する)。
 // - Codex: 常設の codexAppServerClient (MCP同梱configで常駐するJSON-RPCサーバー)は使わず、
 //   `codex exec --ignore-user-config` でconfig.toml(MCPサーバー定義はここにある)の読み込み
 //   自体を止めた、素の一回きりのサブプロセスを立てる。認証(CODEX_HOME/auth.json)は
@@ -141,15 +141,11 @@ export async function generateAiSkillDraft(
     reasoningEffort,
     onDelta,
     timeoutMs: isFrameDrawing ? AI_FRAME_DRAWING_TIMEOUT_MS : AI_SKILL_DRAFT_TIMEOUT_MS,
-    ...(isFrameDrawing ? { onReasoning, streamOutput: true } : {}),
+    ...(isFrameDrawing ? { onReasoning } : {}),
   };
 
   try {
-    const rawText = await (request.provider === "claude"
-      ? generateWithClaude(deps.claude, fullPrompt, runId, options)
-      : request.provider === "antigravity"
-      ? generateWithGemini(deps.geminiSkillDraft, fullPrompt, runId, options)
-      : generateWithCodex(deps.codex, fullPrompt, runId, options));
+    const rawText = await runProvider(request.provider, deps, fullPrompt, runId, options);
     const text = isFrameDrawing ? sanitizeFrameDrawing(rawText) : sanitizeSkillDraftText(rawText);
     const message = isFrameDrawing ? extractFrameReplyMessage(rawText) : "";
     if (!text) {
@@ -163,6 +159,22 @@ export async function generateAiSkillDraft(
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : ta("desktop.skillDraft.failed") };
   }
+}
+
+function runProvider(provider: AiProvider, deps: AiSkillDraftDeps, fullPrompt: string, runId: string, options: AiSkillDraftRunOptions): Promise<string> {
+  return provider === "claude"
+    ? generateWithClaude(deps.claude, fullPrompt, runId, options)
+    : provider === "antigravity"
+    ? generateWithGemini(deps.geminiSkillDraft, fullPrompt, runId, options)
+    : generateWithCodex(deps.codex, fullPrompt, runId, options);
+}
+
+/**
+ * The same tool-less single call, for background work that only needs the reply text
+ * (the authoring style review). Rejects on failure, timeout or an empty reply.
+ */
+export function runToollessPrompt(provider: AiProvider, prompt: string, deps: AiSkillDraftDeps, runId: string, timeoutMs: number): Promise<string> {
+  return runProvider(provider, deps, prompt, runId, { timeoutMs });
 }
 
 export function buildSkillDraftPrompt(userPrompt: string, context: AiSkillDraftContext): string {
@@ -329,8 +341,6 @@ function stripSurroundingCodeFence(text: string): string {
 interface AiSkillDraftRunOptions extends AiSkillDraftStreamHandlers {
   model?: string;
   reasoningEffort?: string;
-  /** Ask the CLI for its incremental output (Antigravity prints nothing until the end otherwise). */
-  streamOutput?: boolean;
   /** How long the run may take before it is cancelled. */
   timeoutMs: number;
 }
@@ -397,7 +407,7 @@ async function generateWithGemini(
   gemini: GeminiHeadlessClient,
   fullPrompt: string,
   runId: string,
-  { model, onDelta, streamOutput, timeoutMs }: AiSkillDraftRunOptions,
+  { model, onDelta, timeoutMs }: AiSkillDraftRunOptions,
 ): Promise<string> {
   // generateWithClaudeと同じ理由で、タイムアウト起因のcancelを区別する。
   let timedOut = false;
@@ -412,7 +422,6 @@ async function generateWithGemini(
       instruction: fullPrompt,
       runId,
       onDelta,
-      ...(streamOutput ? { streamOutput: true } : {}),
       ...(model ? { model } : {}),
     });
     if (result.cancelled) {

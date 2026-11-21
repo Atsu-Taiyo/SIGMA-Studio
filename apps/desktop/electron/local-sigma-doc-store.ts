@@ -270,6 +270,8 @@ interface UpdateFolderPayload {
 }
 
 export interface LocalSigmaDocStoreOptions {
+  /** Optional derived-data observer. It must not delay or change canonical saves. */
+  onDocumentSaved?: (event: LocalDocumentSavedEvent) => void;
   /**
    * reconcileDocumentFile が「本文が読めない」行を外部削除とみなしてソフトデリート
    * するまでの猶予時間 (ms)。作成直後でまだ本文が書き込まれていないだけの行を
@@ -290,6 +292,13 @@ export interface LocalSigmaDocStoreOptions {
   appendDocumentVersion?: typeof appendDocumentVersion;
   /** Version sidecar fault-injection seam. Canonical deletes must not depend on this succeeding. */
   deleteDocumentVersions?: typeof deleteDocumentVersions;
+}
+
+export interface LocalDocumentSavedEvent {
+  file: LocalDocumentMetadata;
+  previousDocument: SigmaDocument | null;
+  document: SigmaDocument;
+  origin: DocumentVersionOrigin;
 }
 
 export type LocalWatchFactory = (
@@ -356,6 +365,7 @@ export class LocalSigmaDocStore {
   private readonly watchMaxRetries: number;
   private readonly appendDocumentVersion: typeof appendDocumentVersion;
   private readonly deleteDocumentVersions: typeof deleteDocumentVersions;
+  private readonly onDocumentSaved?: LocalSigmaDocStoreOptions["onDocumentSaved"];
   // readLibraryFileWithReport が最後に正常パースできた生バイト列 (library.json
   // 本体、あるいは .bak からの復元時はその生バイト列)。writeLibrary はこれを
   // library.json.bak へ退避してから library.json を上書きする (ローリングバックアップ)。
@@ -399,6 +409,7 @@ export class LocalSigmaDocStore {
     this.watchMaxRetries = Math.max(0, options.watchMaxRetries ?? DEFAULT_WATCH_MAX_RETRIES);
     this.appendDocumentVersion = options.appendDocumentVersion ?? appendDocumentVersion;
     this.deleteDocumentVersions = options.deleteDocumentVersions ?? deleteDocumentVersions;
+    this.onDocumentSaved = options.onDocumentSaved;
     this.documentReconciler = new LocalDocumentReconciler({
       withLedger: (operation) => this.withLedger("reconcileDocumentFile", (tx) => operation({
         findVisibleFile: (fileId) => this.findVisibleFile(tx.library, fileId),
@@ -865,6 +876,15 @@ export class LocalSigmaDocStore {
               revision: nextFile.revision,
               error: versionCaptureError,
             });
+          }
+          // Shared materialization can contain other authors' edits. Only local saves
+          // are observable here; observers receive the exact committed before/after.
+          if (!this.rawLibraryContext.getStore()) {
+            try {
+              this.onDocumentSaved?.({ file: mapFileMetadata(nextFile), previousDocument, document: normalized, origin: options.origin ?? "user" });
+            } catch (error) {
+              logLedgerEvent(this.dataDir, "document-save-observer-failed", { fileId, error: String(error) });
+            }
           }
           return { ok: true, revision: nextFile.revision, metadata: mapFileMetadata(nextFile), versionCaptured, versionCaptureError };
         } catch (error) {

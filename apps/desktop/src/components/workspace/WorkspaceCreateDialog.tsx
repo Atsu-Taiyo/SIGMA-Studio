@@ -20,7 +20,7 @@ interface WorkspaceCreateDialogProps {
   folders: WorkspaceFolderSummary[];
   saving: boolean;
   onNameChange: (name: string) => void;
-  onSubmit: (event: FormEvent) => void;
+  onSubmit: (event: FormEvent, openAfterCreate: boolean) => void;
   onClose: () => void;
 }
 
@@ -98,7 +98,7 @@ export function WorkspaceCreateDialog({
             <X size={15} />
           </button>
         </header>
-        <form className="workspace-create-form" onSubmit={onSubmit}>
+        <form className="workspace-create-form" onSubmit={(event) => onSubmit(event, true)}>
           <label>
             <span>
               {dialog.kind === "folder"
@@ -123,6 +123,7 @@ export function WorkspaceCreateDialog({
             <button type="button" className="button secondary" onClick={onClose}>
               {t("action.cancel")}
             </button>
+            {dialog.kind === "document" && <button type="button" className="button secondary" disabled={saving} onClick={(event) => onSubmit(event, false)}>{t("action.createOnly")}</button>}
             <button
               type="submit"
               className="button primary"
@@ -135,7 +136,7 @@ export function WorkspaceCreateDialog({
                   : dialog.kind === "workspace"
                     ? <Building2 size={15} />
                     : <FilePlus size={15} />}
-              {t("action.create")}
+              {t(dialog.kind === "document" ? "action.createAndOpen" : "action.create")}
             </button>
           </footer>
         </form>

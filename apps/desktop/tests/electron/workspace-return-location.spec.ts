@@ -94,7 +94,7 @@ test("returns from the editor to the workspace that was last selected, including
     await openFromWorkspace(fixture.second);
     await page.locator(".document-tabs-row").getByText("ホームの教材").click();
     await expect(page.getByRole("textbox", { name: "教材タイトル" })).toHaveValue("ホームの教材");
-    await page.getByRole("button", { name: "ワークスペース", exact: true }).click();
+    await page.getByRole("button", { name: "ワークスペース", exact: true }).and(page.locator(".workspace-open-button")).click();
     await expectWorkspaceScreen(page, fixture.targetId);
     await page.screenshot({ path: testInfo.outputPath("after-workspace-button.png") });
     // 開いている教材 (残る教材) に「編集中」が付き、開いていない教材には付かない。

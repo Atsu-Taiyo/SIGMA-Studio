@@ -26,7 +26,6 @@ app.getPath("userData")/data
   codex-agent-workspace/
   claude-agent-home/
   antigravity-agent-workspace/ (.agents/mcp_config.json を含む)
-  ~/.gemini/config/mcp_config.json (Antigravity 2.0 / IDE / CLI 共有のMCP設定)
   ai-run-context/ (プロバイダごとの <provider>.run-context.json、Antigravityは <provider>[-<runId>].tool-activity.jsonl も)
 ```
 
@@ -44,7 +43,7 @@ app.getPath("userData")/data
 
 ## Desktop AI Sidebar
 
-アプリ内AI編集は `AiEditPanel` から Electron bridge (`desktopAPI.aiEdit.run`) を通って `electron/ai-edit.ts` に入ります。プロバイダ(Codex app-server / Claude CLI `--mcp-config` / Antigravity CLI `agy --print`)ごとのクライアントが、共通ローカルMCPサーバー (`apps/desktop/mcp/sigma-doc-mcp-server-core.ts`) をツールとして呼び出しながらturnを進めます。
+アプリ内AI編集は `AiEditPanel` から Electron bridge (`desktopAPI.aiEdit.run`) を通って `electron/ai-edit.ts` に入ります。プロバイダ(Codex app-server / Claude CLI `--mcp-config` / Antigravity CLI `agy`)ごとのクライアントが、共通ローカルMCPサーバー (`apps/desktop/mcp/sigma-doc-mcp-server-core.ts`) をツールとして呼び出しながらturnを進めます。
 
 ```text
 AiEditPanel
@@ -62,7 +61,7 @@ overlay図形を選択してAI編集を送るときは、選択範囲を1枚のP
 
 通常のAI作図は、完成レイアウトの自動生成ではなく、ユーザーがクライアント上で選択・移動・サイズ変更・内容編集できるネイティブ図形の叩き台を作ることを優先します。元画像や参照図への忠実な再現が依頼された場合だけvisual edit sessionで見た目を反復確認し、通常の図形挿入では細かな位置・重なりの調整を完了条件にしません。
 
-MCPツール呼び出しの承認プロンプトはプロバイダごとに無効化しています。Codexは`approval_policy = "never"`だけではread-only sandboxでMCPツール承認が抑止されないため、アプリ生成の`codex-agent-home/config.toml`で`[mcp_servers.sigma-studio-local]`に`default_tools_approval_mode = "approve"`を設定して承認要求自体を出させません。加えて`CodexAppServerClient`は、承認要求(`mcpServer/elicitation/request`)が届いた場合に備えて`sigma-studio-local`宛に限り自動許可し、他サーバー宛はエラー応答で拒否します。ClaudeはallowedTools指定、Geminiは`trust: true`で同等の自動許可をしています。教材反映の承認境界はプロバイダ側ではなくアプリのproposal承認UIです。
+MCPツール呼び出しの承認プロンプトはプロバイダごとに無効化しています。Codexは`approval_policy = "never"`だけではread-only sandboxでMCPツール承認が抑止されないため、アプリ生成の`codex-agent-home/config.toml`で`[mcp_servers.sigma-studio-local]`に`default_tools_approval_mode = "approve"`を設定して承認要求自体を出させません。加えて`CodexAppServerClient`は、承認要求(`mcpServer/elicitation/request`)が届いた場合に備えて`sigma-studio-local`宛に限り自動許可し、他サーバー宛はエラー応答で拒否します。ClaudeはallowedTools指定、Antigravityはセッション限定のMCP許可で同等の自動許可をしています。教材反映の承認境界はプロバイダ側ではなくアプリのproposal承認UIです。
 
 ユーザーが承認するまで、開いているSigmaDocの正本は更新しません。
 
@@ -70,11 +69,8 @@ MCPツール呼び出しの承認プロンプトはプロバイダごとに無�
 
 pending proposalの対象 (置換・削除・移動するブロック、更新・削除する図形) はロックしません。提案は作成時に上書きする単位の元の内容 (`mergeBasis`) を保存しており、人間が保留中の対象を直しても、承認は元の内容・今の文書・提案の三者マージで人間の編集とAIの変更の両方を残します (下の「提案の三者マージ」)。紙面のカード・サイドバー・⌘Kのパネルのプレビューも、直すたびに同じ合成の結果へ更新されます。適用・破棄までロックするのは、人間が直すと承認が競合になる合成できない対象だけです: `mergeBasis` を持たない旧レコードの対象 (置換・削除・段組み設定の更新・図形の更新/整列/削除。移動は中身を上書きしないので含めない)、`mergeBasis` に元の内容が無い対象、図形の整列・段組み設定の更新の対象 (合成後の単位に操作が素のまま当たり、人の値を上書きするため。同じ提案がその単位を合成していても)、提案が削除・更新・整列する図形が連れて行く図形 (group とそのメンバー、group のメンバー、その図形に固定された図形。削除と同じ連鎖 `collectOverlayShapeDeletionIds` で辿る)、提案が更新・整列・削除するグラフとそのグラフが持つラベル (ラベルは別の図形なので、合成するとラベルを作り直す提案で古いラベルが持ち主なしで残る)、図形の置き換え (削除と、その id を求める挿入の組) の元の図形。段組み設定の更新を含む提案は、その段組みブロック全体を適用・破棄までロックします (承認は段組み全体の内容hashを比べるため)。この判定は `collectNonMergeableTargets` の 1 か所にあり、承認も同じ対象を内容hashで比べて、人間の変更があれば競合として知らせます。これらを編集しようとすると「あなたの編集と合わせられないAI提案の確認待ち」と知らせます。本文や図形を挿入するだけの案、および移動先として参照するだけの本文はロックしません。実行中のrunが握る範囲のロック (上の段落) は変わりません。文書全体の編集停止は、承認などで文書を差し替える書き込み中だけです。人間の編集を黙って上書きせず、合成で解決できないときだけ通常の適用を止めて競合として知らせます。
 
-Antigravity CLI (`agy --print`) は実機確認で以下の癖があり、`GeminiHeadlessClient` / `gemini-edit.ts` はこれを前提に組んでいます(詳細は `docs/mcp-local-app.md` の「Antigravity CLI (`agy --print`) 実行時の注意」を参照)。
+Antigravityは標準入出力のNDJSONで応答と会話IDを取得し、教材ツールの進行をrun別に表示します。起動引数・MCPの配置・セッション権限の詳細は[Antigravity CLI の非対話実行](./mcp-local-app.md#antigravity-cli-の非対話実行)を参照してください。
 
-- `--print` は値を取るstringフラグなので `--print=`(空値)を明示し、プロンプト本体はargvではなくstdinで渡します。`--print-timeout` / `--model` / `--conversation` / `--log-file` はその後ろに続けます。
-- printモードのstdoutは最終応答のプレーンテキストのみで、ツール呼び出しイベントも会話IDも一切流れません。会話IDは `--log-file` に書かれるログ行から回収してresumeに使います。
-- ツール呼び出しの検知手段がCLI側にないため、共有MCPサーバー (`mcp/tool-activity.ts`) が呼び出しをJSONLへ自己記録し、デスクトップ側 (`gemini-tool-activity-watcher.ts`) がポーリングしてUIの「ツール実行中...」表示に変換します。
 - `@ファイル参照` の添付画像はモデルに届かないため、`get_attached_media` が返すimage content経由で渡します。
 - 画像や文書の「そのまま再現」「文字起こし」「レイアウト再現」は転記・構造化として扱います。ユーザーが解答・解説の作成を明示しない限り、元資料にない解答、途中式、ヒント、補足、ラベルをAIが追加してはいけません。問題文だけの画像ではproblemのanswer / solution / hintsを空または未指定にします。
 

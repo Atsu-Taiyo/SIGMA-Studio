@@ -38,10 +38,8 @@ import { ClaudeStreamClient } from "./claude-stream-client";
 import { buildClaudeMcpConfig } from "./claude-mcp-config";
 import { GeminiHeadlessClient } from "./gemini-headless-client";
 import {
-  buildGeminiWorkspaceSettings,
   cleanupStaleAgentWorkspaceGeminiAttachments,
   cleanupStaleGeminiAttachments,
-  writeGeminiWorkspaceSettings,
 } from "./gemini-settings-config";
 import {
   desktopSettingsPath,
@@ -52,6 +50,9 @@ import {
 } from "./desktop-settings";
 import { AUTO_APPLY_DEFER_MS, shouldDeferAutoApply } from "./auto-apply-defer";
 import { LocalSigmaDocStore, type LocalStoreChangeEvent } from "./local-sigma-doc-store";
+import { appSettingsPart } from "./app-settings-sync";
+import { workspaceKey } from "./authoring-style-sync";
+import { LocalAuthoringStyleStore } from "./authoring-style-store";
 import { LocalMaterialStore } from "./local-material-store";
 import { LocalTemplateStore } from "./local-template-store";
 import {
@@ -69,11 +70,15 @@ import { registerTikzIpc } from "./ipc/tikz";
 import { assertUsableCliBinPath } from "./cli-spawn";
 import { registerCodexIpc } from "./ipc/codex";
 import { registerAiEditIpc } from "./ipc/ai-edit";
+import { registerAuthoringStyleIpc } from "./ipc/authoring-style";
+import { runToollessPrompt } from "./ai-skill-draft";
 import { registerAiResourcesIpc } from "./ipc/ai-resources";
 import { registerFileIpc } from "./ipc/file";
 import { ApplicationFontStore } from "./application-font-store";
 import { extensionsBuildConfig } from "./plugins/config";
 import { PluginHost } from "./plugins/host";
+import { printPreviewReadyScript } from "./print-preview-ready";
+import { DOCUMENT_MEASUREMENT_TIMEOUT_MS, PRINT_PREVIEW_TIMEOUT_MS } from "@/lib/print-preparation";
 import { documentMeasurementScript } from "./plugins/document-measurement";
 import { registerPluginIpc } from "./ipc/plugins";
 import { documentPathsFromArgv, ExternalDocumentOpenQueue } from "./external-document-open";
@@ -191,7 +196,43 @@ let stopLocalStoreWatch: (() => void) | null = null;
 let stopLocalProposalWatch: (() => void) | null = null;
 let stopAiResourceWatch: (() => void) | null = null;
 let stopAiSettingsWatch: (() => void) | null = null;
-const localSigmaDocStore = new LocalSigmaDocStore(USER_DATA_PATH);
+const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH, {
+  // A document bound to a shared one is a stand-in for it: what it holds is not this author's writing alone.
+  listFiles: async () => {
+    const bound = new Set(collaborationSessions.bindings().map(binding => binding.fileId));
+    return (await localSigmaDocStore.listFiles()).filter(file => !bound.has(file.fileId));
+  },
+  loadDocument: fileId => localSigmaDocStore.loadDocument(fileId),
+  // Only shared workspaces are synced, each under the id the server knows it by, as one copy for all members. The others stay on this device.
+  listWorkspaces: async () => {
+    const result = await sharedCatalog.overview();
+    return result.state !== "ready" ? [] : result.overview.workspaces.flatMap(({ id, sharing }) => sharing?.state === "active" && sharing.target.kind === "workspace"
+      // Whoever cannot edit the workspace's documents does not change the style its members share either.
+      // Resetting it for everyone, and the switches that hold for everyone, are for its owner and admins.
+      ? [{ id, key: workspaceKey(sharing.target.catalogNodeId), readOnly: sharing.role === "viewer", manager: sharing.role === "owner" || sharing.role === "admin" }] : []);
+  },
+  // Signed out, loading or offline, the lists below come back empty. That is "cannot tell", not "nothing is shared".
+  sharedCatalogReady: async () => (await sharedCatalog.status()).state === "ready",
+  // A shared workspace's style is learned from all of its documents, whoever wrote them. They are only read.
+  listSharedFiles: async () => (await sharedCatalog.listFiles()).filter(file => file.sharing),
+  loadSharedDocument: fileId => sharedCatalog.preview(fileId, { assets: false }),
+  // Keeps the author's note and the settings in step across a Pro account's devices, and a shared workspace's style across its members.
+  sync: { client: { read: (userId, key, signal) => collaborationSessions.personalData.read(userId, key, signal),
+    write: (userId, key, content, revision, signal) => collaborationSessions.personalData.write(userId, key, content, revision, signal),
+    removeAll: userId => collaborationSessions.personalData.removeAll(userId) }, userId: () => collaborationSessions.actorId(), available: () => Boolean(collaborationSessions.auth),
+    // The same answer the sharing limits and the plan dialog go by. A trial has what Pro has.
+    entitled: async () => ["pro", "trial"].includes((await collaborationSessions.request<{ plan?: string }>("/catalog/capabilities")).plan ?? "") },
+  syncParts: [appSettingsPart(() => SIGMA_STUDIO_DATA_PATH, change => {
+    if (change.aiWebSearchEnabled !== undefined) codexAppServerClient.setWebSearchEnabled(change.aiWebSearchEnabled);
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send("settings:synced");
+  })],
+  // The same tool-less single call the skill editor uses, to the provider the author already uses.
+  summarize: ({ provider, prompt }) => runToollessPrompt(provider, prompt,
+    { claude: claudeStreamClient, geminiSkillDraft: geminiSkillDraftClient, codex: codexAppServerClient }, `authoring-style-${crypto.randomUUID()}`, 90_000),
+});
+const localSigmaDocStore = new LocalSigmaDocStore(USER_DATA_PATH, {
+  onDocumentSaved: event => localAuthoringStyleStore.observe(event),
+});
 protocol.registerSchemesAsPrivileged([
   { scheme: "sigma-app-font", privileges: { secure: true, corsEnabled: true, supportFetchAPI: true, stream: true } },
   { scheme: "sigma-doc-storage", privileges: { secure: true, supportFetchAPI: false, stream: true } },
@@ -303,30 +344,11 @@ const geminiHeadlessClient = new GeminiHeadlessClient({
   userDataDir: USER_DATA_PATH,
   geminiBin: process.env.SIGMA_STUDIO_ANTIGRAVITY_BIN?.trim() || process.env.SIGMA_STUDIO_GEMINI_BIN?.trim() || usablePersistedBin(desktopSettings.antigravityBin),
 });
-// AI設定「スキル」編集画面の「AIで下書き」用、MCPツールなしの一回きりのAntigravity呼び出し
-// 専用クライアント。geminiHeadlessClient と同じbin/userDataDirだが、writeGeminiWorkspaceSettings
-// が書き込む mcp_config.json が存在しない別のworkspaceDirを使うことで、MCPサーバーを一切
-// 解決させない (ai-skill-draft.ts参照)。
+// Drafts use a separate workspace without the Studio edit server.
 const geminiSkillDraftClient = new GeminiHeadlessClient({
   workspaceDir: path.join(SIGMA_STUDIO_DATA_PATH, "antigravity-skill-draft-workspace"),
   userDataDir: USER_DATA_PATH,
   geminiBin: process.env.SIGMA_STUDIO_ANTIGRAVITY_BIN?.trim() || process.env.SIGMA_STUDIO_GEMINI_BIN?.trim() || usablePersistedBin(desktopSettings.antigravityBin),
-});
-void writeGeminiWorkspaceSettings(
-  geminiAgentWorkspaceDir,
-  buildGeminiWorkspaceSettings({
-    execPath: process.execPath,
-    scriptPath: resolveMcpServerScriptPath(),
-    userDataDir: USER_DATA_PATH,
-    runContextFile: localGeminiRunContextStore.getRunContextFilePath(),
-    renderBridgeFile: localAiRenderBridgeStore.getBridgeFilePath(),
-    provider: "antigravity",
-    // 起動時スナップショット。言語を切り替えた run は ipc 側が per-run で上書きする
-    // (Codex の app-server 設定だけは起動時に焼かれるので、切り替えは次回起動から)。
-    uiLocale: startupPromptLocale,
-  }),
-).catch((error) => {
-  console.warn("Antigravity MCP設定の書き込みに失敗しました。", error);
 });
 void cleanupStaleGeminiAttachments(geminiAgentWorkspaceDir);
 // ワークスペースごとのagent-workspaces/<ws>/antigravity/ にも同じ掃除を広げる(#workspace-agent-dirs)。
@@ -772,12 +794,12 @@ export async function measurePluginDocument(document: unknown, blockIds: string[
     window.webContents.on("will-redirect", event => event.preventDefault());
     const task = async () => {
       await window!.loadURL(previewUrl.href);
-      const ready = await waitForPrintPreviewReady(window!, 90_000, false);
+      const ready = await waitForPrintPreviewReady(window!, PRINT_PREVIEW_TIMEOUT_MS, false);
       const measurement = await window!.webContents.executeJavaScript(script, true) as Record<string, unknown>;
       return { ...measurement, pageCount: ready.pageCount };
     };
     return await Promise.race([task(), new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("Document measurement timed out")), 105_000);
+      timer = setTimeout(() => reject(new Error("Document measurement timed out (stage: load/measure)")), DOCUMENT_MEASUREMENT_TIMEOUT_MS);
     })]);
   } finally {
     if (timer) clearTimeout(timer);
@@ -1101,98 +1123,13 @@ function createRenderId(): string {
   return `ai_render_${crypto.randomUUID()}`;
 }
 
-async function waitForPrintPreviewReady(win: BrowserWindow, timeoutMs = 15_000, requirePageWindows = true): Promise<PrintPreviewReadyState> {
-  const documentLoadFailed = te("electron.preview.documentLoadFailed");
-  const preparationTimedOut = te("electron.preview.preparationTimedOut");
-  return win.webContents.executeJavaScript(`
-    new Promise((resolve, reject) => {
-      const timeoutMs = ${timeoutMs};
-      const stableFramesRequired = 8;
-      const startedAt = Date.now();
-      let lastSignature = "";
-      let stableFrames = 0;
-      let resolved = false;
-
-      const finish = (value) => {
-        if (!resolved) {
-          resolved = true;
-          resolve(value);
-        }
-      };
-
-      const fail = (error) => {
-        if (!resolved) {
-          resolved = true;
-          reject(error);
-        }
-      };
-
-      const waitForAssets = () => {
-        const fontReady = document.fonts?.ready ?? Promise.resolve();
-        const imageReady = Promise.all(Array.from(document.images).map((image) => {
-          if (image.complete) {
-            return Promise.resolve();
-          }
-          return new Promise((resolveImage) => {
-            image.addEventListener("load", () => resolveImage(undefined), { once: true });
-            image.addEventListener("error", () => resolveImage(undefined), { once: true });
-          });
-        }));
-        return Promise.all([fontReady, imageReady]);
-      };
-
-      const tick = () => {
-        const errorElement = document.querySelector('[data-print-load-state="error"]');
-        if (errorElement) {
-          fail(new Error(errorElement.textContent?.trim() || ${JSON.stringify(documentLoadFailed)}));
-          return;
-        }
-
-        const stack = document.querySelector(".paged-surface");
-        const renderedPageCount = document.querySelectorAll(".paged-surface-page").length;
-        const pageCount = Number(stack?.getAttribute("data-paged-surface-page-count") ?? "0");
-        const surfaceReady = ${requirePageWindows} ? renderedPageCount > 0 : stack?.getAttribute("data-paged-surface-state") === "ready";
-        if (stack && pageCount > 0 && surfaceReady) {
-          const signature = [
-            pageCount,
-            renderedPageCount,
-            // A late decorating pass rebuilds the windows without changing their count or
-            // size, so the revision is what makes this wait for the final surface.
-            stack.getAttribute("data-paged-surface-revision") ?? "",
-            stack.scrollWidth,
-            stack.scrollHeight,
-            document.body.scrollHeight,
-          ].join(":");
-          if (signature === lastSignature) {
-            stableFrames += 1;
-          } else {
-            lastSignature = signature;
-            stableFrames = 0;
-          }
-
-          if (stableFrames >= stableFramesRequired) {
-            // The paper size travels with the surface so the PDF is never cut to a
-            // hardcoded default (docs/pdf-parity-architecture.md, invariant 6).
-            const pageWidthMm = Number(stack.getAttribute("data-paged-surface-page-width-mm") ?? "0");
-            const pageHeightMm = Number(stack.getAttribute("data-paged-surface-page-height-mm") ?? "0");
-            waitForAssets()
-              .then(() => finish({ pageCount, renderedPageCount, pageWidthMm, pageHeightMm }))
-              .catch(fail);
-            return;
-          }
-        }
-
-        if (Date.now() - startedAt > timeoutMs) {
-          fail(new Error(${JSON.stringify(preparationTimedOut)}));
-          return;
-        }
-
-        window.requestAnimationFrame(tick);
-      };
-
-      window.requestAnimationFrame(tick);
-    });
-  `, true);
+async function waitForPrintPreviewReady(win: BrowserWindow, timeoutMs = PRINT_PREVIEW_TIMEOUT_MS, requirePageWindows = true): Promise<PrintPreviewReadyState> {
+  return win.webContents.executeJavaScript(printPreviewReadyScript({
+    timeoutMs,
+    requirePageWindows,
+    documentLoadFailed: te("electron.preview.documentLoadFailed"),
+    preparationTimedOut: te("electron.preview.preparationTimedOut"),
+  }), true);
 }
 
 function buildMenu() {
@@ -1635,6 +1572,8 @@ function startAiSettingsWatch(): void {
     const settings = readDesktopSettingsSync(SIGMA_STUDIO_DATA_PATH);
     codexAppServerClient.setWebSearchEnabled(isAiWebSearchEnabled(settings));
     scheduleAutoApplyCheck();
+    // The shortcuts live in this file too: send a change on to the account's other devices. The language stays on this one.
+    localAuthoringStyleStore.sync.soon();
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send("ai-settings:changed");
     }
@@ -1733,6 +1672,7 @@ function registerIpc() {
     codexAppServerClient,
     claudeStreamClient,
     geminiHeadlessClient,
+    geminiSkillDraftClient,
     getMainWindow: () => mainWindow,
     openExternalUrl,
   });
@@ -1742,6 +1682,7 @@ function registerIpc() {
     dataDir: SIGMA_STUDIO_DATA_PATH,
     localSigmaDocStore,
     localAiResourceStore,
+    localAuthoringStyleStore,
     localAiEditRunLogStore,
     localAiEditChatRoomStore,
     localMcpProposalStore,
@@ -1754,6 +1695,8 @@ function registerIpc() {
     resolveMcpServerScriptPath,
     pendingRenderDocuments,
   });
+
+  registerAuthoringStyleIpc(localAuthoringStyleStore);
 
   registerAiResourcesIpc({
     localAiResourceStore,
@@ -1786,6 +1729,7 @@ function registerIpc() {
     broadcastLocalStoreChange,
     runPostSaveHooks,
     recordRendererSave,
+    onProposalsRejected: fileIds => localAuthoringStyleStore.recordRejected(fileIds),
     readNewDocumentPageSetup: () => readNewDocumentPageSetup(SIGMA_STUDIO_DATA_PATH),
   });
 
@@ -1832,6 +1776,10 @@ app.whenReady().then(async () => {
 
   try {
     await collaborationSessions.initialize();
+    // Account sync of the writing style: once the saved sign-in is known, then from time to time.
+    // It does nothing unless the user turned it on, and a failure only waits for the next round.
+    localAuthoringStyleStore.sync.soon(3000);
+    setInterval(() => localAuthoringStyleStore.sync.soon(0), 15 * 60_000).unref();
     pluginAuthReady.resolve();
     stopSessionBridge = await startSessionBridge(collaborationSessions, localSigmaDocStore);
   } catch (error) {
@@ -1871,11 +1819,22 @@ app.whenReady().then(async () => {
   }
 });
 
+let authoringStyleFlushedForQuit = false;
+let authoringStyleQuitFlush: Promise<void> | undefined;
 app.on("before-quit", (event) => {
   if (mainWindow && !mainWindow.isDestroyed() && !allowMainWindowClose) {
     event.preventDefault();
     quitAfterMainWindowClose = true;
     mainWindow.close();
+    return;
+  }
+  if (!authoringStyleFlushedForQuit) {
+    event.preventDefault();
+    localAuthoringStyleStore.dispose();
+    authoringStyleQuitFlush ??= localAuthoringStyleStore.flush().finally(() => {
+      authoringStyleFlushedForQuit = true;
+      app.quit();
+    });
     return;
   }
   codexAppServerClient.dispose();

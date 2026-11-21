@@ -20,7 +20,9 @@ import {
   type OutputProfileName,
 } from "@/features/document";
 import { getPrintableDocument } from "@/lib/print-renderer";
+import { PRINT_PREPARATION_TIMEOUT_MS } from "@/lib/print-preparation";
 import { useCustomFonts } from "@/lib/use-custom-fonts";
+import { measurePerformance } from "@/lib/performance";
 
 /** How often the canvas layout is sampled while waiting for it to settle. */
 const SETTLE_SAMPLE_MS = 100;
@@ -28,8 +30,6 @@ const SETTLE_SAMPLE_MS = 100;
 const STABLE_SAMPLE_COUNT = 5;
 /** Guards against a canvas that never converges (a relayout loop would hang the export). */
 const MAX_SETTLE_SAMPLES = 150;
-/** Assets can fail without ever emitting load/error, so they need their own bounded attempt. */
-const ASSET_WAIT_TIMEOUT_MS = 15_000;
 
 export type PagedRenderDisplayMode = "vertical" | "spread" | "grid";
 export type PagedRenderState = "pending" | "ready" | "stalled";
@@ -85,6 +85,7 @@ export function PagedRenderSurface({
   const stageRef = useRef<HTMLDivElement | null>(null);
   const pagesRef = useRef<HTMLDivElement | null>(null);
   const [pageCount, setPageCount] = useState(0);
+  const [preparationStage, setPreparationStage] = useState<"assets" | "layout" | "pages">("assets");
   const [state, setState] = useState<PagedRenderState>("pending");
   const [renderedDocument, setRenderedDocument] = useState<SigmaDocument | null>(null);
   const [retryRevision, setRetryRevision] = useState(0);
@@ -104,6 +105,34 @@ export function PagedRenderSurface({
     let lastSignature = "";
     let cutSignature: string | null = null;
     let assetsReady = false;
+    let terminal = false;
+    let phase: "assets" | "layout" | "pages" = "assets";
+    let deadline = Date.now() + PRINT_PREPARATION_TIMEOUT_MS;
+    let deadlineTimer = window.setTimeout(stall, PRINT_PREPARATION_TIMEOUT_MS);
+
+    function stall() {
+      if (cancelled || terminal) return;
+      terminal = true;
+      assetWaitController.abort();
+      window.clearTimeout(timerId);
+      window.clearTimeout(deadlineTimer);
+      observer?.disconnect();
+      fonts?.removeEventListener?.("loading", onFontsLoading);
+      setPreparationStage(phase);
+      setRenderedDocument(printable);
+      setState("stalled");
+    }
+
+    const markPending = () => {
+      // A late decorating pass invalidates the previous OutputSession immediately.
+      if (cutSignature !== null) {
+        cutSignature = null;
+        deadline = Date.now() + PRINT_PREPARATION_TIMEOUT_MS;
+        deadlineTimer = window.setTimeout(stall, PRINT_PREPARATION_TIMEOUT_MS);
+      }
+      setRenderedDocument(printable);
+      setState("pending");
+    };
 
     const cut = (signature: string) => {
       const stage = stageRef.current;
@@ -114,7 +143,18 @@ export function PagedRenderSurface({
       if (!pages || !stageRoot || !canvas || !metrics) {
         return false;
       }
-      const written = measurementOnly ? metrics.pageCount : buildPageWindows({ stageRoot, canvas, container: pages, metrics });
+      phase = "pages";
+      setPreparationStage(phase);
+      const written = measurementOnly
+        ? metrics.pageCount
+        : measurePerformance("pdf.page-windows", () =>
+          buildPageWindows({ stageRoot, canvas, container: pages, metrics }),
+        );
+      if (Date.now() >= deadline) {
+        stall();
+        return false;
+      }
+      window.clearTimeout(deadlineTimer);
       cutSignature = signature;
       setPageCount(written);
       setRevision((current) => current + 1);
@@ -129,7 +169,17 @@ export function PagedRenderSurface({
 
     function tick() {
       timerId = 0;
-      if (cancelled) {
+      if (cancelled || terminal) {
+        return;
+      }
+      if (Date.now() >= deadline) {
+        stall();
+        return;
+      }
+      // Reading layout can trigger another font load; never cut its fallback geometry.
+      if (stageRef.current?.ownerDocument.fonts?.status === "loading"
+        || Array.from(stageRef.current?.querySelectorAll("img") ?? []).some(image => !image.complete)) {
+        awaitAssets();
         return;
       }
       takenSamples += 1;
@@ -151,35 +201,54 @@ export function PagedRenderSurface({
       if (takenSamples >= MAX_SETTLE_SAMPLES) {
         // A PDF advertised as identical to its preview must never be cut from a
         // non-converged layout. Fail closed and let the user retry instead.
-        setRenderedDocument(printable);
-        setState("stalled");
+        stall();
         return;
       }
-      schedule();
+      if (!terminal) schedule();
     }
 
     const startSettling = () => {
-      if (cancelled || !assetsReady || timerId) {
+      if (cancelled || terminal || !assetsReady || timerId) {
         return;
       }
+      // React also updates non-layout editor attributes after a cut. Invalidating
+      // those identical canvases would cause ready/pending renders to feed each
+      // other, repeatedly cloning a large document and interrupting PDF saving.
+      if (cutSignature !== null
+        && readCanvasLayoutSignature(stageRef.current?.querySelector(".page-canvas") ?? null) === cutSignature) {
+        return;
+      }
+      markPending();
+      phase = "layout";
+      setPreparationStage(phase);
       stableSamples = 0;
       takenSamples = 0;
       lastSignature = "";
       schedule();
     };
 
-    void waitForAssets(stageRef.current, assetWaitController.signal).then((result) => {
-      if (cancelled || result === "cancelled") {
-        return;
-      }
-      if (result === "timed-out") {
-        setRenderedDocument(printable);
-        setState("stalled");
-        return;
-      }
-      assetsReady = true;
-      startSettling();
-    });
+    function awaitAssets() {
+      assetsReady = false;
+      markPending();
+      phase = "assets";
+      setPreparationStage(phase);
+      // Keep this subscription alive beyond the former 15s attempt. Only the shared
+      // deadline or cancellation ends it, so late fonts/images resume pagination.
+      void waitForAssets(stageRef.current, assetWaitController.signal).then((result) => {
+        if (cancelled || terminal || result === "cancelled") return;
+        assetsReady = true;
+        startSettling();
+      });
+    }
+    awaitAssets();
+    const fonts = stageRef.current?.ownerDocument.fonts;
+    const onFontsLoading = () => {
+      if (cancelled || terminal || !assetsReady) return;
+      window.clearTimeout(timerId);
+      timerId = 0;
+      awaitAssets();
+    };
+    fonts?.addEventListener?.("loading", onFontsLoading);
 
     // Some passes decorate the canvas well after its geometry has stopped moving — the
     // boxed-run frame ends are computed in a late measuring pass, and a surface cut
@@ -200,6 +269,8 @@ export function PagedRenderSurface({
     return () => {
       cancelled = true;
       assetWaitController.abort();
+      window.clearTimeout(deadlineTimer);
+      fonts?.removeEventListener?.("loading", onFontsLoading);
       observer?.disconnect();
       if (timerId) {
         window.clearTimeout(timerId);
@@ -231,6 +302,7 @@ export function PagedRenderSurface({
       className={`paged-surface paged-surface--${displayMode}`}
       data-paged-surface-id={surfaceId}
       data-paged-surface-state={displayState}
+      data-paged-surface-stage={renderedDocument === printable ? preparationStage : "assets"}
       data-paged-surface-page-count={displayState === "ready" ? pageCount : undefined}
       data-paged-surface-revision={revision}
       data-paged-surface-page-width-mm={paper.widthMm}
@@ -300,27 +372,26 @@ export function PagedRenderSurface({
 async function waitForAssets(
   stage: HTMLElement | null,
   signal: AbortSignal,
-): Promise<"ready" | "timed-out" | "cancelled"> {
+): Promise<"ready" | "cancelled"> {
   const ownerDocument = stage?.ownerDocument ?? (typeof document === "undefined" ? null : document);
   if (!ownerDocument) {
     return "ready";
   }
 
   return new Promise((resolve) => {
+    if (signal.aborted) { resolve("cancelled"); return; }
     let finished = false;
     const imageCleanups: Array<() => void> = [];
-    const finish = (result: "ready" | "timed-out" | "cancelled") => {
+    const finish = (result: "ready" | "cancelled") => {
       if (finished) {
         return;
       }
       finished = true;
-      window.clearTimeout(timeoutId);
       signal.removeEventListener("abort", cancel);
       imageCleanups.forEach((cleanup) => cleanup());
       resolve(result);
     };
     const cancel = () => finish("cancelled");
-    const timeoutId = window.setTimeout(() => finish("timed-out"), ASSET_WAIT_TIMEOUT_MS);
     signal.addEventListener("abort", cancel, { once: true });
 
     const fontsReady = ownerDocument.fonts?.ready

@@ -100,6 +100,7 @@ import { DesktopSettingsModal } from "@/components/editor/DesktopSettingsModal";
 import { ExtensionsDialog } from "@/components/editor/extensions/ExtensionsDialog";
 import { DocumentLibraryDialog } from "@/components/editor/DocumentLibraryDialog";
 import { DocumentOpenFailurePanel } from "@/components/editor/DocumentOpenFailurePanel";
+import { FolderImportDialog } from "./extensions/FolderImportDialog";
 import { ExtensionImportLoading } from "@/components/editor/ExtensionImportLoading";
 import { ImportResultNotice } from "@/components/editor/ImportResultNotice";
 import { useExtensionMenu } from "@/components/editor/extensions/use-extension-menu";
@@ -3738,6 +3739,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     createDocumentTabInWorkspace,
     createWhiteboardDocumentTab,
     createDocumentTabFromTemplate,
+    newlyCreatedFileId,
     duplicateActiveDocument,
     openDocumentListDialog,
     closeDocumentTab,
@@ -3791,7 +3793,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     importInputRef,
     otherImportInputRef,
     importNotice,
-    extensionImportBusy,
+    extensionImportBusy, folderProgress, folderResult, setFolderResult,
     setImportNotice,
     runExtensionItem,
     textImportOpen,
@@ -4396,6 +4398,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const aiRoomTitles = useAiWorkspaceTabTitles();
   const workspaceTabsRow = isEmbedded ? null : (
     <WorkspaceTabStrip
+      newlyCreatedFileId={newlyCreatedFileId}
       aiRoomTitles={aiRoomTitles}
       layout={workspaceLayout}
       metadata={documentMetadatas}
@@ -5533,7 +5536,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         />
       )}
 
-      {extensionImportBusy && <ExtensionImportLoading />}
+      {extensionImportBusy && !folderProgress && <ExtensionImportLoading />}
+      {(folderProgress || folderResult) && <FolderImportDialog progress={folderProgress} result={folderResult} onClose={() => setFolderResult(null)} />}
 
       {!extensionImportBusy && importNotice !== null && (
         <ImportResultNotice issues={importNotice} onClose={() => setImportNotice(null)} />

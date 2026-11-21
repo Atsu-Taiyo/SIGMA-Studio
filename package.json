@@ -1,6 +1,6 @@
 {
   "name": "sigma-studio-workspace",
-  "version": "0.535.1",
+  "version": "0.539.0",
   "private": true,
   "workspaces": [
     "apps/desktop",
@@ -57,14 +57,14 @@
     "collaboration:desktop": "node --env-file=.env.collaboration.local scripts/collaboration-desktop.mjs",
     "collaboration:benchmark": "node scripts/collaboration-benchmark.mjs",
     "dependencies:check": "node scripts/check-desktop-dependencies.mjs",
-    "security:audit": "node --test scripts/dependency-security.test.mjs && npm audit --audit-level=high",
+    "security:audit": "node --test scripts/dependency-security.test.mjs scripts/audit-dependencies.test.mjs && node scripts/audit-dependencies.mjs",
     "test:public-browser:react19": "npm run test:public-browser",
     "test:public-browser:react18": "npm exec --workspace @sigma-studio/desktop -- playwright test --config ../../tests/public-browser/playwright.react18.config.mts",
     "lockfile:check": "node scripts/check-workspace-lockfile.mjs",
     "lockfile:refresh": "npm install --package-lock-only --ignore-scripts --workspaces --include-workspace-root --no-audit --no-fund && npm run lockfile:check"
   },
   "devDependencies": {
-    "@next/eslint-plugin-next": "16.4.5",
+    "@next/eslint-plugin-next": "16.4.6",
     "typescript-compiler-api": "npm:typescript@5.9.3"
   },
   "overrides": {

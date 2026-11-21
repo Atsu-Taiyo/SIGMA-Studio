@@ -16,6 +16,7 @@ import { clearVisualSessionStateFiles, LocalAiEditRunContextStore, prepareAiEdit
 import { LocalAiEditRunLogStore } from "../ai-edit-run-log-store";
 import type { LocalAiRenderBridgeStore } from "../ai-render-bridge";
 import { LocalAiResourceStore } from "../ai-resource-store";
+import type { LocalAuthoringStyleStore } from "../authoring-style-store";
 import { buildClaudeMcpConfig } from "../claude-mcp-config";
 import { runClaudeEditForIpc } from "../claude-edit";
 import type { ClaudeStreamClient } from "../claude-stream-client";
@@ -70,6 +71,7 @@ export interface RegisterAiEditIpcDeps {
   dataDir: string;
   localSigmaDocStore: LocalSigmaDocStore;
   localAiResourceStore: LocalAiResourceStore;
+  localAuthoringStyleStore?: LocalAuthoringStyleStore;
   localAiEditRunLogStore: LocalAiEditRunLogStore;
   localAiEditChatRoomStore: LocalAiEditChatRoomStore;
   localMcpProposalStore: LocalMcpEditProposalStore;
@@ -89,6 +91,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
     dataDir,
     localSigmaDocStore,
     localAiResourceStore,
+    localAuthoringStyleStore,
     localAiEditRunLogStore,
     localAiEditChatRoomStore,
     localMcpProposalStore,
@@ -179,6 +182,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
     };
 
     const provider = resolveAiEditProvider(payload);
+    localAuthoringStyleStore?.noteProvider(provider);
     const proposalRoomId = getRoomIdForProposalLifecycle(payload);
     const proposalFileId = getFileIdForAiResources(payload);
     let proposalSnapshotId: string | null = null;
@@ -236,6 +240,13 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
         workspaceIds: [workspaceIdForAiResources],
       });
       const agentWorkspaceDir = localAiResourceStore.getAgentWorkspaceDir(aiResourceProvider, workspaceIdForAiResources);
+      const baseResources = await localAiResourceStore.buildRunContext(aiResourceProvider, getExplicitAiResourceIds(payload), workspaceIdForAiResources);
+      const aiResources = localAuthoringStyleStore ? await localAuthoringStyleStore.augmentRunContext(baseResources, {
+        workspaceId: workspaceIdForAiResources,
+        fileId: proposalFileId,
+        locale,
+        visibleFileIds: new Set((await localSigmaDocStore.listFiles()).filter(file => file.workspaceId === workspaceIdForAiResources && !file.sharing && !file.sharingPending).map(file => file.fileId)),
+      }) : baseResources;
       const result = provider === "claude"
         ? await (async () => {
             // Claude is 1-turn-per-spawn and takes its MCP config as a
@@ -248,7 +259,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
               [claudeRunContextStore],
               {
                 claude: claudeStreamClient,
-                aiResources: await localAiResourceStore.buildRunContext("claude", getExplicitAiResourceIds(payload), workspaceIdForAiResources),
+                aiResources,
                 payload,
                 runId,
                 userDataPath,
@@ -272,9 +283,6 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
           })()
         : provider === "antigravity"
         ? await (async () => {
-            // ワークスペース専用ディレクトリにもMCP起動設定(mcp_config.json)を書く。
-            // フォールバックディレクトリ向けの起動時書き込み(geminiAgentWorkspaceDir)とは別に、
-            // このrunのcwdになるディレクトリにも同じ入力で冪等に書く(毎run書いてよい)。
             await writeGeminiWorkspaceSettings(
               agentWorkspaceDir,
               buildGeminiWorkspaceSettings({
@@ -286,13 +294,11 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
                 provider: "antigravity",
                 uiLocale: locale,
               }),
-            ).catch((error) => {
-              console.warn("Antigravity MCP設定の書き込みに失敗しました。", error);
-            });
+            );
             return runEditWithRunContext(
               "antigravity",
               // Antigravity's MCP server config is written to a workspace-level
-              // mcp_config.json once at startup pointing at the static
+              // mcp_config.json before the edit pointing at the static
               // localGeminiRunContextStore file, so that file keeps being
               // written as the runId-argument fallback. The per-runId store
               // alongside it is what lets the MCP server resolve THIS run's
@@ -300,7 +306,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
               [localGeminiRunContextStore, new LocalAiEditRunContextStore(userDataPath, "antigravity", { runId })],
               {
                 gemini: geminiHeadlessClient,
-                aiResources: await localAiResourceStore.buildRunContext("antigravity", getExplicitAiResourceIds(payload), workspaceIdForAiResources),
+                aiResources,
                 payload,
                 runId,
                 userDataPath,
@@ -322,7 +328,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
             [localChatgptRunContextStore, new LocalAiEditRunContextStore(userDataPath, "chatgpt", { runId })],
             {
               codex: codexAppServerClient,
-              aiResources: await localAiResourceStore.buildRunContext("codex", getExplicitAiResourceIds(payload), workspaceIdForAiResources),
+              aiResources,
               payload,
               runId,
               userDataPath,

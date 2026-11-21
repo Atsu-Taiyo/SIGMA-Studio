@@ -83,8 +83,8 @@ jobs:
       - run: npm ci
       - name: Build the actual desktop renderer, main and preload
         run: npm --workspace @sigma-studio/desktop run electron:prepare
-      - name: Compare B4 portrait and landscape editor, preview and saved PDF at 100%, 125% and 150% display scale
-        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/pdf-b4-columns.spec.ts
+      - name: Compare B4 display scales, print assets and problem number frames in editor, preview and saved PDF
+        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/pdf-b4-columns.spec.ts tests/electron/print-asset-ready.spec.ts tests/electron/problem-number-page-break.spec.ts
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -193,6 +193,7 @@ jobs:
               tests/electron/svg-small-circles.spec.ts tests/electron/svg-to-sigma-crop-arrows.spec.ts \
               tests/electron/open-document.spec.ts tests/electron/ipc-sender-security.spec.ts \
               tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts tests/electron/ai-proposal-controls-above-shapes.spec.ts \
+              tests/electron/authoring-style.spec.ts \
               tests/electron/math-ime-placeholder.spec.ts \
               tests/electron/math-selection-format.spec.ts \
               tests/electron/math-vv-vectors.spec.ts \
@@ -236,7 +237,7 @@ jobs:
               tests/electron/ai-svg-figure.spec.ts tests/electron/extensions-dialog.spec.ts \
               tests/electron/close-right-after-shape-edit.spec.ts \
               tests/electron/shared-sync-rejected.spec.ts \
-              tests/electron/extensions-menu.spec.ts \
+              tests/electron/extensions-menu.spec.ts tests/electron/folder-import.spec.ts \
               tests/electron/local-fonts-menu.spec.ts tests/electron/math-ime-composition-scroll.spec.ts \
               tests/electron/graph-expression-backspace.spec.ts tests/electron/math-unclosed-paren.spec.ts \
               tests/electron/quote-empty-paragraph-delete.spec.ts \
@@ -245,7 +246,8 @@ jobs:
               tests/electron/list-items.spec.ts tests/electron/list-indent.spec.ts tests/electron/preferred-font.spec.ts \
               tests/electron/running-region-resize.spec.ts tests/electron/new-document-page-setup.spec.ts \
               tests/electron/running-region-insertion-layout.spec.ts \
-              tests/electron/usage-guide.spec.ts tests/electron/tiff-image-import.spec.ts
+              tests/electron/usage-guide.spec.ts tests/electron/tiff-image-import.spec.ts \
+              tests/electron/ui-locale-restart.spec.ts
           '
       - uses: actions/upload-artifact@v7
         if: failure()

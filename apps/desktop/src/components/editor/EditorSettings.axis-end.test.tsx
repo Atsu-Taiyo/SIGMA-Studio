@@ -78,16 +78,14 @@ function selectedGraph(axes: Partial<GraphAxes>, onSpecChange = vi.fn()): Select
   };
 }
 
-/** 軸の先端は「表示範囲」の中にある (既定で畳まれている)。 */
+/** 軸の先端は「座標軸と範囲」の中にある (既定で開いている)。 */
 async function renderOpen(graph: SelectedOverlayGraph) {
   await act(async () => {
     root.render(<OverlayGraphSettings selectedOverlayGraph={graph} />);
   });
   const section = Array.from(container.querySelectorAll<HTMLButtonElement>(".editor-settings-accordion-header"))
-    .find((button) => button.textContent?.includes("表示範囲"));
-  await act(async () => {
-    section?.click();
-  });
+    .find((button) => button.textContent?.includes("座標軸と範囲"));
+  expect(section?.getAttribute("aria-expanded")).toBe("true");
 }
 
 const AXIS_NAME = { x: "x軸の先端", y: "y軸の先端" } as const;

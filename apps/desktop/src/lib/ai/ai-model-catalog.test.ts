@@ -29,6 +29,12 @@ describe("ai-model-catalog", () => {
     expect(models.map((model) => model.label)).toEqual(["Claude Sonnet 9.1", "Claude Opus 9"]);
   });
 
+  it("retains the Antigravity CLI default and restores a saved display name to its current ID", () => {
+    const models = resolveAiModelOptions("antigravity", { models: [{ id: "flash-low", label: "Flash (Low)" }] });
+    expect(models.map(({ id }) => id)).toEqual(["auto", "flash-low"]);
+    expect(resolveCatalogSelection({ models, model: "Flash (Low)", reasoningEffort: "low" }).model).toBe("flash-low");
+  });
+
   it("always renders explicit effort labels, including unknown and missing values", () => {
     expect(formatReasoningEffortLabel("low")).toBe("低");
     expect(formatReasoningEffortLabel("xhigh")).toBe("最高");
