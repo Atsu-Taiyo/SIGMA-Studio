@@ -4,7 +4,8 @@
  * The PDF is a clone of the editor canvas (docs/pdf-parity-architecture.md), so
  * nothing here may re-measure or re-position content. Each window clips one page
  * band out of the settled canvas clone. Off-page absolute overlay shape subtrees
- * can be omitted without changing layout; all in-flow content stays identical.
+ * can be omitted without changing layout. In-flow text keeps every frozen box;
+ * only ink outside the paper band is omitted from those boxes.
  */
 
 import { stripWrappingMarkdownCodeFence } from "@/features/rendering/core";
@@ -135,6 +136,7 @@ function cloneVisiblePage(
   pageIndex: number,
   visibleShapePages: ReadonlyMap<Element, readonly [number, number]>,
   ownership: ReadonlyMap<Element, number>,
+  textPages: ReadonlyMap<Element, readonly [number, number]>,
 ): { clone: HTMLElement; ownedElements: Map<Element, number> } {
   const ownedElements = new Map<Element, number>();
   const cloneNode = (node: Node): Node | null => {
@@ -146,6 +148,13 @@ function cloneVisiblePage(
     if (node instanceof Element && clone instanceof Element && ownership.has(node)) {
       ownedElements.set(clone, ownership.get(node)!);
     }
+    const textRange = node instanceof Element ? textPages.get(node) : undefined;
+    if (textRange && (pageIndex < textRange[0] || pageIndex > textRange[1])) {
+      // Keep the measured paragraph box and its sibling position/margins. Only
+      // clipped ink is omitted; an empty text line avoids :empty CSS changing it.
+      clone.appendChild(node.ownerDocument!.createTextNode("\u200b"));
+      return clone;
+    }
     for (const child of Array.from(node.childNodes)) {
       const copied = cloneNode(child);
       if (copied) clone.appendChild(copied);
@@ -153,6 +162,43 @@ function cloneVisiblePage(
     return clone;
   };
   return { clone: cloneNode(source) as HTMLElement, ownedElements };
+}
+
+/** Keep in-flow boxes, but do not multiply off-page formula glyph trees by page count. */
+function measureTextPages(
+  source: HTMLElement,
+  template: HTMLElement,
+  canvas: HTMLElement,
+  metrics: PagedCanvasMetrics,
+): ReadonlyMap<Element, readonly [number, number]> {
+  const selector = ".text-flow-editor :is(p, h1, h2, h3, h4, h5, h6)";
+  const originals = source.querySelectorAll<HTMLElement>(selector);
+  const copies = template.querySelectorAll<HTMLElement>(selector);
+  const ranges = new Map<Element, readonly [number, number]>();
+  if (originals.length !== copies.length) return ranges;
+  const canvasTop = canvas.getBoundingClientRect().top;
+  originals.forEach((element, index) => {
+    // Only boxes whose height is already frozen by preserveSettledTextBlockHeights
+    // qualify. Keep foreign content, shared SVG definitions and title pseudo-ink.
+    // ProseMirror uses src-less img separators as caret buffers, not document images.
+    if (!copies[index].style.getPropertyValue("--paged-settled-text-height")
+      || element.matches(".sigma-doc-box-title, .sigma-doc-box-subtitle")
+      || element.querySelector("svg, img:not(.ProseMirror-separator:not([src]):not([srcset])), canvas, video, table, style, math-field")) return;
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    // Include descendant boxes (raised formula parts, decorations, transforms),
+    // not just the paragraph border. Retain a conservative ink bleed as for shapes.
+    let top = rect.top, bottom = rect.bottom;
+    for (const child of element.querySelectorAll("*")) {
+      const bounds = child.getBoundingClientRect();
+      if (bounds.width <= 0 || bounds.height <= 0) continue;
+      top = Math.min(top, bounds.top); bottom = Math.max(bottom, bounds.bottom);
+    }
+    const first = Math.floor((top - canvasTop - 32 - metrics.pageHeightPx) / metrics.pageStridePx) + 1;
+    const last = Math.floor((bottom - canvasTop + 32) / metrics.pageStridePx);
+    ranges.set(copies[index], [first, last]);
+  });
+  return ranges;
 }
 
 function measureVisibleShapePages(
@@ -322,6 +368,7 @@ export function buildPageWindows({
   const ownership = measurePageOwnership(canvas, metrics);
   const cloneTemplate = stageRoot.cloneNode(true) as HTMLElement;
   preserveSettledTextBlockHeights(stageRoot, cloneTemplate);
+  const textPages = measureTextPages(stageRoot, cloneTemplate, canvas, metrics);
   sanitizePagedClone(cloneTemplate);
   const templateCanvas = cloneTemplate.querySelector(".page-canvas");
   const visibleShapePages = templateCanvas ? measureVisibleShapePages(canvas, templateCanvas, metrics) : new Map();
@@ -355,7 +402,7 @@ export function buildPageWindows({
     inner.style.setProperty("--paged-page-offset", `${index * metrics.pageStridePx + canvasOffsetTop}px`);
     inner.style.setProperty("--paged-page-inset", `${canvasOffsetLeft}px`);
 
-    const { clone, ownedElements } = cloneVisiblePage(cloneTemplate, index, visibleShapePages, ownershipByElement);
+    const { clone, ownedElements } = cloneVisiblePage(cloneTemplate, index, visibleShapePages, ownershipByElement, textPages);
     const clonedCanvas = clone.querySelector(".page-canvas");
     if (clonedCanvas) {
       hydratePagedCodeFragment(clonedCanvas, index);
