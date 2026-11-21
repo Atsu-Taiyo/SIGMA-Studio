@@ -64,6 +64,10 @@ AI編集toolの拡張計画は `docs/ai-edit-tool-roadmap.md` に置きます。
 
 共同編集の利用方法は [共同編集ガイド](collaboration-user-guide.md) を参照。
 
+本文のローカル選択は `DocumentSession.setSelection/getSelection` を通す。共有sessionは他端末の更新とundo/redoの直前にYjsの相対位置を作り、適用後の位置を投影へ渡す。Tiptap adapterは更新後の文書と選択を同じtransactionで反映し、遠隔更新をローカルの編集履歴へ追加しない。日本語変換中の遠隔更新は既存のcomposition待ちを通す。
+
+数式は1式全体を共有の更新単位にし、MathLive内部のキャレットはローカル入力欄が持つ。`inline-math-edit-request.ts` は要求元editorと数式IDを保持し、実行時に現在位置を解決する。紙面上の宛先は `editor-input-target.ts` のポートから既存の `caret-router.ts` に問い合わせ、同じIDを持つ全複製へ編集要求を配らない。選択された数式パネルもその入力元のコールバックだけを更新する。投影はブロック・数式のIDを保って差分を適用し、変更されていない数式の入力欄を作り直さない。
+
 ## Module Boundaries
 
 ディレクトリ構成は、リポジトリ全体を `models` / `views` / `controllers` に分ける方式ではなく、feature単位を基本にします。各featureの内部では必要に応じてModel・Controller・Viewを分けますが、正本となるmodelと描画coreはUIやデスクトップ固有機能より内側に置きます。

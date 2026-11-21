@@ -1,3 +1,4 @@
+import { openInlineMathAtEdge } from "./inline-math-input";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const INLINE_MATH_INPUT_MODE_STORAGE_KEY = "sigma-studio:inline-math-input-mode";
@@ -130,11 +131,7 @@ async function caret(field: Locator) {
 }
 
 async function editInlineMath(page: Page, id: string, edge: "end" | "start") {
-  await page.evaluate(({ cursorPosition, inlineMathId }) => {
-    window.dispatchEvent(new CustomEvent("sigma-studio:edit-inline-math", {
-      detail: { cursorPosition, id: inlineMathId },
-    }));
-  }, { cursorPosition: edge, inlineMathId: id });
+  await openInlineMathAtEdge(page, id!, edge);
 }
 
 async function insertInlineMathByEvent(page: Page, tex: string) {

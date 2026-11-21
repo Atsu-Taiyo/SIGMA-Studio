@@ -195,7 +195,7 @@ export function CommentRichTextEditor({
         .run();
 
       if (shouldEdit) {
-        requestInlineMathEdit(id);
+        requestInlineMathEdit(editor, id);
       }
     };
 

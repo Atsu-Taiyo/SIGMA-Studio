@@ -1,3 +1,4 @@
+import { openInlineMathAtEdge } from "../e2e/inline-math-input";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -54,7 +55,7 @@ for (const fontSize of [12, 24]) {
         const node = page.locator(`.page-flow .inline-math-node[data-id="${id}"]`);
         await node.screenshot({ path: testInfo.outputPath(`static-${id}.png`) });
         expect(await boxGap(node, false), `static ${id}`).toBeGreaterThan(1);
-        await page.evaluate((id) => window.dispatchEvent(new CustomEvent("sigma-studio:edit-inline-math", { detail: { cursorPosition: "end", id } })), id);
+        await openInlineMathAtEdge(page, id);
         const field = node.locator("math-field");
         await expect(field).toBeFocused();
         await expect.poll(() => boxGap(field, true), { message: `editing ${id}` }).toBeGreaterThan(1);
@@ -64,7 +65,7 @@ for (const fontSize of [12, 24]) {
       }
       expect(await page.evaluate((id) => window.desktopAPI!.storage.loadDocument(id), fileId)).toMatchObject({ content: source.content });
       const rootNode = page.locator('.page-flow .inline-math-node[data-id="root"]');
-      await page.evaluate(() => window.dispatchEvent(new CustomEvent("sigma-studio:edit-inline-math", { detail: { cursorPosition: "end", id: "root" } })));
+      await openInlineMathAtEdge(page, "root");
       const rootField = rootNode.locator("math-field");
       await expect(rootField).toBeFocused();
       await page.keyboard.press("ArrowLeft");

@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { createBlankDocument } from "@/lib/blank-document";
 import { SharedDocument } from "../model/shared-document";
+import { richText } from "../model/rich-text";
 import type { ObjectValue } from "../model/value";
 import { toBase64 } from "../model/protocol";
 import type { CollaborationBridge } from "../model/bridge";
@@ -13,6 +14,46 @@ afterEach(() => {
   vi.useRealTimers();
 });
 const imageSource = "data:image/png;base64,iVBORw0KGgo=";
+
+it("follows local forward/reverse selections through peer edits, queued composition and echoes", () => {
+  const document = createBlankDocument();
+  document.content = [{ type: "paragraph", id: "p1", children: [{ type: "text", text: "abcDEFghi" }] }];
+  const peer = new SharedDocument();
+  peer.initialize(JSON.parse(JSON.stringify(document)) as ObjectValue, { sharedDocumentId: "shared", epoch: 1 });
+  const update = vi.fn(async () => {});
+  const session = new RendererDocumentSession(
+    { binding: { protocol: 1, epoch: 1, sharedDocumentId: "shared", docId: document.docId, localFileId: "file" }, state: toBase64(peer.snapshot()), role: "editor", status: "saved", actorId: "self", assets: {} },
+    { update, presence: vi.fn(async () => {}) } as unknown as CollaborationBridge,
+  );
+  sessions.push(session);
+  const text = richText(peer.getRichFragment("p1", "children")!);
+  const point = (offset: number) => ({ blockId: "p1", offset });
+  const receive = (edit: () => void) => {
+    const vector = peer.vector();
+    peer.doc.transact(edit);
+    const event = { type: "update" as const, fileId: "file", epoch: 1, update: toBase64(peer.difference(vector)), identity: { actorId: "peer", operationId: "edit", kind: "manual" as const } };
+    session.receive(event);
+    return event;
+  };
+  try {
+    session.setSelection({ anchor: point(6), head: point(3) });
+    const event = receive(() => { text.insert(0, "XX"); text.insert(text.length, "YY"); });
+    expect(session.getSelection()).toEqual({ anchor: point(8), head: point(5) });
+    session.receive(event); // Echoes must not move it a second time or create local history.
+    expect(session.getSelection()).toEqual({ anchor: point(8), head: point(5) });
+    expect(session.restore("undo")).toBeNull();
+    expect(update).not.toHaveBeenCalled();
+
+    session.setSelection({ anchor: point(5), head: point(8) });
+    session.composition(true);
+    receive(() => text.delete(0, 2));
+    expect(session.getSelection()).toEqual({ anchor: point(5), head: point(8) });
+    session.composition(false);
+    expect(session.getSelection()).toEqual({ anchor: point(3), head: point(6) });
+    receive(() => text.delete(3, 3));
+    expect(session.getSelection()).toEqual({ anchor: point(3), head: point(3) });
+  } finally { peer.destroy(); }
+});
 function addImage(document: ReturnType<typeof createBlankDocument>) {
   document.pageLayout!.overlay = {
     overlaySnapshot: {

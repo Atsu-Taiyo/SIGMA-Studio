@@ -89,6 +89,15 @@ describe("text-flow block synchronization", () => {
     expect(shouldSyncFocusedTextFlowContent([...ids].reverse(), blocks)).toBe(true);
   });
 
+  it("includes quote descendants so editing them does not look like an ownership change", () => {
+    const quote: TextFlowBlock[] = [{ type: "quote", id: "quote", blocks: [
+      { type: "paragraph", id: "paragraph", children: [{ type: "text", text: "本文" }] },
+      { type: "list", id: "list", listType: "bullet", items: [{ type: "listItem", id: "item", children: [] }] },
+    ] }];
+    expect(getTextFlowBlockIds(quote)).toEqual(["quote", "paragraph", "list", "item"]);
+    expect(shouldSyncFocusedTextFlowContent(["quote", "paragraph", "list", "item"], quote)).toBe(false);
+  });
+
   it("re-syncs when only the ordered list marker style changed", () => {
     const decimal: TextFlowBlock[] = [{
       type: "list",
