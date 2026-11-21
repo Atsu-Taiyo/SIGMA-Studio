@@ -79,6 +79,19 @@ export async function writeDesktopSettings(dataDir: string, settings: DesktopSet
   await nextWrite;
 }
 
+/**
+ * 読んでから書くまでを、ほかの書き込みと同じ列でひと続きに行う (アカウントの同期用)。
+ * `run` が読んだ後に別の書き込みが割り込まないので、読んだ内容から作った書き込みが、その間の変更を消さない。
+ */
+export async function transactDesktopSettings<T>(
+  dataDir: string,
+  run: (current: DesktopSettings, write: (settings: DesktopSettings) => Promise<void>) => Promise<T>,
+): Promise<T> {
+  const next = desktopSettingsWriteQueue.then(() => run(readDesktopSettingsSync(dataDir), settings => writeDesktopSettingsNow(dataDir, settings)));
+  desktopSettingsWriteQueue = next.then(() => undefined, () => undefined);
+  return next;
+}
+
 async function writeDesktopSettingsNow(dataDir: string, settings: DesktopSettings): Promise<void> {
   await fs.mkdir(dataDir, { recursive: true });
   const next: Record<string, unknown> = { ...readDesktopSettingsRawSync(dataDir) };

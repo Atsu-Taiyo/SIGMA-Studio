@@ -501,22 +501,24 @@ describe("frame drawing (purpose: frameDrawing)", () => {
     expect("thinkingDisplay" in runTurn.mock.calls[1][0]).toBe(false);
   });
 
-  it("asks Antigravity to stream, since its print mode shows nothing until the end", async () => {
+  it("passes the delta callback to Antigravity frame drawing", async () => {
     const runTurn = vi.fn(async () => ({ finalText: SVG, isError: false, errorMessage: null, blockedToolCount: 0 }));
     const deps = {
       claude: {} as AiSkillDraftDeps["claude"],
       geminiSkillDraft: { runTurn, cancelRun: vi.fn() } as unknown as AiSkillDraftDeps["geminiSkillDraft"],
       codex: {} as AiSkillDraftDeps["codex"],
     };
+    const onDelta = vi.fn();
     await generateAiSkillDraft(
       { provider: "antigravity", purpose: "frameDrawing", prompt: "枠", context: { title: "", description: "", currentContent: "" } },
       deps,
       "agy-run",
+      onDelta,
     );
-    expect(runTurn.mock.calls[0]).toEqual([expect.objectContaining({ streamOutput: true })]);
+    expect(runTurn.mock.calls[0]).toEqual([expect.objectContaining({ onDelta })]);
   });
 
-  it("leaves the skill editor's call as it was: no thinking display, no streaming mode", async () => {
+  it("leaves the skill editor's call as it was: no thinking display", async () => {
     const claudeTurn = vi.fn(async () => ({ finalText: "本文", isError: false, cancelled: false }));
     const geminiTurn = vi.fn(async () => ({ finalText: "本文", isError: false, errorMessage: null, blockedToolCount: 0 }));
     const deps = {
@@ -530,7 +532,6 @@ describe("frame drawing (purpose: frameDrawing)", () => {
     await generateAiSkillDraft({ provider: "antigravity", prompt: "手順", context }, deps, "skill-agy", undefined, onReasoning);
 
     expect("thinkingDisplay" in (claudeTurn.mock.calls[0] as unknown as [Record<string, unknown>])[0]).toBe(false);
-    expect("streamOutput" in (geminiTurn.mock.calls[0] as unknown as [Record<string, unknown>])[0]).toBe(false);
     expect(onReasoning).not.toHaveBeenCalled();
   });
 

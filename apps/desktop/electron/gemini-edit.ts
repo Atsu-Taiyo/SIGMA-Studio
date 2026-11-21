@@ -85,7 +85,7 @@ function formatAttachmentInstruction(writtenAttachments: WrittenAttachment[], ru
   ];
 }
 
-// Antigravity CLI は MCP サーバー (sigma-studio-local) のツールでドキュメントを編集する。
+// Antigravity CLI は ワークスペースの MCP サーバー のツールでドキュメントを編集する。
 // 編集は pending proposal として保存され、デスクトップ側のインラインプレビューで承認される。
 export function buildGeminiEditPrompt(args: {
   instruction: string;
@@ -136,11 +136,8 @@ function buildGeminiDescriptor(
       const proposalStore = createProposalStore(client);
       const beforeProposalCount = proposalStore ? await countPendingProposals(proposalStore, fileId) : null;
 
-      // F5 (実機確認): Antigravity CLI にはツール名を得る手段がない (printモードはツールイベントを
-      // 一切出力せず、transcript.jsonlにもツール名は載らない)。そこで共有MCPサーバー
-      // (mcp/tool-activity.ts) が自分でツール呼び出しをJSONLへ記録し、この watcher がポーリングして
-      // onToolUse/onToolResult に変換する (ai-edit-shared-runner.ts が「ツール実行中... (name)」の
-      // activityイベントと書き込みツール数カウントに変換してくれる)。
+      // agy reports the generic call_mcp_tool wrapper. The server's run-scoped
+      // activity includes the actual Studio tool name and its completion.
       const userDataDir = typeof client.getUserDataDir === "function" ? client.getUserDataDir() : null;
       const watcher = userDataDir && runId
         ? new ToolActivityWatcher({
@@ -169,7 +166,9 @@ function buildGeminiDescriptor(
             runId,
             workspaceDir: cwd,
             onDelta,
-            onToolUse,
+            editPermissions: true,
+            onToolUse: ({ id, name, parameters }) => onToolUse({ id, name, input: parameters }),
+            onToolResult,
           },
           onEvent,
         );

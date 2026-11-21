@@ -1,6 +1,6 @@
 {
   "name": "sigma-studio-workspace",
-  "version": "0.538.0",
+  "version": "0.539.0",
   "private": true,
   "scripts": {
     "postinstall": "node scripts/patch-http-cache-semantics.mjs",
@@ -49,7 +49,7 @@
     "collaboration:desktop": "node --env-file=.env.collaboration.local scripts/collaboration-desktop.mjs",
     "collaboration:benchmark": "node scripts/collaboration-benchmark.mjs",
     "dependencies:check": "node scripts/check-desktop-dependencies.mjs",
-    "security:audit": "node --test scripts/dependency-security.test.mjs && pnpm audit --audit-level=high",
+    "security:audit": "node --test scripts/dependency-security.test.mjs scripts/audit-dependencies.test.mjs && node scripts/audit-dependencies.mjs",
     "test:public-browser:react19": "pnpm run test:public-browser",
     "test:public-browser:react18": "pnpm --filter @sigma-studio/desktop exec playwright test --config ../../tests/public-browser/playwright.react18.config.mts",
     "lockfile:check": "node scripts/check-workspace-lockfile.mjs",

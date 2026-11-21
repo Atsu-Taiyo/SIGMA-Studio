@@ -208,6 +208,7 @@ jobs:
               tests/electron/svg-small-circles.spec.ts tests/electron/svg-to-sigma-crop-arrows.spec.ts \
               tests/electron/open-document.spec.ts tests/electron/ipc-sender-security.spec.ts \
               tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts tests/electron/ai-proposal-controls-above-shapes.spec.ts \
+              tests/electron/authoring-style.spec.ts \
               tests/electron/math-ime-placeholder.spec.ts \
               tests/electron/math-selection-format.spec.ts \
               tests/electron/math-vv-vectors.spec.ts \
@@ -260,7 +261,8 @@ jobs:
               tests/electron/list-items.spec.ts tests/electron/list-indent.spec.ts tests/electron/preferred-font.spec.ts \
               tests/electron/running-region-resize.spec.ts tests/electron/new-document-page-setup.spec.ts \
               tests/electron/running-region-insertion-layout.spec.ts \
-              tests/electron/usage-guide.spec.ts tests/electron/tiff-image-import.spec.ts
+              tests/electron/usage-guide.spec.ts tests/electron/tiff-image-import.spec.ts \
+              tests/electron/ui-locale-restart.spec.ts
           '
       - uses: actions/upload-artifact@v7
         if: failure()

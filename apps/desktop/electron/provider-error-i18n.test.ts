@@ -12,14 +12,14 @@ describe("provider error i18n", () => {
 
   it("resolves provider and CLI errors in the locale active at operation time", () => {
     setAppLocale("en");
-    expect(new GeminiResumeUnavailableError().message).toBe("Could not resume the Gemini session.");
+    expect(new GeminiResumeUnavailableError().message).toBe("Could not resume the Antigravity session.");
     expect(assertUsableCliBinPath("agy", "darwin")).toEqual({
       ok: false,
       reason: "Specify an absolute CLI path.",
     });
 
     setAppLocale("ja");
-    expect(new GeminiResumeUnavailableError().message).toBe("Geminiセッションを再開できませんでした。");
+    expect(new GeminiResumeUnavailableError().message).toBe("Antigravityの会話を再開できませんでした。");
   });
 
   it("localizes the app-generated cancellation state", () => {

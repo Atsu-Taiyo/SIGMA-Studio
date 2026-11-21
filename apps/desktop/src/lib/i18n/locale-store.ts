@@ -23,6 +23,15 @@ function readStoredLocale(): AppLocale | null {
 // 成功したら捨てる。これが無いと、そういう環境では言語を選んでも無反応になる。
 let volatileLocale: AppLocale | null = null;
 
+// 言語が選ばれる (または別の画面から変わる) たびに増える。同じ言語へ戻っても増えるので、
+// 非同期の返事を待つ間に選び直されたかを、値の比較だけより確実に見分けられる。
+let localeRevision = 0;
+
+/** 表示言語の変更回数。非同期の返事が、待つ間の選択より古いかを判定するために使う。 */
+export function getAppLocaleRevision(): number {
+  return localeRevision;
+}
+
 /** 保存値 → OS/ブラウザ検出 → 日本語、の優先順で表示言語を決める。 */
 function resolveAppLocale(): AppLocale {
   return volatileLocale ?? readStoredLocale() ?? detectLocale() ?? DEFAULT_LOCALE;
@@ -46,6 +55,14 @@ function getSnapshot(): AppLocale {
     cachedSnapshot = resolveAppLocale();
   }
   return cachedSnapshot;
+}
+
+/**
+ * このウィンドウに保存されている表示言語そのもの (検出結果やキャッシュを含めない)。
+ * 非同期の読み込みの間に別の経路で言語が選ばれたかを、読み込みの前後で比べるために使う。
+ */
+export function readStoredAppLocale(): AppLocale | null {
+  return volatileLocale ?? readStoredLocale();
 }
 
 export function getAppLocale(): AppLocale {
@@ -87,6 +104,7 @@ const subscribers = new Set<() => void>();
  * モジュール読み込み時に 1 回だけ listener を張る。
  */
 function handleExternalLocaleChange(): void {
+  localeRevision++;
   cachedSnapshot = null;
   syncRuntimeLocale(getSnapshot());
   for (const notify of [...subscribers]) {
@@ -107,6 +125,7 @@ function handleStorageEvent(event: StorageEvent): void {
  * 再起動は不要で、購読しているコンポーネントだけが再描画される。
  */
 export function setAppLocale(next: AppLocale): void {
+  localeRevision++;
   if (typeof window === "undefined") {
     volatileLocale = next;
     cachedSnapshot = next;

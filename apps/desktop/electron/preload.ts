@@ -190,6 +190,14 @@ const desktopAPI = {
     setUiLocale(value: string): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("settings:set-ui-locale", value);
     },
+    initUiLocale(value: string): Promise<{ ok: boolean; uiLocale?: "ja" | "en"; error?: string }> {
+      return ipcRenderer.invoke("settings:init-ui-locale", value);
+    },
+    onSynced(handler: () => void): () => void {
+      const listener = () => handler();
+      ipcRenderer.on("settings:synced", listener);
+      return () => ipcRenderer.removeListener("settings:synced", listener);
+    },
     onAiSettingsChanged(handler: () => void): () => void {
       const listener = () => handler();
       ipcRenderer.on("ai-settings:changed", listener);
@@ -386,6 +394,25 @@ const desktopAPI = {
     },
   },
 
+  authoringStyle: {
+    read: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:read", workspaceId),
+    save: (input: unknown) => ipcRenderer.invoke("authoring-style:save", input),
+    setEnabled: (workspaceId: string | null, enabled: boolean) => ipcRenderer.invoke("authoring-style:set-enabled", workspaceId, enabled),
+    setAiSummary: (workspaceId: string | null, enabled: boolean) => ipcRenderer.invoke("authoring-style:set-ai-summary", workspaceId, enabled),
+    setAutoApply: (workspaceId: string | null, enabled: boolean) => ipcRenderer.invoke("authoring-style:set-auto-apply", workspaceId, enabled),
+    revertAutoChange: (input: unknown) => ipcRenderer.invoke("authoring-style:revert-auto-change", input),
+    reset: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:reset", workspaceId),
+    saveLearned: (input: unknown) => ipcRenderer.invoke("authoring-style:save-learned", input),
+    review: (workspaceId: string) => ipcRenderer.invoke("authoring-style:review", workspaceId),
+    resolvePending: (input: unknown) => ipcRenderer.invoke("authoring-style:resolve-pending", input),
+    removeItem: (input: unknown) => ipcRenderer.invoke("authoring-style:remove-item", input),
+    setSync: (workspaceId: string | null, enabled: boolean) => ipcRenderer.invoke("authoring-style:set-sync", workspaceId, enabled),
+    syncNow: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:sync-now", workspaceId),
+    relinkSync: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:relink-sync", workspaceId),
+    deleteSynced: (workspaceId: string | null) => ipcRenderer.invoke("authoring-style:delete-synced", workspaceId),
+    undo: (workspaceId: string) => ipcRenderer.invoke("authoring-style:undo", workspaceId),
+    resolveMemberEntries: (input: unknown) => ipcRenderer.invoke("authoring-style:resolve-member-entries", input),
+  },
   aiResources: {
     getTree(): Promise<unknown> {
       return ipcRenderer.invoke("ai-resources:get-tree");

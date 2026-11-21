@@ -26,6 +26,8 @@ export {
   UI_LOCALE_STORAGE_KEY,
   getAppLocale,
   getServerAppLocale,
+  readStoredAppLocale,
+  getAppLocaleRevision,
   setAppLocale,
   subscribeAppLocale,
 } from "./locale-store";

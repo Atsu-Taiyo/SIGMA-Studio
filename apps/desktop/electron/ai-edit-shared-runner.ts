@@ -252,7 +252,7 @@ export async function runMcpEditForIpc<TClient>(
     throw new Error(status.error ?? descriptor.notAvailableFallbackError);
   }
   if (!status.loggedIn) {
-    throw new Error(descriptor.notLoggedInError);
+    throw new Error(status.error || descriptor.notLoggedInError);
   }
 
   const prompt = buildMcpEditPromptForProvider(descriptor.provider, {

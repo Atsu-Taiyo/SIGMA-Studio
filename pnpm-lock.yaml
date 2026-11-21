@@ -237,7 +237,7 @@ importers:
   examples/editor-react19:
     dependencies:
       '@sigma-studio/editor':
-        specifier: 0.538.0
+        specifier: 0.539.0
         version: link:../../packages/editor
       react:
         specifier: ^19.3.0
@@ -265,7 +265,7 @@ importers:
   packages/editor:
     dependencies:
       '@sigma-studio/viewer':
-        specifier: 0.538.0
+        specifier: 0.539.0
         version: link:../viewer
       zustand:
         specifier: ^5.1.0
@@ -339,7 +339,7 @@ importers:
   tests/fixtures/editor-react18:
     dependencies:
       '@sigma-studio/editor':
-        specifier: 0.538.0
+        specifier: 0.539.0
         version: link:../../../packages/editor
       react:
         specifier: ^18.3.1
