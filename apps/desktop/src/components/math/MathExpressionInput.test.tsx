@@ -444,15 +444,12 @@ describe("MathExpressionInput", () => {
     await act(async () => {
       root.render(<OverlayGraphSettings selectedOverlayGraph={selectedOverlayGraph} />);
     });
-    const displayRangeButton = Array.from(
-      container.querySelectorAll<HTMLButtonElement>(".editor-settings-accordion-header"),
-    ).find((button) => button.textContent?.includes("表示範囲"));
+    // 軸の表示は既定で開いている「座標軸と範囲」の「軸」のまとまりにある (先頭が x軸, y軸)。
     await act(async () => {
-      displayRangeButton?.click();
       await flushAsyncEffects();
     });
     const axisToggles = container.querySelectorAll<HTMLInputElement>(
-      ".graph-checkbox-grid input[type='checkbox']",
+      "[data-testid='overlay-graph-axes-group'] input[type='checkbox']",
     );
     const xAxisToggle = axisToggles[0];
     const yAxisToggle = axisToggles[1];

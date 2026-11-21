@@ -7,13 +7,12 @@ import {
   Crop,
   Crosshair,
   PaintBucket,
-  Tag,
   Trash2,
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { GraphItemActionsMenu, GRAPH_SETTINGS_POPOVER_Z_INDEX } from "./GraphItemActionsMenu";
-import { GraphSettingsSection, GraphCardGrid, GraphAddCard } from "./GraphSettingsControls";
+import { GraphSettingsSection, GraphCardGrid, GraphAddCard, GraphFieldGroup, GraphFieldRow } from "./GraphSettingsControls";
 import { GraphParameters } from "./GraphParameters";
 import { Graph2DVideoExport } from "./Graph2DVideoExport";
 import { dispatchGraphParameterPreview, dispatchGraphParametersOpen } from "@/lib/graph-parameter-preview";
@@ -29,7 +28,6 @@ import {
 import { ToolbarPopover } from "@/components/editor/ToolbarPopover";
 import { MathExpressionInput } from "@/components/math/MathExpressionInput";
 import { Button, IconButton } from "@/components/ui/Button";
-import { Disclosure } from "@/components/ui/Disclosure";
 import { Grid, Inline, Inset, Stack } from "@/components/ui/layout";
 import { renderMathHtml } from "@/features/rendering/adapters";
 import { MathPreview, useMathEnvironment } from "@/features/rendering/adapters/react";
@@ -322,7 +320,16 @@ function buildGraphLineWidthMenuOptions(t: Translate<"shape">): OverlayLineWidth
 }
 
 /** The axis-end pickers share the panel's one open-menu slot with the curve style menus. */
-const AXIS_END_MENU_KEYS = { x: "axis-end-x", y: "axis-end-y" } as const;
+/**
+ * パネル内のメニューの開閉キー。部品の種類と項目 id を JSON の配列で包む。
+ * id は保存済み文書の任意の文字列なので、`curve-mode-${id}` のように連結すると
+ * `mode-algebra` の線種と `algebra-dash` の種類のように別の部品のキーが一致しうる。
+ */
+function styleMenuKey(...parts: string[]): string {
+  return JSON.stringify(parts);
+}
+
+const AXIS_END_MENU_KEYS = { x: styleMenuKey("axis-end", "x"), y: styleMenuKey("axis-end", "y") } as const;
 
 function getNextPointLabel(points: readonly GraphPoint[]): string {
   const labels = new Set(points.map((point) => point.label).filter((label): label is string => Boolean(label)));
@@ -368,11 +375,26 @@ export function OverlayGraphSettings({ selectedOverlayGraph }: { selectedOverlay
     [selectedOverlayGraph.shapeId, spec],
   );
   const warnings = useMemo(() => getGraphVisibilityWarnings(spec), [spec]);
-  const allMessages = [
-    ...issues.map((issue) => formatGraphIssue(issue, tShape)),
-    ...warnings.map((code) => formatGraphWarning(code, tShape)),
-  ];
+  const issueMessages = issues.map((issue) => formatGraphIssue(issue, tShape));
+  const rangeWarningMessages = warnings.map((code) => formatGraphWarning(code, tShape));
   const [openStyleMenu, setOpenStyleMenu] = useState<string | null>(null);
+  /**
+   * 開閉状態はパネル全体で1つ。項目の `⋯` が hover の終わりに閉じるときは、その項目の
+   * キーと**完全に一致する**ものだけを、**閉じる時点の**値 (ref) で比べて閉じる。予約した時点の値で
+   * 比べると、待っている間に別の場所で開いたメニューまで閉じてしまう。
+   */
+  const openStyleMenuRef = useRef(openStyleMenu);
+  useEffect(() => {
+    openStyleMenuRef.current = openStyleMenu;
+  }, [openStyleMenu]);
+  const closeStyleMenus = (keys: readonly string[]) => {
+    // 閉じる時点の値は ref で見る。何も閉じないときは state に触れない (編集中の再描画を避ける)。
+    const current = openStyleMenuRef.current;
+    if (current !== null && keys.includes(current)) {
+      openStyleMenuRef.current = null;
+      setOpenStyleMenu(null);
+    }
+  };
   // **理由はコードで持ち、描画時に辞書へ通す。** 文言を state に入れると、
   // 表示中に言語を切り替えたとき古い言語のまま残る (`GraphExpressionMathInput` と同じ規約)。
   const [intersectionReason, setIntersectionReason] = useState<"noIntersection" | null>(null);
@@ -392,6 +414,7 @@ export function OverlayGraphSettings({ selectedOverlayGraph }: { selectedOverlay
     return () => dispatchGraphParametersOpen(selectedOverlayGraph.shapeId, false);
   }, [selectedOverlayGraph.shapeId]);
   const tickFontSize = spec.axes.tickFontSize ?? 9;
+  const tickFontSizeInputId = useId();
 
   useEffect(() => () => {
     if (intersectionMessageTimerRef.current) {
@@ -660,7 +683,24 @@ export function OverlayGraphSettings({ selectedOverlayGraph }: { selectedOverlay
   ] satisfies Array<{ key: GraphAxisLabelKey; label: string; textLabel: string; disabled: boolean }>;
 
   return (
-    <Inset className="editor-settings-section overlay-graph-inspector" space="md">
+    <Inset
+      className="editor-settings-section overlay-graph-inspector"
+      space="md"
+      // キーボードで別の操作へ移ったら、開いている線種・色・種類などのメニューを閉じる。
+      // 閉じないのは、開いているメニューのトリガー自身 (aria-expanded="true") と、
+      // メニュー本体 (`[data-toolbar-popover]`。portal されずパネル内に描かれるものもある) の中。
+      // 節の見出しを押す (畳む・開く) と中のトリガーごと消えうるので、開いているメニューを閉じる。
+      // 開き直したときにメニューだけが勝手に戻らないようにする。
+      onClick={(event) => {
+        if (
+          openStyleMenu !== null
+          && event.target instanceof Element
+          && event.target.closest(".editor-settings-accordion-header")
+        ) {
+          setOpenStyleMenu(null);
+        }
+      }}
+    >
       <Stack gap="none">
         <Inline className="graph-tool-row" gap="xs" role="group" aria-label={tShape("graph.toolsAria")}>
           <IconButton
@@ -722,8 +762,11 @@ export function OverlayGraphSettings({ selectedOverlayGraph }: { selectedOverlay
         <Graph2DVideoExport key={selectedOverlayGraph.shapeId} spec={spec} />
       </GraphSettingsSection>
 
+      {/* 関数は1枚のカードに、式・種類・線・定義域・ラベルを同じ「ラベル | 操作」の行で並べる。
+          以前は線の見た目が hover の `⋯`、種類と定義域が「詳細」の中、値域が別セクションに
+          分かれていた。カードはパネル幅いっぱいに1列で並べ、行の頭を揃える。 */}
       <GraphSettingsSection title={tShape("graph.curve")} count={spec.curves.length} defaultOpen>
-        <GraphCardGrid className="graph-curve-list">
+        <Stack className="graph-curve-list" gap="sm">
           {spec.curves.map((curve, index) => (
             <GraphCurveCard
               key={curve.id}
@@ -741,9 +784,265 @@ export function OverlayGraphSettings({ selectedOverlayGraph }: { selectedOverlay
             />
           ))}
           <GraphAddCard label={tShape("graph.addCurve")} onClick={addCurve} />
-        </GraphCardGrid>
+        </Stack>
       </GraphSettingsSection>
 
+      {/* グラフ全体の範囲・目盛・軸・軸名を1つの節にまとめる。関数カードと同じ行の作りにして、
+          関数の設定のすぐ下で値域 (y の範囲) まで続けて見えるよう既定で開いておく。 */}
+      <GraphSettingsSection
+        title={tShape("graph.axesAndRange")}
+        defaultOpen
+        // 節を畳んでいても、曲線が範囲の外に出たことは見出しの下に出す (開くと一括調整がある)。
+        collapsedNotice={rangeWarningMessages.join(" ")}
+      >
+        <GraphFieldGroup title={tShape("graph.rangeGroup")} testId="overlay-graph-range-group">
+          <GraphFieldRow label={tShape("graph.xAxis")} groupLabel={tShape("graph.xAxisRange")}>
+            <GraphRangeInput
+              min={spec.viewBox.xMin}
+              max={spec.viewBox.xMax}
+              variableName="x"
+              requireBoth
+              ariaLabel={tShape("graph.xAxisRange")}
+              dataTestId="overlay-graph-x-range"
+              onCommitRange={(parts) => parts && updateAxisRange("x", parts)}
+            />
+          </GraphFieldRow>
+          {spec.kind === "cartesian" && (
+            <GraphFieldRow label={tShape("graph.yAxis")} groupLabel={tShape("graph.yAxisRange")}>
+              <GraphRangeInput
+                min={spec.viewBox.yMin}
+                max={spec.viewBox.yMax}
+                variableName="y"
+                requireBoth
+                ariaLabel={tShape("graph.yAxisRange")}
+                dataTestId="overlay-graph-y-range"
+                onCommitRange={(parts) => parts && updateAxisRange("y", parts)}
+              />
+            </GraphFieldRow>
+          )}
+          <GraphFieldRow label={tShape("graph.drawRange")} groupLabel={tShape("graph.graphRangeLabel")}>
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={!spec.graphViewBox}
+                onChange={(event) => setGraphViewBoxSameAsAxis(event.target.checked)}
+              />
+              <span>{tShape("graph.sameAsAxisRange")}</span>
+            </label>
+            {spec.graphViewBox && (
+              <Stack className="graph-range-input-grid" gap="sm">
+                <GraphRangeInput
+                  min={graphViewBox.xMin}
+                  max={graphViewBox.xMax}
+                  variableName="x"
+                  requireBoth
+                  ariaLabel={tShape("graph.xDisplayRange")}
+                  dataTestId="overlay-graph-display-x-range"
+                  onCommitRange={(parts) => parts && updateDisplayRange("x", parts)}
+                />
+                {spec.kind === "cartesian" && (
+                  <GraphRangeInput
+                    min={graphViewBox.yMin}
+                    max={graphViewBox.yMax}
+                    variableName="y"
+                    requireBoth
+                    ariaLabel={tShape("graph.yDisplayRange")}
+                    dataTestId="overlay-graph-display-y-range"
+                    onCommitRange={(parts) => parts && updateDisplayRange("y", parts)}
+                  />
+                )}
+              </Stack>
+            )}
+          </GraphFieldRow>
+          {/* 曲線が範囲の外に出たときの案内と一括調整は、手で直す範囲の入力のすぐ下に置く。 */}
+          {rangeWarningMessages.map((message, index) => (
+            <p className="graph-settings-message" key={`${message}-${index}`} data-testid="overlay-graph-range-warning">
+              {message}
+            </p>
+          ))}
+          {warnings.length > 0 && (
+            <Button
+              tone="secondary"
+              data-testid="overlay-graph-fit-view-box"
+              onClick={() => updateSpec(fitGraphViewBoxToCurves)}
+            >
+              {tShape("graph.fitToCurves")}
+            </Button>
+          )}
+        </GraphFieldGroup>
+
+        <GraphFieldGroup title={tShape("graph.ticksGroup")} testId="overlay-graph-ticks-group">
+          <GraphFieldRow label={tShape("graph.tickStepLabel")}>
+            <Grid className="graph-range-input-grid halves" columns={2} gap="sm" responsive={false}>
+              <Inline className="graph-coordinate-field" gap="xs" align="center">
+                <span aria-hidden="true">x</span>
+                <GraphExpressionMathInput
+                  tex={spec.axes.xTickStep?.trim() ? graphExpressionToTex(spec.axes.xTickStep) : ""}
+                  ariaLabel={tShape("graph.xTickStep")}
+                  placeholderTex="1"
+                  allowEmpty
+                  dataTestId="overlay-graph-x-tick-step"
+                  onCommitExpression={(expression) => updateTickStep("x", expression)}
+                  onClear={() => updateTickStep("x", null)}
+                />
+              </Inline>
+              <Inline className="graph-coordinate-field" gap="xs" align="center">
+                <span aria-hidden="true">y</span>
+                <GraphExpressionMathInput
+                  tex={spec.axes.yTickStep?.trim() ? graphExpressionToTex(spec.axes.yTickStep) : ""}
+                  ariaLabel={tShape("graph.yTickStep")}
+                  placeholderTex="1"
+                  allowEmpty
+                  dataTestId="overlay-graph-y-tick-step"
+                  onCommitExpression={(expression) => updateTickStep("y", expression)}
+                  onClear={() => updateTickStep("y", null)}
+                />
+              </Inline>
+            </Grid>
+          </GraphFieldRow>
+          <GraphFieldRow label={tShape("graph.tickFontSize")} htmlFor={tickFontSizeInputId}>
+            <GraphTickFontSizeInput
+              key={tickFontSize}
+              id={tickFontSizeInputId}
+              value={tickFontSize}
+              onCommit={(nextTickFontSize) => {
+                updateSpec((current) => ({
+                  ...current,
+                  axes: { ...current.axes, tickFontSize: nextTickFontSize },
+                }));
+              }}
+            />
+          </GraphFieldRow>
+        </GraphFieldGroup>
+
+        <GraphFieldGroup title={tShape("graph.axesGroup")} testId="overlay-graph-axes-group">
+          <GraphFieldRow label={tShape("graph.axisVisibility")}>
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={spec.axes.showX !== false}
+                onChange={(event) => {
+                  const showX = event.target.checked;
+                  if (!showX) {
+                    // 描かない軸の先端は選べない (トリガーが無効になる)。開いていれば閉じる。
+                    setOpenStyleMenu((current) => (current === AXIS_END_MENU_KEYS.x ? null : current));
+                  }
+                  updateSpec((current) => ({ ...current, axes: { ...current.axes, showX } }));
+                }}
+              />
+              <span>{tShape("graph.xAxis")}</span>
+            </label>
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={spec.axes.showY !== false && spec.kind === "cartesian"}
+                disabled={spec.kind !== "cartesian"}
+                onChange={(event) => {
+                  const showY = event.target.checked;
+                  if (!showY) {
+                    setOpenStyleMenu((current) => (current === AXIS_END_MENU_KEYS.y ? null : current));
+                  }
+                  updateSpec((current) => ({ ...current, axes: { ...current.axes, showY } }));
+                }}
+              />
+              <span>{tShape("graph.yAxis")}</span>
+            </label>
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={spec.axes.showTicks !== false}
+                onChange={(event) => {
+                  const showTicks = event.target.checked;
+                  updateSpec((current) => ({ ...current, axes: { ...current.axes, showTicks } }));
+                }}
+              />
+              <span>{tShape("graph.ticks")}</span>
+            </label>
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={spec.axes.grid}
+                onChange={(event) => {
+                  const grid = event.target.checked;
+                  updateSpec((current) => ({ ...current, axes: { ...current.axes, grid } }));
+                }}
+              />
+              <span>{tShape("graph.grid")}</span>
+            </label>
+          </GraphFieldRow>
+
+          <GraphFieldRow label={tShape("graph.axisEnd")}>
+            {([
+              {
+                axis: "x",
+                name: tShape("graph.xAxis"),
+                label: tShape("graph.xAxisEnd"),
+                value: spec.axes.xAxisEndStyle,
+                drawn: spec.axes.showX !== false,
+              },
+              {
+                axis: "y",
+                name: tShape("graph.yAxis"),
+                label: tShape("graph.yAxisEnd"),
+                value: spec.axes.yAxisEndStyle,
+                drawn: spec.kind === "cartesian" && spec.axes.showY !== false,
+              },
+            ] as const).map(({ axis, name, label, value, drawn }) => {
+              const menuKey = AXIS_END_MENU_KEYS[axis];
+              const field = axis === "x" ? "xAxisEndStyle" : "yAxisEndStyle";
+              return (
+                <Inline key={axis} className="graph-axis-end-field" gap="xs" align="center">
+                  <span aria-hidden="true">{name}</span>
+                  <LineEndpointMenuButton
+                    endpoint="end"
+                    label={label}
+                    currentValue={value ?? DEFAULT_GRAPH_AXIS_END_STYLE}
+                    open={openStyleMenu === menuKey}
+                    disabled={!drawn}
+                    popoverZIndex={GRAPH_SETTINGS_POPOVER_Z_INDEX}
+                    onToggle={() => setOpenStyleMenu((current) => current === menuKey ? null : menuKey)}
+                    onSelect={(endStyle) => {
+                      updateSpec((current) => ({ ...current, axes: { ...current.axes, [field]: endStyle } }));
+                      setOpenStyleMenu(null);
+                    }}
+                  />
+                </Inline>
+              );
+            })}
+          </GraphFieldRow>
+
+          <GraphFieldRow label={tShape("graph.axisName")}>
+            <Stack className="graph-axis-label-list" gap="xs">
+              {axisLabelControls.map(({ key, label, textLabel, disabled }) => {
+                const visible = isAxisLabelVisible(key);
+                return (
+                  <Inline className="graph-axis-label-row" key={key} gap="sm" align="center">
+                    <label className="checkbox-field graph-axis-label-toggle">
+                      <input
+                        type="checkbox"
+                        checked={visible}
+                        disabled={disabled}
+                        data-testid={`overlay-graph-axis-label-${key}`}
+                        onChange={(event) => setAxisLabelVisible(key, event.target.checked)}
+                      />
+                      <span>{label}</span>
+                    </label>
+                    <MathExpressionInput
+                      tex={getAxisLabelText(key)}
+                      disabled={disabled || !visible}
+                      ariaLabel={key === "origin"
+                        ? tShape("graph.originLabelName")
+                        : tShape("graph.axisNameOf", { replace: { axis: textLabel } })}
+                      data-testid={`overlay-graph-axis-label-text-${key}`}
+                      onCommit={(tex) => onAxisLabelTextChange(key, tex.trim())}
+                    />
+                  </Inline>
+                );
+              })}
+            </Stack>
+          </GraphFieldRow>
+        </GraphFieldGroup>
+      </GraphSettingsSection>
       <GraphSettingsSection title={tShape("graph.point")} count={(spec.points ?? []).length} defaultOpen>
         <GraphCardGrid className="graph-curve-list">
           {(spec.points ?? []).map((point, index) => (
@@ -754,6 +1053,7 @@ export function OverlayGraphSettings({ selectedOverlayGraph }: { selectedOverlay
               cartesian={spec.kind === "cartesian"}
               openStyleMenu={openStyleMenu}
               onOpenStyleMenuChange={setOpenStyleMenu}
+              onCloseOwnStyleMenus={() => closeStyleMenus([styleMenuKey("point-color", point.id)])}
               onPatch={(patch) => updatePoint(point.id, patch)}
               onRemove={() => removePoint(point.id)}
             />
@@ -790,6 +1090,7 @@ export function OverlayGraphSettings({ selectedOverlayGraph }: { selectedOverlay
                 index={index}
                 openStyleMenu={openStyleMenu}
                 onOpenStyleMenuChange={setOpenStyleMenu}
+                onCloseOwnStyleMenus={() => closeStyleMenus([styleMenuKey("fill-color", fill.id), styleMenuKey("fill-pattern", fill.id)])}
                 onPatch={(patch) => updateFill(fill.id, patch)}
                 onRemove={() => removeFill(fill.id)}
               />
@@ -798,251 +1099,19 @@ export function OverlayGraphSettings({ selectedOverlayGraph }: { selectedOverlay
         </GraphSettingsSection>
       )}
 
-      <GraphSettingsSection title={tShape("graph.displayRange")} defaultOpen={false}>
-        <label className="field-label">{tShape("graph.axisRangeLabel")}</label>
-        <Stack className="graph-range-input-grid" gap="sm">
-          <GraphRangeInput
-            min={spec.viewBox.xMin}
-            max={spec.viewBox.xMax}
-            variableName="x"
-            requireBoth
-            ariaLabel={tShape("graph.xAxisRange")}
-            dataTestId="overlay-graph-x-range"
-            onCommitRange={(parts) => parts && updateAxisRange("x", parts)}
-          />
-          {spec.kind === "cartesian" && (
-            <GraphRangeInput
-              min={spec.viewBox.yMin}
-              max={spec.viewBox.yMax}
-              variableName="y"
-              requireBoth
-              ariaLabel={tShape("graph.yAxisRange")}
-              dataTestId="overlay-graph-y-range"
-              onCommitRange={(parts) => parts && updateAxisRange("y", parts)}
-            />
-          )}
-        </Stack>
-
-        <Inline className="graph-range-heading" gap="sm" justify="between">
-          <label className="field-label">{tShape("graph.graphRangeLabel")}</label>
-          <label className="checkbox-field">
-            <input
-              type="checkbox"
-              checked={!spec.graphViewBox}
-              onChange={(event) => setGraphViewBoxSameAsAxis(event.target.checked)}
-            />
-            <span>{tShape("graph.sameAsAxisRange")}</span>
-          </label>
-        </Inline>
-        {spec.graphViewBox && (
-          <Stack className="graph-range-input-grid" gap="sm">
-            <GraphRangeInput
-              min={graphViewBox.xMin}
-              max={graphViewBox.xMax}
-              variableName="x"
-              requireBoth
-              ariaLabel={tShape("graph.xDisplayRange")}
-              dataTestId="overlay-graph-display-x-range"
-              onCommitRange={(parts) => parts && updateDisplayRange("x", parts)}
-            />
-            {spec.kind === "cartesian" && (
-              <GraphRangeInput
-                min={graphViewBox.yMin}
-                max={graphViewBox.yMax}
-                variableName="y"
-                requireBoth
-                ariaLabel={tShape("graph.yDisplayRange")}
-                dataTestId="overlay-graph-display-y-range"
-                onCommitRange={(parts) => parts && updateDisplayRange("y", parts)}
-              />
-            )}
-          </Stack>
-        )}
-
-        <label className="field-label">{tShape("graph.tickStepLabel")}</label>
-        <Grid className="graph-range-input-grid halves" columns={2} gap="sm" responsive={false}>
-          <Stack className="graph-style-field" gap="xs">
-            <span>x</span>
-            <GraphExpressionMathInput
-              tex={spec.axes.xTickStep?.trim() ? graphExpressionToTex(spec.axes.xTickStep) : ""}
-              ariaLabel={tShape("graph.xTickStep")}
-              placeholderTex="1"
-              allowEmpty
-              dataTestId="overlay-graph-x-tick-step"
-              onCommitExpression={(expression) => updateTickStep("x", expression)}
-              onClear={() => updateTickStep("x", null)}
-            />
-          </Stack>
-          <Stack className="graph-style-field" gap="xs">
-            <span>y</span>
-            <GraphExpressionMathInput
-              tex={spec.axes.yTickStep?.trim() ? graphExpressionToTex(spec.axes.yTickStep) : ""}
-              ariaLabel={tShape("graph.yTickStep")}
-              placeholderTex="1"
-              allowEmpty
-              dataTestId="overlay-graph-y-tick-step"
-              onCommitExpression={(expression) => updateTickStep("y", expression)}
-              onClear={() => updateTickStep("y", null)}
-            />
-          </Stack>
-        </Grid>
-
-        <GraphTickFontSizeInput
-          key={tickFontSize}
-          value={tickFontSize}
-          onCommit={(nextTickFontSize) => {
-            updateSpec((current) => ({
-              ...current,
-              axes: { ...current.axes, tickFontSize: nextTickFontSize },
-            }));
-          }}
-        />
-
-        <label className="field-label">{tShape("graph.axisVisibility")}</label>
-        <Grid className="graph-checkbox-grid" columns={2} gap="sm" responsive={false}>
-          <label className="checkbox-field">
-            <input
-              type="checkbox"
-              checked={spec.axes.showX !== false}
-              onChange={(event) => {
-                const showX = event.target.checked;
-                updateSpec((current) => ({ ...current, axes: { ...current.axes, showX } }));
-              }}
-            />
-            <span>{tShape("graph.xAxis")}</span>
-          </label>
-          <label className="checkbox-field">
-            <input
-              type="checkbox"
-              checked={spec.axes.showY !== false && spec.kind === "cartesian"}
-              disabled={spec.kind !== "cartesian"}
-              onChange={(event) => {
-                const showY = event.target.checked;
-                updateSpec((current) => ({ ...current, axes: { ...current.axes, showY } }));
-              }}
-            />
-            <span>{tShape("graph.yAxis")}</span>
-          </label>
-          <label className="checkbox-field">
-            <input
-              type="checkbox"
-              checked={spec.axes.showTicks !== false}
-              onChange={(event) => {
-                const showTicks = event.target.checked;
-                updateSpec((current) => ({ ...current, axes: { ...current.axes, showTicks } }));
-              }}
-            />
-            <span>{tShape("graph.ticks")}</span>
-          </label>
-          <label className="checkbox-field">
-            <input
-              type="checkbox"
-              checked={spec.axes.grid}
-              onChange={(event) => {
-                const grid = event.target.checked;
-                updateSpec((current) => ({ ...current, axes: { ...current.axes, grid } }));
-              }}
-            />
-            <span>{tShape("graph.grid")}</span>
-          </label>
-        </Grid>
-
-        <label className="field-label">{tShape("graph.axisEnd")}</label>
-        <Grid className="graph-checkbox-grid" columns={2} gap="sm" responsive={false}>
-          {([
-            {
-              axis: "x",
-              name: tShape("graph.xAxis"),
-              label: tShape("graph.xAxisEnd"),
-              value: spec.axes.xAxisEndStyle,
-              drawn: spec.axes.showX !== false,
-            },
-            {
-              axis: "y",
-              name: tShape("graph.yAxis"),
-              label: tShape("graph.yAxisEnd"),
-              value: spec.axes.yAxisEndStyle,
-              drawn: spec.kind === "cartesian" && spec.axes.showY !== false,
-            },
-          ] as const).map(({ axis, name, label, value, drawn }) => {
-            const menuKey = AXIS_END_MENU_KEYS[axis];
-            const field = axis === "x" ? "xAxisEndStyle" : "yAxisEndStyle";
-            return (
-              <Inline key={axis} className="graph-style-field" gap="sm" align="center">
-                <span>{name}</span>
-                <LineEndpointMenuButton
-                  endpoint="end"
-                  label={label}
-                  currentValue={value ?? DEFAULT_GRAPH_AXIS_END_STYLE}
-                  open={openStyleMenu === menuKey}
-                  disabled={!drawn}
-                  popoverZIndex={GRAPH_SETTINGS_POPOVER_Z_INDEX}
-                  onToggle={() => setOpenStyleMenu((current) => current === menuKey ? null : menuKey)}
-                  onSelect={(endStyle) => {
-                    updateSpec((current) => ({ ...current, axes: { ...current.axes, [field]: endStyle } }));
-                    setOpenStyleMenu(null);
-                  }}
-                />
-              </Inline>
-            );
-          })}
-        </Grid>
-      </GraphSettingsSection>
-
-      <GraphSettingsSection title={tShape("graph.axisName")} defaultOpen={false}>
-        <Stack className="graph-axis-label-list" gap="sm">
-          {axisLabelControls.map(({ key, label, textLabel, disabled }) => {
-            const visible = isAxisLabelVisible(key);
-            return (
-              <Inline className="graph-axis-label-row" key={key} gap="sm" align="center">
-                <label className="checkbox-field graph-axis-label-toggle">
-                  <input
-                    type="checkbox"
-                    checked={visible}
-                    disabled={disabled}
-                    data-testid={`overlay-graph-axis-label-${key}`}
-                    onChange={(event) => setAxisLabelVisible(key, event.target.checked)}
-                  />
-                  <span>{label}</span>
-                </label>
-                <MathExpressionInput
-                  tex={getAxisLabelText(key)}
-                  disabled={disabled || !visible}
-                  ariaLabel={key === "origin"
-                    ? tShape("graph.originLabelName")
-                    : tShape("graph.axisNameOf", { replace: { axis: textLabel } })}
-                  data-testid={`overlay-graph-axis-label-text-${key}`}
-                  onCommit={(tex) => onAxisLabelTextChange(key, tex.trim())}
-                />
-              </Inline>
-            );
-          })}
-        </Stack>
-      </GraphSettingsSection>
-
-        {allMessages.map((message, index) => (
+        {issueMessages.map((message, index) => (
           <p className="graph-settings-message" key={`${message}-${index}`}>
             {message}
           </p>
         ))}
-        {warnings.length > 0 && (
-          <Button
-            tone="secondary"
-            data-testid="overlay-graph-fit-view-box"
-            onClick={() => updateSpec(fitGraphViewBoxToCurves)}
-          >
-            {tShape("graph.fitToCurves")}
-          </Button>
-        )}
       </Stack>
     </Inset>
   );
 }
 
-/** 関数式を主役に置き、線の見た目と定義域を段階的に編集するカード。 */
 /**
  * 曲線1本の見た目（色・線種・太さ）を変える操作列。
- * 設定パネルの関数カードと、グラフ上の3点メニューの両方から使う共有部品。
+ * 設定パネルの関数カードの「線」の行で使う。
  */
 export function GraphCurveStyleControls({
   curve,
@@ -1072,9 +1141,9 @@ export function GraphCurveStyleControls({
   const curveColor = normalizeGraphColor(curve.color);
   const curveDash = normalizeGraphCurveDash(curve.dash);
   const curveStrokeWidth = normalizeGraphCurveStrokeWidth(curve.strokeWidth);
-  const colorMenuKey = `${menuKeyPrefix}-color`;
-  const dashMenuKey = `${menuKeyPrefix}-dash`;
-  const widthMenuKey = `${menuKeyPrefix}-width`;
+  const colorMenuKey = styleMenuKey(menuKeyPrefix, "color");
+  const dashMenuKey = styleMenuKey(menuKeyPrefix, "dash");
+  const widthMenuKey = styleMenuKey(menuKeyPrefix, "width");
 
   return (
     <>
@@ -1136,64 +1205,41 @@ function focusGraphSettingsSurface() {
   document.querySelector<HTMLElement>("[data-graph-settings-panel]")?.focus({ preventScroll: true });
 }
 
+/**
+ * 関数カードの `⋯` の中身。見た目・種類・定義域・ラベルはカードの行に出したので、
+ * ここに残すのは誤操作を避けたい「削除」だけ。
+ */
 export function GraphCurveActionsMenuContent({
-  curve,
   index,
-  formulaLabelVisible,
-  openStyleMenu,
-  onOpenStyleMenuChange,
-  onFormulaLabelToggle,
-  onPatch,
   onRemove,
 }: {
-  curve: GraphCurve;
   index: number;
-  formulaLabelVisible: boolean;
-  openStyleMenu: string | null;
-  onOpenStyleMenuChange: (key: string | null) => void;
-  onFormulaLabelToggle: (visible: boolean) => void;
-  onPatch: (patch: Partial<GraphCurve>) => void;
   onRemove: () => void;
 }) {
   const tShape = useT("shape");
   return (
-    <>
-      <div className="graph-item-style-row" role="group" aria-label={tShape("graph.curveLineStyle", { index: index + 1 })}>
-        <GraphCurveStyleControls
-          curve={curve}
-          label={tShape("graph.curveN", { index: index + 1 })}
-          menuKeyPrefix={`curve-${curve.id}`}
-          openStyleMenu={openStyleMenu}
-          onOpenStyleMenuChange={onOpenStyleMenuChange}
-          onPatch={onPatch}
-          testIdPrefix={index === 0 ? "overlay-graph" : undefined}
-        />
-      </div>
-      <div className="graph-item-actions-separator" role="separator" />
-      <button
-        type="button"
-        aria-pressed={formulaLabelVisible}
-        onClick={() => onFormulaLabelToggle(!formulaLabelVisible)}
-      >
-        <Tag size={13} aria-hidden="true" />
-        <span>{tShape("graph.toggleFormula", { action: formulaLabelVisible ? tShape("graph.hide") : tShape("graph.show") })}</span>
-      </button>
-      <Button
-        tone="danger"
-        size="sm"
-        aria-label={tShape("graph.curveDelete", { index: index + 1 })}
-        onClick={() => {
-          focusGraphSettingsSurface();
-          onRemove();
-        }}
-      >
-        <Trash2 size={14} aria-hidden="true" />
-        <span>{tShape("graph.deleteCurve")}</span>
-      </Button>
-    </>
+    <Button
+      tone="danger"
+      size="sm"
+      aria-label={tShape("graph.curveDelete", { index: index + 1 })}
+      onClick={() => {
+        focusGraphSettingsSurface();
+        onRemove();
+      }}
+    >
+      <Trash2 size={14} aria-hidden="true" />
+      <span>{tShape("graph.deleteCurve")}</span>
+    </Button>
   );
 }
 
+/**
+ * 関数1本の設定をすべて載せるカード。
+ *
+ * 式・種類 (y=f(x) などの向き)・線 (色・線種・太さ)・定義域・グラフ上の式ラベルを、
+ * 座標軸と範囲の節と同じ `GraphFieldRow` で上から並べる。どの関数 (一次・二次・三角・指数・
+ * 陰関数・媒介変数表示) でも同じカードを使い、種類に応じて式の行と定義域の名前だけが変わる。
+ */
 function GraphCurveCard({
   curve,
   index,
@@ -1220,6 +1266,8 @@ function GraphCurveCard({
   onRemove: () => void;
 }) {
   const tShape = useT("shape");
+  const titleId = useId();
+  const curveName = tShape("graph.curveN", { index: index + 1 });
   const curveMode = normalizeGraphCurveMode(curve.mode);
   const variableName: GraphExpressionVariableName = curveMode === "parametric" ? "t" : curveMode === "xOfY" ? "y" : "x";
   const exprTexValue = graphCurveExprTex(curve);
@@ -1230,10 +1278,11 @@ function GraphCurveCard({
       min: curveMode === "xOfY" ? graphViewBox.yMin : graphViewBox.xMin,
       max: curveMode === "xOfY" ? graphViewBox.yMax : graphViewBox.xMax,
     };
-  const detailDefaultOpen =
-    curveMode !== "yOfX" ||
-    Boolean(curve.domain?.min?.trim()) ||
-    Boolean(curve.domain?.max?.trim());
+  const domainLabel = curveMode === "parametric"
+    ? tShape("graph.tRange")
+    : curveMode === "implicit"
+      ? tShape("graph.xRange")
+      : tShape("graph.domain");
 
   const commitExpr = (expression: string, tex: string) => {
     onPatch({
@@ -1253,7 +1302,13 @@ function GraphCurveCard({
   };
 
   return (
-    <Inset className="graph-curve-editor" space="sm">
+    <Inset
+      as="section"
+      className="graph-curve-editor graph-curve-card"
+      space="sm"
+      aria-labelledby={titleId}
+      data-testid={index === 0 ? "overlay-graph-curve-card" : undefined}
+    >
       <Stack gap="sm">
       <Inline className="graph-curve-header" gap="sm" justify="between">
         <Inline className="graph-curve-heading" gap="xs">
@@ -1266,102 +1321,116 @@ function GraphCurveCard({
             }}
             aria-hidden="true"
           />
-          <span className="graph-curve-title">{tShape("graph.curveN", { index: index + 1 })}</span>
+          <span id={titleId} className="graph-curve-title">{curveName}</span>
         </Inline>
         <Inline className="graph-curve-header-actions" gap="xs">
           <GraphItemActionsMenu
             label={tShape("graph.curveActions", { index: index + 1 })}
             testId={index === 0 ? "overlay-graph-curve-actions" : undefined}
-            onCloseNestedMenus={() => onOpenStyleMenuChange(null)}
+            // 中身は削除だけで子ポップオーバーを持たない。共有の開閉状態を閉じると、
+            // カードの「線」の行で開いている線種・色メニューまで hover の終わりに閉じてしまう。
+            onCloseNestedMenus={() => undefined}
+            deferEscapeToOpenPicker
           >
-            <GraphCurveActionsMenuContent
-              curve={curve}
-              index={index}
-              formulaLabelVisible={formulaLabelVisible}
-              openStyleMenu={openStyleMenu}
-              onOpenStyleMenuChange={onOpenStyleMenuChange}
-              onFormulaLabelToggle={onFormulaLabelToggle}
-              onPatch={onPatch}
-              onRemove={onRemove}
-            />
+            <GraphCurveActionsMenuContent index={index} onRemove={onRemove} />
           </GraphItemActionsMenu>
         </Inline>
       </Inline>
-      {curveMode === "parametric" ? (
-        <Stack className="graph-function-rows" gap="sm">
-          <Inline className="graph-function-row" gap="sm">
-            <MathPreview tex="x=" className="graph-function-prefix" />
-            <GraphExpressionMathInput
-              tex={exprTexValue}
-              ariaLabel={tShape("graph.curveXtExpr", { index: index + 1 })}
-              dataTestId={index === 0 ? "overlay-graph-expr-input" : undefined}
-              live
-              onCommitExpression={commitExpr}
-            />
-          </Inline>
-          <Inline className="graph-function-row" gap="sm">
-            <MathPreview tex="y=" className="graph-function-prefix" />
-            <GraphExpressionMathInput
-              tex={yExprTexValue}
-              ariaLabel={tShape("graph.curveYtExpr", { index: index + 1 })}
-              dataTestId={index === 0 ? "overlay-graph-y-expr-input" : undefined}
-              live
-              onCommitExpression={commitYExpr}
-            />
-          </Inline>
-        </Stack>
-      ) : curveMode === "implicit" ? (
-        <Inline className="graph-function-row" gap="sm">
-          <GraphExpressionMathInput
-            tex={exprTexValue}
-            ariaLabel={tShape("graph.curveImplicitExpr", { index: index + 1 })}
-            dataTestId={index === 0 ? "overlay-graph-expr-input" : undefined}
-            allowImplicitEquation
-            live
-            onCommitExpression={commitExpr}
+      <div className="graph-field-list">
+        <GraphFieldRow label={tShape("graph.fieldExpression")}>
+          {curveMode === "parametric" ? (
+            <Stack className="graph-function-rows" gap="sm">
+              <Inline className="graph-function-row" gap="sm">
+                <MathPreview tex="x=" className="graph-function-prefix" />
+                <GraphExpressionMathInput
+                  tex={exprTexValue}
+                  ariaLabel={tShape("graph.curveXtExpr", { index: index + 1 })}
+                  dataTestId={index === 0 ? "overlay-graph-expr-input" : undefined}
+                  live
+                  onCommitExpression={commitExpr}
+                />
+              </Inline>
+              <Inline className="graph-function-row" gap="sm">
+                <MathPreview tex="y=" className="graph-function-prefix" />
+                <GraphExpressionMathInput
+                  tex={yExprTexValue}
+                  ariaLabel={tShape("graph.curveYtExpr", { index: index + 1 })}
+                  dataTestId={index === 0 ? "overlay-graph-y-expr-input" : undefined}
+                  live
+                  onCommitExpression={commitYExpr}
+                />
+              </Inline>
+            </Stack>
+          ) : curveMode === "implicit" ? (
+            <Inline className="graph-function-row" gap="sm">
+              <GraphExpressionMathInput
+                tex={exprTexValue}
+                ariaLabel={tShape("graph.curveImplicitExpr", { index: index + 1 })}
+                dataTestId={index === 0 ? "overlay-graph-expr-input" : undefined}
+                allowImplicitEquation
+                live
+                onCommitExpression={commitExpr}
+              />
+            </Inline>
+          ) : (
+            <Inline className="graph-function-row" gap="sm">
+              <MathPreview tex={curveMode === "xOfY" ? "x=" : "y="} className="graph-function-prefix" />
+              <GraphExpressionMathInput
+                tex={exprTexValue}
+                ariaLabel={tShape("graph.curveExpr", { index: index + 1 })}
+                dataTestId={index === 0 ? "overlay-graph-expr-input" : undefined}
+                live
+                onCommitExpression={commitExpr}
+              />
+            </Inline>
+          )}
+        </GraphFieldRow>
+        <GraphFieldRow label={tShape("graph.fieldType")}>
+          <GraphCurveModeControl
+            value={curveMode}
+            menuKey={styleMenuKey("curve-mode", curve.id)}
+            openStyleMenu={openStyleMenu}
+            onOpenStyleMenuChange={onOpenStyleMenuChange}
+            data-testid={index === 0 ? "overlay-graph-mode-select" : undefined}
+            onChange={onModeChange}
           />
-        </Inline>
-      ) : (
-        <Inline className="graph-function-row" gap="sm">
-          <MathPreview tex={curveMode === "xOfY" ? "x=" : "y="} className="graph-function-prefix" />
-          <GraphExpressionMathInput
-            tex={exprTexValue}
-            ariaLabel={tShape("graph.curveExpr", { index: index + 1 })}
-            dataTestId={index === 0 ? "overlay-graph-expr-input" : undefined}
-            live
-            onCommitExpression={commitExpr}
+        </GraphFieldRow>
+        <GraphFieldRow label={tShape("graph.fieldLine")} groupLabel={tShape("graph.curveLineStyle", { index: index + 1 })}>
+          <GraphCurveStyleControls
+            curve={curve}
+            label={curveName}
+            menuKeyPrefix={styleMenuKey("curve", curve.id)}
+            openStyleMenu={openStyleMenu}
+            onOpenStyleMenuChange={onOpenStyleMenuChange}
+            onPatch={onPatch}
+            testIdPrefix={index === 0 ? "overlay-graph" : undefined}
           />
-        </Inline>
-      )}
-      <Disclosure label={tShape("graph.curveAdvanced", { index: index + 1 })} defaultOpen={detailDefaultOpen} className="graph-card-detail">
-        <Grid className="graph-curve-select-grid" columns={2} gap="sm" responsive={false}>
-          <Stack className="graph-style-field" gap="xs">
-            <span>{tShape("graph.direction")}</span>
-            <GraphCurveModeControl
-              value={curveMode}
-              menuKey={`curve-mode-${curve.id}`}
-              openStyleMenu={openStyleMenu}
-              onOpenStyleMenuChange={onOpenStyleMenuChange}
-              data-testid={index === 0 ? "overlay-graph-mode-select" : undefined}
-              onChange={onModeChange}
+        </GraphFieldRow>
+        <GraphFieldRow label={domainLabel} groupLabel={tShape("graph.curveDomain", { index: index + 1 })}>
+          <GraphRangeInput
+            min={curve.domain?.min}
+            max={curve.domain?.max}
+            variableName={variableName}
+            allowEmpty
+            ariaLabel={tShape("graph.curveDomain", { index: index + 1 })}
+            minPlaceholderTex={graphExpressionToTex(domainPlaceholderBounds.min)}
+            maxPlaceholderTex={graphExpressionToTex(domainPlaceholderBounds.max)}
+            dataTestId={index === 0 ? "overlay-graph-domain-input" : undefined}
+            onCommitRange={onDomainCommit}
+          />
+        </GraphFieldRow>
+        <GraphFieldRow label={tShape("graph.fieldLabel")}>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={formulaLabelVisible}
+              data-testid={index === 0 ? "overlay-graph-formula-label" : undefined}
+              onChange={(event) => onFormulaLabelToggle(event.target.checked)}
             />
-          </Stack>
-          <Stack className="graph-style-field" gap="xs">
-            <span>{curveMode === "parametric" ? tShape("graph.tRange") : curveMode === "implicit" ? tShape("graph.xRange") : tShape("graph.domain")}</span>
-            <GraphRangeInput
-              min={curve.domain?.min}
-              max={curve.domain?.max}
-              variableName={variableName}
-              allowEmpty
-              ariaLabel={tShape("graph.curveDomain", { index: index + 1 })}
-              minPlaceholderTex={graphExpressionToTex(domainPlaceholderBounds.min)}
-              maxPlaceholderTex={graphExpressionToTex(domainPlaceholderBounds.max)}
-              dataTestId={index === 0 ? "overlay-graph-domain-input" : undefined}
-              onCommitRange={onDomainCommit}
-            />
-          </Stack>
-        </Grid>
-      </Disclosure>
+            <span>{tShape("graph.showFormulaOnGraph")}</span>
+          </label>
+        </GraphFieldRow>
+      </div>
       </Stack>
     </Inset>
   );
@@ -1473,7 +1542,7 @@ export function GraphPointActionsMenuContent({
           <GraphColorControl
             label={tShape("graph.pointColor", { index: index + 1 })}
             value={pointColor}
-            menuKey={`point-color-${point.id}`}
+            menuKey={styleMenuKey("point-color", point.id)}
             openStyleMenu={openStyleMenu}
             onOpenStyleMenuChange={onOpenStyleMenuChange}
             onChange={(color) => onPatch({ color })}
@@ -1569,6 +1638,7 @@ function GraphPointCard({
   cartesian,
   openStyleMenu,
   onOpenStyleMenuChange,
+  onCloseOwnStyleMenus,
   onPatch,
   onRemove,
 }: {
@@ -1577,6 +1647,8 @@ function GraphPointCard({
   cartesian: boolean;
   openStyleMenu: string | null;
   onOpenStyleMenuChange: (key: string | null) => void;
+  /** `⋯` が閉じるとき、この項目の中で開いた子メニューだけを閉じる。 */
+  onCloseOwnStyleMenus: () => void;
   onPatch: (patch: Partial<GraphPoint>) => void;
   onRemove: () => void;
 }) {
@@ -1600,7 +1672,7 @@ function GraphPointCard({
           <GraphItemActionsMenu
             label={tShape("graph.pointActions", { index: index + 1 })}
             testId={index === 0 ? "overlay-graph-point-actions" : undefined}
-            onCloseNestedMenus={() => onOpenStyleMenuChange(null)}
+            onCloseNestedMenus={onCloseOwnStyleMenus}
           >
             <GraphPointActionsMenuContent
               point={point}
@@ -1681,7 +1753,7 @@ export function GraphFillActionsMenuContent({
           <GraphColorControl
             label={tShape("graph.fillColor", { index: index + 1 })}
             value={fillColor}
-            menuKey={`fill-color-${fill.id}`}
+            menuKey={styleMenuKey("fill-color", fill.id)}
             openStyleMenu={openStyleMenu}
             onOpenStyleMenuChange={onOpenStyleMenuChange}
             onChange={(color) => onPatch({ color })}
@@ -1693,7 +1765,7 @@ export function GraphFillActionsMenuContent({
           <GraphFillPatternControl
             value={normalizeGraphFillPattern(fill.pattern)}
             color={fillColor}
-            menuKey={`fill-pattern-${fill.id}`}
+            menuKey={styleMenuKey("fill-pattern", fill.id)}
             openStyleMenu={openStyleMenu}
             onOpenStyleMenuChange={onOpenStyleMenuChange}
             onChange={(pattern) => onPatch({ pattern })}
@@ -1737,6 +1809,7 @@ function GraphFillCard({
   index,
   openStyleMenu,
   onOpenStyleMenuChange,
+  onCloseOwnStyleMenus,
   onPatch,
   onRemove,
 }: {
@@ -1744,6 +1817,8 @@ function GraphFillCard({
   index: number;
   openStyleMenu: string | null;
   onOpenStyleMenuChange: (key: string | null) => void;
+  /** `⋯` が閉じるとき、この項目の中で開いた子メニューだけを閉じる。 */
+  onCloseOwnStyleMenus: () => void;
   onPatch: (patch: Partial<GraphFillRegion>) => void;
   onRemove: () => void;
 }) {
@@ -1767,7 +1842,7 @@ function GraphFillCard({
         <GraphItemActionsMenu
           label={tShape("graph.fillActions", { index: index + 1 })}
           testId={index === 0 ? "overlay-graph-fill-actions" : undefined}
-          onCloseNestedMenus={() => onOpenStyleMenuChange(null)}
+          onCloseNestedMenus={onCloseOwnStyleMenus}
         >
           <GraphFillActionsMenuContent
             fill={fill}
@@ -1917,17 +1992,24 @@ function GraphColorControl({
   );
 }
 
+/** 目盛文字サイズ。行のラベル (`GraphFieldRow` の `<label for>`) が名前を与える。 */
 function GraphTickFontSizeInput({
+  id,
   value,
   onCommit,
 }: {
+  id: string;
   value: number;
   onCommit: (value: number) => void;
 }) {
-  const tShape = useT("shape");
   const [draft, setDraft] = useState(() => String(value));
 
   const commit = () => {
+    // 触らずに通り過ぎた (Tab で抜けただけ) なら書き込まない。省略された値を既定の 9 で
+    // 埋めたり、入力の上下限の外にある保存値を丸めたりすると、開いただけの文書が変わる。
+    if (draft === String(value)) {
+      return;
+    }
     const parsedValue = Number(draft);
     if (!draft.trim() || !Number.isFinite(parsedValue)) {
       setDraft(String(value));
@@ -1940,11 +2022,10 @@ function GraphTickFontSizeInput({
   };
 
   return (
-    <label className="graph-style-field graph-tick-font-size-field" htmlFor="graph-tick-font-size">
-      <span>{tShape("graph.tickFontSize")}</span>
+    <span className="graph-style-field graph-tick-font-size-field">
       <span className="graph-number-input">
         <input
-          id="graph-tick-font-size"
+          id={id}
           data-testid="overlay-graph-tick-font-size"
           type="number"
           min={6}
@@ -1962,7 +2043,7 @@ function GraphTickFontSizeInput({
         />
         <span className="graph-number-input-unit" aria-hidden="true">pt</span>
       </span>
-    </label>
+    </span>
   );
 }
 
