@@ -18,6 +18,17 @@ export function resolveLockedPackage(packages, location, name) {
   }
 }
 
+/** Shared with the post-install packaging check. Requires no installed dependencies. */
+export function checkDesktopRuntimeLockfile(desktop, packages) {
+  const runtime = desktop.devDependencies?.electron;
+  assert.match(runtime, /^\d+\.\d+\.\d+$/, "Pin an exact stable Electron runtime");
+  assert.equal(packages["apps/desktop"]?.devDependencies?.electron, runtime,
+    "Electron lockfile declaration differs from the pinned runtime");
+  assert.equal(packages["node_modules/electron"]?.version, runtime,
+    "Lockfile runtime differs from packaging");
+  return runtime;
+}
+
 export function checkWorkspaceLockfile(root) {
   const readJson = (file) => JSON.parse(readFileSync(path.join(root, file), "utf8"));
   const manifest = readJson("package.json");
@@ -36,9 +47,11 @@ export function checkWorkspaceLockfile(root) {
     for (const field of dependencyFields) {
       // npm may retain a range here even when Dependabot keeps an exact
       // manifest pin. Required names must match; npm ci validates versions.
+      // The stricter Electron runtime contract is checked separately below.
       assert.deepEqual(Object.keys(locked[field] ?? {}).sort(), Object.keys(source[field] ?? {}).sort(),
         `Workspace ${field} differ: ${location || "root"}`);
     }
+    if (location === "apps/desktop") checkDesktopRuntimeLockfile(source, packages);
     // React 18 must not silently fall back to the hoisted React 19 install.
     for (const name of ["react", "react-dom", "@types/react", "@types/react-dom"]) {
       const range = source.dependencies?.[name] ?? source.devDependencies?.[name];
