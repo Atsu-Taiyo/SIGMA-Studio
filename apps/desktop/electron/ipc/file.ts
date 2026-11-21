@@ -1,3 +1,4 @@
+import { PdfExportProfile } from "../pdf-export-profile";
 import { normalizeNewFileName } from "@/lib/file-name";
 import { ipcMain } from "../trusted-ipc";
 import { app, dialog, BrowserWindow, shell, type WebContents } from "electron";
@@ -145,8 +146,10 @@ export function registerFileIpc(deps: RegisterFileIpcDeps): void {
       return null;
     }
     const outputFilePath = ensurePdfFilePath(result.filePath);
+    const profile = new PdfExportProfile();
     const pdf = await renderPdfOutputSession(sender, outputSession, deps.resolveSessionImage);
-    await fs.writeFile(outputFilePath, pdf);
+    await profile.measure("file-write", () => fs.writeFile(outputFilePath, pdf));
+    profile.finish(outputSession.pageCount, true);
     return { filePath: outputFilePath, pageCount: outputSession.pageCount };
   }
 

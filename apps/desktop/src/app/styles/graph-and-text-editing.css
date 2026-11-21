@@ -111,7 +111,6 @@
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-.graph-curve-select-grid > label,
 .graph-style-field {
   min-width: 0;
 }
@@ -165,14 +164,6 @@
   color: var(--text-muted) !important;
   font-size: 11px !important;
   font-weight: 600 !important;
-}
-
-.graph-curve-select-grid > label > span {
-  display: block;
-  margin-bottom: var(--space-xs);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 650;
 }
 
 .math-expression-input {
@@ -3205,4 +3196,18 @@ button.ai-source-ref-chip--document:focus-visible {
   padding: var(--space-xs) var(--space-sm);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--background);
+}
+
+/* 座標軸と範囲: 「軸の先端」の行で、各先端ボタンの前に置く軸の名前。 */
+.graph-axis-end-field > span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* 関数カードの「ラベル | 操作」の行の並び。 */
+.graph-field-list {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
 }

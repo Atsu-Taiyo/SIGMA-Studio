@@ -3954,7 +3954,6 @@ body.page-block-dragging * {
   margin: 0;
 }
 
-.graph-checkbox-grid .checkbox-field,
 .graph-axis-label-toggle.checkbox-field {
   margin: 0;
 }
@@ -4076,18 +4075,6 @@ body.page-block-dragging * {
   gap: 2px;
 }
 
-.graph-item-style-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  padding: 2px 4px 6px;
-}
-
-.graph-item-actions-menu .graph-item-style-row button {
-  width: auto;
-  min-height: 30px;
-}
-
 /* リストの字下げのつまみ (`ListIndentSlider`)。キャレットのあるリストの上辺、文字の始まる線に
    ▼を置く。ふだんは灰色の小さな印だけで、乗る・引くと線と目盛りと字数が出る。
    編集面だけの道具なので document-surface.css には置かない。 */
@@ -4179,4 +4166,18 @@ body.page-block-dragging * {
   font: 500 11px/16px var(--font-ui, system-ui, sans-serif);
   white-space: nowrap;
   transform: translate(8px, -100%);
+}
+
+/* 畳んだ節の中で起きている問題 (曲線が範囲外など) を見出しの下に出す。 */
+.editor-settings-accordion-notice {
+  margin: 0 0 var(--space-sm);
+  color: var(--warning);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.editor-settings-accordion-notice[data-empty="true"] {
+  margin: 0;
+  block-size: 0;
+  overflow: hidden;
 }
