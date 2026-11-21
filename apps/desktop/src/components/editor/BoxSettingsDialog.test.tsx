@@ -204,6 +204,25 @@ describe("BoxSettingsDialog live preview", () => {
     expect(previewBox().className).toContain("box-frame--title-position-c");
   });
 
+  it("puts the last part of the title at the right end with 両端, and a position takes it back", async () => {
+    await render(createBoxBlock("chart-red-reidai", "", { id: "box_1" }));
+    const button = (label: string) => Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
+      .find((candidate) => candidate.textContent === label)!;
+    // 参考書型の箱は最初から両端揃え (★が帯の右端)。
+    expect(button("両端").getAttribute("aria-pressed")).toBe("true");
+    expect(previewBox().className).toContain("box-frame--title-ends");
+
+    await act(async () => button("左").click());
+    expect(current.frame?.titlePosition).toBe("l");
+    expect(previewBox().className).not.toContain("box-frame--title-ends");
+    expect(button("両端").getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => button("両端").click());
+    expect(current.frame).toMatchObject({ titleAlign: "justify" });
+    expect(current.frame?.titlePosition).toBeUndefined();
+    expect(previewBox().className).toContain("box-frame--title-ends");
+  });
+
   it("keeps the preview copy's ids apart from the paper's and caps a long body", async () => {
     const box = createBoxBlock("fancybox", "長い箱", { id: "box_1", bodyId: "p_0", bodyText: "1 段落目" });
     box.blocks = Array.from({ length: BOX_PREVIEW_BODY_BLOCK_LIMIT + 4 }, (_, index) => ({

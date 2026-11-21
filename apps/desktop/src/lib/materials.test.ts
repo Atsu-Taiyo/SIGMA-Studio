@@ -16,6 +16,7 @@ import {
   isOfficialMaterial,
   mergeOfficialMaterials,
 } from "@/lib/official-materials";
+import { listOfficialTemplateMaterials } from "@/lib/official-templates";
 import type { OverlayAsset, OverlayShape } from "@/features/document";
 import type { SigmaBlock, SigmaDocument, ParagraphNode } from "@/types/sigma-doc";
 import type { MaterialContent, MaterialItem } from "@/types/material";
@@ -67,8 +68,8 @@ describe("materials", () => {
 
     const merged = mergeOfficialMaterials([userMaterial, spoofedOfficial]);
 
-    expect(merged).toHaveLength(1);
-    expect(merged.at(-1)).toMatchObject({ id: "material_user", name: "ユーザー素材" });
+    expect(merged[0]).toMatchObject({ id: "material_user", name: "ユーザー素材" });
+    expect(merged.slice(1)).toEqual(listOfficialTemplateMaterials());
     expect(merged.some((material) => material.name === "上書き")).toBe(false);
     expect(isOfficialMaterial(spoofedOfficial)).toBe(true);
   });

@@ -20,6 +20,11 @@ type IntentionalJapaneseRule = {
  */
 export const INTENTIONAL_RUNTIME_JAPANESE: readonly IntentionalJapaneseRule[] = [
   {
+    path: /^src\/lib\/official-templates\/[\w-]+\.ts$/,
+    classification: "official template document content",
+    reason: "Bundled sample documents laid out like Japanese reference books and entrance exams; the text is the material itself and the names become document titles, the same in every locale.",
+  },
+  {
     path: /^src\/lib\/problem-library\.ts$/,
     value: /^(?:整数|数と式|図形|複素数平面|微積分|確率|数列)$/,
     classification: "upstream API category identifiers",
