@@ -85,6 +85,40 @@ async function readBody(request) {
   }
 }
 
+// 上流 (OpenRouter) の事業者の選び方。利用者には決めさせず、置き先の設定 `PROVIDER_ROUTING` (JSON) で決める。
+// 何も決めないと要求ごとに別の事業者へ振られ、毎ステップ送る大きな入力 (ツール定義) のキャッシュが
+// 効かず、最初の応答までが 1 秒から 9 秒までばらつく。速くてキャッシュの効く事業者を先頭に並べる。
+const ROUTING_FIELDS = {
+  order: "names", only: "names", ignore: "names",
+  sort: ["price", "throughput", "latency"],
+  allow_fallbacks: "boolean",
+  data_collection: ["allow", "deny"],
+  zdr: "boolean",
+};
+
+export function providerRouting(env) {
+  if (typeof env.PROVIDER_ROUTING !== "string" || !env.PROVIDER_ROUTING.trim()) return undefined;
+  let parsed;
+  try {
+    parsed = JSON.parse(env.PROVIDER_ROUTING);
+  } catch {
+    throw new Error("INVALID_CONFIGURATION");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("INVALID_CONFIGURATION");
+  const routing = {};
+  for (const [field, value] of Object.entries(parsed)) {
+    const kind = ROUTING_FIELDS[field];
+    const valid = kind === "names"
+      ? Array.isArray(value) && value.length > 0 && value.length <= 16 && value.every(name => typeof name === "string" && /^[\w .\/-]{1,64}$/.test(name))
+      : kind === "boolean" ? typeof value === "boolean"
+      : Array.isArray(kind) && kind.includes(value);
+    // 知らない項目や形の違う値は、黙って捨てずに設定の誤りとして止める。
+    if (!valid) throw new Error("INVALID_CONFIGURATION");
+    routing[field] = value;
+  }
+  return Object.keys(routing).length > 0 ? routing : undefined;
+}
+
 function outputLimit(body) {
   const requested = [body.max_tokens, body.max_completion_tokens].find(value => Number.isInteger(value) && value > 0);
   return Math.min(requested ?? MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS);
@@ -108,8 +142,10 @@ async function chatCompletions(request, env, fetcher) {
     if (body[field] !== undefined) upstreamBody[field] = body[field];
   }
 
-  // 設定の誤り (https でない上流) は、通信の失敗と区別して 500 にする。
+  // 設定の誤り (https でない上流・事業者の選び方) は、通信の失敗と区別して 500 にする。
   const base = upstreamBase(env);
+  const routing = providerRouting(env);
+  if (routing) upstreamBody.provider = routing;
   // 応答ヘッダーが返るまでだけ時間を切る。本文 (SSE) は長く続くので切らない。
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPSTREAM_CONNECT_TIMEOUT_MS);

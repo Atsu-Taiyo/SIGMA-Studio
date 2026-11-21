@@ -10,7 +10,9 @@
   "workers_dev": true,
   "preview_urls": false,
   "vars": {
-    "ALLOWED_MODELS": "deepseek/deepseek-v4.1-flash-1017"
+    "ALLOWED_MODELS": "deepseek/deepseek-v4.1-flash-1017",
+    // 上流の事業者を固定する (docs/sigma-ai.md の「応答の速さ」)。固定しないと応答までの時間と料金が大きくばらつく。
+    "PROVIDER_ROUTING": "{\"order\":[\"Morph\",\"InferenceNet\"],\"ignore\":[\"Reka\"],\"allow_fallbacks\":true}"
   },
   "observability": { "enabled": false }
 }

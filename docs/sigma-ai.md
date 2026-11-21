@@ -69,6 +69,7 @@ Node は次の順で探します: `SIGMA_STUDIO_NODE_BIN` → `dsh-runtime/node/
 - `OPENROUTER_API_KEY` — OpenRouter の鍵
 - `SIGMA_AI_GATEWAY_TOKEN` — アプリが提示する共有トークン (32バイト以上)
 - `SIGMA_AI_ALLOWED_MODELS` — 任意。許可するモデル (カンマ区切り)
+- `SIGMA_AI_PROVIDER_ROUTING` — 上流の事業者の選び方 (JSON)。下の「応答の速さ」を参照
 
 ```sh
 npm run ai-gateway:test
@@ -87,6 +88,27 @@ npx wrangler secret put OPENROUTER_API_KEY --config ai-gateway/wrangler.jsonc
 npx wrangler secret put GATEWAY_TOKEN --config ai-gateway/wrangler.jsonc
 npx wrangler deploy --config ai-gateway/wrangler.jsonc
 ```
+
+### 応答の速さ (上流の事業者を固定する)
+
+内蔵AIは 1 ステップごとに、教材ツール 67 個の定義 (約 19 万字) を含む約 7.8 万トークンを送ります。OpenRouter は何も指定しないと要求ごとに別の事業者へ振るので、入力のキャッシュが効かず、最初の応答までが 1 秒から 9 秒までばらつき、料金も 1 ステップあたり 25 倍の差が出ます。1 つの依頼は 3〜6 ステップなので、これが待ち時間の大半でした。
+
+中継の `PROVIDER_ROUTING` (Supabase では `SIGMA_AI_PROVIDER_ROUTING`) に、速くてキャッシュの効く事業者を先頭に並べます。利用者の要求からは受け取りません。
+
+```json
+{"order":["Morph","InferenceNet"],"ignore":["Reka"],"allow_fallbacks":true}
+```
+
+2026-11-21 に、実際の 1 ステップ目の入力 (約 7.8 万トークン) で測った値です。事業者の顔ぶれと速さは変わるので、遅くなったら測り直してください。
+
+| 設定 | 最初の応答まで | 備考 |
+|---|---|---|
+| 指定なし | 1.2〜8.6 秒 | 毎回別の事業者。キャッシュはほぼ効かない |
+| `order: ["Morph"]` | 1.1〜1.8 秒 | キャッシュが無い回も 1.7 秒 |
+| `sort: "latency"` (InferenceNet) | 0.8〜1.1 秒 | 最初の 1 回だけ 7.7 秒 |
+| `sort: "throughput"` (Reka) | 3.8〜10.9 秒 | 同じ入力を約 60 万トークンと数え、料金が 1 回 0.18 ドルになる。使わない |
+
+この設定で、「直角三角形の図を入れて」という依頼は、チャットから送って実行が終わるまで 27〜35 秒になりました (5 回。設定前は同じ依頼で 30 秒〜4 分)。内訳は、起動 4〜5 秒、教材とスキルの読み取り 2〜3 秒、図を書く 15〜18 秒、報告 5〜6 秒です。思考の量を減らす指定 (`reasoning.effort`) はこのモデルでは効きませんでした。
 
 ### 認証の限界
 

@@ -139,3 +139,20 @@ test("a gateway mounted under a function name routes as if it were at the root",
   const models = await handleGatewayRequest(request("/functions/v1/sigma-ai-gateway/v1/models"), mounted, neverFetch);
   assert.equal(models.status, 200);
 });
+
+test("provider routing comes from the deployment, never from the caller", async () => {
+  const body = { model: MODEL, messages: [{ role: "user", content: "hi" }], provider: { order: ["Expensive"] } };
+  const sent = async (extra) => {
+    let upstream;
+    const response = await handleGatewayRequest(request("/v1/chat/completions", { body }), { ...env, ...extra },
+      async (_url, init) => { upstream = JSON.parse(init.body); return Response.json({}); });
+    return { status: response.status, provider: upstream?.provider };
+  };
+  assert.deepEqual(await sent({}), { status: 200, provider: undefined });
+  assert.deepEqual(await sent({ PROVIDER_ROUTING: '{"order":["Morph","DigitalOcean"],"allow_fallbacks":true}' }),
+    { status: 200, provider: { order: ["Morph", "DigitalOcean"], allow_fallbacks: true } });
+  assert.deepEqual(await sent({ PROVIDER_ROUTING: '{"sort":"throughput"}' }), { status: 200, provider: { sort: "throughput" } });
+  for (const bad of ["{", '"Morph"', '{"sort":"fastest"}', '{"order":[]}', '{"order":["a\\nb"]}', '{"max_price":{"prompt":1}}']) {
+    assert.equal((await sent({ PROVIDER_ROUTING: bad })).status, 500, bad);
+  }
+});
