@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, type RefObject } from "react";
 
 import type { InlineNode, SigmaCommentAgent, SigmaCommentAnchor, SigmaDocument } from "@/features/document";
 import type { AiEditRunResult } from "@/lib/ai/ai-edit-runtime";
-import type { AiProvider } from "@/lib/ai/ai-providers";
+import { useSigmaAiConnection } from "@/lib/ai/ai-connection";
+import { SIGMA_AI_EDIT_MODEL, type ExternalAiProvider } from "@/lib/ai/ai-providers";
 import type { CodexAiEditRequest } from "@/lib/ai/codex-ai-edit-client";
 import type { AiEditModel, AiEditReasoningEffort } from "@/lib/ai/sigma-doc-edit-schema";
 import { getCommentAgentForProviderName } from "@/lib/comment-agents";
@@ -18,12 +19,12 @@ type CommentSubmissionHandler = (threadId: string, body: InlineNode[], anchor: S
 export interface CommentAiRunOptions {
   documentRef: RefObject<SigmaDocument>;
   activeFileIdRef: RefObject<string>;
-  connectedProviders: Readonly<Record<AiProvider, boolean>>;
+  connectedProviders: Readonly<Record<ExternalAiProvider, boolean>>;
   appendReplyMessage: (threadId: string, authorName: string, body: InlineNode[], agent?: SigmaCommentAgent) => string;
   editCommentMessage: (threadId: string, messageId: string, body: InlineNode[]) => void;
   refreshMcpEditProposals: () => Promise<void>;
   onCommentSubmittedRef: RefObject<CommentSubmissionHandler>;
-  models: Readonly<Record<AiProvider, AiEditModel>>;
+  models: Readonly<Record<ExternalAiProvider, AiEditModel>>;
   reasoningEffort: AiEditReasoningEffort;
   runAiEdit: (request: CodexAiEditRequest) => Promise<AiEditRunResult>;
   tEditor: Translate<"editor">;
@@ -45,6 +46,8 @@ export function useCommentAiRun({
   tEditor,
   tAi,
 }: CommentAiRunOptions): CommentSubmissionHandler {
+  // 内蔵AI (@sigma) はログインもモデルの選択も無いので、host から受け取らずここで状態を見る。
+  const sigma = useSigmaAiConnection().state.kind === "loggedIn";
   // stateの反映前に同じスレッドへ連続投稿されても、多重起動させない。
   const runningThreadsRef = useRef<Set<string>>(new Set());
   const appendAiReplyMessage = useCallback((threadId: string, authorName: string, body: InlineNode[]): string => (
@@ -55,7 +58,7 @@ export function useCommentAiRun({
     const eligibility = deriveCommentAiRunEligibility({
       body,
       threadAlreadyRunning: runningThreadsRef.current.has(threadId),
-      connectedProviders: { chatgpt, claude, antigravity },
+      connectedProviders: { sigma, chatgpt, claude, antigravity },
       t: tAi,
     });
     if (eligibility.kind === "ignore") return;
@@ -81,7 +84,7 @@ export function useCommentAiRun({
           body,
           anchor,
           match,
-          models: { chatgpt: chatgptModel, claude: claudeModel, antigravity: antigravityModel },
+          models: { sigma: SIGMA_AI_EDIT_MODEL, chatgpt: chatgptModel, claude: claudeModel, antigravity: antigravityModel },
           reasoningEffort,
         });
         const result = await runAiEdit({ fileId: activeFileIdRef.current, ...requestPlan });
@@ -101,7 +104,7 @@ export function useCommentAiRun({
         runningThreadsRef.current = next;
       }
     })();
-  }, [activeFileIdRef, antigravity, antigravityModel, appendAiReplyMessage, chatgpt, chatgptModel, claude, claudeModel, documentRef, editCommentMessage, reasoningEffort, refreshMcpEditProposals, runAiEdit, tAi, tEditor]);
+  }, [activeFileIdRef, sigma, antigravity, antigravityModel, appendAiReplyMessage, chatgpt, chatgptModel, claude, claudeModel, documentRef, editCommentMessage, reasoningEffort, refreshMcpEditProposals, runAiEdit, tAi, tEditor]);
 
   // 投稿側への配送は従来どおりpassive effectで更新し、描画中には書き換えない。
   useEffect(() => {

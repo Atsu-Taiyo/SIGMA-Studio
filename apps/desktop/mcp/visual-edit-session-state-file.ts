@@ -29,7 +29,7 @@ import type {
  * 途中の文書 (operationResults) は大きく、読み戻すときに作り直せるので入れない。
  */
 const VISUAL_SESSION_STATE_VERSION = 1;
-const PROVIDERS = ["claude", "chatgpt", "antigravity"] as const;
+const PROVIDERS = ["claude", "chatgpt", "antigravity", "sigma"] as const;
 
 
 const HeaderSchema = z.object({

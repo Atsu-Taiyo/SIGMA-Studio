@@ -625,7 +625,7 @@ export class LocalAuthoringStyleStore {
     if (this.provider) return this.provider;
     try {
       const { provider } = JSON.parse(await fs.readFile(this.providerPath, "utf8"));
-      return provider === "claude" || provider === "chatgpt" || provider === "antigravity" ? provider : null;
+      return provider === "claude" || provider === "chatgpt" || provider === "antigravity" || provider === "sigma" ? provider : null;
     } catch { return null; }
   }
 

@@ -23,6 +23,8 @@ import type { ClaudeStreamClient } from "../claude-stream-client";
 import type { CodexAppServerClient } from "../codex-app-server-client";
 import { isAiWebSearchEnabled, readDesktopSettingsSync } from "../desktop-settings";
 import { runGeminiEditForIpc } from "../gemini-edit";
+import type { DshHarnessClient } from "../dsh-harness-client";
+import { runSigmaEditForIpc } from "../sigma-edit";
 import type { GeminiHeadlessClient } from "../gemini-headless-client";
 import { buildGeminiWorkspaceSettings, writeGeminiWorkspaceSettings } from "../gemini-settings-config";
 import type { LocalMcpEditProposalStore } from "../local-sigma-doc-proposal-store";
@@ -81,6 +83,7 @@ export interface RegisterAiEditIpcDeps {
   claudeStreamClient: ClaudeStreamClient;
   codexAppServerClient: CodexAppServerClient;
   geminiHeadlessClient: GeminiHeadlessClient;
+  dshHarnessClient: DshHarnessClient;
   resolveMcpServerScriptPath: () => string;
   pendingRenderDocuments: Map<string, SigmaDocument>;
 }
@@ -101,6 +104,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
     claudeStreamClient,
     codexAppServerClient,
     geminiHeadlessClient,
+    dshHarnessClient,
     resolveMcpServerScriptPath,
     pendingRenderDocuments,
   } = deps;
@@ -138,7 +142,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
   //   per-runId storeへの書き込みでtool呼び出しにrunIdが乗ったときに正しいrunのコンテキストを
   //   MCPサーバーが解決できるようにする (sigma-doc-mcp-app-context.ts 側の解決ロジック)。
   async function runEditWithRunContext<TArgs extends { payload: unknown }, TResult>(
-    provider: "claude" | "chatgpt" | "antigravity",
+    provider: "claude" | "chatgpt" | "antigravity" | "sigma",
     runContextStores: LocalAiEditRunContextStore[],
     args: TArgs & { runId: string },
     run: (args: TArgs) => Promise<TResult>,
@@ -201,6 +205,9 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
         }
         if (provider === "antigravity") {
           return geminiHeadlessClient.cancelRun(runId);
+        }
+        if (provider === "sigma") {
+          return dshHarnessClient.cancelRun(runId);
         }
         return codexAppServerClient.cancelByRunId(runId);
       },
@@ -279,6 +286,37 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
                 onEvent: emitAiEditEvent,
               },
               runClaudeEditForIpc,
+            );
+          })()
+        : provider === "sigma"
+        ? await (async () => {
+            // 内蔵AIは run ごとに dsh を起動し、その構成で MCP サーバーの起動方法を渡す。
+            // Claude と同じく、この run だけの実行コンテキストファイルを直接指せる。
+            const sigmaRunContextStore = new LocalAiEditRunContextStore(userDataPath, "sigma", { runId });
+            return runEditWithRunContext(
+              "sigma",
+              [sigmaRunContextStore],
+              {
+                sigma: dshHarnessClient,
+                aiResources,
+                payload,
+                runId,
+                userDataPath,
+                locale,
+                isCancelRequested: () => cancelRequestedAiEditRuns.has(runId),
+                cwd: agentWorkspaceDir,
+                mcp: {
+                  uiLocale: locale,
+                  execPath: process.execPath,
+                  scriptPath: resolveMcpServerScriptPath(),
+                  userDataDir: userDataPath,
+                  runContextFile: sigmaRunContextStore.getRunContextFilePath(),
+                  renderBridgeFile: localAiRenderBridgeStore.getBridgeFilePath(),
+                  provider: "sigma",
+                },
+                onEvent: emitAiEditEvent,
+              },
+              runSigmaEditForIpc,
             );
           })()
         : provider === "antigravity"

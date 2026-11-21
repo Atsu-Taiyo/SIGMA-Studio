@@ -1,0 +1,12 @@
+{
+  "name": "@deepseek-ai/libreoffice-kit",
+  "version": "0.1.5",
+  "private": true,
+  "description": "SIGMA Studio の内蔵AIは Office 文書を扱わない。dsh の Office スキルが引き込む LibreOffice 一式 (約 150MB) の代わりに置く空の差し替え。",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./cli": "./index.js",
+    "./package.json": "./package.json"
+  }
+}

@@ -12,6 +12,7 @@ import {
 } from "./run-request-model";
 
 const connectedProviders: Record<AiProvider, boolean> = {
+  sigma: true,
   chatgpt: true,
   claude: true,
   antigravity: true,
@@ -110,6 +111,7 @@ describe("comment AI run request planning", () => {
       },
       match: eligibility.match,
       models: {
+        sigma: "sigma-model",
         chatgpt: "gpt-model",
         claude: "claude-model",
         antigravity: "gemini-model",
@@ -145,6 +147,7 @@ describe("comment AI run request planning", () => {
         token: "@codex",
       },
       models: {
+        sigma: "sigma-model",
         chatgpt: "gpt-model",
         claude: "claude-model",
         antigravity: "gemini-model",

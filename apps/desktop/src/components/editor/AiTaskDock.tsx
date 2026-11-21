@@ -81,7 +81,7 @@ export interface TaskRow {
   key: string;
   roomId: string | null;
   runId: string | null;
-  provider: "claude" | "chatgpt" | "antigravity" | null;
+  provider: "claude" | "chatgpt" | "antigravity" | "sigma" | null;
   status: TaskStatusKind;
   label: string;
   anchorExcerpt: string | null;

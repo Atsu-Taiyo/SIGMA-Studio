@@ -5,6 +5,7 @@ import { releaseExtensionDefaults } from "./extension-build-config.mjs";
 import { normalizeExportedCssAssets } from "./static-assets.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { isBuiltin } from "node:module";
 import { readFileSync } from "node:fs";
 import { cp, readdir, rm } from "node:fs/promises";
 
@@ -39,6 +40,38 @@ const common = {
     "mathlive": path.join(root, "electron/mathlive-main-stub.ts"),
   },
 };
+
+/**
+ * 束ねずに残した import (external) は、配布物の node_modules から実行時に読まれる。
+ * electron-builder が配布物へ入れるのは `dependencies` だけなので、`devDependencies` の
+ * パッケージを main / preload / MCP サーバーが読むと、開発では動いて配布版でだけ落ちる。
+ * 画面 (Next の静的出力) だけが使うパッケージは `devDependencies` に置いて配布物を小さく
+ * 保ち、その取り違えをここでビルドの失敗にする。
+ */
+export function findUnpackagedExternals(metafile, dependencyNames) {
+  const packaged = new Set(dependencyNames);
+  const missing = new Map();
+  for (const [output, entry] of Object.entries(metafile.outputs)) {
+    for (const item of entry.imports ?? []) {
+      if (!item.external) continue;
+      const specifier = item.path;
+      if (specifier === "electron" || specifier.startsWith("node:") || isBuiltin(specifier)) continue;
+      const name = specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0];
+      if (!packaged.has(name)) missing.set(name, [...(missing.get(name) ?? []), path.basename(output)]);
+    }
+  }
+  return [...missing].map(([name, outputs]) => ({ name, outputs: [...new Set(outputs)].sort() })).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function assertPackagedExternals(metafile) {
+  const missing = findUnpackagedExternals(metafile, Object.keys(pkg.dependencies ?? {}));
+  if (missing.length === 0) return;
+  throw new Error([
+    "These packages are loaded at runtime by the Electron bundles but are not in `dependencies`, so the packaged app would not contain them:",
+    ...missing.map(({ name, outputs }) => `  - ${name} (${outputs.join(", ")})`),
+    "Move them back to `dependencies` in apps/desktop/package.json, or bundle them.",
+  ].join("\n"));
+}
 
 export async function buildElectron({ watch = false, onBuilt } = {}) {
   const options = {
@@ -93,7 +126,8 @@ export async function buildElectron({ watch = false, onBuilt } = {}) {
     await builder.watch();
     return builder;
   }
-  await build(options);
+  const result = await build({ ...options, metafile: true });
+  assertPackagedExternals(result.metafile);
   const assets = await normalizeExportedCssAssets(path.join(root, "out"));
   if (assets.rewrittenUrls) console.log(`[electron] fixed ${assets.rewrittenUrls} static asset URLs in ${assets.rewrittenFiles} stylesheets`);
   console.log("[electron] build complete");

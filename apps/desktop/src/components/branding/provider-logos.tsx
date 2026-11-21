@@ -1,5 +1,7 @@
 import type { CSSProperties, ReactElement } from "react";
 
+import { SIGMA_MARK_PATH } from "./SigmaMark";
+
 interface ProviderMarkProps {
   size?: number;
   className?: string;
@@ -103,11 +105,22 @@ export function GeminiMark({ size = 16, className }: ProviderMarkProps) {
 // AiProvider いずれの union とも値集合が一致する) からロゴ要素を描く共通ヘルパー。
 // chatgpt はロゴ上 OpenAI 扱い。コンポーネント参照ではなく要素を直接返す
 // (レンダー中にコンポーネントを都度生成すると react-hooks/static-components に抵触するため)。
+/** 内蔵AI (SIGMA AI) の印。アプリアイコンと同じ Σ を、タイル無しの単色で描く。 */
+export function SigmaAiMark({ size = 16, className }: ProviderMarkProps): ReactElement {
+  return (
+    <svg width={size} height={size} viewBox="180 179 649 643" className={className} aria-hidden="true">
+      <path d={SIGMA_MARK_PATH} fill="currentColor" />
+    </svg>
+  );
+}
+
 export function renderProviderMark(
-  provider: "claude" | "chatgpt" | "antigravity",
+  provider: "claude" | "chatgpt" | "antigravity" | "sigma",
   props?: ProviderMarkProps,
 ): ReactElement {
   switch (provider) {
+    case "sigma":
+      return <SigmaAiMark {...props} />;
     case "claude":
       return <ClaudeMark {...props} />;
     case "antigravity":
@@ -125,9 +138,13 @@ export function renderProviderMark(
  */
 export function renderModelMark(
   model: string,
-  provider: "claude" | "chatgpt" | "antigravity",
+  provider: "claude" | "chatgpt" | "antigravity" | "sigma",
   props?: ProviderMarkProps,
 ): ReactElement {
+  // 内蔵AIは中で使うモデルの会社ではなく、SIGMA AI として見せる。
+  if (provider === "sigma") {
+    return <SigmaAiMark {...props} />;
+  }
   const normalized = model.trim().toLowerCase();
   if (normalized.includes("gemini")) {
     return <GeminiMark {...props} />;

@@ -15,7 +15,7 @@ import {
   SquarePen,
   X,
 } from "lucide-react";
-import { AntigravityMark, ClaudeMark, OpenAiMark, renderModelMark } from "@/components/branding/provider-logos";
+import { AntigravityMark, ClaudeMark, OpenAiMark, SigmaAiMark, renderModelMark } from "@/components/branding/provider-logos";
 import { AiChatTextInput } from "@/components/editor/AiChatTextInput";
 import { ToolbarPopover } from "@/components/editor/ToolbarPopover";
 import { Shimmer } from "@/components/ui/Shimmer";
@@ -28,7 +28,7 @@ import {
   resolveAiModelOptions,
 } from "@/lib/ai/ai-model-catalog";
 import type { useAiChatModelController } from "@/features/ai-edit/application/use-ai-chat-model-controller";
-import { aiProviderLabel, claudeModelLabel, geminiModelLabel } from "@/lib/ai/ai-providers";
+import { AI_PROVIDER_LABELS, SIGMA_AI_EDIT_MODEL, aiProviderLabel, claudeModelLabel, geminiModelLabel } from "@/lib/ai/ai-providers";
 import { resolveAiResourceDisplayMetadata } from "@/lib/ai/ai-resource-display";
 import { type AiEditModel, type AiEditReasoningEffort } from "@/lib/ai/sigma-doc-edit-schema";
 import { useT } from "@/lib/i18n/react";
@@ -137,7 +137,9 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
     || attachments.length > 0
     || mentionedDocuments.length > 0
     || selectedAiResources.length > 0;
-  const selectedProviderModel = provider === "claude" ? claudeModel : provider === "antigravity" ? geminiModel : model;
+  // 内蔵AIはモデルも推論の深さも選ばせない。ボタンには名前だけを出す。
+  const builtIn = provider === "sigma";
+  const selectedProviderModel = builtIn ? SIGMA_AI_EDIT_MODEL : provider === "claude" ? claudeModel : provider === "antigravity" ? geminiModel : model;
   const activeModelOptions = resolveAiModelOptions(provider, runtimeModelCatalogs[provider]);
   const selectedModelOption = activeModelOptions.find((option) => option.id === selectedProviderModel);
   const selectedModelLabel = selectedModelOption?.label ?? (
@@ -533,14 +535,15 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
               ref={modelMenuButtonRef}
               type="button"
               className="ai-chat-model-button"
-              title={t("composer.modelButtonTitle", { replace: {
+              data-built-in={builtIn ? "true" : undefined}
+              title={builtIn ? selectedProviderLabel : t("composer.modelButtonTitle", { replace: {
                 provider: selectedProviderLabel,
                 model: selectedModelLabel,
                 effort: reasoningEffortSupported
                   ? t("composer.effortWithId", { replace: { label: selectedReasoningEffortLabel, id: reasoningEffort } })
                   : t("composer.effortUnsupported"),
               } })}
-              aria-label={t("composer.providerModelAria", { replace: {
+              aria-label={builtIn ? selectedProviderLabel : t("composer.providerModelAria", { replace: {
                 provider: selectedProviderLabel,
                 model: selectedModelLabel,
                 effort: reasoningEffortSupported
@@ -550,17 +553,22 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
               aria-haspopup="menu"
               aria-expanded={modelMenuOpen}
               onClick={toggleModelMenu}
-              disabled={isRunning}
+              // 内蔵AIに決まった会話には、切り替えるものが残っていない。
+              disabled={isRunning || (builtIn && Boolean(lockedProvider))}
             >
               {renderModelMark(selectedProviderModel, provider, { size: 13 })}
               <span className="ai-chat-model-button-label">
                 <span>{selectedProviderLabel}</span>
-                <span className="ai-chat-model-button-divider" aria-hidden="true">·</span>
-                <span>{selectedModelLabel}</span>
-                <span className="ai-chat-model-button-divider" aria-hidden="true">·</span>
-                <span>{reasoningEffortSupported ? selectedReasoningEffortLabel : t("composer.effortUnsupported")}</span>
+                {!builtIn && (
+                  <>
+                    <span className="ai-chat-model-button-divider" aria-hidden="true">·</span>
+                    <span>{selectedModelLabel}</span>
+                    <span className="ai-chat-model-button-divider" aria-hidden="true">·</span>
+                    <span>{reasoningEffortSupported ? selectedReasoningEffortLabel : t("composer.effortUnsupported")}</span>
+                  </>
+                )}
               </span>
-              <ChevronDown size={12} />
+              {!(builtIn && lockedProvider) && <ChevronDown size={12} />}
             </button>
             {modelMenuOpen && (
               <ToolbarPopover
@@ -585,6 +593,23 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
                 {!lockedProvider && (
                   <>
                     <div className="ai-chat-menu-title">{t("composer.provider")}</div>
+                    <button
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={builtIn}
+                      aria-label={AI_PROVIDER_LABELS.sigma}
+                      title={AI_PROVIDER_LABELS.sigma}
+                      className="ai-chat-model-menu-item"
+                      onClick={() => {
+                        setProvider("sigma");
+                        setModelFlyout(null);
+                        setModelMenuOpen(false);
+                      }}
+                    >
+                      <SigmaAiMark size={13} />
+                      <span>{AI_PROVIDER_LABELS.sigma}</span>
+                      {builtIn && <Check size={13} />}
+                    </button>
                     <button
                       type="button"
                       role="menuitemradio"
@@ -633,10 +658,10 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
                       <span>Antigravity</span>
                       {provider === "antigravity" && <Check size={13} />}
                     </button>
-                    <div className="ai-chat-menu-divider" />
+                    {!builtIn && <div className="ai-chat-menu-divider" />}
                   </>
                 )}
-                <AiModelMenuContents
+                {!builtIn && <AiModelMenuContents
                   t={t} provider={provider} selectedProviderLabel={selectedProviderLabel}
                   selectedModel={selectedProviderModel} selectedModelLabel={selectedModelLabel}
                   reasoningEffort={reasoningEffort} selectedReasoningEffortLabel={selectedReasoningEffortLabel}
@@ -662,7 +687,7 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
                               }
                             }
                             }}
-                />
+                />}
               </ToolbarPopover>
             )}
           </div>

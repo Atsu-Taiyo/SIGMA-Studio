@@ -8,6 +8,7 @@ import {
   useAiConnection,
   useClaudeConnection,
   useGeminiConnection,
+  useSigmaAiConnection,
   type AiConnectionStateKind,
 } from "@/lib/ai/ai-connection";
 import type { AiProvider } from "@/lib/ai/ai-providers";
@@ -27,7 +28,7 @@ import { FrameChatComposer } from "./FrameChatComposer";
 import { FrameChatTranscript } from "./FrameChatTranscript";
 import styles from "./FrameChat.module.css";
 
-const PROVIDERS: readonly AiProvider[] = ["chatgpt", "claude", "antigravity"];
+const PROVIDERS: readonly AiProvider[] = ["sigma", "chatgpt", "claude", "antigravity"];
 
 export interface AiFrameDrawingPanelProps extends FrameDrawingPanelProps {
   /** The document the target belongs to. Two documents can each have a problem with the same id. */
@@ -56,6 +57,7 @@ export function AiFrameDrawingPanel({ target, documentIdentityKey, currentSvg, o
     chatgpt: useAiConnection().state.kind,
     claude: useClaudeConnection().state.kind,
     antigravity: useGeminiConnection().state.kind,
+    sigma: useSigmaAiConnection().state.kind,
   };
   const selection = useAiModelSelection(tAi, connections);
   // Nothing to draw with: not the desktop app, or every AI is known not to be connected.

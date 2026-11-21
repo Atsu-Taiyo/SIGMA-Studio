@@ -5,17 +5,29 @@ import { createCurrentLocaleTranslator } from "@/lib/i18n";
 
 const ta = createCurrentLocaleTranslator("ai");
 
-export type AiProvider = "chatgpt" | "claude" | "antigravity";
+export type AiProvider = "sigma" | "chatgpt" | "claude" | "antigravity";
+
+/** 内蔵AI。アプリが用意する接続先を使い、利用者のアカウント連携を必要としない。 */
+export const BUILT_IN_AI_PROVIDER: AiProvider = "sigma";
+/**
+ * 利用者自身のアカウントやCLIにつなぐAI。コメントの @メンションや、CLI への一回きりの
+ * 問い合わせ (枠の描画・スキルの下書き) はこの 3 つだけを相手にする。
+ */
+export type ExternalAiProvider = Exclude<AiProvider, "sigma">;
+
+/** 内蔵AIのモデル。選択肢は 1 つで、利用者が切り替えるものではない。 */
+export const SIGMA_AI_EDIT_MODEL = "deepseek/deepseek-v4.1-flash-1017";
 
 export const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
   chatgpt: "ChatGPT",
   claude: "Claude",
   antigravity: "Antigravity",
+  sigma: "SIGMA AI",
 };
 
 /** Keeps provider identity visible even when a future or malformed id is restored. */
 export function aiProviderLabel(provider: unknown): string {
-  if (provider === "chatgpt" || provider === "claude" || provider === "antigravity") {
+  if (provider === "chatgpt" || provider === "claude" || provider === "antigravity" || provider === "sigma") {
     return AI_PROVIDER_LABELS[provider];
   }
   const id = typeof provider === "string" ? provider.trim() : "";

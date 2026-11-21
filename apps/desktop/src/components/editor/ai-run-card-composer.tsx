@@ -30,7 +30,7 @@ import  {
   resolveCatalogSelection,
 } from "@/lib/ai/ai-model-catalog";
 import { getAiModelPreferences, saveAiModelPreferences } from "@/lib/ai/ai-model-preferences";
-import { aiProviderLabel, toAiResourceProvider, type AiProvider } from "@/lib/ai/ai-providers";
+import { aiProviderLabel, BUILT_IN_AI_PROVIDER, SIGMA_AI_EDIT_MODEL, toAiResourceProvider, type AiProvider } from "@/lib/ai/ai-providers";
 import { aiChatRoomsStore, createAiRunAnchor, enqueueFollowUp, startRun } from "@/lib/ai/ai-run-controller";
 import { aiRunSessionStore, type AiRunAnchor } from "@/lib/ai/ai-run-session-store";
 import type { AiEditAttachment, AiEditMentionedDocumentContext } from "@/lib/ai/sigma-doc-agent-tools";
@@ -120,8 +120,11 @@ export function AiRunCardComposer({
   );
   const [selectedModel, setSelectedModel] = useState(() => {
     const prefs = getAiModelPreferences();
+    // 内蔵AIはモデルが 1 つに決まっている。Codex の設定値を借りない。
+    if (provider === BUILT_IN_AI_PROVIDER) return SIGMA_AI_EDIT_MODEL;
     return provider === "claude" ? prefs.claudeModel : provider === "antigravity" ? prefs.geminiModel : prefs.model;
   });
+  const builtIn = provider === BUILT_IN_AI_PROVIDER;
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelFlyout, setModelFlyout] = useState<"model" | "effort" | null>(null);
   const [runtimeModelCatalog, setRuntimeModelCatalog] = useState<DesktopAiModelCatalog | null>(null);
@@ -170,6 +173,8 @@ export function AiRunCardComposer({
   const reasoningEffortSupported = reasoningEfforts.length > 0;
 
   useEffect(() => {
+    // 内蔵AIに選べるモデルは無い (Codex の一覧を取りに行かない)。
+    if (provider === BUILT_IN_AI_PROVIDER) return;
     const desktop = getDesktopBridge();
     const section = provider === "claude"
       ? desktop?.claude
@@ -224,11 +229,13 @@ export function AiRunCardComposer({
       ...preferences,
       provider,
       reasoningEffort,
-      ...(provider === "claude"
-        ? { claudeModel: selectedModel }
-        : provider === "antigravity"
-          ? { geminiModel: selectedModel }
-          : { model: selectedModel }),
+      ...(provider === BUILT_IN_AI_PROVIDER
+        ? {}
+        : provider === "claude"
+          ? { claudeModel: selectedModel }
+          : provider === "antigravity"
+            ? { geminiModel: selectedModel }
+            : { model: selectedModel }),
     });
   }, [provider, reasoningEffort, selectedModel]);
 
@@ -520,11 +527,13 @@ export function AiRunCardComposer({
       ...prefs,
       provider,
       reasoningEffort,
-      ...(provider === "claude"
-        ? { claudeModel: selectedModel }
-        : provider === "antigravity"
-          ? { geminiModel: selectedModel }
-          : { model: selectedModel }),
+      ...(provider === BUILT_IN_AI_PROVIDER
+        ? {}
+        : provider === "claude"
+          ? { claudeModel: selectedModel }
+          : provider === "antigravity"
+            ? { geminiModel: selectedModel }
+            : { model: selectedModel }),
     };
     saveAiModelPreferences(nextPrefs);
     const turnAiResourceIds = selectedAiResources.map((resource) => resource.id);
@@ -694,14 +703,17 @@ export function AiRunCardComposer({
               ref={modelMenuButtonRef}
               type="button"
               className="ai-chat-model-button"
-              title={t("composer.modelButtonTitle", { replace: {
+              data-built-in={builtIn ? "true" : undefined}
+              // 内蔵AIの会話には、切り替えるモデルも思考の深さも無い。
+              disabled={builtIn}
+              title={builtIn ? selectedProviderLabel : t("composer.modelButtonTitle", { replace: {
                 provider: selectedProviderLabel,
                 model: selectedModelLabel,
                 effort: reasoningEffortSupported
                   ? t("composer.effortWithId", { replace: { label: selectedReasoningEffortLabel, id: reasoningEffort } })
                   : t("composer.effortUnsupported"),
               } })}
-              aria-label={t("composer.modelButtonAria", { replace: {
+              aria-label={builtIn ? selectedProviderLabel : t("composer.modelButtonAria", { replace: {
                 provider: selectedProviderLabel,
                 model: selectedModelLabel,
                 effort: reasoningEffortSupported
@@ -718,12 +730,16 @@ export function AiRunCardComposer({
               {renderModelMark(selectedModel, provider, { size: 13 })}
               <span className="ai-chat-model-button-label">
                 <span>{selectedProviderLabel}</span>
-                <span className="ai-chat-model-button-divider" aria-hidden="true">·</span>
-                <span>{selectedModelLabel}</span>
-                <span className="ai-chat-model-button-divider" aria-hidden="true">·</span>
-                <span>{reasoningEffortSupported ? selectedReasoningEffortLabel : t("composer.effortUnsupported")}</span>
+                {!builtIn && (
+                  <>
+                    <span className="ai-chat-model-button-divider" aria-hidden="true">·</span>
+                    <span>{selectedModelLabel}</span>
+                    <span className="ai-chat-model-button-divider" aria-hidden="true">·</span>
+                    <span>{reasoningEffortSupported ? selectedReasoningEffortLabel : t("composer.effortUnsupported")}</span>
+                  </>
+                )}
               </span>
-              <ChevronDown size={12} />
+              {!builtIn && <ChevronDown size={12} />}
             </button>
             {modelMenuOpen && (
               <ToolbarPopover

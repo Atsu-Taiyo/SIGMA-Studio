@@ -52,6 +52,9 @@ const OPTIONAL_COLLABORATION_PATHS = [
   // The shared-only Web host uses the same identity provider. Only its settings
   // and setup guide may name it; SDK imports and legacy workspace APIs stay banned.
   /^apps\/web\/(?:\.dev\.vars\.example|wrangler\.jsonc)$/u,
+  // The built-in AI gateway is deployed to the same project. Only its guide may name the host;
+  // the deployment entry lives outside this repository and the app never talks to the host directly.
+  /^docs\/sigma-ai\.md$/u,
   /^CONTRIBUTING\.md$/u,
   /^supabase\/.*$/u,
   /^docs\/collaboration.*$/u,

@@ -1,4 +1,4 @@
-// コメント本文に含まれる AI メンション (@codex / @chatgpt / @ai / @claude / @antigravity / @agy) を検出し、
+// コメント本文に含まれる AI メンション (@sigma / @codex / @chatgpt / @ai / @claude / @antigravity / @agy) を検出し、
 // AI 実行用の指示文へ変換するピュア関数群。EditorShell から分離してテスト可能にする。
 
 import { inlineNodesToCommentText } from "@/lib/comments";
@@ -8,15 +8,15 @@ import type { InlineNode } from "@/features/document";
 export interface CommentMentionMatch {
   provider: AiProvider;
   /** スレッドへ投稿する AI 返信の差出人表示名。 */
-  authorName: "ChatGPT" | "Claude" | "Antigravity";
+  authorName: "SIGMA AI" | "ChatGPT" | "Claude" | "Antigravity";
   /** 実際に打たれたトークン (例: "@claude")。指示文から除去するために使う。 */
   token: string;
 }
 
-// @codex / @chatgpt / @ai → ChatGPT (Codex)、@claude → Claude、
+// @sigma → 内蔵AI (SIGMA AI)、@codex / @chatgpt / @ai → ChatGPT (Codex)、@claude → Claude、
 // @antigravity / @agy → Antigravity。
 // 直前が行頭か空白、直後が語末・空白・区切り文字であることを要求し、メールアドレス等の誤検出を避ける。
-const MENTION_PATTERN = /(?:^|\s)@(codex|chatgpt|ai|claude|antigravity|agy)(?![\p{L}\p{N}_])/iu;
+const MENTION_PATTERN = /(?:^|\s)@(sigma|codex|chatgpt|ai|claude|antigravity|agy)(?![\p{L}\p{N}_])/iu;
 
 /**
  * コメント本文 (InlineNode[]) の最初の AI メンションを検出する。なければ null。
@@ -31,6 +31,9 @@ export function detectCommentAiMention(body: readonly InlineNode[]): CommentMent
 
   const keyword = match[1].toLowerCase();
   const token = `@${keyword}`;
+  if (keyword === "sigma") {
+    return { provider: "sigma", authorName: "SIGMA AI", token };
+  }
   if (keyword === "claude") {
     return { provider: "claude", authorName: "Claude", token };
   }

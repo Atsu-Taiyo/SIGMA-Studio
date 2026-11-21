@@ -36,6 +36,7 @@ import { CodexAppServerClient } from "./codex-app-server-client";
 import { buildCodexAgentConfigToml, type CodexAgentConfigInput } from "./codex-mcp-config";
 import { ClaudeStreamClient } from "./claude-stream-client";
 import { buildClaudeMcpConfig } from "./claude-mcp-config";
+import { DshHarnessClient } from "./dsh-harness-client";
 import { GeminiHeadlessClient } from "./gemini-headless-client";
 import {
   buildGeminiWorkspaceSettings,
@@ -230,7 +231,8 @@ const localAuthoringStyleStore = new LocalAuthoringStyleStore(USER_DATA_PATH, {
   })],
   // The same tool-less single call the skill editor uses, to the provider the author already uses.
   summarize: ({ provider, prompt }) => runToollessPrompt(provider, prompt,
-    { claude: claudeStreamClient, geminiSkillDraft: geminiSkillDraftClient, codex: codexAppServerClient }, `authoring-style-${crypto.randomUUID()}`, 90_000),
+    { claude: claudeStreamClient, geminiSkillDraft: geminiSkillDraftClient, codex: codexAppServerClient,
+      sigma: { client: dshHarnessClient, cwd: SIGMA_AI_TOOLLESS_CWD } }, `authoring-style-${crypto.randomUUID()}`, 90_000),
 });
 const localSigmaDocStore = new LocalSigmaDocStore(USER_DATA_PATH, {
   onDocumentSaved: event => localAuthoringStyleStore.observe(event),
@@ -340,6 +342,26 @@ const claudeStreamClient = new ClaudeStreamClient({
   }),
   claudeBin: process.env.SIGMA_STUDIO_CLAUDE_BIN?.trim() || usablePersistedBin(desktopSettings.claudeBin),
 });
+// 内蔵AI (SIGMA AI)。エージェントは DeepSeek Harness で、実行環境はアプリ本体の依存とは
+// 別に置く (配布物では resources、開発時は apps/desktop/dsh-runtime)。
+const dshHarnessClient = new DshHarnessClient({
+  dshHome: path.join(SIGMA_STUDIO_DATA_PATH, "sigma-ai", "dsh-home"),
+  patchDir: path.join(SIGMA_STUDIO_DATA_PATH, "sigma-ai", "patches"),
+  runtimeDirCandidates: () => [
+    path.join(process.resourcesPath, "dsh-runtime"),
+    path.join(app.getAppPath(), "dsh-runtime"),
+  ],
+  // 内蔵AIは Pro プランだけ (試用期間は Pro と同じ扱い。共有の上限・プランの画面と同じ判定)。
+  // 開発中のビルドではサインイン無しで確かめられるよう、配布物でだけ確かめる。
+  ...(app.isPackaged ? {
+    entitled: async () => ["pro", "trial"].includes(
+      (await collaborationSessions.request<{ plan?: string }>("/catalog/capabilities")).plan ?? ""),
+    // 結果はアカウントごとに覚える (サインアウト・切り替えの後に前の人の結果を使わない)。
+    entitlementAccount: () => collaborationSessions.actorId(),
+  } : {}),
+});
+// 道具を持たせない 1 回の問い合わせ (スキルの下書き・枠の描画・作風の要約) の作業ディレクトリ。
+const SIGMA_AI_TOOLLESS_CWD = path.join(SIGMA_STUDIO_DATA_PATH, "sigma-ai", "toolless");
 const geminiAgentWorkspaceDir = path.join(SIGMA_STUDIO_DATA_PATH, "antigravity-agent-workspace");
 const geminiHeadlessClient = new GeminiHeadlessClient({
   workspaceDir: geminiAgentWorkspaceDir,
@@ -384,6 +406,7 @@ void localGeminiRunContextStore.clear();
 void sweepOrphanPerRunContextFiles(USER_DATA_PATH, "claude");
 void sweepOrphanPerRunContextFiles(USER_DATA_PATH, "chatgpt");
 void sweepOrphanPerRunContextFiles(USER_DATA_PATH, "antigravity");
+void sweepOrphanPerRunContextFiles(USER_DATA_PATH, "sigma");
 // 教材一覧のサムネイル画像は廃止した。以前の版が端末に残した画像を消す。
 void removeRetiredWorkspacePreviewCaches(USER_DATA_PATH);
 void localAiRenderBridgeStore.clear();
@@ -1693,6 +1716,7 @@ function registerIpc() {
     codexAppServerClient,
     claudeStreamClient,
     geminiHeadlessClient,
+    dshHarnessClient,
     getMainWindow: () => mainWindow,
     openExternalUrl,
   });
@@ -1712,6 +1736,7 @@ function registerIpc() {
     claudeStreamClient,
     codexAppServerClient,
     geminiHeadlessClient,
+    dshHarnessClient,
     resolveMcpServerScriptPath,
     pendingRenderDocuments,
   });
@@ -1723,6 +1748,8 @@ function registerIpc() {
     claudeStreamClient,
     codexAppServerClient,
     geminiSkillDraftClient,
+    dshHarnessClient,
+    sigmaToollessCwd: SIGMA_AI_TOOLLESS_CWD,
   });
 
   registerFileIpc({
@@ -1841,6 +1868,8 @@ app.whenReady().then(async () => {
 
 let authoringStyleFlushedForQuit = false;
 let authoringStyleQuitFlush: Promise<void> | undefined;
+let sigmaAiStoppedForQuit = false;
+let sigmaAiQuitStop: Promise<void> | undefined;
 app.on("before-quit", (event) => {
   if (mainWindow && !mainWindow.isDestroyed() && !allowMainWindowClose) {
     event.preventDefault();
@@ -1853,6 +1882,15 @@ app.on("before-quit", (event) => {
     localAuthoringStyleStore.dispose();
     authoringStyleQuitFlush ??= localAuthoringStyleStore.flush().finally(() => {
       authoringStyleFlushedForQuit = true;
+      app.quit();
+    });
+    return;
+  }
+  // 内蔵AIの橋渡しが dsh を畳み終えるまで (上限つきで) 待つ。待たないと dsh が孤児で残る。
+  if (!sigmaAiStoppedForQuit) {
+    event.preventDefault();
+    sigmaAiQuitStop ??= dshHarnessClient.dispose().finally(() => {
+      sigmaAiStoppedForQuit = true;
       app.quit();
     });
     return;
@@ -1873,6 +1911,7 @@ app.on("before-quit", (event) => {
   void sweepOrphanPerRunContextFiles(USER_DATA_PATH, "claude");
   void sweepOrphanPerRunContextFiles(USER_DATA_PATH, "chatgpt");
   void sweepOrphanPerRunContextFiles(USER_DATA_PATH, "antigravity");
+  void sweepOrphanPerRunContextFiles(USER_DATA_PATH, "sigma");
   stopAiRenderBridgeServer();
   void stopSessionBridge?.();
   sharedCatalog.close();

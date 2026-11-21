@@ -12,7 +12,7 @@ const ta = createCurrentLocaleTranslator("ai");
 
 export interface CodexAiEditRequest {
   // 既定は "chatgpt" (Codex)。"claude" / "antigravity" は MCP経由でそれぞれのCLIへルーティングする。
-  provider?: "chatgpt" | "claude" | "antigravity";
+  provider?: "chatgpt" | "claude" | "antigravity" | "sigma";
   // Claude / Gemini は MCP ツールで fileId を対象に編集するため、それらのルート時に必須。
   fileId?: string;
   model: AiEditModel;

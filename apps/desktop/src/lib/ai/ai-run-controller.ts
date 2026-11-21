@@ -31,7 +31,7 @@ import {
 import type { AiEditAttachment, AiEditMentionedDocumentContext } from "@/lib/ai/sigma-doc-agent-tools";
 import type { AiEditReasoningEffort } from "@/lib/ai/sigma-doc-edit-schema";
 import type { AiEditPlanStep, AiEditRunEvent, AiEditRunResult } from "@/lib/ai/ai-edit-runtime";
-import type { AiProvider } from "@/lib/ai/ai-providers";
+import { SIGMA_AI_EDIT_MODEL, type AiProvider } from "@/lib/ai/ai-providers";
 import type {
   DesktopAiEditChatAttachmentSummary,
   DesktopAiEditChatMentionedDocumentSummary,
@@ -1308,6 +1308,9 @@ function resolveFollowUpModel(provider: AiProvider): string {
   }
   if (provider === "antigravity") {
     return preferences.geminiModel;
+  }
+  if (provider === "sigma") {
+    return SIGMA_AI_EDIT_MODEL;
   }
   return preferences.model;
 }

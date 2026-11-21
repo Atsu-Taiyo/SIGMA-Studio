@@ -230,11 +230,11 @@ export function buildMcpEditInvariantGuidance(t: PromptTranslate): string {
   return withPolicy(t, buildMcpEditInvariantGuidanceSection(t));
 }
 
-export type McpEditPromptProvider = "claude" | "codex" | "antigravity";
+export type McpEditPromptProvider = "claude" | "codex" | "antigravity" | "sigma";
 
 function toolNamespaceLine(provider: McpEditPromptProvider, t: PromptTranslate): string {
-  // Claude だけ名前空間つきのツール名を明示する (他の provider は素のツール名で届く)。
-  return provider === "claude"
+  // Claude と内蔵AI (dsh) は名前空間つきのツール名で届く (他の provider は素のツール名)。
+  return provider === "claude" || provider === "sigma"
     ? t("turn.toolNamespaceClaude", { replace: { server: SIGMA_DOC_MCP_SERVER_NAME } })
     : t("turn.toolNamespace", { replace: { server: SIGMA_DOC_MCP_SERVER_NAME } });
 }
@@ -326,6 +326,15 @@ function formatReferenceSection(referenceText: string | undefined, t: PromptTran
   return [t("turn.selectionContext"), bounded].join("\n");
 }
 
+/**
+ * 厳守事項。内蔵AIにはシェルが無いので、「シェルで SKILL.md を読む」という一文だけを外す
+ * (読み方は `sigmaSkillTool` の節が持つ)。同じターンに相反する読み方を 2 つ渡さない。
+ */
+function hardRulesFor(provider: McpEditPromptProvider, t: PromptTranslate): string {
+  const rules = section(t, "editTurnHardRules");
+  return provider === "sigma" ? rules.replace(t("mcp.editTurnShellRule"), "") : rules;
+}
+
 function turnPromptHeadLines(
   provider: McpEditPromptProvider,
   args: BuildMcpEditTurnPromptArgs,
@@ -337,7 +346,7 @@ function turnPromptHeadLines(
     t("turn.fileId", { replace: { fileId: args.fileId } }),
     args.runId ? t("turn.runId", { replace: { runId: args.runId } }) : "",
     args.selectedId ? t("turn.selectedId", { replace: { selectedId: args.selectedId } }) : "",
-    section(t, "editTurnHardRules") + section(t, "officialSkillGuide"),
+    hardRulesFor(provider, t) + section(t, "officialSkillGuide"),
     section(t, "bodyToolGuide"),
     // agy headless cannot prompt for command permission. Keep this on resumed
     // turns too: inspecting its large, single-line MCP schema cache with a
@@ -345,6 +354,7 @@ function turnPromptHeadLines(
     provider === "antigravity" ? section(t, "antigravityHeadlessTools") : "",
     provider === "antigravity" ? section(t, "antigravityTextEditExample") : "",
     provider === "codex" ? section(t, "chatgptVisualPreview") : "",
+    provider === "sigma" ? section(t, "sigmaSkillTool") : "",
     t("turn.procedure"),
     t("turn.completionReport"),
   ];

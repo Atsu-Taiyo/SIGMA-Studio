@@ -34,6 +34,8 @@ async function prepare(app: ElectronApplication, page: Page, downloads: string) 
   }, downloads);
   await page.evaluate(async () => {
     localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true, ribbonCollapsed: false }));
+    // This test supplies ChatGPT's status and records its requests over IPC.
+    localStorage.setItem("sigma-studio:ai-edit-model-preferences", JSON.stringify({ provider: "chatgpt" }));
     await window.desktopAPI!.settings!.setUiLocale!("ja");
   });
   await page.reload();

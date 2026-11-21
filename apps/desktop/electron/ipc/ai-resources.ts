@@ -1,4 +1,5 @@
 import { ipcMain } from "../trusted-ipc";
+import type { DshHarnessClient } from "../dsh-harness-client";
 
 import { cancelAiSkillDraftCodexRun, generateAiSkillDraft, type AiSkillDraftRequest } from "../ai-skill-draft";
 import { LocalAiResourceStore } from "../ai-resource-store";
@@ -24,7 +25,7 @@ function parseAiSkillDraftPayload(payload: unknown): AiSkillDraftRequest | null 
     return null;
   }
   const record = payload as Record<string, unknown>;
-  const provider = record.provider === "claude" || record.provider === "antigravity" ? record.provider : "chatgpt";
+  const provider = record.provider === "claude" || record.provider === "antigravity" || record.provider === "sigma" ? record.provider : "chatgpt";
   const prompt = typeof record.prompt === "string" ? record.prompt : "";
   const contextRaw = typeof record.context === "object" && record.context !== null ? record.context as Record<string, unknown> : {};
   return {
@@ -57,6 +58,10 @@ export interface RegisterAiResourcesIpcDeps {
   claudeStreamClient: ClaudeStreamClient;
   codexAppServerClient: CodexAppServerClient;
   geminiSkillDraftClient: GeminiHeadlessClient;
+  /** 内蔵AI。道具なしの問い合わせ (スキルの下書き・枠の描画) に使う。 */
+  dshHarnessClient?: DshHarnessClient;
+  /** 内蔵AIの道具なしの問い合わせが使う、専用の空の作業ディレクトリ。 */
+  sigmaToollessCwd?: string;
 }
 
 export function registerAiResourcesIpc(deps: RegisterAiResourcesIpcDeps): void {
@@ -142,6 +147,9 @@ export function registerAiResourcesIpc(deps: RegisterAiResourcesIpcDeps): void {
     activeAiSkillDraftRuns.set(runId, {
       provider: request.provider,
       cancel: () => {
+        if (request.provider === "sigma") {
+          return deps.dshHarnessClient?.cancelRun(runId) ?? false;
+        }
         if (request.provider === "claude") {
           return claudeStreamClient.cancelRun(runId);
         }
@@ -158,6 +166,7 @@ export function registerAiResourcesIpc(deps: RegisterAiResourcesIpcDeps): void {
           claude: claudeStreamClient,
           geminiSkillDraft: geminiSkillDraftClient,
           codex: codexAppServerClient,
+          ...(deps.dshHarnessClient && deps.sigmaToollessCwd ? { sigma: { client: deps.dshHarnessClient, cwd: deps.sigmaToollessCwd } } : {}),
         },
         runId,
         (delta) => event.sender.send(`ai-skill-draft:event:${runId}`, { kind: "delta", text: delta }),
