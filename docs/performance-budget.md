@@ -1,20 +1,20 @@
 # 性能予算と計測
 
 「機能を足しても軽い」を人の記憶ではなく機械で守るための取り決め。
-数値は `apps/desktop/perf-budget.json`、計測は `npm run perf:probe`。
+数値は `apps/desktop/perf-budget.json`、計測は `pnpm run perf:probe`。
 
 ## 使い方
 
 ```bash
 cd apps/desktop
-npm run perf:probe                    # 本番ビルド → 計測 → 予算 assert（既定で有効）
-npm run perf:probe -- --no-build      # 直前の計測ビルドを使い回す
-npm run perf:probe -- --fixture body  # フィクスチャを絞る
-npm run perf:probe -- --report-only   # 予算 assert を外して数値だけ見る
+pnpm run perf:probe                    # 本番ビルド → 計測 → 予算 assert（既定で有効）
+pnpm run perf:probe --no-build      # 直前の計測ビルドを使い回す
+pnpm run perf:probe --fixture body  # フィクスチャを絞る
+pnpm run perf:probe --report-only   # 予算 assert を外して数値だけ見る
 ```
 
 - **所要時間**: ビルド込みで 10〜20 分（`--no-build` なら 3〜5 分）。
-  このため `npm run test:e2e` の既定には**含めない**（`SIGMA_PERF_PROBE` gate を維持）。
+  このため `pnpm run test:e2e` の既定には**含めない**（`SIGMA_PERF_PROBE` gate を維持）。
 - 出力は `apps/desktop/perf-reports/<timestamp>/` に 4 フィクスチャ分の
   `<name>.json` / `<name>.summary.md` と、それらを束ねた `summary.md`。
   `summary.md` の先頭に **予算 assert の有効/無効と計測したビルドの revision** が入る。

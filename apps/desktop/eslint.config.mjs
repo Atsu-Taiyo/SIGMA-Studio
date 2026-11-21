@@ -111,6 +111,8 @@ const eslintConfig = [
       "electron/ai-edit.ts",
       // ひな形が教材へ書き込む図形名・共通部分名。作者がその場で書き換える教材の中身。
       "src/features/drawing/graph3d-presets.ts",
+      // 公式テンプレート。参考書・入試の紙面を写した教材の中身と、その題名 (新しい教材の題名になる)。
+      "src/lib/official-templates/**",
       // 教材へ挿入する記号、未使用の互換ラベル、開発者向け不変条件、モデルへの検証文。
       "src/components/editor/TextFlowEditor.tsx",
       "src/features/document/application/line-height.ts",

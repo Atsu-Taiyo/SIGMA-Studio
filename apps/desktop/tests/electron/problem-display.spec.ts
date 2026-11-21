@@ -142,7 +142,7 @@ async function launchApp(prefix: string) {
 }
 
 function skipWithoutApp() {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
 }
 

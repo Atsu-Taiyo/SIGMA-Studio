@@ -112,7 +112,7 @@ export function useOverlayTextCommands({ shapesRef, selectedIdsRef, editingShape
           })
           .run();
         if (shouldEdit) {
-          requestInlineMathEdit(id);
+          requestInlineMathEdit(textEditor, id);
         }
         return;
       }
@@ -126,7 +126,7 @@ export function useOverlayTextCommands({ shapesRef, selectedIdsRef, editingShape
         semanticRole: "expression",
       });
       if (shouldEdit) {
-        requestInlineMathEdit(id);
+        requestInlineMathEdit(() => activeTextEditorRef.current, id);
       }
     };
 

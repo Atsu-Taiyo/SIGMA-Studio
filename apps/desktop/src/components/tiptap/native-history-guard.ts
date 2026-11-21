@@ -29,7 +29,6 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
  *
  * 受け渡しは window の CustomEvent で行い、**`components/editor` を import しない**
  * (`components/tiptap` → `components/editor` の逆流を作らない)。
- * 先例は `inline-math-extension.tsx` の `requestInlineMathEdit`。
  */
 export const NATIVE_HISTORY_COMMAND_EVENT = "sigma-studio:native-history-command";
 

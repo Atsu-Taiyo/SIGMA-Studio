@@ -29,7 +29,7 @@ function fixture(fragmented: boolean): SigmaDocument {
 }
 
 async function openFixture(document: SigmaDocument) {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
   const userData = mkdtempSync(path.join(tmpdir(), "sigma-selection-retention-"));
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));

@@ -128,7 +128,7 @@ export function BoxTitleEditor({
 
     const id = createId("m_box_title");
     editor.chain().focus().insertMathInline({ id, tex: "" }).run();
-    requestInlineMathEdit(id);
+    requestInlineMathEdit(editor, id);
   };
 
   return (

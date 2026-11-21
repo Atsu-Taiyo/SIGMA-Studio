@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: daily
     open-pull-requests-limit: 10
-    # Fetch every workspace manifest so npm keeps its complete dependency graph.
+    # Fetch every workspace manifest so pnpm keeps its complete dependency graph.
     # React 18 fixtures and React 19 consumers must stay on their current majors.
     # Minor/patch updates remain enabled; major migrations need explicit review.
     ignore:

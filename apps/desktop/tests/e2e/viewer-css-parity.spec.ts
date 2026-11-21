@@ -36,7 +36,7 @@ import { build } from "esbuild";
  * ```
  * cd apps/desktop
  * SIGMA_STUDIO_E2E_BASE_URL=http://127.0.0.1:<空きポート> \
- *   npx playwright test tests/e2e/viewer-css-parity.spec.ts --update-snapshots
+ *   pnpm exec playwright test tests/e2e/viewer-css-parity.spec.ts --update-snapshots
  * ```
  *
  * and read the resulting diff line by line — each line is one property on one element.
@@ -45,7 +45,7 @@ import { build } from "esbuild";
  *
  * `packages/viewer/dist` is a build output and is gitignored. This repository's working tree has a
  * Japanese directory name, and `packages/viewer/scripts/build.mjs` resolves paths through
- * `new URL().pathname`, which percent-encodes them — so `npm run viewer:build` only succeeds from
+ * `new URL().pathname`, which percent-encodes them — so `pnpm run viewer:build` only succeeds from
  * an ASCII path. Build there and copy `packages/viewer/dist` back, or run this spec from the ASCII
  * clone.
  *
@@ -103,7 +103,7 @@ const DIST_STALE = !DIST_MISSING
   && VIEWER_BUILD_INPUTS.some((source) => newestModifiedAt(source) > DIST_BUILT_AT);
 
 const BUILD_INSTRUCTIONS =
-  "ASCII パスのクローンで `npm run viewer:build` を実行し packages/viewer/dist を作ってから走らせる "
+  "ASCII パスのクローンで `pnpm run viewer:build` を実行し packages/viewer/dist を作ってから走らせる "
   + "(日本語ディレクトリ名の作業ツリーでは scripts/build.mjs の new URL().pathname が percent-encode "
   + "されるためビルドできない)";
 const SKIP_REASON = DIST_STALE

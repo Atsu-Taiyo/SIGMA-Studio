@@ -1,6 +1,6 @@
 # Repository guidance
 
-- Use npm from the repository root. Desktop source paths are under `apps/desktop/`.
+- Use pnpm from the repository root. Desktop source paths are under `apps/desktop/`.
 - Preserve unrelated changes and keep work scoped to the request.
 - Read `MISS.md` before changing save, merge, or proposal approval behavior.
 - SigmaDoc JSON is canonical. Tiptap, canvas editing state, and output DOM are derived views.
@@ -34,4 +34,4 @@
 - ホットリロード環境が未整備なら、デスクトップ開発環境を整える際に起動スクリプトと読み込み先の切り替えを実装する。既存サーバーのポートと対象リポジトリを確認し、起動したElectronがこのチェックアウトの画面を読み込んでいることを検証する。
 - 動作確認では、実際にソース変更がElectronの画面へ反映されることを確認する。main / preloadの監視を実装した場合は自動再ビルド・再起動も確認する。保存・AI・MCP等は変更に関係する機能を実アプリで検証し、未確認の項目を区別して報告する。
 
-`mise exec -- npm run electron:dev` でホットリロード対応のデスクトップ版を起動する。開発データは既定で `tmp/desktop-dev-profile` に分離する。静的ビルドの再現確認には `npm run electron:preview` と複製した `SIGMA_STUDIO_USER_DATA_DIR` を使う。手順と終了・再起動の扱いは `CONTRIBUTING.md` を参照し、作業開始時に現在の起動処理も確認する。
+`mise exec -- pnpm run electron:dev` でホットリロード対応のデスクトップ版を起動する。開発データは既定で `tmp/desktop-dev-profile` に分離する。静的ビルドの再現確認には `pnpm run electron:preview` と複製した `SIGMA_STUDIO_USER_DATA_DIR` を使う。手順と終了・再起動の扱いは `CONTRIBUTING.md` を参照し、作業開始時に現在の起動処理も確認する。

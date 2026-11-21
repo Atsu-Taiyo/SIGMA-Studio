@@ -10,6 +10,10 @@ import {
 } from "./material-library-commands";
 import { createEmptyMaterialMetadataDraft } from "./material-metadata-draft";
 
+// 同梱の公式素材 (公式テンプレートの部品) は一覧の末尾に足される。ここでは一覧の受け渡しと
+// 公式品の保護だけを見るので、同梱分は空にする (並べ方は `materials.test.ts` が見る)。
+vi.mock("@/lib/official-templates", () => ({ listOfficialTemplateMaterials: () => [] }));
+
 function content(): MaterialContent {
   return {
     blocks: [{ id: "paragraph", type: "paragraph", children: [{ type: "text", text: "body" }] }],

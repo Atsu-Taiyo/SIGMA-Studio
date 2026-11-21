@@ -8,11 +8,11 @@
 
 ```bash
 # 既定: 教材が無いので skip される（合成 fixture の単体テストだけが走る）
-npm --prefix apps/desktop run test -- src/lib/powerpoint-fidelity.test.ts
+pnpm --filter @sigma-studio/desktop run test src/lib/powerpoint-fidelity.test.ts
 
 # 実教材で計測する
 SIGMA_PPTX_FIDELITY_DIR=/path/to/decks \
-  npm --prefix apps/desktop run test -- src/lib/powerpoint-fidelity.decks.test.ts
+  pnpm --filter @sigma-studio/desktop run test src/lib/powerpoint-fidelity.decks.test.ts
 ```
 
 - `SIGMA_PPTX_FIDELITY_DIR` **未設定**なら `apps/desktop/pptx-fidelity-decks/` を見る。

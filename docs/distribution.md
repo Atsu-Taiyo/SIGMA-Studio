@@ -7,9 +7,9 @@
 `CONTRIBUTING.md` のWeb・Electron・公開パッケージ検証を先に実行します。
 インストーラの作成には対象OSのツールと署名環境が必要です。署名素材や資格情報をソースに含めないでください。
 
-- Electronの準備: `npm run electron:build`
-- 公開パッケージ: `npm run editor:build`
-- 配布内容の確認: `npm pack --workspace @sigma-studio/viewer --workspace @sigma-studio/editor --dry-run --ignore-scripts`
+- Electronの準備: `pnpm run electron:build`
+- 公開パッケージ: `pnpm run editor:build`
+- 配布内容の確認: `pnpm --filter @sigma-studio/viewer --filter @sigma-studio/editor -r pack --dry-run --config.ignore-scripts=true`
 
 これらのコマンドは配布物を公開しません。
 
@@ -19,8 +19,8 @@
 実プロセスの競合・異常終了・復旧をテストし、配布に用いるElectronでネイティブ依存が読み込めることを確認します。
 
 ```sh
-npm --workspace @sigma-studio/desktop run test -- file-lock
-npm exec --workspace @sigma-studio/desktop -- cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/check-native-lock.cjs
+pnpm --filter @sigma-studio/desktop run test file-lock
+pnpm --filter @sigma-studio/desktop exec cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/check-native-lock.cjs
 ```
 
 OSごとの検証、ビルド成功、署名・インストール後の動作確認は別々に記録してください。
@@ -62,7 +62,7 @@ Microsoft Storeへのアップロード・審査提出・状態確認は、ビ�
 
 ```sh
 mkdir -p tmp/npm-packages
-npm pack --workspace @sigma-studio/viewer --workspace @sigma-studio/editor --ignore-scripts --pack-destination tmp/npm-packages --json > tmp/npm-pack-result.json
+pnpm --filter @sigma-studio/viewer --filter @sigma-studio/editor -r pack --config.ignore-scripts=true --pack-destination tmp/npm-packages --json > tmp/npm-pack-result.json
 node scripts/audit-npm-tarballs.mjs tmp/npm-packages
 ```
 

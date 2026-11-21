@@ -696,6 +696,15 @@
 }
 
 /*
+ * 両端揃えの見出し: 難易度の印 (書体 SigmaMarks の run の塊) を帯の右端へ。印が無ければ最後の部分を寄せる。
+ * 編集面の末尾の補助ノードは数えない。
+ */
+:is(.box-frame--title-ends, .box-frame--title-ends > .sigma-doc-box-content) > :is(.sigma-doc-box-title, .print-box-title):not(:is(.sigma-doc-box-subtitle, .print-box-subtitle)) > :is([style*="SigmaMarks"]:not([style*="SigmaMarks"] + *), :nth-last-child(1 of :not(br, .ProseMirror-separator)):not([style*="SigmaMarks"], :has(~ [style*="SigmaMarks"]))) {
+  margin-left: auto;
+  padding-left: 0.5em;
+}
+
+/*
  * 2 欄の見出し (`titleSplit`)。編集面は内容の div、印刷は箱そのものを 2 列の grid にして、
  * タイトルとサブタイトルを 1 行目、本文を 2 行目いっぱいに張る。欄の幅・隙間・左右は変数で決まる。
  * サブタイトルは `.sigma-doc-box-title` も名乗るので、帯の見た目は共通で、ここは地色と余白だけ足す。
@@ -1616,6 +1625,8 @@ li[data-list-marker-typography]::marker {
   --problem-number-outline-offset: initial;
   --problem-number-text-offset-x: initial;
   --problem-number-text-offset-y: initial;
+  --problem-number-text-align: initial;
+  --problem-number-text-start: initial;
   --problem-frame-border-width: initial;
   --problem-frame-border-radius: initial;
 }
@@ -1773,11 +1784,6 @@ li[data-list-marker-typography]::marker {
   column-gap: var(--problem-number-gap, 8px);
 }
 
-/* 番号の箱が導入文の行より高いときは、行を箱の縦の中央に置く (編集面と同じ規則)。 */
-[data-problem-area="lead"] > .print-problem-area-content.with-number > .print-problem-area-body {
-  align-self: center;
-}
-
 .print-problem-area-fragment .print-problem-area-content.with-number {
   display: block;
 }
@@ -1795,7 +1801,7 @@ li[data-list-marker-typography]::marker {
 .print-problem-number {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: var(--problem-number-text-align, center);
   box-sizing: border-box;
   min-width: var(--problem-number-width, 1.9em);
   width: var(--problem-number-width, auto);
@@ -1807,14 +1813,14 @@ li[data-list-marker-typography]::marker {
   font-weight: var(--problem-number-font-weight, 750);
   font-variant-numeric: tabular-nums;
   line-height: 1.35;
-  text-align: center;
+  text-align: var(--problem-number-text-align, center);
   position: relative;
   left: var(--problem-number-offset-x, 0px);
   top: var(--problem-number-offset-y, 0px);
   outline: var(--problem-number-outline-width, 0px) solid currentColor;
   outline-offset: var(--problem-number-outline-offset, 0px);
   white-space: nowrap;
-  padding-left: calc(var(--problem-number-padding-x, 0.24em) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * 2)));
+  padding-left: calc(var(--problem-number-padding-x, 0.24em) + var(--problem-number-text-start, max(0px, calc(var(--problem-number-text-offset-x, 0px) * 2))));
   padding-right: calc(var(--problem-number-padding-x, 0.24em) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * -2)));
   padding-top: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * 2)));
   padding-bottom: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * -2)));
@@ -2442,7 +2448,7 @@ u:has(.math-preview) .inline-math-node {
   font-weight: var(--problem-number-font-weight, 600);
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: var(--problem-number-text-align, center);
   box-sizing: border-box;
   width: var(--problem-number-width, auto);
   height: var(--problem-number-height, auto);
@@ -2454,7 +2460,7 @@ u:has(.math-preview) .inline-math-node {
   outline: var(--problem-number-outline-width, 0px) solid currentColor;
   outline-offset: var(--problem-number-outline-offset, 0px);
   white-space: nowrap;
-  padding-left: calc(var(--problem-number-padding-x, 0px) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * 2)));
+  padding-left: calc(var(--problem-number-padding-x, 0px) + var(--problem-number-text-start, max(0px, calc(var(--problem-number-text-offset-x, 0px) * 2))));
   padding-right: calc(var(--problem-number-padding-x, 0px) + max(0px, calc(var(--problem-number-text-offset-x, 0px) * -2)));
   padding-top: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * 2)));
   padding-bottom: calc(max(0px, calc(var(--problem-number-text-offset-y, 0px) * -2)));

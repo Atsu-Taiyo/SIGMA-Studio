@@ -95,6 +95,8 @@ const EDITOR_CHROME_CLASSES = new Set([
   // 切り取り中だけ図の下に出す一時的なガイド (編集専用。viewer の文書面には出ない)。
   "graph2d-crop-hint",
   "graph2d-preview-button",
+  // 範囲外の注意書きを印刷・PDF の paged-render でだけ隠す規則 (編集用の注意なので viewer の文書面の規則にはしない)。
+  "graph2d-visibility-warning",
   "page-running-direct-editor",
   "page-running-direct-flow",
   "page-running-direct-overlay",

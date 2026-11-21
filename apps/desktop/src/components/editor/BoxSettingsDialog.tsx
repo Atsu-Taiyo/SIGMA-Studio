@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { AlignCenter, AlignLeft, AlignRight, ChevronDown, Minus, Plus, RotateCcw } from "lucide-react";
+import { AlignCenter, AlignJustify, AlignLeft, AlignRight, ChevronDown, Minus, Plus, RotateCcw } from "lucide-react";
 
 import { BoxSettingsPreview, type BoxPreviewPaper } from "@/components/editor/BoxSettingsPreview";
 import { BoxTitleEditor } from "@/components/editor/BoxTitleEditor";
@@ -27,6 +27,7 @@ import {
   boxFrameStyleVars,
   CUSTOM_BOX_STYLE_ID,
   getBoxCustomFrame,
+  isBoxTitleAtEnds,
   resolveBoxFrame,
 } from "@/lib/box-blocks";
 import { findFrameLibraryEntry, useFrameLibrary, type FrameLibraryEntry } from "@/lib/frame-library";
@@ -101,6 +102,7 @@ export function BoxSettingsDialog({
   // 箱スタイルの説明は本文編集面の語彙なので `editor` namespace が持つ。
   const tEditor = useT("editor");
   const resolvedFrame = resolveBoxFrame(boxBlock);
+  const titleAtEnds = isBoxTitleAtEnds(resolvedFrame);
   const [stylesOpen, setStylesOpen] = useState(false);
   const galleryId = useId();
   const boxStyles = resolveBoxStyles(tEditor);
@@ -375,13 +377,21 @@ export function BoxSettingsDialog({
                   ] as const).map(([value, label, Icon]) => (
                     <SegmentedButton
                       key={value}
-                      selected={(resolvedFrame.titlePosition ?? "l") === value}
+                      selected={!titleAtEnds && (resolvedFrame.titlePosition ?? "l") === value}
                       onClick={() => onFrameChange({ titlePosition: value })}
                     >
                       <Icon size={15} aria-hidden="true" />
                       {label}
                     </SegmentedButton>
                   ))}
+                  <SegmentedButton
+                    selected={titleAtEnds}
+                    title={t("box.titleEndsHint")}
+                    onClick={() => onFrameChange({ titlePosition: undefined, titleAlign: "justify" })}
+                  >
+                    <AlignJustify size={15} aria-hidden="true" />
+                    {t("box.titleEnds")}
+                  </SegmentedButton>
                 </ControlGroup>
               </Stack>
 
@@ -745,15 +755,18 @@ function ControlGroup({ label, children }: { label: string; children: ReactNode 
 function SegmentedButton({
   selected,
   onClick,
+  title,
   children,
 }: {
   selected: boolean;
   onClick: () => void;
+  title?: string;
   children: ReactNode;
 }) {
   return (
     <button
       type="button"
+      title={title}
       className={styles.segmentedButton}
       data-selected={selected}
       aria-pressed={selected}

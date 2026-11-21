@@ -143,10 +143,10 @@ export function createVvArrowElement(document: Document, topEm = 0): HTMLElement
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("fill", "currentcolor");
       path.setAttribute("d", d);
-      svg.append(path);
+      svg.appendChild(path);
     }
-    holder.append(svg);
-    arrow.append(holder);
+    holder.appendChild(svg);
+    arrow.appendChild(holder);
   }
   return arrow;
 }

@@ -20,7 +20,7 @@ export default defineConfig({
   webServer: {
     // Exercise the public packages and example's production output, including
     // React 19 and emitted assets. Build the example before running this suite.
-    command: "npm --workspace @sigma-studio/editor-react19-example exec -- vite preview --host 127.0.0.1 --port 4178 --strictPort",
+    command: "pnpm --filter @sigma-studio/editor-react19-example exec vite preview --host 127.0.0.1 --port 4178 --strictPort",
     cwd: fileURLToPath(new URL("../../", import.meta.url)),
     url: "http://127.0.0.1:4178",
     reuseExistingServer: false,

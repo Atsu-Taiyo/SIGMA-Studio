@@ -53,12 +53,46 @@ function isIsoDate(value) {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
-// Returns the advisories of an `npm audit --json` report, or throws when the
+// pnpm reports each advisory directly, and includes dependency paths rather
+// than the separate through-package entries in npm's report.
+function collectPnpmAdvisories(report) {
+  if (!isRecord(report.advisories)) throw new Error("The pnpm audit report has no advisory map");
+  const counts = report.metadata?.vulnerabilities;
+  if (!isRecord(counts)) throw new Error("The pnpm audit report has no vulnerability counts");
+  const perSeverity = Object.fromEntries(SEVERITIES.map((severity) => [severity, 0]));
+  const advisories = Object.values(report.advisories).map((entry) => {
+    if (!isRecord(entry) || typeof entry.module_name !== "string" || entry.module_name.length === 0) {
+      throw new Error("The pnpm audit report has an advisory with no package name");
+    }
+    const id = typeof entry.url === "string" ? ADVISORY_URL.exec(entry.url)?.[1] : undefined;
+    if (!id || id !== entry.github_advisory_id || !SEVERITIES.includes(entry.severity)) {
+      throw new Error(`Unrecognised pnpm audit advisory for ${entry.module_name}`);
+    }
+    const affected = new Set();
+    for (const finding of entry.findings ?? []) {
+      for (const dependencyPath of finding.paths ?? []) {
+        for (const name of dependencyPath.split(">").slice(1, -1)) affected.add(name);
+      }
+    }
+    perSeverity[entry.severity]++;
+    return {
+      id, package: entry.module_name, severity: entry.severity, url: entry.url,
+      title: entry.title ?? "", range: entry.vulnerable_versions ?? "", affected: [...affected].sort(),
+    };
+  });
+  for (const severity of SEVERITIES) {
+    if (counts[severity] !== perSeverity[severity]) throw new Error(`The pnpm ${severity} count differs from the listed advisories`);
+  }
+  return advisories;
+}
+
+// Returns advisories from the audit report, or throws when the
 // report is not the shape this gate understands. Callers treat a throw as a
 // failure: an unreadable report must never pass.
 export function collectAdvisories(report) {
   if (!isRecord(report)) throw new Error("The audit report is not an object");
-  if ("error" in report) throw new Error("npm audit reported an error instead of a result");
+  if ("error" in report) throw new Error("The package audit reported an error instead of a result");
+  if ("advisories" in report) return collectPnpmAdvisories(report);
   if (report.auditReportVersion !== 2) throw new Error("Unsupported audit report version");
   const { vulnerabilities, metadata } = report;
   if (!isRecord(vulnerabilities)) throw new Error("The audit report has no vulnerability map");
@@ -117,6 +151,7 @@ export function collectAdvisories(report) {
 }
 
 function affectedPackages(report, advisory) {
+  if (advisory.affected) return advisory.affected;
   const { vulnerabilities } = report;
   const affected = new Set([advisory.package]);
   for (let grew = true; grew;) {
@@ -172,7 +207,7 @@ export function evaluateAudit({ fullReport, shippedReport, exceptions, today }) 
     for (const advisory of shipped) {
       fail(`Shipped dependency ${advisory.package} has ${advisory.severity} advisory ${advisory.id} (${advisory.url}); exceptions never apply to shipped dependencies`);
     }
-    const names = Object.keys(shippedReport.vulnerabilities);
+    const names = Object.keys(shippedReport.vulnerabilities ?? {});
     if (shipped.length === 0 && names.length > 0) fail(`Shipped dependencies are reported vulnerable: ${names.join(", ")}`);
   } catch (error) {
     fail(`Cannot read the audit of shipped dependencies: ${error.message}`);
@@ -206,11 +241,11 @@ export function evaluateAudit({ fullReport, shippedReport, exceptions, today }) 
 }
 
 function runAudit(extraArguments) {
-  const result = spawnSync("npm", ["audit", "--json", ...extraArguments], {
+  const result = spawnSync("pnpm", ["audit", "--json", ...extraArguments], {
     encoding: "utf8", maxBuffer: 64 * 1024 * 1024, shell: process.platform === "win32",
     stdio: ["ignore", "pipe", "inherit"],
   });
-  // npm exits 1 when it found something; the report decides. Anything else
+  // The audit can exit 1 when it found something. The report decides. Anything else
   // (a spawn failure, a signal, a registry error) is not a result.
   if (result.error || result.signal || (result.status !== 0 && result.status !== 1)) return undefined;
   try {
@@ -223,7 +258,7 @@ function runAudit(extraArguments) {
 function main() {
   const { ok, failures, warnings, accepted } = evaluateAudit({
     fullReport: runAudit([]),
-    shippedReport: runAudit(["--omit=dev"]),
+    shippedReport: runAudit(["--prod"]),
     exceptions: AUDIT_EXCEPTIONS,
     today: new Date().toISOString().slice(0, 10),
   });
@@ -231,7 +266,7 @@ function main() {
   for (const line of warnings) console.warn(`Warning: ${line}`);
   for (const line of failures) console.error(`Error: ${line}`);
   if (!ok) {
-    console.error("Dependency audit failed. Run `npm audit` for details.");
+    console.error("Dependency audit failed. Run `pnpm audit` for details.");
     process.exit(1);
   }
   console.log("Dependency audit passed: no unaccepted high or critical advisory, and shipped dependencies are clean.");

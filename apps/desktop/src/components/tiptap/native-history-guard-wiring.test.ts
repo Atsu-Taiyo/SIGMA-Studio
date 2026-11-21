@@ -199,7 +199,7 @@ describe("native history guard wiring", () => {
 
   it("never imports the editor shell from the tiptap layer", () => {
     // `components/tiptap` → `components/editor` の逆流を作らない。
-    // 受け渡しは window CustomEvent (先例: inline-math-extension の requestInlineMathEdit)。
+    // 履歴の受け渡しは window CustomEvent。
     const guard = readFileSync(fileURLToPath(new URL("native-history-guard.ts", import.meta.url)), "utf8");
     expect(guard).not.toMatch(/from\s+"@\/components\/editor/u);
   });

@@ -1,9 +1,9 @@
 /**
  * perf-probe — the repository's performance measurement harness.
  *
- * Runs only with `SIGMA_PERF_PROBE=1` (i.e. from `npm run perf:probe`), because it needs the
+ * Runs only with `SIGMA_PERF_PROBE=1` (i.e. from `pnpm run perf:probe`), because it needs the
  * production build served statically: `next dev` numbers are React development-mode numbers and
- * have misdiagnosed this codebase before. `npm run test:e2e` therefore skips it and stays fast.
+ * have misdiagnosed this codebase before. `pnpm run test:e2e` therefore skips it and stays fast.
  *
  * Output is a report by default (`perf-reports/<timestamp>/{body,problem}.json` + `summary.md`).
  * `perf-budget.json` の assert は既定で有効 (`SIGMA_PERF_REPORT_ONLY=1` で報告のみに落とせる)。
@@ -41,7 +41,7 @@ import type { SigmaDocument } from "@/types/sigma-doc";
 // 静的 export を配る実行系 (scripts/perf-probe.mjs) からしか意味のある数値は取れない。
 test.skip(
   process.env.SIGMA_PERF_PROBE !== "1",
-  "本番ビルドを配って計測する専用ハーネスです (npm run perf:probe)",
+  "本番ビルドを配って計測する専用ハーネスです (pnpm run perf:probe)",
 );
 
 // playwright は `apps/desktop` を cwd に起動する (playwright.config.ts の testDir 前提)。
@@ -392,14 +392,14 @@ async function assertPerfInstrumentedBuild(page: Page): Promise<void> {
   if (probe.counters === 0) {
     throw new Error(
       "計測が無効なビルドです (window.__SIGMA_STUDIO_PERFORMANCE__ にカウンタがありません)。"
-      + " `npm run perf:build` (NEXT_PUBLIC_SIGMA_PERF=1) で作った out/ を配ってください。",
+      + " `pnpm run perf:build` (NEXT_PUBLIC_SIGMA_PERF=1) で作った out/ を配ってください。",
     );
   }
   if (!probe.productionBuild) {
     // development ビルドでも計測は有効なので、カウンタの有無だけでは `next dev` を弾けない。
     // React の development ビルドは打鍵が数倍重く、その数字で予算を判定しても意味がない。
     throw new Error(
-      "development ビルドを計測しています。`npm run perf:probe` (本番ビルドを配る実行系) を使ってください。",
+      "development ビルドを計測しています。`pnpm run perf:probe` (本番ビルドを配る実行系) を使ってください。",
     );
   }
   if (probe.mathMounts === 0) {

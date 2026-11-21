@@ -160,7 +160,7 @@ async function typeIntoBody(text: string): Promise<void> {
 test.describe("Electron native menu and undo", () => {
   test.skip(
     !PREPARED,
-    "dist-electron/main.cjs と out/index.html が要ります。`npm run electron:prepare` を先に実行してください",
+    "dist-electron/main.cjs と out/index.html が要ります。`pnpm run electron:prepare` を先に実行してください",
   );
   test.describe.configure({ mode: "serial" });
 

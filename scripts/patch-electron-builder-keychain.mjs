@@ -1,6 +1,6 @@
 // Backport https://github.com/electron-userland/electron-builder/pull/10101
 // to the pinned builder. Remove this when upgrading to a release with that fix.
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -42,6 +42,8 @@ if (replacements.every(([before, after]) => !original.includes(before) && origin
   if (await readFile(sourcePath, "utf8") !== original) {
     throw new Error("electron-builder source changed while preparing the keychain patch");
   }
-  await writeFile(sourcePath, patched);
+  const temporary = `${sourcePath}.sigma-patch-${process.pid}`;
+  await writeFile(temporary, patched);
+  await rename(temporary, sourcePath);
   console.log("Applied electron-builder keychain password fix (#10101)");
 }

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createRichTextEngineExtensions } from "@/components/tiptap/rich-text-engine";
 import { SigmaDocTextAttrs } from "@/components/tiptap/sigma-doc-text-attributes";
+import { resolveEditorInputTarget } from "@/components/tiptap/editor-input-target";
 
 import {
   cancelCaretKeeperWindow,
@@ -401,6 +402,20 @@ function installFragmentTable(): void {
     },
   );
 }
+
+it("routes math input from its origin to exactly the visible fragment and rejects an inactive pane", () => {
+  installFragmentTable();
+  const source = registerFragmentSurface({ kind: "unit", unitId: "source" }, 160);
+  const replica = registerFragmentSurface({ kind: "fragmentReplica", blockId: "box_1", fragmentIndex: 1 }, 160);
+  const address = { kind: "text" as const, affinity: "after" as const, blockId: "box_p", offset: 2 };
+  updateCaretSurfaceFacets(source.editor, { addressAt: () => address, posFor: () => 3 });
+  updateCaretSurfaceFacets(replica.editor, { addressAt: () => address, posFor: () => 3 });
+  expect(resolveEditorInputTarget(source.editor, 3)?.editor).toBe(replica.editor);
+  source.localYFor.mockReturnValue(40);
+  expect(resolveEditorInputTarget(replica.editor, 3)?.editor).toBe(source.editor);
+  updateCaretSurfaceFacets(source.editor, { ownsInput: () => false });
+  expect(resolveEditorInputTarget(source.editor, 3)).toBeNull();
+});
 
 interface FragmentSurface {
   applyCaret: ReturnType<typeof vi.fn>;

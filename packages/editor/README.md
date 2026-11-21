@@ -21,7 +21,7 @@ SigmaDoc教材のWeb編集をReactサイトへ組み込むEditorパッケージ�
 ## インストール
 
 ```sh
-npm install @sigma-studio/editor
+pnpm add @sigma-studio/editor
 ```
 
 entry pointでCSSを一度読み込みます。
@@ -143,7 +143,7 @@ Electronのworkspace/library、AI/MCP、認証は接続しません。教材一�
 AIエージェントは次の順序で導入してください。
 
 1. ホストがReact `>=18.2.0 <20`を使用していることを確認する
-2. `npm install @sigma-studio/editor`を実行する
+2. `pnpm add @sigma-studio/editor`を実行する
 3. `@sigma-studio/editor/styles.css`をアプリ全体で一度だけ読み込む
 4. SSR環境では`SigmaDocEditor`をclient-onlyのdynamic importにする
 5. 外部の`unknown`値を`parseSigmaDocument`で検証する

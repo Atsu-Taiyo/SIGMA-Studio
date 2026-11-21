@@ -3,11 +3,11 @@
  *
  * レンダラは `win.loadFile()` で `file://` を読む。Chromium は file: ドキュメントを不透明
  * オリジンとして扱うため **`'self'` が期待どおりに解決するかは静的 HTTP では測れない** —
- * `npm run test:e2e:export` は `http://127.0.0.1` を配るので、この 1 点だけが空白になる。
+ * `pnpm run test:e2e:export` は `http://127.0.0.1` を配るので、この 1 点だけが空白になる。
  * ここを埋めるための最小スモーク。
  *
- *   npm run electron:prepare
- *   npm run csp:smoke
+ *   pnpm run electron:prepare
+ *   pnpm run csp:smoke
  *
  * 期待: violations が空 (意図的な外部画像プローブを除く)、`appMounted` が true、
  * スタイルシートとインライン style が実際に効いていること、外部 URL 画像が落ちること。
@@ -21,7 +21,7 @@ const outDir = path.resolve(process.cwd(), process.argv[2] ?? "out");
 // 計測用ビルド (NEXT_PUBLIC_SIGMA_PERF=1) は配布物と別物。黙って CSP を測らない。
 if (hasPerfBuildMarker(outDir)) {
   console.error(
-    `${outDir} は性能計測用ビルドです。\`npm run electron:prepare\` で作り直してから csp:smoke を回してください。`,
+    `${outDir} は性能計測用ビルドです。\`pnpm run electron:prepare\` で作り直してから csp:smoke を回してください。`,
   );
   process.exit(2);
 }

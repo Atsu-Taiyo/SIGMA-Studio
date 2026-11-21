@@ -5,7 +5,7 @@ const mode = process.argv[2] === "dist" ? "dist" : "dev";
 const workspace = "@sigma-studio/desktop";
 const script = `electron:${mode}`;
 
-const child = spawn(npmCommand(), ["--workspace", workspace, "run", script], {
+const child = spawn(pnpmCommand(), ["--filter", workspace, "run", script], {
   cwd: process.cwd(),
   env: process.env,
   stdio: "inherit",
@@ -25,6 +25,6 @@ child.on("exit", (code, signal) => {
   process.exit(code ?? 1);
 });
 
-function npmCommand() {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
+function pnpmCommand() {
+  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 }
