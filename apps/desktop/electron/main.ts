@@ -38,10 +38,8 @@ import { ClaudeStreamClient } from "./claude-stream-client";
 import { buildClaudeMcpConfig } from "./claude-mcp-config";
 import { GeminiHeadlessClient } from "./gemini-headless-client";
 import {
-  buildGeminiWorkspaceSettings,
   cleanupStaleAgentWorkspaceGeminiAttachments,
   cleanupStaleGeminiAttachments,
-  writeGeminiWorkspaceSettings,
 } from "./gemini-settings-config";
 import {
   desktopSettingsPath,
@@ -346,30 +344,11 @@ const geminiHeadlessClient = new GeminiHeadlessClient({
   userDataDir: USER_DATA_PATH,
   geminiBin: process.env.SIGMA_STUDIO_ANTIGRAVITY_BIN?.trim() || process.env.SIGMA_STUDIO_GEMINI_BIN?.trim() || usablePersistedBin(desktopSettings.antigravityBin),
 });
-// AI設定「スキル」編集画面の「AIで下書き」用、MCPツールなしの一回きりのAntigravity呼び出し
-// 専用クライアント。geminiHeadlessClient と同じbin/userDataDirだが、writeGeminiWorkspaceSettings
-// が書き込む mcp_config.json が存在しない別のworkspaceDirを使うことで、MCPサーバーを一切
-// 解決させない (ai-skill-draft.ts参照)。
+// Drafts use a separate workspace without the Studio edit server.
 const geminiSkillDraftClient = new GeminiHeadlessClient({
   workspaceDir: path.join(SIGMA_STUDIO_DATA_PATH, "antigravity-skill-draft-workspace"),
   userDataDir: USER_DATA_PATH,
   geminiBin: process.env.SIGMA_STUDIO_ANTIGRAVITY_BIN?.trim() || process.env.SIGMA_STUDIO_GEMINI_BIN?.trim() || usablePersistedBin(desktopSettings.antigravityBin),
-});
-void writeGeminiWorkspaceSettings(
-  geminiAgentWorkspaceDir,
-  buildGeminiWorkspaceSettings({
-    execPath: process.execPath,
-    scriptPath: resolveMcpServerScriptPath(),
-    userDataDir: USER_DATA_PATH,
-    runContextFile: localGeminiRunContextStore.getRunContextFilePath(),
-    renderBridgeFile: localAiRenderBridgeStore.getBridgeFilePath(),
-    provider: "antigravity",
-    // 起動時スナップショット。言語を切り替えた run は ipc 側が per-run で上書きする
-    // (Codex の app-server 設定だけは起動時に焼かれるので、切り替えは次回起動から)。
-    uiLocale: startupPromptLocale,
-  }),
-).catch((error) => {
-  console.warn("Antigravity MCP設定の書き込みに失敗しました。", error);
 });
 void cleanupStaleGeminiAttachments(geminiAgentWorkspaceDir);
 // ワークスペースごとのagent-workspaces/<ws>/antigravity/ にも同じ掃除を広げる(#workspace-agent-dirs)。
@@ -1693,6 +1672,7 @@ function registerIpc() {
     codexAppServerClient,
     claudeStreamClient,
     geminiHeadlessClient,
+    geminiSkillDraftClient,
     getMainWindow: () => mainWindow,
     openExternalUrl,
   });

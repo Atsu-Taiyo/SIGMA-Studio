@@ -7,10 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildGeminiWorkspaceSettings,
   cleanupStaleGeminiAttachments,
-  SIGMA_STUDIO_ANTIGRAVITY_MCP_PERMISSION,
+  withAntigravitySessionSettings,
   writeGeminiWorkspaceSettings,
 } from "./gemini-settings-config";
-import { SIGMA_DOC_MCP_SERVER_NAME } from "./sigma-studio-mcp-launch";
+import { ANTIGRAVITY_WORKSPACE_SERVER_NAME } from "./sigma-studio-mcp-launch";
 import { setAppLocale } from "@/lib/i18n";
 
 const BASE_INPUT = {
@@ -24,21 +24,18 @@ const BASE_INPUT = {
 };
 const RUN_CONTEXT_READ_PERMISSION =
   "read_file(/Users/teacher/Library/Application Support/Sigma Studio/data/ai-run-context)";
-const OBSOLETE_PREVIEW_READ_PERMISSION =
-  "read_file(/Users/teacher/Library/Application Support/Sigma Studio/data/ai-run-context/previews)";
-
 describe("buildGeminiWorkspaceSettings", () => {
-  it("registers the sigma-studio-local MCP server with command/args", () => {
+  it("registers the workspace MCP server with command/args", () => {
     const settings = buildGeminiWorkspaceSettings(BASE_INPUT);
 
-    const server = settings.mcpServers[SIGMA_DOC_MCP_SERVER_NAME];
+    const server = settings.mcpServers[ANTIGRAVITY_WORKSPACE_SERVER_NAME];
     expect(server.command).toBe(BASE_INPUT.execPath);
     expect(server.args).toEqual([BASE_INPUT.scriptPath]);
   });
 
   it("sets the shared sigma-studio MCP env vars (ELECTRON_RUN_AS_NODE, user data dir, run-context, render-bridge)", () => {
     const settings = buildGeminiWorkspaceSettings(BASE_INPUT);
-    const env = settings.mcpServers[SIGMA_DOC_MCP_SERVER_NAME].env;
+    const env = settings.mcpServers[ANTIGRAVITY_WORKSPACE_SERVER_NAME].env;
 
     expect(env.ELECTRON_RUN_AS_NODE).toBe("1");
     expect(env.SIGMA_STUDIO_USER_DATA_DIR).toBe(BASE_INPUT.userDataDir);
@@ -48,14 +45,14 @@ describe("buildGeminiWorkspaceSettings", () => {
 
   it("uses the Antigravity run-context file, not claude's", () => {
     const settings = buildGeminiWorkspaceSettings(BASE_INPUT);
-    const env = settings.mcpServers[SIGMA_DOC_MCP_SERVER_NAME].env;
+    const env = settings.mcpServers[ANTIGRAVITY_WORKSPACE_SERVER_NAME].env;
 
     expect(env.SIGMA_STUDIO_RUN_CONTEXT_FILE).toContain("antigravity.run-context.json");
   });
 
   it("sets SIGMA_STUDIO_MCP_PROVIDER as antigravity", () => {
     const settings = buildGeminiWorkspaceSettings(BASE_INPUT);
-    const env = settings.mcpServers[SIGMA_DOC_MCP_SERVER_NAME].env;
+    const env = settings.mcpServers[ANTIGRAVITY_WORKSPACE_SERVER_NAME].env;
 
     expect(env.SIGMA_STUDIO_MCP_PROVIDER).toBe("antigravity");
   });
@@ -80,32 +77,19 @@ describe("writeGeminiWorkspaceSettings", () => {
 
   it("creates .agents/mcp_config.json under the workspace dir", async () => {
     const settings = buildGeminiWorkspaceSettings(BASE_INPUT);
-    await writeGeminiWorkspaceSettings(workspaceDir, settings, { sharedConfigDir: null, cliSettingsPath: null });
+    await writeGeminiWorkspaceSettings(workspaceDir, settings);
 
     const filePath = path.join(workspaceDir, ".agents", "mcp_config.json");
     const raw = await fs.readFile(filePath, "utf8");
     expect(JSON.parse(raw)).toEqual(settings);
   });
 
-  it("upserts sigma-studio-local into the Antigravity shared mcp_config.json without dropping other servers", async () => {
-    await fs.mkdir(sharedConfigDir, { recursive: true });
-    const sharedPath = path.join(sharedConfigDir, "mcp_config.json");
-    await fs.writeFile(sharedPath, JSON.stringify({ mcpServers: { other: { command: "other-mcp" } } }), "utf8");
-
-    const settings = buildGeminiWorkspaceSettings(BASE_INPUT);
-    await writeGeminiWorkspaceSettings(workspaceDir, settings, { sharedConfigDir, cliSettingsPath: null });
-
-    const parsed = JSON.parse(await fs.readFile(sharedPath, "utf8"));
-    expect(parsed.mcpServers.other.command).toBe("other-mcp");
-    expect(parsed.mcpServers[SIGMA_DOC_MCP_SERVER_NAME]).toEqual(settings.mcpServers[SIGMA_DOC_MCP_SERVER_NAME]);
-  });
-
   it("overwrites stale settings from a previous run", async () => {
     const first = buildGeminiWorkspaceSettings(BASE_INPUT);
-    await writeGeminiWorkspaceSettings(workspaceDir, first, { sharedConfigDir: null, cliSettingsPath: null });
+    await writeGeminiWorkspaceSettings(workspaceDir, first);
 
     const second = buildGeminiWorkspaceSettings({ ...BASE_INPUT, execPath: "/new/exec/path" });
-    await writeGeminiWorkspaceSettings(workspaceDir, second, { sharedConfigDir: null, cliSettingsPath: null });
+    await writeGeminiWorkspaceSettings(workspaceDir, second);
 
     const filePath = path.join(workspaceDir, ".agents", "mcp_config.json");
     const raw = await fs.readFile(filePath, "utf8");
@@ -114,7 +98,7 @@ describe("writeGeminiWorkspaceSettings", () => {
 
   it("writes atomically: no leftover tmp file and the written file always parses", async () => {
     const settings = buildGeminiWorkspaceSettings(BASE_INPUT);
-    await writeGeminiWorkspaceSettings(workspaceDir, settings, { sharedConfigDir: null, cliSettingsPath: null });
+    await writeGeminiWorkspaceSettings(workspaceDir, settings);
 
     const dir = path.join(workspaceDir, ".agents");
     const entries = await fs.readdir(dir);
@@ -124,103 +108,43 @@ describe("writeGeminiWorkspaceSettings", () => {
     expect(() => JSON.parse(raw)).not.toThrow();
   });
 
-  it("allows only the Sigma Studio MCP server and AI run-context directory while preserving existing settings and permission lists", async () => {
-    await fs.writeFile(cliSettingsPath, JSON.stringify({
-      model: "Gemini 3.5 Flash (Medium)",
-      trustedWorkspaces: ["/workspace"],
-      permissions: {
-        allow: ["command(git)"],
-        deny: ["mcp(other/*)"],
-        ask: ["read_url(*)"],
-      },
-    }), "utf8");
-
+  it("gives concurrent edits a complete workspace config", async () => {
     const settings = buildGeminiWorkspaceSettings(BASE_INPUT);
-    await writeGeminiWorkspaceSettings(workspaceDir, settings, { sharedConfigDir: null, cliSettingsPath });
-
-    const parsed = JSON.parse(await fs.readFile(cliSettingsPath, "utf8"));
-    expect(parsed.model).toBe("Gemini 3.5 Flash (Medium)");
-    expect(parsed.trustedWorkspaces).toEqual(["/workspace"]);
-    expect(parsed.permissions).toEqual({
-      allow: ["command(git)", SIGMA_STUDIO_ANTIGRAVITY_MCP_PERMISSION, RUN_CONTEXT_READ_PERMISSION],
-      deny: ["mcp(other/*)"],
-      ask: ["read_url(*)"],
-    });
+    await Promise.all(Array.from({ length: 8 }, () => writeGeminiWorkspaceSettings(workspaceDir, settings)));
+    expect(JSON.parse(await fs.readFile(path.join(workspaceDir, ".agents/mcp_config.json"), "utf8"))).toEqual(settings);
   });
 
-  it("does not duplicate the Sigma Studio MCP permission on repeated writes", async () => {
-    const settings = buildGeminiWorkspaceSettings(BASE_INPUT);
-
-    await writeGeminiWorkspaceSettings(workspaceDir, settings, { sharedConfigDir: null, cliSettingsPath });
-    await writeGeminiWorkspaceSettings(workspaceDir, settings, { sharedConfigDir: null, cliSettingsPath });
-
-    const parsed = JSON.parse(await fs.readFile(cliSettingsPath, "utf8"));
-    expect(parsed.permissions.allow).toEqual([
-      SIGMA_STUDIO_ANTIGRAVITY_MCP_PERMISSION,
-      RUN_CONTEXT_READ_PERMISSION,
-    ]);
+  it("preserves restrictions from a BOM-prefixed user profile without modifying it", async () => {
+    const profile = "\uFEFF" + JSON.stringify({ model: "custom", permissions: {
+      deny: ["mcp(sigma-studio-local/remove)", "command(rm)"], ask: ["mcp(other/*)"], allow: ["command(git)"],
+    } });
+    await fs.writeFile(cliSettingsPath, profile);
+    let session = "";
+    await expect(withAntigravitySessionSettings(BASE_INPUT.userDataDir, async (file) => {
+      session = file;
+      expect(JSON.parse(await fs.readFile(file, "utf8"))).toEqual({ permissions: {
+        deny: ["mcp(sigma-studio-local/remove)", "mcp(sigma-studio-workspace/remove)", "command(rm)", "mcp(sigma-studio-local/*)"],
+        ask: ["mcp(other/*)"],
+        allow: ["command(git)", "mcp(sigma-studio-workspace/*)", RUN_CONTEXT_READ_PERMISSION],
+      } });
+      throw new Error("cancelled");
+    }, cliSettingsPath)).rejects.toThrow("cancelled");
+    await expect(fs.stat(session)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await fs.readFile(cliSettingsPath, "utf8")).toBe(profile);
   });
 
-  it("migrates the obsolete preview-only read rule to the AI run-context directory", async () => {
-    await fs.writeFile(cliSettingsPath, JSON.stringify({
-      permissions: {
-        allow: [SIGMA_STUDIO_ANTIGRAVITY_MCP_PERMISSION, OBSOLETE_PREVIEW_READ_PERMISSION],
-      },
-    }), "utf8");
-
-    const settings = buildGeminiWorkspaceSettings(BASE_INPUT);
-    await writeGeminiWorkspaceSettings(workspaceDir, settings, { sharedConfigDir: null, cliSettingsPath });
-
-    const parsed = JSON.parse(await fs.readFile(cliSettingsPath, "utf8"));
-    expect(parsed.permissions.allow).toEqual([
-      SIGMA_STUDIO_ANTIGRAVITY_MCP_PERMISSION,
-      RUN_CONTEXT_READ_PERMISSION,
-    ]);
-    expect(parsed.permissions.allow).not.toContain(OBSOLETE_PREVIEW_READ_PERMISSION);
+  it("denies MCP tools for skill drafts even when the user has a legacy global registration", async () => {
+    await withAntigravitySessionSettings(null, async (file) => {
+      expect(JSON.parse(await fs.readFile(file, "utf8"))).toEqual({ permissions: { deny: ["mcp(*)"] } });
+    }, cliSettingsPath);
   });
 
-  it("writes the shared MCP config and least-privilege CLI permission to their HOME-based default paths", async () => {
-    const originalHome = process.env.HOME;
-    const originalUserProfile = process.env.USERPROFILE;
-    process.env.HOME = sharedConfigDir;
-    delete process.env.USERPROFILE;
-
-    try {
-      const settings = buildGeminiWorkspaceSettings(BASE_INPUT);
-      await writeGeminiWorkspaceSettings(workspaceDir, settings);
-
-      const sharedMcpPath = path.join(sharedConfigDir, ".gemini", "config", "mcp_config.json");
-      const sharedMcp = JSON.parse(await fs.readFile(sharedMcpPath, "utf8"));
-      expect(sharedMcp.mcpServers[SIGMA_DOC_MCP_SERVER_NAME]).toEqual(
-        settings.mcpServers[SIGMA_DOC_MCP_SERVER_NAME],
-      );
-
-      const defaultCliSettingsPath = path.join(
-        sharedConfigDir,
-        ".gemini",
-        "antigravity-cli",
-        "settings.json",
-      );
-      const cliSettings = JSON.parse(await fs.readFile(defaultCliSettingsPath, "utf8"));
-      expect(cliSettings.permissions.allow).toEqual([
-        SIGMA_STUDIO_ANTIGRAVITY_MCP_PERMISSION,
-        RUN_CONTEXT_READ_PERMISSION,
-      ]);
-      expect(cliSettings.permissions.allow).not.toContain("mcp(*)");
-      expect(cliSettings.permissions.allow).not.toContain("read_file(*)");
-      expect(cliSettings).not.toHaveProperty("toolPermission");
-    } finally {
-      if (originalHome === undefined) {
-        delete process.env.HOME;
-      } else {
-        process.env.HOME = originalHome;
-      }
-      if (originalUserProfile === undefined) {
-        delete process.env.USERPROFILE;
-      } else {
-        process.env.USERPROFILE = originalUserProfile;
-      }
-    }
+  it("leaves a malformed user settings file intact and stops before spawning", async () => {
+    await fs.writeFile(cliSettingsPath, "{");
+    const run = vi.fn();
+    await expect(withAntigravitySessionSettings(BASE_INPUT.userDataDir, run, cliSettingsPath)).rejects.toThrow();
+    expect(run).not.toHaveBeenCalled();
+    expect(await fs.readFile(cliSettingsPath, "utf8")).toBe("{");
   });
 });
 
@@ -248,7 +172,7 @@ describe("cleanupStaleGeminiAttachments", () => {
 
   it("never touches .agents/mcp_config.json", async () => {
     const settings = buildGeminiWorkspaceSettings(BASE_INPUT);
-    await writeGeminiWorkspaceSettings(workspaceDir, settings, { sharedConfigDir: null, cliSettingsPath: null });
+    await writeGeminiWorkspaceSettings(workspaceDir, settings);
     await fs.mkdir(path.join(workspaceDir, "attachments", "run_1"), { recursive: true });
 
     await cleanupStaleGeminiAttachments(workspaceDir);

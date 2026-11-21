@@ -45,6 +45,7 @@ function writeBin(name: string, mode: number): string {
 }
 
 const setCodexBin = vi.fn();
+const setSkillDraftBin = vi.fn();
 
 function register() {
   mocks.handlers.clear();
@@ -70,6 +71,7 @@ function register() {
     codexAppServerClient: codexClient as never,
     claudeStreamClient: stubCliClient as never,
     geminiHeadlessClient: stubCliClient as never,
+    geminiSkillDraftClient: { setGeminiBin: setSkillDraftBin } as never,
     getMainWindow: () => null,
     openExternalUrl: vi.fn(),
   });
@@ -84,6 +86,12 @@ beforeEach(() => {
   mocks.writeDesktopSettings.mockClear();
   mocks.showOpenDialog.mockReset();
   register();
+});
+
+it("applies the validated Antigravity binary to skill and authoring-style drafts immediately", async () => {
+  const usable = writeBin("agy", 0o755);
+  await mocks.handlers.get("gemini:set-bin")!({}, usable);
+  expect(setSkillDraftBin).toHaveBeenCalledWith(usable);
 });
 
 describe("codex:set-bin input validation", () => {

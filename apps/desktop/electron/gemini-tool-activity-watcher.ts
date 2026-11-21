@@ -31,7 +31,7 @@ interface WatchedFile {
   buffer: string;
 }
 
-// Antigravity CLI (`agy --print`) はツール呼び出しイベントを一切出力しない。共有MCPサーバー
+// CLI の call_mcp_tool の内側でどの教材ツールが動いたかは、共有MCPサーバー
 // (mcp/tool-activity.ts) が自分で呼び出しをJSONLファイルへ記録するので、このwatcherはそのファイルを
 // ポーリングして完了した行をパースし、UIの「ツール実行中...」イベントに変換する (gemini-edit.ts
 // から使う)。監視対象は2つ: このrun専用のper-runファイル (runId単位、start前は存在しないので
