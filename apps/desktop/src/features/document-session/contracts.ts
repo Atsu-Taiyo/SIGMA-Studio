@@ -72,6 +72,8 @@ export interface DocumentSession {
   flush(): Promise<void>;
   exportDocument?(): Promise<SigmaDocument>;
   setSelection?(selection: SessionSelection | null): void;
+  /** Current local text selection, followed through changes by the session's authority. */
+  getSelection?(): SessionSelection | null;
   remoteSelections?(): RemoteSessionSelection[];
   setOverlayPresence?(presence: SessionOverlayPresence | null): void;
   remoteOverlayPresence?(): RemoteSessionOverlayPresence[];

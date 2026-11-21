@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core";
+import { registerEditorInputRouting } from "@/components/tiptap/editor-input-target";
 
 import {
   buildCaretFragmentTable,
@@ -404,6 +405,32 @@ function closeCaretKeeperWindow(): void {
 export function registerCaretSurface(handle: CaretSurfaceHandle): () => void {
   installFocusTrace();
   surfaces.set(handle.editor, handle);
+  const resolveInput = (position: number) => {
+    const source = surfaces.get(handle.editor);
+    if (!source || source.editor.isDestroyed || !(source.ownsInput?.() ?? true)) return null;
+    const address = source.addressAt(position);
+    if (!address) return { handle: source, position, selection: null };
+    const selection = { anchor: address, head: address, preferredX: null };
+    const canvas = source.editor.view.dom.closest(".editor-canvas");
+    const owners = getCaretSurfaces().filter(candidate => candidate.ownsBlock(address.blockId)
+      && candidate.editor.view.dom.closest(".editor-canvas") === canvas);
+    const target = resolveTargetSurface(owners, selection);
+    const targetPosition = target.handle?.posFor(address);
+    return target.handle && targetPosition !== null && targetPosition !== undefined
+      ? { handle: target.handle, position: targetPosition, selection, target } : null;
+  };
+  const unregisterInput = registerEditorInputRouting(handle.editor, {
+    resolve: position => {
+      const resolved = resolveInput(position);
+      return resolved ? { editor: resolved.handle.editor, position: resolved.position } : null;
+    },
+    focus: position => {
+      const resolved = resolveInput(position);
+      if (!resolved) return false;
+      if (!resolved.selection || !resolved.target) return undefined;
+      return applyToSurface(resolved.handle, resolved.selection, resolved.target);
+    },
+  });
   if (handle.editor.isFocused) {
     lastFocusedSurfaceEditor = handle.editor;
   }
@@ -412,6 +439,7 @@ export function registerCaretSurface(handle: CaretSurfaceHandle): () => void {
     flushPendingCaret();
   }
   return () => {
+    unregisterInput();
     const current = surfaces.get(handle.editor);
     if (!current) {
       return;

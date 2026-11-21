@@ -279,7 +279,7 @@ export function RichTextEditor({ block, placeholder, className, style, selected 
         .run();
 
       if (shouldEdit) {
-        requestInlineMathEdit(id);
+        requestInlineMathEdit(editor, id);
       }
     };
 

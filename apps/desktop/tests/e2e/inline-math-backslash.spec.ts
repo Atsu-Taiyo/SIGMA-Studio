@@ -1,3 +1,4 @@
+import { openInlineMathAtEdge } from "./inline-math-input";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import type { SigmaDocument } from "@/types/sigma-doc";
@@ -508,14 +509,14 @@ test("renders KaTeX-only commands in the TeX editor and committed formula", asyn
   await texField.fill(tex);
 
   await expect(livePreview.locator(".katex")).toHaveCount(1);
-  await expect(livePreview.locator(".hline")).toHaveCount(1);
+  await expect(livePreview.locator(".katex-hline")).toHaveCount(1);
   await expect(livePreview.locator(".katex-error")).toHaveCount(0);
   await expect(livePreview).toContainText("…");
 
   await inlineMathTexPopover(page).getByRole("button", { name: "完了" }).click();
   const committed = flowInlineMath(page, inlineMathId);
   await expect(committed).toHaveAttribute("data-tex", tex);
-  await expect(committed.locator(".katex .hline")).toHaveCount(1);
+  await expect(committed.locator(".katex .katex-hline")).toHaveCount(1);
   await expect(committed).toContainText("…");
 });
 
@@ -667,11 +668,7 @@ async function texFieldValue(field: Locator) {
 
 async function editInlineMath(page: Page, id: string | null, edge: "end" | "start") {
   expect(id).toBeTruthy();
-  await page.evaluate(({ cursorPosition, inlineMathId }) => {
-    window.dispatchEvent(new CustomEvent("sigma-studio:edit-inline-math", {
-      detail: { cursorPosition, id: inlineMathId },
-    }));
-  }, { cursorPosition: edge, inlineMathId: id });
+  await openInlineMathAtEdge(page, id!, edge);
 }
 
 async function getInlineMathId(inlineMath: Locator) {

@@ -3,7 +3,7 @@ import { DEFAULT_MATH_RENDER_ENVIRONMENT } from "@/lib/math-environment";
 import { Window } from "happy-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { InlineMathNodeView } from "@/components/tiptap/inline-math-extension";
+import { InlineMathNodeView, requestInlineMathEdit } from "@/components/tiptap/inline-math-extension";
 import { createRichTextEngineExtensions } from "@/components/tiptap/rich-text-engine";
 import { renderMathHtml } from "@/features/rendering/adapters";
 
@@ -42,7 +42,7 @@ function createNodeView(tex: string, id = "m1") {
     { decorations: [], editor, getPos: () => 1, node },
     { mathEnvironment: TEST_MATH_ENVIRONMENT },
   );
-  return { node, view };
+  return { node, view, editor };
 }
 
 /** 既定の描画環境。ここは DOM の形を見るテストなので前文マクロは持たせない。 */
@@ -194,17 +194,17 @@ describe("InlineMathNodeView", () => {
     expect(view.dom.classList.contains("editing")).toBe(false);
   });
 
-  it("stops answering edit requests once destroyed", () => {
+  it("stops answering edit requests once destroyed", async () => {
     // 破棄後に編集へ入ると、IME の入力ソースを取ったまま返さないビューができる
     // (`restoreDesktopInputSource` を呼ぶ主が居ない)。
-    const { view } = createNodeView("x^2", "m9");
-
-    view.destroy();
-    windowRef.dispatchEvent(new windowRef.CustomEvent("sigma-studio:edit-inline-math", {
-      detail: { id: "m9" },
-    }) as never);
-
-    expect(view.dom.classList.contains("editing")).toBe(false);
+    const { view, editor } = createNodeView("x^2", "m9");
+    vi.useFakeTimers();
+    try {
+      requestInlineMathEdit(editor, "m9");
+      view.destroy();
+      await vi.advanceTimersByTimeAsync(400);
+      expect(view.dom.classList.contains("editing")).toBe(false);
+    } finally { vi.useRealTimers(); }
   });
 
   it("tells the formula panel again when the selected formula is rewritten", () => {

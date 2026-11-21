@@ -8,7 +8,8 @@ import { usePreferredFontSeed } from "./text-flow/preferred-font-context";
 import { ListIndentSlider } from "./text-flow/ListIndentSlider";
 import { applyEditorDocumentProjection } from "@/components/tiptap/document-projection";
 
-const sessionProjectionEditors = new WeakSet<TiptapEditor>();
+import type { DocumentSession } from "@/features/document-session/contracts";
+const sessionProjectionEditors = new WeakMap<TiptapEditor, DocumentSession>();
 import { useDocumentSession, useDocumentWritable } from "./document-session-context";
 import { SessionPresenceExtension, sessionPresenceKey } from "@/components/tiptap/session-presence";
 
@@ -1768,7 +1769,7 @@ function TextFlowEditorImpl({
 
   useLayoutEffect(() => {
     if (!editor || !documentSession) return;
-    sessionProjectionEditors.add(editor);
+    sessionProjectionEditors.set(editor, documentSession);
     return () => { sessionProjectionEditors.delete(editor); };
   }, [editor, documentSession]);
 
@@ -2752,7 +2753,7 @@ function TextFlowEditorImpl({
         .run();
 
       if (shouldEdit) {
-        requestInlineMathEdit(id);
+        requestInlineMathEdit(editor, id);
       }
     };
 
@@ -4667,7 +4668,8 @@ export function setTextFlowContentPreservingSelection(
  * Continuations still dispatch through FragmentEditSession; they own no Y.Doc.
  */
 export function applySharedTextFlowProjection(editor: TiptapEditor, blocks: TextFlowBlock[]): void {
-  applyEditorDocumentProjection(editor, textFlowToTiptap(blocks));
+  const selection = editor.isFocused ? sessionProjectionEditors.get(editor)?.getSelection?.() : null;
+  applyEditorDocumentProjection(editor, textFlowToTiptap(blocks), selection);
   const dom = readMountedEditorDom(editor);
   if (dom) acknowledgeTextFlowContent(dom, getTextFlowBlocksSyncKey(blocks));
 }

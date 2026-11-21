@@ -25,6 +25,9 @@ import {
 import { startAtomPointerSelection } from "@/components/tiptap/atom-pointer-selection";
 import { readMathTextFormat, writeMathTextFormat } from "@/lib/math-text-format";
 import { registerInlineMathDraftCommit } from "./inline-math-draft-commit";
+import { focusRoutedEditorInput } from "./editor-input-target";
+import { registerInlineMathInput, requestInlineMathEdit, type InlineMathCursorPosition } from "./inline-math-edit-request";
+export { requestInlineMathEdit, type InlineMathCursorPosition } from "./inline-math-edit-request";
 import { InlineMathTexEditor } from "@/components/tiptap/inline-math-tex-editor";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { readEditorClipboardPayload } from "@/lib/editor-clipboard";
@@ -105,8 +108,6 @@ declare module "@tiptap/core" {
 }
 
 export const SELECT_INLINE_MATH_EVENT = "sigma-studio:select-inline-math";
-export const EDIT_INLINE_MATH_EVENT = "sigma-studio:edit-inline-math";
-export const UPDATE_INLINE_MATH_DRAFT_EVENT = "sigma-studio:update-inline-math-draft";
 
 export interface MathNodeOptions {
   enableDelimiters: boolean;
@@ -126,17 +127,12 @@ export interface MathNodeOptions {
 }
 
 const SINGLE_INLINE_MATH_TEXT = /^\$([^$]+)\$$/;
-type PendingInlineMathEditRequest = {
-  cursorPosition: InlineMathCursorPosition;
-  pendingLatexCommandTrigger?: InlineMathLatexCommandTrigger;
-};
-
-const pendingInlineMathEditRequests = new Map<string, PendingInlineMathEditRequest>();
 const INLINE_MATH_KEYBOARD_EDIT_WINDOW_MS = 1000;
 const INLINE_MATH_DRAG_SELECTION_THRESHOLD_PX = 2;
 const INLINE_MATH_LATEX_COMMAND_TIMEOUT_MS = 900;
-export type InlineMathCursorPosition = "start" | "end";
+
 let pendingInlineMathKeyboardEditIntent: {
+  editor: Editor;
   cursorPosition: InlineMathCursorPosition;
   until: number;
 } | null = null;
@@ -186,60 +182,6 @@ type InlineMathFieldElement = InlineMathLiveFieldElement & Omit<MathKeyboardMath
   } | [number, number] | number;
   selectionIsCollapsed?: boolean;
 };
-
-export function requestInlineMathEdit(
-  id: string,
-  cursorPosition: InlineMathCursorPosition = "end",
-  options: {
-    pendingLatexCommandTrigger?: InlineMathLatexCommandTrigger;
-    /**
-     * キーボードで開くときに渡す。入力欄が焦点を取るまでの打鍵を預かって入力欄へ流す
-     * (渡したキーはその先頭に積む)。
-     */
-    typeAhead?: readonly InlineMathTypeAheadKey[];
-  } = {},
-) {
-  if (!id || typeof window === "undefined") {
-    return;
-  }
-
-  if (options.typeAhead) {
-    holdInlineMathTypeAhead(id, options.typeAhead);
-  }
-  const request: PendingInlineMathEditRequest = {
-    cursorPosition,
-    pendingLatexCommandTrigger: options.pendingLatexCommandTrigger,
-  };
-  pendingInlineMathEditRequests.set(id, request);
-  const dispatchEditRequest = () => {
-    if (pendingInlineMathEditRequests.get(id) !== request) {
-      return;
-    }
-    window.dispatchEvent(new CustomEvent(EDIT_INLINE_MATH_EVENT, { detail: { ...request, id } }));
-  };
-  window.requestAnimationFrame(dispatchEditRequest);
-  window.setTimeout(dispatchEditRequest, 50);
-  window.setTimeout(dispatchEditRequest, 250);
-  if (options.typeAhead) {
-    // どのノードビューも拾わなかった (数式の挿入が止められたなど)。預かったキーを本文へ返す。
-    window.setTimeout(() => {
-      if (pendingInlineMathEditRequests.get(id) === request) {
-        releaseInlineMathTypeAhead(id);
-      }
-    }, 300);
-  }
-  window.setTimeout(() => pendingInlineMathEditRequests.delete(id), 1500);
-}
-
-export function updateInlineMathDraft(id: string, tex: string, cursor?: number) {
-  if (!id || typeof window === "undefined") {
-    return;
-  }
-
-  window.dispatchEvent(new CustomEvent(UPDATE_INLINE_MATH_DRAFT_EVENT, {
-    detail: { cursor, id, tex },
-  }));
-}
 
 const INLINE_MATH_CLICK_PLACEHOLDER_ID_PREFIX = "sigma-click-";
 
@@ -405,6 +347,7 @@ export function insertMathKeyboardShortcutInlineMathAtSelection(
   shortcut: MathKeyboardMathShortcut,
   shortcutKey: InlineMathTypeAheadKey,
   dispatch?: (tr: Transaction) => void,
+  open?: (id: string, typeAhead: readonly InlineMathTypeAheadKey[]) => void,
 ): boolean {
   if (!canInsertInlineMathAtSelection(state.selection)) {
     return false;
@@ -423,7 +366,7 @@ export function insertMathKeyboardShortcutInlineMathAtSelection(
     tex: wrapsSelection ? createInlineMathTexFromMathKeyboardShortcut(shortcut, selectedText) : "",
   });
   dispatch?.(state.tr.replaceSelectionWith(node).scrollIntoView());
-  requestInlineMathEdit(id, "end", { typeAhead: wrapsSelection ? [] : [shortcutKey] });
+  if (dispatch) open?.(id, wrapsSelection ? [] : [shortcutKey]);
   return true;
 }
 
@@ -520,7 +463,6 @@ export class InlineMathNodeView implements NodeView {
   private initialPlaceholderIndex: number | null = null;
   private initialLatexCommandTrigger: InlineMathLatexCommandTrigger | null = null;
   private inputSourceSession: DesktopAsciiInputSession | null = null;
-  private pendingEditFrame = 0;
   private unregisterDraftCommit: (() => void) | null = null;
   private readonly disposers: Array<() => void> = [];
 
@@ -560,24 +502,11 @@ export class InlineMathNodeView implements NodeView {
     this.dom.addEventListener("mousedown", this.handleMouseDown);
     this.disposers.push(() => this.dom.removeEventListener("mousedown", this.handleMouseDown));
 
-    if (typeof window !== "undefined") {
-      window.addEventListener(EDIT_INLINE_MATH_EVENT, this.handleEditRequest);
-      window.addEventListener(UPDATE_INLINE_MATH_DRAFT_EVENT, this.handleDraftUpdate);
-      this.disposers.push(() => {
-        window.removeEventListener(EDIT_INLINE_MATH_EVENT, this.handleEditRequest);
-        window.removeEventListener(UPDATE_INLINE_MATH_DRAFT_EVENT, this.handleDraftUpdate);
-      });
-
-      // 「作られる前に飛んできた編集依頼」を拾う (貼り付け直後や AI 適用直後の昇格)。
-      const pending = this.id ? pendingInlineMathEditRequests.get(this.id) : undefined;
-      if (pending) {
-        this.scheduleEditFrame(() => {
-          this.beginEditing(this.tex, pending.cursorPosition ?? "end", {
-            pendingLatexCommandTrigger: pending.pendingLatexCommandTrigger,
-          });
-        });
-      }
-    }
+    this.disposers.push(registerInlineMathInput(this.editor, {
+      id: () => this.id,
+      position: () => this.getPos(),
+      edit: options => this.beginEditing(this.tex, options.cursorPosition, options),
+    }));
   }
 
   update(node: ProseMirrorNode, decorations: readonly Decoration[]): boolean {
@@ -636,16 +565,11 @@ export class InlineMathNodeView implements NodeView {
   selectNode(): void {
     this.selected = true;
     this.dom.classList.add("selected");
-    const keyboardEditIntent = consumeInlineMathKeyboardEditIntent();
+    const keyboardEditIntent = consumeInlineMathKeyboardEditIntent(this.editor);
     if (keyboardEditIntent && typeof window !== "undefined") {
-      // 矢印キーで入った直後の打鍵は、入力欄ができるまで預かる。本文へ届くと、選択中の
-      // この数式ごと打った文字に置き換わってしまう。
-      if (!isHoldingInlineMathTypeAhead(this.id)) {
-        holdInlineMathTypeAhead(this.id);
-      }
-      this.scheduleEditFrame(() => {
-        this.beginEditing(this.tex, keyboardEditIntent.cursorPosition);
-      });
+      // The request owns both the pending focus and type-ahead. Pointer/focus
+      // changes can cancel it from this moment, before the next animation frame.
+      requestInlineMathEdit(this.editor, this.id, keyboardEditIntent.cursorPosition, { typeAhead: [] });
       return;
     }
     this.dispatchSelection();
@@ -672,10 +596,6 @@ export class InlineMathNodeView implements NodeView {
     // 先に編集フラグを落とす。ノードが消えた後 (= PM が破棄した後) に走る `finishEditing`
     // — 枠コマンドへの変換がまさにそれ — が、外れた DOM へ数式を描き直さないように。
     this.editing = false;
-    if (this.pendingEditFrame && typeof window !== "undefined") {
-      window.cancelAnimationFrame(this.pendingEditFrame);
-      this.pendingEditFrame = 0;
-    }
     for (const dispose of this.disposers) {
       dispose();
     }
@@ -685,46 +605,6 @@ export class InlineMathNodeView implements NodeView {
     this.inputSourceSession = null;
   }
 
-
-
-  /**
-   * 次のフレームで編集を始める予約は**常に 1 本**。
-   *
-   * 予約は 2 箇所 (作られた直後の依頼の拾い上げ / キーボードでの選択) から来る。同じフレームで
-   * 両方が走ると、上書きされた方は `destroy()` でも止められず、破棄済みのビューで編集を始めて
-   * IME の入力ソースを取ったまま返さなくなる。
-   */
-  private scheduleEditFrame(run: () => void): void {
-    if (typeof window === "undefined") {
-      return;
-    }
-    if (this.pendingEditFrame) {
-      window.cancelAnimationFrame(this.pendingEditFrame);
-    }
-    this.pendingEditFrame = window.requestAnimationFrame(() => {
-      this.pendingEditFrame = 0;
-      run();
-    });
-  }
-
-  private readonly handleEditRequest = (event: Event) => {
-    const detail = event instanceof CustomEvent ? event.detail : null;
-    if (!this.id || detail?.id !== this.id) {
-      return;
-    }
-    this.beginEditing(this.tex, normalizeInlineMathCursorPosition(detail.cursorPosition) ?? "end", {
-      pendingLatexCommandTrigger: normalizeInlineMathLatexCommandTrigger(detail.pendingLatexCommandTrigger) ?? null,
-    });
-  };
-
-  private readonly handleDraftUpdate = (event: Event) => {
-    const detail = event instanceof CustomEvent ? event.detail : null;
-    if (!this.id || detail?.id !== this.id || typeof detail.tex !== "string") {
-      return;
-    }
-    this.updateTexAttribute(detail.tex);
-    this.dispatchSelection(detail.tex, typeof detail.cursor === "number" ? detail.cursor : detail.tex.length);
-  };
 
   private updateTexAttribute(nextTex: string): void {
     if (updateInlineMathNodeTex(this.editor, this.id, nextTex)) {
@@ -751,7 +631,11 @@ export class InlineMathNodeView implements NodeView {
         getCanonicalTex: (tex = this.editingTex ?? this.tex) => writeMathTextFormat(tex, this.node.marks),
         cursor: clampInlineMathTexCursor(cursor, nextTex),
         blockId: findInlineMathBlockId(this.editor, this.id),
-        updateTex: (tex: string) => this.updateTexAttribute(tex),
+        updateTex: (tex: string, nextCursor?: number) => {
+          if (this.editor.isDestroyed || !this.dom.isConnected) return;
+          this.updateTexAttribute(tex);
+          this.dispatchSelection(tex, nextCursor);
+        },
       },
     }));
   }
@@ -768,7 +652,6 @@ export class InlineMathNodeView implements NodeView {
       releaseInlineMathTypeAhead(this.id);
       return;
     }
-    pendingInlineMathEditRequests.delete(this.id);
     nextTex = unwrapFilledInlineMathPlaceholders(nextTex);
     let template: string | null = null;
     if (!this.editing) {
@@ -925,45 +808,60 @@ export class InlineMathNodeView implements NodeView {
   }
 
   private commitMathAndReturnToTextAfter(nextTex: string): void {
-    const position = this.getPos();
+    if (this.commitMath(nextTex) || this.editor.isDestroyed) return;
+    const position = this.currentPosition();
     const nextInlineMath = typeof position === "number"
       ? findAdjacentInlineMath(this.editor, position, this.node.nodeSize, "after")
       : null;
-    if (this.commitMath(nextTex) || typeof position !== "number") {
+    if (typeof position !== "number") {
       return;
     }
     if (nextInlineMath) {
-      requestInlineMathEdit(nextInlineMath.id, "start");
+      requestInlineMathEdit(this.editor, nextInlineMath.id, "start");
       return;
     }
     focusTextSelection(this.editor, position + this.node.nodeSize);
   }
 
   private commitMathAndReturnToTextBefore(nextTex: string): void {
-    const position = this.getPos();
+    if (this.commitMath(nextTex) || this.editor.isDestroyed) return;
+    const position = this.currentPosition();
     const previousInlineMath = typeof position === "number"
       ? findAdjacentInlineMath(this.editor, position, this.node.nodeSize, "before")
       : null;
-    if (this.commitMath(nextTex) || typeof position !== "number") {
+    if (typeof position !== "number") {
       return;
     }
     if (previousInlineMath) {
-      requestInlineMathEdit(previousInlineMath.id, "end");
+      requestInlineMathEdit(this.editor, previousInlineMath.id, "end");
       return;
     }
     focusTextSelection(this.editor, position);
   }
 
+  private currentPosition(): number | undefined {
+    // Committing may replace this derived node view. Resolve its stable ID in
+    // the current document instead of relying on a destroyed view's getPos.
+    let position: number | undefined;
+    this.editor.state.doc.descendants((node, offset) => {
+      if (node.type.name === "mathInline" && node.attrs.id === this.id) position = offset;
+      return position === undefined;
+    });
+    return position;
+  }
+
   private commitMathAndDeleteBackwardFromStart(nextTex: string): void {
-    const position = this.getPos();
+    let position = this.currentPosition();
     if (typeof position === "number" && isEmptyInlineMathTex(nextTex)) {
       this.finishEditing();
       deleteInlineMathNode(this.editor, position, this.node.nodeSize);
       return;
     }
-    if (this.commitMath(nextTex) || typeof position !== "number") {
+    if (this.commitMath(nextTex) || this.editor.isDestroyed) {
       return;
     }
+    position = this.currentPosition();
+    if (typeof position !== "number") return;
     deleteBackwardFromTextSelection(this.editor, position);
   }
 
@@ -2375,7 +2273,7 @@ export const InlineMathExtension = Node.create<MathNodeOptions>({
           ]) as JSONContent[]);
 
           if (inserted && attrs.startEditing) {
-            requestInlineMathEdit(attrs.id);
+            requestInlineMathEdit(this.editor, attrs.id);
           }
 
           return inserted;
@@ -2401,7 +2299,7 @@ export const InlineMathExtension = Node.create<MathNodeOptions>({
           handleKeyDown: (view, event) => {
             const cursorPosition = getInlineMathKeyboardCursorPosition(event);
             if (cursorPosition && view.state.selection.empty) {
-              markInlineMathKeyboardEditIntent(cursorPosition);
+              markInlineMathKeyboardEditIntent(this.editor, cursorPosition);
             }
 
             if (shouldStartInlineMathOnBackslash(event) && canInsertInlineMathAtSelection(view.state.selection)) {
@@ -2412,7 +2310,7 @@ export const InlineMathExtension = Node.create<MathNodeOptions>({
               const startsWithRawBackslash = getInlineMathInputMode() === "tex";
               const node = this.type.create({ id, tex: startsWithRawBackslash ? "\\" : "" });
               view.dispatch(view.state.tr.replaceSelectionWith(node).scrollIntoView());
-              requestInlineMathEdit(id, "end", startsWithRawBackslash ? { typeAhead: [] } : {
+              requestInlineMathEdit(this.editor, id, "end", startsWithRawBackslash ? { typeAhead: [] } : {
                 pendingLatexCommandTrigger: "\\",
                 typeAhead: [],
               });
@@ -2426,6 +2324,7 @@ export const InlineMathExtension = Node.create<MathNodeOptions>({
               shortcut,
               toInlineMathTypeAheadKey(event),
               view.dispatch,
+              (id, typeAhead) => requestInlineMathEdit(this.editor, id, "end", { typeAhead }),
             )) {
               event.preventDefault();
               event.stopPropagation();
@@ -2442,7 +2341,7 @@ export const InlineMathExtension = Node.create<MathNodeOptions>({
             const id = createId("m_inline");
             const node = this.type.create({ id, tex: "" });
             view.dispatch(view.state.tr.replaceSelectionWith(node).scrollIntoView());
-            requestInlineMathEdit(id, "end", { typeAhead: [] });
+            requestInlineMathEdit(this.editor, id, "end", { typeAhead: [] });
             return true;
           },
           transformPasted: (slice) => refreshMathInlineIdsInSlice(slice),
@@ -2564,19 +2463,21 @@ export function hasInlineMathEditGuardDecoration(
   });
 }
 
-function markInlineMathKeyboardEditIntent(cursorPosition: InlineMathCursorPosition) {
+function markInlineMathKeyboardEditIntent(editor: Editor, cursorPosition: InlineMathCursorPosition) {
   pendingInlineMathKeyboardEditIntent = {
+    editor,
     cursorPosition,
     until: Date.now() + INLINE_MATH_KEYBOARD_EDIT_WINDOW_MS,
   };
 }
 
-function consumeInlineMathKeyboardEditIntent(): { cursorPosition: InlineMathCursorPosition } | null {
+function consumeInlineMathKeyboardEditIntent(editor: Editor): { cursorPosition: InlineMathCursorPosition } | null {
   if (!pendingInlineMathKeyboardEditIntent || Date.now() > pendingInlineMathKeyboardEditIntent.until) {
     pendingInlineMathKeyboardEditIntent = null;
     return null;
   }
 
+  if (pendingInlineMathKeyboardEditIntent.editor !== editor) return null;
   const intent = pendingInlineMathKeyboardEditIntent;
   pendingInlineMathKeyboardEditIntent = null;
   return { cursorPosition: intent.cursorPosition };
@@ -2675,14 +2576,6 @@ function isCollapsedInlineMathCursorAtStart(
   }
 
   return typeof mathField.position === "number" && mathField.position <= 0;
-}
-
-function normalizeInlineMathCursorPosition(value: unknown): InlineMathCursorPosition | undefined {
-  return value === "start" || value === "end" ? value : undefined;
-}
-
-function normalizeInlineMathLatexCommandTrigger(value: unknown): InlineMathLatexCommandTrigger | undefined {
-  return value === "\\" || value === "/" ? value : undefined;
 }
 
 function clampInlineMathTexCursor(cursor: number, tex: string): number {
@@ -2823,11 +2716,11 @@ function focusTextSelection(editor: NodeViewProps["editor"], position: number) {
   if (editor.isDestroyed) {
     return;
   }
-  // Tiptap's focus command defers DOM focus to rAF. The MathLive field is
-  // already detached here, so the very next native key would go to the body.
-  // Restore once now; replaying this offset later also overwrites newer input
-  // or a deliberate move to another paragraph/control.
-  editor.commands.setTextSelection(clampTextSelectionPosition(editor, position));
+  const target = clampTextSelectionPosition(editor, position);
+  if (focusRoutedEditorInput(editor, target) !== undefined) return;
+  // Restore selection and DOM focus synchronously after MathLive detaches.
+  // Replaying the offset later can overwrite the next keystroke or focus change.
+  editor.commands.setTextSelection(target);
   editor.view.focus();
 }
 
@@ -2848,47 +2741,43 @@ function getTextSelectionPositionAtClientPointForView(view: EditorView, clientX:
 }
 
 function deleteBackwardFromTextSelection(editor: NodeViewProps["editor"], position: number) {
-  window.requestAnimationFrame(() => {
-    if (editor.isDestroyed) {
-      return;
-    }
+  if (editor.isDestroyed) {
+    return;
+  }
 
-    const selectionPosition = clampTextSelectionPosition(editor, position);
-    const { state, view } = editor;
-    const $position = state.doc.resolve(selectionPosition);
-    const textBefore = $position.nodeBefore?.isText ? $position.nodeBefore.text ?? "" : "";
-    view.focus();
+  const selectionPosition = clampTextSelectionPosition(editor, position);
+  const { state, view } = editor;
+  const $position = state.doc.resolve(selectionPosition);
+  const textBefore = $position.nodeBefore?.isText ? $position.nodeBefore.text ?? "" : "";
+  view.focus();
 
-    if (textBefore) {
-      const previousCharacter = Array.from(textBefore).at(-1);
-      const deleteFrom = selectionPosition - (previousCharacter?.length ?? 1);
-      view.dispatch(state.tr.delete(deleteFrom, selectionPosition).scrollIntoView());
-      return;
-    }
+  if (textBefore) {
+    const previousCharacter = Array.from(textBefore).at(-1);
+    const deleteFrom = selectionPosition - (previousCharacter?.length ?? 1);
+    view.dispatch(state.tr.delete(deleteFrom, selectionPosition).scrollIntoView());
+    return;
+  }
 
-    view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, selectionPosition)));
-    chainCommands(deleteSelection, joinBackward, selectNodeBackward)(view.state, view.dispatch, view);
-  });
+  view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, selectionPosition)));
+  chainCommands(deleteSelection, joinBackward, selectNodeBackward)(view.state, view.dispatch, view);
 }
 
 function deleteInlineMathNode(editor: NodeViewProps["editor"], position: number, nodeSize: number) {
-  window.requestAnimationFrame(() => {
-    if (editor.isDestroyed) {
-      return;
-    }
+  if (editor.isDestroyed) {
+    return;
+  }
 
-    const from = clampTextSelectionPosition(editor, position);
-    const to = Math.min(from + nodeSize, editor.state.doc.content.size);
-    const { state, view } = editor;
-    const transaction = state.tr.delete(from, to);
-    const selectionPosition = Math.min(from, transaction.doc.content.size);
-    view.focus();
-    view.dispatch(
-      transaction
-        .setSelection(TextSelection.create(transaction.doc, selectionPosition))
-        .scrollIntoView(),
-    );
-  });
+  const from = clampTextSelectionPosition(editor, position);
+  const to = Math.min(from + nodeSize, editor.state.doc.content.size);
+  const { state, view } = editor;
+  const transaction = state.tr.delete(from, to);
+  const selectionPosition = Math.min(from, transaction.doc.content.size);
+  view.focus();
+  view.dispatch(
+    transaction
+      .setSelection(TextSelection.create(transaction.doc, selectionPosition))
+      .scrollIntoView(),
+  );
 }
 
 function isEmptyInlineMathTex(tex: string): boolean {

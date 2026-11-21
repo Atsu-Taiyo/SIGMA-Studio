@@ -32,6 +32,14 @@ import {
 } from "@/lib/editor-clipboard";
 import { setAppLocale } from "@/lib/i18n/react";
 import type { SigmaCommentThread } from "@/types/sigma-doc";
+import { DocumentSessionContext } from "./document-session-context";
+import { RendererDocumentSession } from "@/features/collaboration/renderer/session";
+import { SharedDocument } from "@/features/collaboration/model/shared-document";
+import { richText } from "@/features/collaboration/model/rich-text";
+import { toBase64 } from "@/features/collaboration/model/protocol";
+import type { ObjectValue } from "@/features/collaboration/model/value";
+import type { CollaborationBridge } from "@/features/collaboration/model/bridge";
+import { createBlankDocument } from "@/lib/blank-document";
 
 const INITIAL_BLOCKS: TextFlowBlock[] = [
   paragraph("p_before", "前の段落テキストです。"),
@@ -144,6 +152,55 @@ async function renderHarness(props: Parameters<typeof Harness>[0] = {}): Promise
   expect(editors).toHaveLength(2);
   return editors;
 }
+
+it("keeps the live body caret at the Yjs anchor through peer edits, local typing and undo", async () => {
+  const document = createBlankDocument();
+  document.content = [paragraph("p1", "abcDEFghi")];
+  const peer = new SharedDocument();
+  peer.initialize(JSON.parse(JSON.stringify(document)) as ObjectValue, { sharedDocumentId: "shared", epoch: 1 });
+  const update = vi.fn(async () => {});
+  const session = new RendererDocumentSession(
+    { binding: { protocol: 1, epoch: 1, sharedDocumentId: "shared", docId: document.docId, localFileId: "file" }, state: toBase64(peer.snapshot()), role: "editor", status: "saved", actorId: "self", assets: {} },
+    { update, presence: vi.fn(async () => {}) } as unknown as CollaborationBridge,
+  );
+  let refresh = () => {};
+  function SharedHarness() {
+    const [blocks, setBlocks] = useState(session.project().content as TextFlowBlock[]);
+    useEffect(() => {
+      refresh = () => setBlocks(session.project().content as TextFlowBlock[]);
+      return session.subscribe(refresh);
+    }, []);
+    return <DocumentSessionContext.Provider value={session}><TextFlowEditor
+      blocks={blocks} selectedId={null} historyRevision={0} onSelect={() => {}} textRunGroupId="shared-caret" textRunUnitId="shared-unit" textRunScopeId="document" textRunOrder={0}
+      onChange={(_ids, next) => {
+        const before = session.project();
+        setBlocks(session.change(before, { ...before, content: next }).content as TextFlowBlock[]);
+      }}
+    /></DocumentSessionContext.Provider>;
+  }
+  try {
+    await act(async () => root.render(<SharedHarness />));
+    const input = getTextRunEditors("shared-caret")[0].editor;
+    await act(async () => { input.view.focus(); input.commands.setTextSelection(4); });
+    expect(session.getSelection()?.head.offset).toBe(3);
+    const vector = peer.vector();
+    const text = richText(peer.getRichFragment("p1", "children")!);
+    peer.doc.transact(() => { text.insert(0, "XX"); text.insert(text.length, "YY"); });
+    await act(async () => session.receive({ type: "update", fileId: "file", epoch: 1, update: toBase64(peer.difference(vector)), identity: { actorId: "peer", operationId: "remote", kind: "manual" } }));
+    expect(input.state.doc.textContent).toBe("XXabcDEFghiYY");
+    expect(input.state.selection.head).toBe(6);
+    expect(update).not.toHaveBeenCalled();
+    await act(async () => { input.commands.insertContent("!"); });
+    expect(JSON.stringify(session.project().content)).toContain("XXabc!DEFghiYY");
+    expect(input.state.selection.head).toBe(7);
+    await act(async () => {
+      session.restore("undo");
+      refresh();
+    });
+    expect(JSON.stringify(session.project().content)).toContain("XXabcDEFghiYY");
+    expect(session.getSelection()?.head.offset).toBe(5);
+  } finally { session.destroy(); peer.destroy(); }
+});
 
 it("restores a comment after formatted math at the canonical text offset", async () => {
   const tex = String.raw`\boldsymbol{\mathit{x}}`;
