@@ -2,87 +2,61 @@ import assert from "node:assert/strict";
 import { globSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { load } from "js-yaml";
+import { checkDesktopRuntimeLockfile } from "./check-desktop-runtime-lock.mjs";
 
-const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
+const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies"];
 
-// Resolve from the package's location, including nested React 18 installations.
-export function resolveLockedPackage(packages, location, name) {
-  let directory = location;
-  for (;;) {
-    if (path.posix.basename(directory) !== "node_modules") {
-      const candidate = path.posix.join(directory, "node_modules", name);
-      if (packages[candidate]) return packages[candidate];
-    }
-    if (!directory || directory === ".") return undefined;
-    directory = path.posix.dirname(directory);
-  }
-}
-
-/** Shared with the post-install packaging check. Requires no installed dependencies. */
-export function checkDesktopRuntimeLockfile(desktop, packages) {
-  const runtime = desktop.devDependencies?.electron;
-  assert.match(runtime, /^\d+\.\d+\.\d+$/, "Pin an exact stable Electron runtime");
-  assert.equal(packages["apps/desktop"]?.devDependencies?.electron, runtime,
-    "Electron lockfile declaration differs from the pinned runtime");
-  assert.equal(packages["node_modules/electron"]?.version, runtime,
-    "Lockfile runtime differs from packaging");
-  return runtime;
+export function lockedSnapshotKey(name, reference) {
+  if (reference.startsWith("link:")) return undefined;
+  return /^\d/.test(reference) ? `${name}@${reference}` : reference;
 }
 
 export function checkWorkspaceLockfile(root) {
-  const readJson = (file) => JSON.parse(readFileSync(path.join(root, file), "utf8"));
-  const manifest = readJson("package.json");
-  const lock = readJson("package-lock.json");
-  assert.equal(lock.lockfileVersion, 3, "Expected npm lockfile v3");
-  const packages = lock.packages;
-  assert.ok(packages, "Missing lockfile package graph");
-  assert.deepEqual(packages[""]?.workspaces, manifest.workspaces, "Root workspace list differs from lockfile");
-  const patterns = Array.isArray(manifest.workspaces) ? manifest.workspaces : manifest.workspaces.packages;
-  const workspaces = globSync(patterns, { cwd: root }).map((entry) => entry.replaceAll("\\", "/"));
-  for (const location of ["", ...workspaces]) {
-    const source = location ? readJson(`${location}/package.json`) : manifest;
-    const locked = packages[location];
-    assert.ok(locked, `Missing workspace in lockfile: ${location || "root"}`);
-    assert.equal(locked.version, source.version, `Workspace version differs: ${location || "root"}`);
+  const readJson = file => JSON.parse(readFileSync(path.join(root, file), "utf8"));
+  const workspace = load(readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf8"));
+  const lock = load(readFileSync(path.join(root, "pnpm-lock.yaml"), "utf8"));
+  assert.equal(String(lock.lockfileVersion), "9.0", "Expected pnpm lockfile v9");
+  const workspaces = globSync(workspace.packages, { cwd: root }).map(entry => entry.replaceAll("\\", "/"));
+  assert.deepEqual(Object.keys(lock.importers).sort(), [".", ...workspaces].sort(), "Root workspace list differs from lockfile");
+  for (const location of [".", ...workspaces]) {
+    const source = readJson(path.join(location, "package.json"));
+    const locked = lock.importers[location];
+    assert.ok(locked, `Missing workspace in lockfile: ${location}`);
     for (const field of dependencyFields) {
-      // npm may retain a range here even when Dependabot keeps an exact
-      // manifest pin. Required names must match; npm ci validates versions.
-      // The stricter Electron runtime contract is checked separately below.
       assert.deepEqual(Object.keys(locked[field] ?? {}).sort(), Object.keys(source[field] ?? {}).sort(),
-        `Workspace ${field} differ: ${location || "root"}`);
+        `Workspace ${field} differ: ${location}`);
+      for (const [name, entry] of Object.entries(locked[field] ?? {})) {
+        // Overrides can legitimately replace the manifest's original specifier;
+        // frozen install is authoritative for those ranges.
+        assert.equal(typeof entry.specifier, "string", `Missing dependency specifier: ${location} -> ${name}`);
+        if (entry.version.startsWith("link:")) {
+          const target = path.posix.normalize(path.posix.join(location, entry.version.slice(5)));
+          assert.ok(lock.importers[target], `Missing workspace link: ${location} -> ${name}`);
+          assert.equal(readJson(`${target}/package.json`).name, name, `Wrong workspace link: ${name}`);
+        } else {
+          assert.ok(lock.snapshots[lockedSnapshotKey(name, entry.version)], `Missing required dependency: ${location} -> ${name}`);
+        }
+      }
     }
-    if (location === "apps/desktop") checkDesktopRuntimeLockfile(source, packages);
-    // React 18 must not silently fall back to the hoisted React 19 install.
+    if (location === "apps/desktop") checkDesktopRuntimeLockfile(source, locked.devDependencies?.electron);
+    // Keep the React 18 consumer independent of the React 19 workspace graph.
     for (const name of ["react", "react-dom", "@types/react", "@types/react-dom"]) {
       const range = source.dependencies?.[name] ?? source.devDependencies?.[name];
       const major = range?.match(/^[~^]?(\d+)\./)?.[1];
-      if (major) {
-        assert.equal(resolveLockedPackage(packages, location, name)?.version?.split(".")[0], major,
-          `React major differs: ${location || "root"} -> ${name}`);
-      }
-    }
-    if (location) {
-      const link = packages[`node_modules/${source.name}`];
-      assert.ok(link?.link && link.resolved === location, `Missing workspace link: ${source.name}`);
+      const entry = locked.dependencies?.[name] ?? locked.devDependencies?.[name];
+      if (major) assert.equal(entry?.version?.split(".")[0], major, `React major differs: ${location} -> ${name}`);
     }
   }
-  for (const [location, entry] of Object.entries(packages)) {
-    if (entry.link) {
-      assert.ok(packages[entry.resolved], `Broken workspace link: ${location}`);
-      continue;
-    }
-    // npm ci remains the authority for version ranges and optional/peer installs.
-    // Required edges must exist even for dependencies of dependencies.
-    const required = { ...entry.dependencies, ...entry.devDependencies };
-    for (const name of Object.keys(required)) {
-      if (Object.hasOwn(entry.optionalDependencies ?? {}, name)) continue;
-      assert.ok(resolveLockedPackage(packages, location, name), `Missing required dependency: ${location || "root"} -> ${name}`);
+  for (const [key, entry] of Object.entries(lock.snapshots)) {
+    assert.ok(lock.packages[key.split("(")[0]], `Missing package resolution: ${key}`);
+    for (const [name, reference] of Object.entries(entry.dependencies ?? {})) {
+      assert.ok(lock.snapshots[lockedSnapshotKey(name, reference)], `Missing required dependency: ${key} -> ${name}`);
     }
   }
   return workspaces.length;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const root = fileURLToPath(new URL("../", import.meta.url));
-  console.log(`Lockfile retains all ${checkWorkspaceLockfile(root)} workspaces, their links, and required dependencies.`);
+  console.log(`Lockfile retains all ${checkWorkspaceLockfile(fileURLToPath(new URL("../", import.meta.url)))} workspaces, their links, and required dependencies.`);
 }

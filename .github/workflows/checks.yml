@@ -45,24 +45,28 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.1.2
       - uses: actions/setup-node@v7
         with:
           node-version: "24.22.1"
-          cache: npm
-      - run: npm run lockfile:check
-      - run: npm ci
-      - run: npm run dependencies:check
-      - run: npm run version:check
-      - run: npm run test:scripts
-      - run: npm run web:test
+          cache: pnpm
+      - run: node scripts/check-desktop-runtime-lock.mjs
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lockfile:check
+      - run: pnpm run dependencies:check
+      - run: pnpm run version:check
+      - run: pnpm run test:scripts
+      - run: pnpm run web:test
       - run: python3 -m unittest discover -s scripts -p 'windows_store*_test.py'
-      - run: npm exec --workspace @sigma-studio/desktop -- next typegen
-      - run: npm run typecheck
-      - run: npm run lint
+      - run: pnpm --filter @sigma-studio/desktop exec next typegen
+      - run: pnpm run typecheck
+      - run: pnpm run lint
       # Source-graph scans and real filesystem tests exceed 5s on shared runners.
-      - run: npm --workspace @sigma-studio/desktop run test -- --maxWorkers=2 --testTimeout=30000
-      - run: npm run build
-      - run: npm run electron:build
+      - run: pnpm --filter @sigma-studio/desktop run test --maxWorkers=2 --testTimeout=30000
+      - run: pnpm run build
+      - run: pnpm run electron:build
 
   pdf-parity:
     name: B4 three-column PDF (${{ matrix.os }})
@@ -76,15 +80,19 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.1.2
       - uses: actions/setup-node@v7
         with:
           node-version: "24.22.1"
-          cache: npm
-      - run: npm ci
+          cache: pnpm
+      - run: node scripts/check-desktop-runtime-lock.mjs
+      - run: pnpm install --frozen-lockfile
       - name: Build the actual desktop renderer, main and preload
-        run: npm --workspace @sigma-studio/desktop run electron:prepare
+        run: pnpm --filter @sigma-studio/desktop run electron:prepare
       - name: Compare B4 display scales, print assets and problem number frames in editor, preview and saved PDF
-        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/pdf-b4-columns.spec.ts tests/electron/print-asset-ready.spec.ts tests/electron/problem-number-page-break.spec.ts
+        run: pnpm --filter @sigma-studio/desktop run test:e2e:electron tests/electron/pdf-b4-columns.spec.ts tests/electron/print-asset-ready.spec.ts tests/electron/problem-number-page-break.spec.ts
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -100,17 +108,21 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.1.2
       - uses: actions/setup-node@v7
         with:
           node-version: "24.22.1"
-          cache: npm
-      - run: npm ci
+          cache: pnpm
+      - run: node scripts/check-desktop-runtime-lock.mjs
+      - run: pnpm install --frozen-lockfile
       - name: Build the actual Windows desktop renderer, main and preload
-        run: npm --workspace @sigma-studio/desktop run electron:prepare
+        run: pnpm --filter @sigma-studio/desktop run electron:prepare
       - name: Save and reopen pocket tables with custom borders and check TeX input, preview and saved PDF
-        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/pocket.spec.ts tests/electron/pocket-shared-table.spec.ts tests/electron/math-preamble-packages.spec.ts --grep "table pocket copies|customised inner borders|online shared material|preamble circled"
+        run: pnpm --filter @sigma-studio/desktop run test:e2e:electron tests/electron/pocket.spec.ts tests/electron/pocket-shared-table.spec.ts tests/electron/math-preamble-packages.spec.ts --grep "table pocket copies|customised inner borders|online shared material|preamble circled"
       - name: Repeat the forced session invitation against Windows focus and hydration
-        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- tests/electron/math-preamble-packages.spec.ts --grep "preamble circled settings remain reachable" --repeat-each=3
+        run: pnpm --filter @sigma-studio/desktop run test:e2e:electron tests/electron/math-preamble-packages.spec.ts --grep "preamble circled settings remain reachable" --repeat-each=3
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -124,15 +136,19 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.1.2
       - uses: actions/setup-node@v7
         with:
           node-version: "24.22.1"
-          cache: npm
-      - run: npm run lockfile:check
-      - run: npm ci
+          cache: pnpm
+      - run: node scripts/check-desktop-runtime-lock.mjs
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lockfile:check
       # Includes build/test dependencies: compromised tooling can affect releases.
-      - run: npm run dependencies:check
-      - run: npm run security:audit
+      - run: pnpm run dependencies:check
+      - run: pnpm run security:audit
 
   electron-smoke:
     name: Electron persistence and IPC smoke (${{ matrix.shard }}/2)
@@ -148,19 +164,23 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.1.2
       - uses: actions/setup-node@v7
         with:
           node-version: "24.22.1"
-          cache: npm
-      - run: npm run lockfile:check
-      - run: npm ci
-      - run: npm run dependencies:check
-      - run: npm exec --workspace @sigma-studio/desktop -- playwright install --with-deps chromium
+          cache: pnpm
+      - run: node scripts/check-desktop-runtime-lock.mjs
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lockfile:check
+      - run: pnpm run dependencies:check
+      - run: pnpm --filter @sigma-studio/desktop exec playwright install --with-deps chromium
       - name: Build the static desktop renderer and actual main/preload
-        run: npm --workspace @sigma-studio/desktop run electron:prepare
+        run: pnpm --filter @sigma-studio/desktop run electron:prepare
       - name: Allow the installed Electron binary to create its Linux sandbox
         # Ubuntu restricts unprivileged user namespaces by executable path. The
-        # npm runtime has no system package profile; keep the host restriction
+        # Node runtime has no system package profile; keep the host restriction
         # and permit only this job's Electron, as packaged Electron apps do.
         run: |
           # Electron may download its binary on first require and log to stdout.
@@ -187,7 +207,7 @@ jobs:
           xvfb-run --auto-servernum dbus-run-session -- bash -euo pipefail -c '
             printf "%s" "sigma-ci-fixture" | gnome-keyring-daemon --daemonize --components=secrets --unlock >/dev/null
             export XDG_CURRENT_DESKTOP=GNOME
-            npm --workspace @sigma-studio/desktop run test:e2e:electron -- --shard=${{ matrix.shard }}/2 \
+            pnpm --filter @sigma-studio/desktop run test:e2e:electron --shard=${{ matrix.shard }}/2 \
               tests/electron/ai-svg-conversion.spec.ts \
               tests/electron/svg-to-sigma-double-arrows.spec.ts \
               tests/electron/svg-small-circles.spec.ts tests/electron/svg-to-sigma-crop-arrows.spec.ts \
@@ -274,25 +294,29 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.1.2
       - uses: actions/setup-node@v7
         with:
           node-version: "24.22.1"
-          cache: npm
-      - run: npm run lockfile:check
-      - run: npm ci
+          cache: pnpm
+      - run: node scripts/check-desktop-runtime-lock.mjs
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lockfile:check
       # Viewer declarations must exist before Editor's public contract checks.
-      - run: npm run editor:build
-      - run: npm run viewer:typecheck
-      - run: npm run editor:typecheck
-      - run: npm run viewer:test
-      - run: npm --workspace @sigma-studio/editor run test
-      - run: npm --workspace @sigma-studio/editor-react18-fixture run build
-      - run: npm --workspace @sigma-studio/editor-react19-example run build
-      - run: npm exec --workspace @sigma-studio/desktop -- playwright install --with-deps chromium
-      - run: npm run test:public-browser
-      - run: npm run test:public-browser:react18
+      - run: pnpm run editor:build
+      - run: pnpm run viewer:typecheck
+      - run: pnpm run editor:typecheck
+      - run: pnpm run viewer:test
+      - run: pnpm --filter @sigma-studio/editor run test
+      - run: pnpm --filter @sigma-studio/editor-react18-fixture run build
+      - run: pnpm --filter @sigma-studio/editor-react19-example run build
+      - run: pnpm --filter @sigma-studio/desktop exec playwright install --with-deps chromium
+      - run: pnpm run test:public-browser
+      - run: pnpm run test:public-browser:react18
       - name: Inspect the public tarballs without publishing
-        run: npm pack --workspace @sigma-studio/viewer --workspace @sigma-studio/editor --dry-run --ignore-scripts
+        run: pnpm --filter @sigma-studio/viewer --filter @sigma-studio/editor -r pack --dry-run --config.ignore-scripts=true
 
   file-lock:
     name: File locking (${{ matrix.os }})
@@ -304,13 +328,17 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.1.2
       - uses: actions/setup-node@v7
         with:
           node-version: "24.22.1"
-          cache: npm
-      - run: npm run lockfile:check
-      - run: npm ci
+          cache: pnpm
+      - run: node scripts/check-desktop-runtime-lock.mjs
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lockfile:check
       - name: Verify ownership and real process recovery
-        run: npm --workspace @sigma-studio/desktop run test -- file-lock
+        run: pnpm --filter @sigma-studio/desktop run test file-lock
       - name: Load the native lock in the shipped Electron runtime
-        run: npm exec --workspace @sigma-studio/desktop -- cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/check-native-lock.cjs
+        run: pnpm --filter @sigma-studio/desktop exec cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/check-native-lock.cjs

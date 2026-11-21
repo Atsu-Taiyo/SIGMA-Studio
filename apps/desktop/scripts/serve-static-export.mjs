@@ -1,7 +1,7 @@
 /**
  * 静的 export (`out/`) を配って playwright を回す実行系。
  *
- * 既定の e2e は `npm run dev` (= `next dev`) を叩くので、**Electron が実際に読む HTML では
+ * 既定の e2e は `pnpm run dev` (= `next dev`) を叩くので、**Electron が実際に読む HTML では
  * ない** — meta の CSP も、静的 export 特有のインラインスクリプトも入っていない。CSP の
  * violation を測るにはビルド成果物そのものを配る必要がある。
  *
@@ -9,7 +9,7 @@
  * (`playwright.config.ts`)。ここではその仕組みに乗って、`out/` を静的に配りながら
  * playwright を子プロセスとして起動する。
  *
- *   npm run test:e2e:export -- tests/e2e/csp-violations.spec.ts
+ *   pnpm run test:e2e:export tests/e2e/csp-violations.spec.ts
  *
  * `file://` オリジン固有の差 (`'self'` の解決) だけはこの方法では測れないので、Electron 実機の
  * スモークが別途要る。
@@ -24,7 +24,7 @@ const desktopDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const outDir = path.join(desktopDir, "out");
 
 // 直前に perf 計測を回していると `out/` には計測用ビルドが残っている。ここで止める。
-const problem = checkStaticExport(outDir, "npm run electron:prepare");
+const problem = checkStaticExport(outDir, "pnpm run electron:prepare");
 if (problem) {
   console.error(problem);
   process.exit(2);

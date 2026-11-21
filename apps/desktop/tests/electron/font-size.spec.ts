@@ -11,7 +11,7 @@ const APP_ROOT = path.resolve(__dirname, "../..");
 const devUrl = process.env.SIGMA_STUDIO_E2E_BASE_URL;
 
 test("font sizes use the real Electron bridge and survive an app restart", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
   const userData = mkdtempSync(path.join(tmpdir(), "sigma-font-size-"));
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
@@ -177,7 +177,7 @@ test("font sizes use the real Electron bridge and survive an app restart", async
 });
 
 test("font size stays blank until resolved and does not leak across files", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
   const userData = mkdtempSync(path.join(tmpdir(), "sigma-font-size-tabs-"));
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));

@@ -11,8 +11,8 @@ import { defineConfig } from "@playwright/test";
  * `out/index.html` を `file://` で読むので dev サーバは要らないし、起こすと port 3000 の
  * 取り合いになる。
  *
- * 実行前に `npm run electron:prepare` が要る (spec 側で存在確認して skip する)。
- * 既定の `npm test` / `npm run test:e2e` には**入れない** — 実ビルドを前提にするため。
+ * 実行前に `pnpm run electron:prepare` が要る (spec 側で存在確認して skip する)。
+ * 既定の `pnpm test` / `pnpm run test:e2e` には**入れない** — 実ビルドを前提にするため。
  * CI に載せるなら Linux では `xvfb-run` が要る。
  *
  * 起動したアプリは隠した状態 (⌘H と同じ) で始める (macOS)。作業中のアプリの上に窓が出ず、

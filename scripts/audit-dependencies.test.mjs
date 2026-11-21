@@ -229,3 +229,24 @@ test("a malformed exception or date fails instead of being ignored", () => {
     assert.equal(evaluate({ today }).ok, false, String(today));
   }
 });
+
+test("pnpm audit reports retain the existing exception and shipped-dependency rules", () => {
+  const fullReport = {
+    advisories: {
+      42: {
+        module_name: "picomatch",
+        github_advisory_id: PICOMATCH,
+        severity: "high",
+        url: `https://github.com/advisories/${PICOMATCH}`,
+        findings: [{ paths: ["apps__desktop>vite>picomatch"] }],
+      },
+    },
+    metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
+  };
+  const result = evaluate({ fullReport });
+  assert.equal(result.ok, true);
+  assert.match(result.accepted[0], /picomatch.*reaches vite/);
+  assert.equal(evaluate({ fullReport, shippedReport: fullReport }).ok, false);
+  fullReport.metadata.vulnerabilities.high = 2;
+  assert.equal(evaluate({ fullReport }).ok, false);
+});

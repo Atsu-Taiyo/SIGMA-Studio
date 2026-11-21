@@ -14,7 +14,7 @@ Viewerには編集UI、保存、認証、AI、Electron API、外部assetの取�
 ## インストール
 
 ```sh
-npm install @sigma-studio/viewer
+pnpm add @sigma-studio/viewer
 ```
 
 ## 基本的な使い方
@@ -40,7 +40,7 @@ export function MaterialPage({ document }: { document: SigmaDocument }) {
 AIエージェントは次の順序で導入してください。
 
 1. ホストがReact `>=18.2.0 <20`を使用していることを確認する
-2. `npm install @sigma-studio/viewer`を実行する
+2. `pnpm add @sigma-studio/viewer`を実行する
 3. アプリのentry pointで`@sigma-studio/viewer/styles.css`を一度だけ読み込む
 4. APIや保存層から受け取る`unknown`値を`parseSigmaDocument`で検証する
 5. 検証済みの`SigmaDocument`を`SigmaDocViewer`の`document`へ渡す
@@ -132,14 +132,14 @@ PNG、JPEG、WebPはbase64形式と実ファイル署名を検証します。SVG
 以下はこのリポジトリの開発者向けコマンドです。リポジトリルートで実行します。
 
 ```sh
-npm run viewer:typecheck
-npm run viewer:test
-npm run viewer:build
-npm run viewer:pack
-npm run viewer:example
+pnpm run viewer:typecheck
+pnpm run viewer:test
+pnpm run viewer:build
+pnpm run viewer:pack
+pnpm run viewer:example
 ```
 
-`npm run viewer:pack`は公開せず、npm packageの内容だけを確認します。
+`pnpm run viewer:pack`は公開せず、npm packageの内容だけを確認します。
 
 ### CSSの視覚回帰テスト
 
@@ -152,12 +152,12 @@ npm run viewer:example
 #    scripts/build.mjs の new URL().pathname が percent-encode されて失敗するので、
 #    ASCIIパスのクローン（git worktree add --detach /tmp/<name> <ref> + node_modules を cp）で実行し
 #    packages/viewer/dist をコピーして戻す。
-npm run viewer:build
+pnpm run viewer:build
 
 # 2. 走らせる（Next の dev server は不要。spec が自前で静的サーバを立てる）
 cd apps/desktop
 SIGMA_STUDIO_E2E_BASE_URL=http://127.0.0.1:<空きポート> \
-  npx playwright test tests/e2e/viewer-css-parity.spec.ts
+  pnpm --filter @sigma-studio/desktop exec playwright test tests/e2e/viewer-css-parity.spec.ts
 ```
 
 `dist`が無い、または`dist/styles.css`が元のCSS（`packages/viewer/src/styles.css` / `apps/desktop/src/app/document-surface.css`）より古い場合は、理由付きでskipされます。古いビルドを測ると「作業ツリーに既にある退行」を緑と報告してしまうためです。

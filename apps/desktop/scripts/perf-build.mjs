@@ -3,7 +3,7 @@
  *
  * `next build` に `NEXT_PUBLIC_SIGMA_PERF=1` を付けるだけでなく、**成果物に印を残す**ところまでを
  * 1 つの操作にしてある。`next build` の出力先は `out/` ひとつしかないので、計測ビルドと配布ビルドは
- * 同じ場所を奪い合う。印を付ける役目を実行系 (perf-probe.mjs) 側に置くと、`npm run perf:build` を
+ * 同じ場所を奪い合う。印を付ける役目を実行系 (perf-probe.mjs) 側に置くと、`pnpm run perf:build` を
  * 単独で叩いた場合や途中で止めた場合に、印の無い計測ビルドが `out/` に残り、
  * `test:e2e:export` / `csp:smoke` がそれを黙ってテストしてしまう。
  */
@@ -18,7 +18,7 @@ const desktopDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const outDir = path.join(desktopDir, "out");
 
 const child = spawn(
-  path.join(desktopDir, "..", "..", "node_modules", ".bin", "next"),
+  path.join(desktopDir, "node_modules", ".bin", "next"),
   ["build"],
   {
     cwd: desktopDir,

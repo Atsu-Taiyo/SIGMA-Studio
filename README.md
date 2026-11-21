@@ -153,11 +153,11 @@ React向けのEditor・Viewerを公開しています。編集機能や教材の
 Node.js 24とnpmを使います。リポジトリのルートで実行してください。
 
 ```sh
-npm ci
-npm run dev
+pnpm install --frozen-lockfile
+pnpm run dev
 ```
 
-Electronアプリの開発起動は `npm run electron:dev` です。
+Electronアプリの開発起動は `pnpm run electron:dev` です。
 
 - [開発・検証手順](CONTRIBUTING.md)
 - [アーキテクチャ](docs/architecture.md)

@@ -205,7 +205,7 @@ describe("viewer stylesheet size", () => {
       distBytes = null;
     }
     if (distBytes === null) {
-      // `npm run viewer:build` has not run in this checkout; the authored-size guard above still
+      // `pnpm run viewer:build` has not run in this checkout; the authored-size guard above still
       // applies. Nothing to assert here.
       return;
     }

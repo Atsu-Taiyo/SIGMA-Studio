@@ -91,7 +91,7 @@ async function prepare(app: ElectronApplication): Promise<Page> {
 }
 
 test("the pocket carries text and a shape to another material in the real app, off the clipboard and off disk", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
   const userData = mkdtempSync(path.join(tmpdir(), "sigma-pocket-"));
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
@@ -265,7 +265,7 @@ async function visibleParagraphDropPoint(target: ReturnType<Page["locator"]>): P
 }
 
 test("dragging a card lands it where it is dropped, on the page and on a whiteboard, in the real app", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
   const userData = mkdtempSync(path.join(tmpdir(), "sigma-pocket-drag-"));
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
@@ -358,7 +358,7 @@ test("dragging a card lands it where it is dropped, on the page and on a whitebo
 });
 
 test("the selected part flies into the pocket, and the closed pocket is a chip at the top centre, in the real app", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
   const userData = mkdtempSync(path.join(tmpdir(), "sigma-pocket-fly-"));
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
@@ -423,7 +423,7 @@ test("the selected part flies into the pocket, and the closed pocket is a chip a
 });
 
 test("text copied across blocks pastes onto a new whiteboard as one text shape, through the real clipboard", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
   const userData = mkdtempSync(path.join(tmpdir(), "sigma-wb-paste-"));
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
@@ -506,7 +506,7 @@ test("text copied across blocks pastes onto a new whiteboard as one text shape, 
 });
 
 test("a pocket body drop containing a problem is one undo step and survives redo and reload", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
   const userData = mkdtempSync(path.join(tmpdir(), "sigma-pocket-body-undo-"));
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
@@ -562,7 +562,7 @@ test("a pocket body drop containing a problem is one undo step and survives redo
 });
 
 test("a pocket body drop into an empty paragraph is one undo step", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
   const userData = mkdtempSync(path.join(tmpdir(), "sigma-pocket-body-undo-"));
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
@@ -623,7 +623,7 @@ test("a pocket body drop into an empty paragraph is one undo step", async ({}, t
 });
 
 test("consecutive pocket body drops are separately undoable", async () => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
   const userData = mkdtempSync(path.join(tmpdir(), "sigma-pocket-repeat-"));
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
@@ -677,7 +677,7 @@ test("consecutive pocket body drops are separately undoable", async () => {
 });
 
 test("table pocket copies remain independent through editing, repeated insertion, undo and reload", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
   const userData = mkdtempSync(path.join(tmpdir(), "sigma-pocket-table-"));
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
@@ -740,7 +740,7 @@ test("table pocket copies remain independent through editing, repeated insertion
 
 for (const [rows, columns] of [[3, 3], [12, 8]]) {
   test(`a ${rows}x${columns} pocket table with customised inner borders saves immediately and survives an app restart`, async ({}, testInfo) => {
-    test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+    test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
     test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
     const userData = mkdtempSync(path.join(tmpdir(), "sigma-pocket-table-borders-"));
     const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));

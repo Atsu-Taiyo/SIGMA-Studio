@@ -148,18 +148,18 @@ Web版のAI面は**キャンバス左上の`AiTaskDock`ひとつだけ**です�
 
 1. Chrome 149以降で `chrome://flags/#enable-webmcp-testing` を開く。
 2. WebMCP testingをEnabledにしてChromeを再起動する。
-3. リポジトリルートで `npm install`、`npm run dev` を実行する。
+3. リポジトリルートで `pnpm install`、`pnpm run dev` を実行する。
 4. 表示されたローカルURLをChromeで開く。
 5. AIパネルの接続状態と登録ツール数を確認する。
 
 自動テスト:
 
 ```sh
-npm run typecheck
-npm --workspace @sigma-studio/desktop exec vitest run src/lib/webmcp-tools.test.ts
+pnpm run typecheck
+pnpm --filter @sigma-studio/desktop exec vitest run src/lib/webmcp-tools.test.ts
 cd apps/desktop
-npm exec playwright test tests/e2e/webmcp.spec.ts tests/e2e/webmcp-challenge.spec.ts
-npm exec playwright test tests/e2e/pdf-parity.spec.ts --grep "WebMCP Challenge fixture"
+pnpm --filter @sigma-studio/desktop exec playwright test tests/e2e/webmcp.spec.ts tests/e2e/webmcp-challenge.spec.ts
+pnpm --filter @sigma-studio/desktop exec playwright test tests/e2e/pdf-parity.spec.ts --grep "WebMCP Challenge fixture"
 ```
 
 ## Challenge provenance

@@ -58,7 +58,7 @@ async function drawnCurvePath(graph: Locator) {
  * 2. 全部消すと、その Backspace で欄が閉じて焦点がボタンへ移り、続けて打った式がどこにも入らなかった。
  */
 test("the realtime graph expression field deletes sin(x) one element per Backspace and accepts a new formula after it is emptied", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(
     !process.env.SIGMA_STUDIO_E2E_BASE_URL && !process.env.SIGMA_STUDIO_DEV_SERVER_URL && !existsSync(path.join(APP_ROOT, "out/index.html")),
     "Start a private dev server or build the renderer",

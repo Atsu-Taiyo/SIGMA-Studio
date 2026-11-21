@@ -6,7 +6,7 @@
 //                   →  build/icon.ico  (Windows, electron-builder `win.icon`)
 //                   →  build/appx/*.png (Windows Store のタイル。electron-builder が `build/appx` から拾う)
 //
-// 実行: npm run icons:generate   (apps/desktop から)
+// 実行: pnpm run icons:generate   (apps/desktop から)
 //
 // icns の組み立てには macOS の `iconutil` が要る。macOS 以外で走らせた場合は
 // icns だけ skip して png/ico は生成する（既存の icns はそのまま残る）。

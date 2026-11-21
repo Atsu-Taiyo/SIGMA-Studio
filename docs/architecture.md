@@ -734,7 +734,7 @@ border を引く、running region のリストは region スコープ、静的�
 ### 共通処理とコントローラの分割
 
 - 公開Viewerの型は `packages/viewer/scripts/generate-document-types.mjs` が正本の
-  `features/document/model` と `overlay-model` から生成する。`npm --workspace @sigma-studio/viewer run types:generate` で更新し、`types:check` で更新漏れを検出する。
+  `features/document/model` と `overlay-model` から生成する。`pnpm --filter @sigma-studio/viewer run types:generate` で更新し、`types:check` で更新漏れを検出する。
   公開宣言にはデスクトップのソースパスを持ち込まず、非公開の基底型も含めて自己完結させる。
 - グラフの座標変換・軸位置・ラベル式の解釈は `drawing/graph-coordinate-label.ts`、
   表の結合セルは既存の `getTableCellMatrix` を共有する。

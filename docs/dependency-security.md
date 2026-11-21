@@ -1,7 +1,7 @@
 # 依存のセキュリティ補修
 
 依存監査で検出された問題と、上流の公式advisoryから確認した対策の記録。
-通常の `npm ci` で再現でき、`npm run security:audit` は再現・互換性テストとnpm監査を両方実行する。
+通常の `pnpm install --frozen-lockfile` で再現でき、`pnpm run security:audit` は再現・互換性テストとnpm監査を両方実行する。
 警告の除外や監査対象の縮小は行っていない。
 
 ## Electron内蔵Node.jsのUndici
@@ -49,7 +49,7 @@
   freshness/max-staleの判定より先に適用する。通常のpublicキャッシュとprivateキャッシュは維持する。
 - 補修は配布tarballのソース全体のSHA-256を検証してから適用する。繰り返し実行可能で、
   未確認の版・ソース変更ではインストールを失敗させる。
-- `npm ci --ignore-scripts` では補修されない。この場合、`security:audit` の再現テストが失敗する。
+- `pnpm install --frozen-lockfile --ignore-scripts` では補修されない。この場合、`security:audit` の再現テストが失敗する。
   開発用依存を除くインストールでは、この開発用ライブラリへの補修を省略する。
 - 上流の修正版が出たら、再現テストを残したまま固定版と補修を取り除けることを確認する。
 

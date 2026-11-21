@@ -1,18 +1,29 @@
 # 開発と検証
 
-Node.js 24 と npm を使います。依存はリポジトリのルートでインストールしてください。
+Node.js 24 と pnpm 11.1.2 を使います。依存はリポジトリのルートでインストールしてください。
 
 ```sh
-npm ci
-npm run dev
+ppnpm install --frozen-lockfile
+pnpm run dev
 ```
+
+依存の実体はpnpmの共通storeへ保存し、`packageImportMethod: hardlink` で各worktreeから共有します。
+macOSでは `pnpm store path` が `~/Library/pnpm/store/v11` を指すことを確認してください。
+別の場所を指す場合は `pnpm config set --global store-dir ~/Library/pnpm/store` で指定します。
+Electronの配布・ネイティブモジュール検査と既存の型参照を保つため、`nodeLinker: hoisted` を使います。
+lint用のTypeScript APIは従来の5.9.3を保ち、各workspaceの型検査には従来どおり7.0.2を使います。
+`.pnpmfile.cjs` はlintツールのpeerだけを5.9.3へ固定します。
+容量を比較するときは `node scripts/measure-dependency-storage.mjs <node_modulesのパス...>` を使えます。
+同じinodeは1回だけ数え、外部hardlink分を別に表示します。APFS cloneの物理共有量はstatからは分かりません。
+pnpm 11の設定は `pnpm-workspace.yaml` に置き、`.npmrc` は追加しません。
+Orcaの新規worktreeでは `orca.yaml` の `scripts.setup` がfrozen installを実行します。
 
 ## ワークスペースの依存更新
 
-依存の更新後はルートで `npm run lockfile:refresh` を実行し、`npm ci` で再現性を確認します。
-全ワークスペースを含めて更新し、個別のpackage-lock.jsonは作りません。
-`npm run lockfile:check` はインストール前にも実行でき、ワークスペース・リンク・必須依存の欠落を検出します。
-CIでもこの検査を `npm ci` の前に実行します。CIでlockfileを自動修復せず、不整合は失敗させます。
+依存の更新後はルートで `pnpm run lockfile:refresh` を実行し、`ppnpm install --frozen-lockfile` で再現性を確認します。
+全ワークスペースを含めて更新し、個別のpnpm-lock.yamlは作りません。
+`pnpm run lockfile:check` はインストール後に実行し、ワークスペース・リンク・必須依存の欠落を検出します。
+CIでもこの検査を `ppnpm install --frozen-lockfile` の後に実行します。CIでlockfileを自動修復せず、不整合は失敗させます。
 
 Dependabotの `exclude-paths` でルートのワークスペースのpackage.jsonを除外しないでください。
 除外するとlockfileの再生成からもその依存グラフが失われます。
@@ -22,10 +33,10 @@ React 18検証用fixtureとReact 19の実アプリ・サンプルを共存させ
 ## デスクトップ版をホットリロードで開発する
 
 ```sh
-mise exec -- npm run electron:dev
+mise exec -- pnpm run electron:dev
 ```
 
-Node.js 24を既に使っている環境では `npm run electron:dev` だけで起動できます。
+Node.js 24を既に使っている環境では `pnpm run electron:dev` だけで起動できます。
 専用のNext.js開発サーバーを空きポートの `127.0.0.1` に立ち上げ、Electronで開きます。
 画面・CSSはFast Refreshで反映され、main / preload / MCPの依存ソースはesbuildで監視されます。
 ビルド成功時だけ、アプリの通常の保存・終了処理を通して再起動します。
@@ -43,7 +54,7 @@ macOSで `SIGMA_STUDIO_LAUNCH_HIDDEN=1` を渡すと、アプリを隠した状�
 描画は続くのでPlaywrightの操作とスクリーンショットはそのまま使え、Dockのアイコンで表示できます。
 Electronのe2e (`playwright.electron.config.ts`) は既定でこの状態で起動します。
 
-配布版と同じ静的ファイル読み込みを確認する場合は `npm run electron:preview` を使います。
+配布版と同じ静的ファイル読み込みを確認する場合は `pnpm run electron:preview` を使います。
 このコマンドは通常のアプリ保存先を使うため、調査時は `SIGMA_STUDIO_USER_DATA_DIR` で
 複製したデータの保存先を指定してください。配布用の `electron:dist:*` は従来どおりです。
 
@@ -59,20 +70,20 @@ Electronのe2e (`playwright.electron.config.ts`) は既定でこの状態で起�
 まず変更した責務のテストを実行します。追加引数は対象workspaceへ直接渡します。
 
 ```sh
-npm --workspace @sigma-studio/desktop run test -- src/features/drawing/graph3d-vector.test.ts
+pnpm --filter @sigma-studio/desktop run test src/features/drawing/graph3d-vector.test.ts
 ```
 
 全体の基本チェックは次の通りです。初回の型検査ではNext.jsの生成型も用意します。
 
 ```sh
-npm exec --workspace @sigma-studio/desktop -- next typegen
-npm run typecheck
-npm run lint
-npm run test
-npm run test:scripts
-npm run version:check
-npm run build
-npm run electron:build
+pnpm --filter @sigma-studio/desktop exec next typegen
+pnpm run typecheck
+pnpm run lint
+pnpm run test
+pnpm run test:scripts
+pnpm run version:check
+pnpm run build
+pnpm run electron:build
 ```
 
 単体テストには純粋関数の入出力、実ストアの一時ディレクトリを使った永続化、DOMでのイベント配線、
@@ -93,8 +104,8 @@ HTTPSまたはlocalhostが必要です。起動・フォーカス復帰時には
 実OSフォントでの描画・IndexedDB保存・再読込と、権限取り消しは `tests/e2e/browser-local-fonts.spec.ts` で確認します。
 
 ```sh
-npm exec --workspace @sigma-studio/desktop -- playwright install chromium
-npm --workspace @sigma-studio/desktop run test:e2e -- tests/e2e/body-block-paste.spec.ts
+pnpm --filter @sigma-studio/desktop exec playwright install chromium
+pnpm --filter @sigma-studio/desktop run test:e2e tests/e2e/body-block-paste.spec.ts
 ```
 
 通常はテスト設定が開発サーバーを起動します。別のサーバーを検査する場合は
@@ -103,8 +114,8 @@ npm --workspace @sigma-studio/desktop run test:e2e -- tests/e2e/body-block-paste
 
 ## 共有教材専用のWeb版
 
-`npm run web:build` は、Electron版と同じEditorShellとYjsの履歴を使う共有教材専用の静的画面を作ります。
-`npm run web:preview` は `apps/web/worker.mjs` をローカルのCloudflare Workersで実行します。
+`pnpm run web:build` は、Electron版と同じEditorShellとYjsの履歴を使う共有教材専用の静的画面を作ります。
+`pnpm run web:preview` は `apps/web/worker.mjs` をローカルのCloudflare Workersで実行します。
 `apps/web/.dev.vars.example` を `.dev.vars` へ複製し、Electron版と同じ共有API・Supabaseの接続先と公開キー、
 サイト自身の `APP_ORIGIN`、32バイト以上のランダムな `SESSION_SECRET` を設定してください。
 本番では `SESSION_SECRET` をWorker Secretに置きます。認証トークンは暗号化したHttpOnly Cookieで保持し、
@@ -119,15 +130,15 @@ Web版の一覧には、ログイン中の本人が読み取れる共有済み�
 未送信編集のYjs journalは `sigma-studio-shared` IndexedDBにアカウント別に保持し、保存済みの文書全体とは分けます。
 通信中に閉じた場合の再送に同じ操作IDを使い、復元で世代が変わった文書へ古い未送信編集を自動送信しません。
 
-`npm run web:test` は認証と中継の境界を確認します。`npm run electron:build` と `npm run web:build` の後、
-`npm run test:e2e:web` で実Workerランタイム・ブラウザ・Electronを同じローカル検証用サーバーへ接続し、
+`pnpm run web:test` は認証と中継の境界を確認します。`pnpm run electron:build` と `pnpm run web:build` の後、
+`pnpm run test:e2e:web` で実Workerランタイム・ブラウザ・Electronを同じローカル検証用サーバーへ接続し、
 相互編集・再読み込み・閲覧者の権限を確認します。この検証は本番のGoogleログインや本番教材での相互編集を証明しません。
 
 Cloudflareの試用先は `https://sigma-studio-web.sigma-studio-experiment.workers.dev` です。
 `apps/web/wrangler.jsonc` が公開先と既存バックエンドの接続先を持ち、
 `SESSION_SECRET` と `SIGMA_SUPABASE_ANON_KEY` はWorker Secretで設定します。
 同じworkers.devゾーンの共有Workerへは `COLLABORATION` Service Bindingで接続します。
-`npm run web:deploy` はWeb画面をビルドし、設定済みのSecretを保持して配備します。
+`pnpm run web:deploy` はWeb画面をビルドし、設定済みのSecretを保持して配備します。
 既存の共有バックエンド自体のデプロイは行いません。
 
 ## 公開パッケージを検証する
@@ -135,17 +146,17 @@ Cloudflareの試用先は `https://sigma-studio-web.sigma-studio-experiment.work
 EditorはViewerの生成型を使うため、先に両パッケージをビルドします。
 
 ```sh
-npm run editor:build
-npm run viewer:typecheck
-npm run editor:typecheck
-npm run viewer:test
-npm --workspace @sigma-studio/editor run test
-npm --workspace @sigma-studio/editor-react19-example run build
-npm --workspace @sigma-studio/editor-react18-fixture run build
-npm exec --workspace @sigma-studio/desktop -- playwright install chromium
-npm run test:public-browser
-npm run test:public-browser:react18
-npm pack --workspace @sigma-studio/viewer --workspace @sigma-studio/editor --dry-run --ignore-scripts
+pnpm run editor:build
+pnpm run viewer:typecheck
+pnpm run editor:typecheck
+pnpm run viewer:test
+pnpm --filter @sigma-studio/editor run test
+pnpm --filter @sigma-studio/editor-react19-example run build
+pnpm --filter @sigma-studio/editor-react18-fixture run build
+pnpm --filter @sigma-studio/desktop exec playwright install chromium
+pnpm run test:public-browser
+pnpm run test:public-browser:react18
+pnpm --filter @sigma-studio/viewer --filter @sigma-studio/editor -r pack --dry-run --config.ignore-scripts=true
 ```
 
 各パッケージの `scripts/build-options.mjs` が本番バンドルの設定を所有します。
@@ -162,7 +173,7 @@ Pull Requestとmainへのpushでは [Checks](.github/workflows/checks.yml) が�
 mainのマージ条件には、この集約checkと個別の必須checkを指定します。最新mainを含む変更でCIを通し、管理者・Botの迂回は許可しません。
 保存ロックはmacOS・Windows・Linuxの別jobで実プロセスの競合・終了を検査し、
 配布に使うElectronでもネイティブ依存を読み込みます。手元では
-`npm --workspace @sigma-studio/desktop run test -- file-lock`で対象テストを実行できます。
+`pnpm --filter @sigma-studio/desktop run test file-lock`で対象テストを実行できます。
 ブラウザの確認範囲と結果はPRに記載してください。
 CI定義の検査、GitHub上の実行、同梱Electronでのネイティブ機能確認、公開版・インストール済みアプリの確認は
 それぞれ分けて報告します。保存ロックを変更した場合の配布物検査と対応OSの確認も下記の配布手順に従います。
@@ -170,12 +181,12 @@ CI定義の検査、GitHub上の実行、同梱Electronでのネイティブ機�
 
 ### 共同編集を有効にした開発起動
 
-`npm run electron:dev` はリポジトリ直下の `.env.collaboration-desktop.local` から
+`pnpm run electron:dev` はリポジトリ直下の `.env.collaboration-desktop.local` から
 `SIGMA_COLLABORATION_URL`・`SIGMA_SUPABASE_URL`・`SIGMA_SUPABASE_ANON_KEY` の3項目だけを読み込みます。
 既に指定された環境変数を優先し、保存先は従来の `tmp/desktop-dev-profile` を維持します。
 ローカルバックエンド用の `.env.collaboration.local` は自動では読みません。
 それを使う場合はバックエンドを起動した上で
-`SIGMA_STUDIO_COLLABORATION_ENV_FILE=.env.collaboration.local npm run electron:dev` と指定してください。
+`SIGMA_STUDIO_COLLABORATION_ENV_FILE=.env.collaboration.local pnpm run electron:dev` と指定してください。
 
 ### TypeScript 7 と React 18/19 の互換性
 
@@ -186,7 +197,7 @@ Next.jsもCLI経由で型検査を行い、型検査の省略はしません。
 
 `examples/editor-react19` が組み込み例の本体です。`editor:example` と `viewer:example` もReact 19で起動します。
 React 18の互換性検証用ホストは `tests/fixtures/editor-react18` に置き、同じ画面ソースを使います。
-React 19は `npm run test:public-browser`、React 18はfixtureのビルド後に
-`npm run test:public-browser:react18` で検証します。従来の `test:public-browser:react19` は通常の検証へのaliasです。
+React 19は `pnpm run test:public-browser`、React 18はfixtureのビルド後に
+`pnpm run test:public-browser:react18` で検証します。従来の `test:public-browser:react19` は通常の検証へのaliasです。
 両テストは実際のReact版と
 編集・保存・再読込を確認し、CIとnpm公開前にも両方を実行します。
