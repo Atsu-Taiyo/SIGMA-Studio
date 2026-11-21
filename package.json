@@ -56,7 +56,7 @@
     "lockfile:refresh": "pnpm install --lockfile-only --ignore-scripts && pnpm run lockfile:check"
   },
   "devDependencies": {
-    "@next/eslint-plugin-next": "16.4.5",
+    "@next/eslint-plugin-next": "16.4.6",
     "typescript-compiler-api": "npm:typescript@5.9.3",
     "js-yaml": "4.3.2",
     "eslint": "9.39.5",

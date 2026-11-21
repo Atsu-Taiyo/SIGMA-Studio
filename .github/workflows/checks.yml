@@ -89,8 +89,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build the actual desktop renderer, main and preload
         run: pnpm --filter @sigma-studio/desktop run electron:prepare
-      - name: Compare B4 portrait and landscape editor, preview and saved PDF at 100%, 125% and 150% display scale
-        run: pnpm --filter @sigma-studio/desktop run test:e2e:electron tests/electron/pdf-b4-columns.spec.ts tests/electron/print-asset-ready.spec.ts
+      - name: Compare B4 display scales, print assets and problem number frames in editor, preview and saved PDF
+        run: pnpm --filter @sigma-studio/desktop run test:e2e:electron tests/electron/pdf-b4-columns.spec.ts tests/electron/print-asset-ready.spec.ts tests/electron/problem-number-page-break.spec.ts
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -252,7 +252,7 @@ jobs:
               tests/electron/ai-svg-figure.spec.ts tests/electron/extensions-dialog.spec.ts \
               tests/electron/close-right-after-shape-edit.spec.ts \
               tests/electron/shared-sync-rejected.spec.ts \
-              tests/electron/extensions-menu.spec.ts \
+              tests/electron/extensions-menu.spec.ts tests/electron/folder-import.spec.ts \
               tests/electron/local-fonts-menu.spec.ts tests/electron/math-ime-composition-scroll.spec.ts \
               tests/electron/graph-expression-backspace.spec.ts tests/electron/math-unclosed-paren.spec.ts \
               tests/electron/quote-empty-paragraph-delete.spec.ts \
