@@ -37,19 +37,28 @@ const current = report({
   minimatch: { severity: "moderate", via: [advisory("minimatch", MINIMATCH, "moderate", ">=7.0.0 <11.0.1")] },
   eslint: { severity: "moderate", via: ["minimatch"] },
 });
+const PICOMATCH_FIXTURE_EXCEPTION = {
+  id: PICOMATCH, package: "picomatch", reason: "Fixture for the exception policy", expires: "2026-12-31",
+};
 const evaluate = (overrides = {}) => evaluateAudit({
-  fullReport: current, shippedReport: clean, exceptions: AUDIT_EXCEPTIONS, today: "2026-11-18", ...overrides,
+  fullReport: current, shippedReport: clean, exceptions: [PICOMATCH_FIXTURE_EXCEPTION, ...AUDIT_EXCEPTIONS], today: "2026-11-18", ...overrides,
 });
 
-test("the exception list is exactly the two approved advisories and both end in 2026", () => {
+test("the live exception list only retains the approved minimatch entry", () => {
   assert.deepEqual(AUDIT_EXCEPTIONS.map(({ id, package: name, expires }) => ({ id, name, expires })), [
-    { id: PICOMATCH, name: "picomatch", expires: "2026-12-31" },
     { id: MINIMATCH, name: "minimatch", expires: "2026-12-31" },
   ]);
   for (const exception of AUDIT_EXCEPTIONS) {
     assert.deepEqual(Object.keys(exception).sort(), ["expires", "id", "package", "reason"]);
     assert.ok(exception.reason.trim().length > 20);
   }
+});
+
+test("a reported high picomatch advisory is no longer excepted by the live configuration", () => {
+  const result = evaluate({ exceptions: AUDIT_EXCEPTIONS });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.accepted, []);
+  assert.match(result.failures[0], /Unaccepted high advisory GHSA-fc5q-39xc-vjpf in picomatch/);
 });
 
 test("an excepted advisory passes until its last day", () => {
