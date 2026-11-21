@@ -3,9 +3,11 @@
 Node.js 24 と pnpm 11.1.2 を使います。依存はリポジトリのルートでインストールしてください。
 
 ```sh
-ppnpm install --frozen-lockfile
+pnpm install --frozen-lockfile
 pnpm run dev
 ```
+
+npmで使っていた作業ツリーを移行するときは、起動中の開発サーバーを止め、ルートと各workspaceの `node_modules` を作業ツリー外へ退避してからインストールします。npmで作った依存フォルダーが残ると、TikZが異なる版のHTMLパーサーを読み込むことがあります。
 
 依存の実体はpnpmの共通storeへ保存し、`packageImportMethod: hardlink` で各worktreeから共有します。
 macOSでは `pnpm store path` が `~/Library/pnpm/store/v11` を指すことを確認してください。
@@ -20,10 +22,10 @@ Orcaの新規worktreeでは `orca.yaml` の `scripts.setup` がfrozen installを
 
 ## ワークスペースの依存更新
 
-依存の更新後はルートで `pnpm run lockfile:refresh` を実行し、`ppnpm install --frozen-lockfile` で再現性を確認します。
+依存の更新後はルートで `pnpm run lockfile:refresh` を実行し、`pnpm install --frozen-lockfile` で再現性を確認します。
 全ワークスペースを含めて更新し、個別のpnpm-lock.yamlは作りません。
 `pnpm run lockfile:check` はインストール後に実行し、ワークスペース・リンク・必須依存の欠落を検出します。
-CIでもこの検査を `ppnpm install --frozen-lockfile` の後に実行します。CIでlockfileを自動修復せず、不整合は失敗させます。
+CIではインストール前にElectronの固定バージョンを検査し、インストール後にロックファイル全体を検査します。
 
 Dependabotの `exclude-paths` でルートのワークスペースのpackage.jsonを除外しないでください。
 除外するとlockfileの再生成からもその依存グラフが失われます。
