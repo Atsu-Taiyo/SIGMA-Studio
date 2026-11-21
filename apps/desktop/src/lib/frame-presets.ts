@@ -54,6 +54,22 @@ const RAW_PRESETS = [
   </g>
 </svg>`,
   },
+  // 参考書の枠。CHART 枠 (赤チャート) は右上の角だけ斜めに落とす。切り口は角の部品の中に収まるので、
+  // どの大きさでも同じ形のまま。黒い角丸の太枠は Focus Gold の例題枠。
+  {
+    id: "cut-corner",
+    labelKey: "frame.presets.cutCorner",
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100">
+  <path d="M1.5 1.5H143.5L158.5 16.5V98.5H1.5Z" fill="none" stroke="#e07c74" stroke-width="2.4" stroke-linejoin="miter"/>
+</svg>`,
+  },
+  {
+    id: "rounded-ink",
+    labelKey: "frame.presets.roundedInk",
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100">
+  <rect x="1.6" y="1.6" width="156.8" height="96.8" rx="9" fill="none" stroke="#2c2828" stroke-width="3.2"/>
+</svg>`,
+  },
 ] as const;
 
 export const FRAME_PRESETS = RAW_PRESETS.map((preset) => {

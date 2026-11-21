@@ -14,6 +14,10 @@ import { FLUSH_OVERLAY_CHANGES_EVENT } from "../page-overlay-types";
 import { MaterialLibraryDialogs } from "./material-library-dialogs";
 import { useMaterialLibraryController, type MaterialLibraryController, type MaterialLibraryControllerOptions } from "./use-material-library-controller";
 
+// 同梱の公式素材 (公式テンプレートの部品) は一覧の末尾に足される。ここでは一覧の受け渡しと
+// 公式品の保護だけを見るので、同梱分は空にする (並べ方は `materials.test.ts` が見る)。
+vi.mock("@/lib/official-templates", () => ({ listOfficialTemplateMaterials: () => [] }));
+
 const NOW = "2026-09-09T00:00:00Z";
 const tEditor = createTranslator("ja", "editor");
 const tWorkspace = createTranslator("ja", "workspace");

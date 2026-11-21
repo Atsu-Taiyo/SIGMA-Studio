@@ -696,6 +696,15 @@
 }
 
 /*
+ * 両端揃えの見出し: 難易度の印 (書体 SigmaMarks の run の塊) を帯の右端へ。印が無ければ最後の部分を寄せる。
+ * 編集面の末尾の補助ノードは数えない。
+ */
+:is(.box-frame--title-ends, .box-frame--title-ends > .sigma-doc-box-content) > :is(.sigma-doc-box-title, .print-box-title):not(:is(.sigma-doc-box-subtitle, .print-box-subtitle)) > :is([style*="SigmaMarks"]:not([style*="SigmaMarks"] + *), :nth-last-child(1 of :not(br, .ProseMirror-separator)):not([style*="SigmaMarks"], :has(~ [style*="SigmaMarks"]))) {
+  margin-left: auto;
+  padding-left: 0.5em;
+}
+
+/*
  * 2 欄の見出し (`titleSplit`)。編集面は内容の div、印刷は箱そのものを 2 列の grid にして、
  * タイトルとサブタイトルを 1 行目、本文を 2 行目いっぱいに張る。欄の幅・隙間・左右は変数で決まる。
  * サブタイトルは `.sigma-doc-box-title` も名乗るので、帯の見た目は共通で、ここは地色と余白だけ足す。

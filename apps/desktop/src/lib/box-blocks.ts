@@ -18,6 +18,7 @@ import {
 } from "@/features/document";
 import { isSafeCssDeclarationValue } from "@/features/document/css-safety";
 import { parseHexColor } from "@/lib/color";
+import { REFERENCE_BOOK_BOX_STYLES } from "@/lib/reference-book-box-styles";
 import {
   applyCustomFrameDrawing,
   getCustomFrameStyle,
@@ -74,6 +75,13 @@ export interface BoxStyleDefinition {
   displayName: string;
 
   frame: BoxFrameSpec;
+  /**
+   * 新しく挿した箱の、書式付きのタイトル (参考書型の番号・題・難易度の印など)。`heading` は辞書の既定の題。
+   * 無ければ既定の題をそのままの文字で入れる。利用者がタイトルを指定したときは使わない。
+   */
+  defaultTitle?(heading: string): InlineNode[];
+  /** 新しく挿した箱の、書式付きのサブタイトル (左の札)。`label` は辞書の既定の文言。 */
+  defaultSubtitle?(label: string): InlineNode[];
 }
 
 const INK = "#1f2937";
@@ -423,6 +431,8 @@ export const BUILTIN_BOX_STYLES: BoxStyleDefinition[] = [
       ],
     },
   },
+  // 参考書・入試の紙面に合わせた箱。公式テンプレートの見出しと同じ枠。
+  ...REFERENCE_BOOK_BOX_STYLES,
 ];
 
 export interface CreateBoxBlockOptions {
@@ -445,16 +455,24 @@ export function createBoxBlock(
   t: Translate<"editor"> = createTranslator(DEFAULT_LOCALE, "editor"),
 ): BoxBlockNode {
   const style = getBoxStyleDefinition(styleId) ?? BUILTIN_BOX_STYLES[0];
-  const title = titleText.trim() || t(`box.defaultTitle.${style.id}` as never, { defaultValue: "" }) as string;
+  const givenTitle = titleText.trim();
+  const title = givenTitle || t(`box.defaultTitle.${style.id}` as never, { defaultValue: "" }) as string;
+  const givenSubtitle = options.subtitleText?.trim();
   const subtitle = boxFrameHasSubtitle(style.frame)
-    ? options.subtitleText?.trim() || t(`box.defaultSubtitle.${style.id}` as never, { defaultValue: "" }) as string
+    ? givenSubtitle || t(`box.defaultSubtitle.${style.id}` as never, { defaultValue: "" }) as string
     : "";
+  const titleNodes: InlineNode[] = !givenTitle && style.defaultTitle
+    ? style.defaultTitle(title)
+    : title ? [{ type: "text", text: title }] : [];
+  const subtitleNodes: InlineNode[] = subtitle && !givenSubtitle && style.defaultSubtitle
+    ? style.defaultSubtitle(subtitle)
+    : subtitle ? [{ type: "text", text: subtitle }] : [];
   return {
     type: "boxBlock",
     id: options.id ?? createId("box"),
     styleId: style.id,
-    ...(title ? { title: [{ type: "text", text: title }] } : {}),
-    ...(subtitle ? { subtitle: [{ type: "text", text: subtitle }] } : {}),
+    ...(titleNodes.length > 0 ? { title: titleNodes } : {}),
+    ...(subtitleNodes.length > 0 ? { subtitle: subtitleNodes } : {}),
     frame: style.frame,
     blocks: [createBoxBodyParagraph(options.bodyText ?? "", options.bodyId)],
   };
@@ -767,6 +785,15 @@ export function hasBoxDecoration(frame: Pick<BoxFrameSpec, "decorations"> | unde
   return frame?.decorations?.some((decoration) => decoration.type === type) ?? false;
 }
 
+/**
+ * 見出しの「両端」揃え。帯の見出しの最後の部分 (★の難易度など、書式を付けた run) を右端へ寄せ、
+ * 残りは左から並べる。保存値は `titleAlign: "justify"` で、位置 (`titlePosition`) を選ぶと外れる。
+ * 1 行の見出しでは `justify` は元々何も変えなかったので、既存の箱の見た目は変わらない。
+ */
+export function isBoxTitleAtEnds(frame: Pick<BoxFrameSpec, "titleAlign" | "titlePosition">): boolean {
+  return frame.titleAlign === "justify" && !frame.titlePosition;
+}
+
 export function boxFrameClassName(baseClass: string, frame: BoxFrameSpec, styleId?: string): string {
   const classes = [baseClass, "box-frame"];
   if (frame.titleVisible === false) classes.push("box-frame--no-title");
@@ -787,6 +814,7 @@ export function boxFrameClassName(baseClass: string, frame: BoxFrameSpec, styleI
     classes.push("box-frame--title-plate");
   }
   classes.push(`box-frame--title-position-${frame.titlePosition ?? "l"}`);
+  if (isBoxTitleAtEnds(frame)) classes.push("box-frame--title-ends");
   return classes.join(" ");
 }
 

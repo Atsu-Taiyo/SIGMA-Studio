@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BadgeCheck,
   Building2,
   Check,
   LayoutTemplate,
@@ -17,6 +18,7 @@ import { SearchField } from "@/components/ui/SearchField";
 import { PagedThumbnailRenderer } from "@/components/print/paged-render/PagedThumbnailRenderer";
 import { getAppRuntime } from "@/lib/runtime";
 import { listWorkspaceOverview } from "@/lib/workspace-repository";
+import { isOfficialTemplate, listOfficialTemplates, OFFICIAL_TEMPLATE_WORKSPACE_ID } from "@/lib/official-templates";
 import type { SigmaDocument } from "@/features/document";
 import type { TemplateItem } from "@/types/template";
 import { useT } from "@/lib/i18n/react";
@@ -94,7 +96,7 @@ export function TemplateGallery({
         }));
         setWorkspaces(tabs);
         setSelectedWorkspaceId((current) => {
-          if (current && tabs.some((tab) => tab.id === current)) {
+          if (current && (current === OFFICIAL_TEMPLATE_WORKSPACE_ID || tabs.some((tab) => tab.id === current))) {
             return current;
           }
           if (activeWorkspaceId && tabs.some((tab) => tab.id === activeWorkspaceId)) {
@@ -104,6 +106,7 @@ export function TemplateGallery({
         });
       } else {
         setWorkspaces([]);
+        setSelectedWorkspaceId((current) => current ?? OFFICIAL_TEMPLATE_WORKSPACE_ID);
       }
     })();
     return () => {
@@ -142,20 +145,25 @@ export function TemplateGallery({
   }, [open, t]);
 
   const workspaceNameById = useCallback(
-    (id: string) => workspaces.find((workspace) => workspace.id === id)?.name ?? "",
-    [workspaces],
+    (id: string) => id === OFFICIAL_TEMPLATE_WORKSPACE_ID
+      ? t("template.officialTab")
+      : workspaces.find((workspace) => workspace.id === id)?.name ?? "",
+    [workspaces, t],
   );
+  const officialSelected = selectedWorkspaceId === OFFICIAL_TEMPLATE_WORKSPACE_ID;
 
   const searchActive = search.trim().length > 0;
 
   const visibleTemplates = useMemo(() => {
     const query = search.trim().toLowerCase();
+    // 公式テンプレートは同梱品なので読み込みを待たない。検索では利用者のものの後ろに並べる。
+    const all = [...templates, ...listOfficialTemplates()];
     if (!query) {
       // No search → show only the selected workspace's templates.
-      return templates.filter((template) => template.workspaceId === selectedWorkspaceId);
+      return all.filter((template) => template.workspaceId === selectedWorkspaceId);
     }
     // Searching spans every workspace and matches template or workspace name.
-    return templates.filter((template) =>
+    return all.filter((template) =>
       template.name.toLowerCase().includes(query) ||
       workspaceNameById(template.workspaceId).toLowerCase().includes(query),
     );
@@ -164,6 +172,10 @@ export function TemplateGallery({
   const saveCurrentAsTemplate = useCallback(async () => {
     if (!selectedWorkspaceId) {
       setError(t("template.selectWorkspace"));
+      return;
+    }
+    if (selectedWorkspaceId === OFFICIAL_TEMPLATE_WORKSPACE_ID) {
+      setError(t("template.officialSaveDisabled"));
       return;
     }
     if (!currentDocument) {
@@ -262,6 +274,7 @@ export function TemplateGallery({
           <div>
             <h2>{t("action.openTemplateGallery")}</h2>
             <p>{mode === "insert" ? t("template.insertHint") : t("template.createHint")}</p>
+            {officialSelected && !searchActive && <p>{t("template.officialHint")}</p>}
           </div>
           <button type="button" className="icon-button" title={t("action.close")} aria-label={t("action.close")} onClick={closeGallery}>
             <X size={16} />
@@ -270,6 +283,19 @@ export function TemplateGallery({
 
         <div className="template-gallery-toolbar">
           <div className="template-gallery-tabs" role="tablist" aria-label={t("template.workspaces")}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!searchActive && officialSelected}
+              className={`template-gallery-tab ${!searchActive && officialSelected ? "active" : ""}`}
+              onClick={() => {
+                setSearch("");
+                setSelectedWorkspaceId(OFFICIAL_TEMPLATE_WORKSPACE_ID);
+              }}
+            >
+              <BadgeCheck size={14} aria-hidden="true" />
+              <span>{t("template.officialTab")}</span>
+            </button>
             {workspaces.length === 0 ? (
               <span className="template-gallery-tabs-empty">{t("label.noWorkspaces")}</span>
             ) : (
@@ -304,7 +330,7 @@ export function TemplateGallery({
               }
             }}
           />
-          {canSave && (
+          {canSave && !officialSelected && (
             <button
               type="button"
               className="button secondary template-gallery-save-button"
@@ -384,7 +410,7 @@ export function TemplateGallery({
                     </div>
                   )}
 
-                  <div className="template-gallery-card-actions">
+                  {!isOfficialTemplate(template) && <div className="template-gallery-card-actions">
                     <button
                       type="button"
                       className="icon-button small"
@@ -406,7 +432,7 @@ export function TemplateGallery({
                     >
                       <Trash2 size={14} />
                     </button>
-                  </div>
+                  </div>}
                 </article>
               ))}
             </div>
@@ -450,7 +476,8 @@ function TemplateThumbnail({ template }: { template: TemplateItem }) {
         ? <span className="template-gallery-card-fallback"><LayoutTemplate size={24} /></span>
         : <span className="template-gallery-card-shimmer ui-shimmer-surface" />}
       {!current.failed && (
-        <PagedThumbnailRenderer key={key} document={template.document} profile="student" onRendered={handleRendered} onFailed={handleFailed} />
+        // 公式テンプレートは指針・解答まで含めた紙面が見本なので、それも見える版で描く。
+        <PagedThumbnailRenderer key={key} document={template.document} profile={isOfficialTemplate(template) ? "teacher" : "student"} onRendered={handleRendered} onFailed={handleFailed} />
       )}
     </>
   );

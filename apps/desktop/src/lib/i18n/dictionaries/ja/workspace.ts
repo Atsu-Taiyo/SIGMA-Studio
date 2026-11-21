@@ -275,6 +275,9 @@ export const workspace = {
     columns: "{{count}}段組",
     singleColumn: "1段組",
     summary: "{{layout}} ・ ブロック {{blocks}}",
+    officialTab: "公式",
+    officialHint: "参考書・入試の紙面に合わせた見本です。変更・削除はできません。",
+    officialSaveDisabled: "公式タブには保存できません。保存先のワークスペースを選んでください。",
   },
   asset: {
     nameSection: "セクション素材",
