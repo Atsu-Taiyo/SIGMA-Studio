@@ -1,6 +1,6 @@
 {
   "name": "sigma-studio-workspace",
-  "version": "0.539.0",
+  "version": "0.540.0",
   "private": true,
   "scripts": {
     "postinstall": "node scripts/patch-http-cache-semantics.mjs",
