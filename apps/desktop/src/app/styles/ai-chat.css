@@ -3001,19 +3001,6 @@
   margin-top: 0;
 }
 
-.graph-range-heading {
-  margin-top: var(--space-md);
-}
-
-.graph-range-heading .field-label {
-  margin: 0;
-}
-
-.graph-range-heading .checkbox-field {
-  margin: 0;
-  white-space: nowrap;
-}
-
 .graph-range-grid label {
   min-width: 0;
 }

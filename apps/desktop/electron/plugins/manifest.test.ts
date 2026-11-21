@@ -110,3 +110,19 @@ describe("catalog menu contributions", () => {
     expect(() => verifyCatalog({ ...envelope, payload: forged }, pem)).toThrow("verification-failed");
   });
 });
+
+
+describe("folder import actions", () => {
+  it("accepts folder and file actions together and old catalogs without menus", () => {
+    const pack = plugin(menu(button("file"), button("folder", { action: { type: "import-folder", command: "convert-native", extensions: [".smp", ".XYZ"] } })));
+    expect(validateCatalog(catalog(pack, { ...plugin(), id: "legacy" })).plugins).toHaveLength(2);
+  });
+  it.each([
+    { type: "execute", command: "convert", extensions: [".smp"] },
+    { type: "import-folder", command: "../run", extensions: [".smp"] },
+    { type: "import-folder", command: "convert", extensions: [] },
+    { type: "import-folder", command: "convert", extensions: ["../smp"] },
+  ])("rejects invalid action %j", action => {
+    expect(() => validateCatalog(catalog(plugin(menu(button("folder", { action })))))).toThrow("verification-failed");
+  });
+});

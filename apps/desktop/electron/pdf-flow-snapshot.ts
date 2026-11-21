@@ -18,8 +18,20 @@ export const SNAPSHOT_PDF_FLOW_SOURCE = `((doc) => {
     };
   }).filter(({ rect }) => rect.width > 0 && rect.height > 0);
 
-  // Read every box before writing: nested editors and successive flow units
-  // must all use the same settled layout.
+  // Paragraphs are not the whole flow: number frames and area borders belong
+  // to their outer units. Absolutizing editor children changes margin collapse
+  // and can shrink those units, moving later number frames toward earlier pages.
+  // Page windows remove off-page identity attributes, so include every direct
+  // flow child rather than querying data-flow-unit-id (the full flow is retained).
+  const units = Array.from(doc.querySelectorAll(".page-flow > *")).map((element) => ({
+    element, rect: element.getBoundingClientRect(),
+  })).filter(({ rect }) => rect.width > 0 && rect.height > 0);
+  // Capture all boxes before writing, including nested editors and outer units.
+  for (const { element, rect } of units) {
+    element.style.boxSizing = "border-box";
+    element.style.height = rect.height + "px";
+  }
+
   for (const { root, rect, borderLeft, borderTop, children } of entries) {
     root.style.position = "relative";
     root.style.boxSizing = "border-box";
@@ -34,6 +46,14 @@ export const SNAPSHOT_PDF_FLOW_SOURCE = `((doc) => {
       element.style.width = child.width + "px";
       element.style.height = child.height + "px";
     }
+  }
+  // Restore outer origins before inner editors. These are measured corrections,
+  // not another pagination pass; the inert output DOM is the only thing changed.
+  for (const { element, rect } of units) {
+    const current = element.getBoundingClientRect();
+    element.style.position = "relative";
+    element.style.left = ((parseFloat(element.style.left) || 0) + rect.left - current.left) + "px";
+    element.style.top = ((parseFloat(element.style.top) || 0) + rect.top - current.top) + "px";
   }
   // Removing in-flow children can uncollapse an editor's edge margins. Restore
   // each measured origin, from outer editors to inner ones, without moving siblings.

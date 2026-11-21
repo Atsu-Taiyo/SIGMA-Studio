@@ -79,7 +79,8 @@ test("the end picked for each axis in the graph settings is drawn on that axis a
     await page.getByRole("button", { name: "グラフの設定", exact: true }).click();
     const panel = page.getByRole("dialog", { name: "グラフの設定", exact: true });
     await expect(panel).toBeVisible();
-    await panel.getByRole("button", { name: "表示範囲", exact: true }).click();
+    // 軸の先端は既定で開いている「座標軸と範囲」の中にある。
+    await expect(panel.getByRole("button", { name: "座標軸と範囲", exact: true })).toHaveAttribute("aria-expanded", "true");
     const xPicker = panel.getByRole("button", { name: "x軸の先端（現在: 矢印）" });
     await xPicker.scrollIntoViewIfNeeded();
     await xPicker.click();

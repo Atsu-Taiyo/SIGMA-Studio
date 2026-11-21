@@ -176,7 +176,7 @@ test("WebMCP graph labels survive a human settings edit", async ({ page }) => {
 
   const settings = page.getByRole("dialog", { name: "グラフの設定" });
   await expect(settings).toBeVisible();
-  await settings.getByRole("button", { name: "表示範囲", exact: true }).click();
+  // グリッドは既定で開いている「座標軸と範囲」の中にある。
   await settings.getByLabel("グリッド", { exact: true }).uncheck();
 
   await expect(labels).toHaveCount(6);

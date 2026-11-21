@@ -124,7 +124,7 @@ describe("Graph settings design system", () => {
       .toBe("軸の表示範囲は、最小値が最大値より小さくなるように入力してください。");
   });
 
-  it("uses shared hover actions for points, functions, and fills", () => {
+  it("uses shared hover actions for points, functions, and fills, with no hidden function details", () => {
     const html = renderToStaticMarkup(
       <OverlayGraphSettings selectedOverlayGraph={createSelectedGraph()} />,
     );
@@ -135,26 +135,17 @@ describe("Graph settings design system", () => {
     expect(html).not.toContain('aria-label="関数 1 を削除"');
     expect(html).not.toContain('aria-label="点 1 を削除"');
     expect(html).not.toContain('aria-label="塗り 1 を削除"');
-    expect(html).toContain('aria-label="関数 1 の詳細設定"');
+    // 関数の種類・定義域は「詳細」に畳まず、カードの行に常に出す。
+    expect(html).not.toContain("関数 1 の詳細設定");
     expect(html).not.toContain('aria-label="点 1 の詳細設定"');
     expect(html).toContain('data-space="sm"');
     expect(html).toContain('data-gap="sm"');
   });
 
-  it("puts function, point, and fill styling inside their card action menus", () => {
+  it("shows function styling on the card and keeps point and fill styling in their action menus", () => {
     const selectedGraph = createSelectedGraph();
-    const curveHtml = renderToStaticMarkup(
-      <GraphCurveActionsMenuContent
-        curve={selectedGraph.spec.curves[0]}
-        index={0}
-        formulaLabelVisible={false}
-        openStyleMenu={null}
-        onOpenStyleMenuChange={() => {}}
-        onFormulaLabelToggle={() => {}}
-        onPatch={() => {}}
-        onRemove={() => {}}
-      />,
-    );
+    const panelHtml = renderToStaticMarkup(<OverlayGraphSettings selectedOverlayGraph={selectedGraph} />);
+    const curveMenuHtml = renderToStaticMarkup(<GraphCurveActionsMenuContent index={0} onRemove={() => {}} />);
     const fillHtml = renderToStaticMarkup(
       <GraphFillActionsMenuContent
         fill={selectedGraph.spec.fills![0]}
@@ -177,11 +168,15 @@ describe("Graph settings design system", () => {
       />,
     );
 
-    expect(curveHtml).toContain('data-testid="overlay-graph-color-select"');
-    expect(curveHtml).toContain('data-testid="overlay-graph-dash-select"');
-    expect(curveHtml).toContain('data-testid="overlay-graph-stroke-width-select"');
-    expect(curveHtml).toContain('aria-label="関数 1 を削除"');
-    expect(curveHtml).not.toContain("disabled");
+    // 関数の線 (色・線種・太さ) は hover の `⋯` ではなく、カードの「線」の行にある。
+    expect(panelHtml).toContain('data-testid="overlay-graph-color-select"');
+    expect(panelHtml).toContain('data-testid="overlay-graph-dash-select"');
+    expect(panelHtml).toContain('data-testid="overlay-graph-stroke-width-select"');
+    expect(panelHtml).toContain('aria-label="関数 1 の線スタイル"');
+    // `⋯` には誤操作を避けたい削除だけが残る。
+    expect(curveMenuHtml).toContain('aria-label="関数 1 を削除"');
+    expect(curveMenuHtml).not.toContain("overlay-graph-color-select");
+    expect(curveMenuHtml).not.toContain("disabled");
     expect(fillHtml).toContain('data-testid="overlay-graph-fill-color-select"');
     expect(fillHtml).toContain('data-testid="overlay-graph-fill-pattern-select"');
     expect(fillHtml).toContain('aria-haspopup="menu"');
@@ -228,18 +223,7 @@ describe("Graph settings design system", () => {
   it("exposes the card action popover as a dialog: it holds form controls, not menu items", () => {
     const selectedGraph = createSelectedGraph();
     const html = renderToStaticMarkup(<OverlayGraphSettings selectedOverlayGraph={selectedGraph} />);
-    const curveHtml = renderToStaticMarkup(
-      <GraphCurveActionsMenuContent
-        curve={selectedGraph.spec.curves[0]}
-        index={0}
-        formulaLabelVisible={false}
-        openStyleMenu={null}
-        onOpenStyleMenuChange={() => {}}
-        onFormulaLabelToggle={() => {}}
-        onPatch={() => {}}
-        onRemove={() => {}}
-      />,
-    );
+    const curveHtml = renderToStaticMarkup(<GraphCurveActionsMenuContent index={0} onRemove={() => {}} />);
     const fillHtml = renderToStaticMarkup(
       <GraphFillActionsMenuContent
         fill={selectedGraph.spec.fills![0]}
@@ -253,10 +237,11 @@ describe("Graph settings design system", () => {
 
     expect(html).toContain('aria-haspopup="dialog"');
     // `role="menu"` の直下にスライダーや色ドロップダウンを置くと、AT のメニューモードで
-    // 露出しない。押下状態は既存規約どおり aria-pressed で表す。
+    // 露出しない。
     expect(curveHtml).not.toContain('role="menuitem');
     expect(fillHtml).not.toContain('role="menuitem');
-    expect(curveHtml).toContain('aria-pressed="false"');
+    // グラフ上の式の表示はカードの「ラベル」の行のチェックボックスになった。
+    expect(html).toMatch(/<input type="checkbox"[^>]*data-testid="overlay-graph-formula-label"/);
   });
 
   it("renders graph ranges with double less-than-or-equal signs", () => {

@@ -98,7 +98,7 @@ test("a signed installed extension keeps its organization, menu and real local w
     const result = await page.evaluate(() => window.sigmaExtensions!.run("offline-sample", "convert"));
     expect(result).toMatchObject({ ok: true });
     expect(JSON.stringify(result)).toContain("切断中に変換した本文");
-    if (!result.ok) throw new Error("CONVERSION_FAILED");
+    if (!result.ok || !("document" in result)) throw new Error("CONVERSION_FAILED");
     const fileId = await page.evaluate(async document => {
       const created = await window.desktopAPI!.storage.createFileFromDocument({ document });
       return created.file.fileId;
