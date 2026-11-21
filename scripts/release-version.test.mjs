@@ -1,3 +1,6 @@
+import { fileURLToPath } from "node:url";
+import { load, dump } from "js-yaml";
+import { symlink } from "node:fs/promises";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -14,7 +17,7 @@ const paths = [
   "packages/editor/package.json",
   "tests/fixtures/editor-react18/package.json",
   "examples/editor-react19/package.json",
-  "package-lock.json",
+  "pnpm-lock.yaml",
 ];
 
 function manifests(version) {
@@ -33,17 +36,14 @@ function manifests(version) {
     "examples/editor-react19/package.json": {
       name: "example19", version: "0.0.0", private: true, dependencies: { ...editorDependency },
     },
-    "package-lock.json": {
-      name: "workspace", version, lockfileVersion: 3, requires: true,
-      packages: {
-        "": { name: "workspace", version },
-        "apps/desktop": { name: "desktop", version },
-        "packages/viewer": { name: "@sigma-studio/viewer", version },
-        "packages/editor": { version, dependencies: { ...viewerDependency } },
-        "tests/fixtures/editor-react18": { version: "0.0.0", dependencies: { ...editorDependency } },
-        "examples/editor-react19": { version: "0.0.0", dependencies: { ...editorDependency } },
-        "node_modules/unrelated": { version: "7.8.9", integrity: "unchanged" },
-      },
+    "pnpm-lock.yaml": {
+      lockfileVersion: '9.0',
+      importers: Object.fromEntries([
+        ["packages/editor", "@sigma-studio/viewer", "link:../viewer"],
+        ["tests/fixtures/editor-react18", "@sigma-studio/editor", "link:../../../packages/editor"],
+        ["examples/editor-react19", "@sigma-studio/editor", "link:../../packages/editor"],
+      ].map(([location, name, link]) => [location, { dependencies: { [name]: { specifier: version, version: link } } }])),
+      packages: { 'unrelated@7.8.9': { resolution: { integrity: "unchanged" } } },
     },
   };
 }
@@ -52,6 +52,7 @@ async function fixture(t, initial = manifests("1.2.3")) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "sigma-release-version-")));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, "scripts"));
+  await symlink(fileURLToPath(new URL("../node_modules", import.meta.url)), path.join(root, "node_modules"), "dir");
   // Execute the real CLI source relative to a disposable repository. Tests never
   // write the checkout's manifests or duplicate the synchronization algorithm.
   for (const name of ["set-release-version.mjs", "sync-public-package-versions.mjs"]) {
@@ -59,7 +60,7 @@ async function fixture(t, initial = manifests("1.2.3")) {
   }
   for (const [name, value] of Object.entries(initial)) {
     await mkdir(path.dirname(path.join(root, name)), { recursive: true });
-    await writeFile(path.join(root, name), `${JSON.stringify(value, null, 2)}\n`);
+    await writeFile(path.join(root, name), name.endsWith(".yaml") ? dump(value) : `${JSON.stringify(value, null, 2)}\n`);
   }
   return {
     async run(script, ...args) {
@@ -84,7 +85,7 @@ async function fixture(t, initial = manifests("1.2.3")) {
 }
 
 function parseSnapshot(snapshot) {
-  return Object.fromEntries(Object.entries(snapshot).map(([name, text]) => [name, JSON.parse(text)]));
+  return Object.fromEntries(Object.entries(snapshot).map(([name, text]) => [name, name.endsWith(".yaml") ? load(text) : JSON.parse(text)]));
 }
 
 test("version check is read-only for an already synchronized repository", async (t) => {
@@ -106,7 +107,7 @@ test("check reports every stale package/dependency without writing; sync preserv
   const before = await repo.snapshot();
   const check = await repo.run("sync-public-package-versions.mjs", "--check");
   assert.equal(check.code, 1);
-  assert.equal(check.stderr.split("\n").filter((line) => line.startsWith("- ")).length, 13);
+  assert.equal(check.stderr.split("\n").filter((line) => line.startsWith("- ")).length, 8);
   assert.deepEqual(await repo.snapshot(), before);
 
   const sync = await repo.run("sync-public-package-versions.mjs");

@@ -123,7 +123,7 @@ async function renderedMathText(page: Page, mathId: MathId): Promise<string> {
  * 点が残った。TeX 表示で同じ操作をしたときと同じ `\sin(x` で保存されることを確かめる。
  */
 test("deleting a closing parenthesis in realtime math saves the formula without a stray dot, everywhere math is edited", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!process.env.SIGMA_STUDIO_E2E_BASE_URL && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a dev server or build the renderer");
   const profile = mkdtempSync(path.join(tmpdir(), "sigma-math-unclosed-paren-"));
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));

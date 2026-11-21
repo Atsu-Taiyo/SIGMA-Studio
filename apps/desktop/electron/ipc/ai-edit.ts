@@ -321,9 +321,6 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
           })()
         : provider === "antigravity"
         ? await (async () => {
-            // ワークスペース専用ディレクトリにもMCP起動設定(mcp_config.json)を書く。
-            // フォールバックディレクトリ向けの起動時書き込み(geminiAgentWorkspaceDir)とは別に、
-            // このrunのcwdになるディレクトリにも同じ入力で冪等に書く(毎run書いてよい)。
             await writeGeminiWorkspaceSettings(
               agentWorkspaceDir,
               buildGeminiWorkspaceSettings({
@@ -335,13 +332,11 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
                 provider: "antigravity",
                 uiLocale: locale,
               }),
-            ).catch((error) => {
-              console.warn("Antigravity MCP設定の書き込みに失敗しました。", error);
-            });
+            );
             return runEditWithRunContext(
               "antigravity",
               // Antigravity's MCP server config is written to a workspace-level
-              // mcp_config.json once at startup pointing at the static
+              // mcp_config.json before the edit pointing at the static
               // localGeminiRunContextStore file, so that file keeps being
               // written as the runId-argument fallback. The per-runId store
               // alongside it is what lets the MCP server resolve THIS run's

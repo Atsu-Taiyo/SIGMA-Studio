@@ -8,7 +8,7 @@ import { Stack } from "@/components/ui/layout";
 import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import { Select, type SelectItem, type SelectOptionGroup } from "@/components/ui/Select";
 import { SettingsField, SettingsSection, Switch } from "@/components/ui/settings";
-import type { ProblemAreaKind, ProblemNode, ProblemNumbering } from "@/features/document";
+import type { ProblemAreaKind, ProblemNode } from "@/features/document";
 import { isSafeCssFontFamily } from "@/features/document/css-safety";
 import { isProblemLeadBlank, isProblemLeadFolded } from "@/features/rendering/core";
 import { getProblemNumberFontSize } from "@/features/text-editing";
@@ -171,14 +171,21 @@ export function ProblemSettingsDialog({ problem, onChange, onClose }: ProblemSet
                           id="problem-number-format"
                           data-testid="problem-number-format"
                           className={styles.select}
-                          value={problem.numbering?.format ?? "decimal"}
+                          value={problem.numbering?.format === "fullwidth" && problem.numbering.fullwidthSingleDigit
+                            ? "fullwidthSingleDigit"
+                            : problem.numbering?.format ?? "decimal"}
                           options={[
                             { value: "decimal", label: "1, 2, 3" },
                             { value: "fullwidth", label: "１, ２, ３" },
+                            { value: "fullwidthSingleDigit", label: "１, ２, …, 10, 11" },
                           ]}
                           onChange={(format) => onChange((current) => ({
                             ...current,
-                            numbering: { ...current.numbering, format: format as ProblemNumbering["format"] },
+                            numbering: {
+                              ...current.numbering,
+                              format: format === "decimal" ? "decimal" : "fullwidth",
+                              fullwidthSingleDigit: format === "fullwidthSingleDigit" ? true : undefined,
+                            },
                           }))}
                         />
                       </SettingsField>

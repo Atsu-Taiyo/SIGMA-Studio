@@ -4,7 +4,7 @@
  * Real teaching material is never committed (copyright, size, confidentiality),
  * so this suite is env-gated and **skips by default**. `vitest.config.ts` only
  * excludes `tests/e2e/**`, which means every new `*.test.ts` joins
- * `npm run test` automatically - so the skip has to live here.
+ * `pnpm run test` automatically - so the skip has to live here.
  *
  * The one thing that must never happen is a *silent* skip: `perf-probe.mjs`
  * learned the hard way that a mistyped fixture name makes the runner skip
@@ -104,7 +104,7 @@ describe("pptx fidelity deck directory", () => {
 });
 
 // `describe.skipIf` is new to this repo: it keeps the gated suite out of a normal
-// `npm run test` without hiding it behind an early `return` that reads as dead code.
+// `pnpm run test` without hiding it behind an early `return` that reads as dead code.
 describe.skipIf(deckDir.files.length === 0)("pptx import fidelity against real decks", () => {
   it("imports every deck without a single error-severity discrepancy", async () => {
     // `pptx-viewer-core` writes `[PptxHandler][info] ...` to stdout during load and

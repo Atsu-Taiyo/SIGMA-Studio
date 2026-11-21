@@ -2,13 +2,13 @@
  * perf-probe のランナー: 本番ビルド → `out/` を空きポートで配信 → playwright で計測 →
  * `perf-reports/<timestamp>/` に JSON と summary.md。
  *
- *   npm run perf:probe                 # ビルドから
- *   npm run perf:probe -- --no-build   # 直前の計測ビルド (perf-out/) を使い回す
- *   npm run perf:probe -- --fixture body
- *   npm run perf:probe -- --report-only  # 予算 assert を外して計測だけする
+ *   pnpm run perf:probe                 # ビルドから
+ *   pnpm run perf:probe --no-build   # 直前の計測ビルド (perf-out/) を使い回す
+ *   pnpm run perf:probe --fixture body
+ *   pnpm run perf:probe --report-only  # 予算 assert を外して計測だけする
  *
  * 予算 (`perf-budget.json`) の assert は **既定で有効**。所要時間はビルド込みで 10〜20 分
- * なので `npm run test:e2e` の既定には入れない (`SIGMA_PERF_PROBE` gate を維持)。
+ * なので `pnpm run test:e2e` の既定には入れない (`SIGMA_PERF_PROBE` gate を維持)。
  *
  * dev サーバの数値を使わないための実行系である点が肝。`next dev` は React の development
  * ビルドで、打鍵コストが数倍に膨らむ。
@@ -96,8 +96,8 @@ function run(command, commandArgs, env) {
 
 if (!skipBuild) {
   console.log("[perf-probe] 本番ビルド (NEXT_PUBLIC_SIGMA_PERF=1) を開始します");
-  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-  const buildCode = await run(npmCommand, ["run", "perf:build"], {});
+  const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  const buildCode = await run(pnpmCommand, ["run", "perf:build"], {});
   if (buildCode !== 0) {
     console.error("[perf-probe] ビルドに失敗しました");
     process.exit(buildCode);
@@ -115,7 +115,7 @@ if (!skipBuild) {
   );
 }
 
-const problem = checkStaticExport(perfOutDir, "npm run perf:probe", { expectPerfBuild: true });
+const problem = checkStaticExport(perfOutDir, "pnpm run perf:probe", { expectPerfBuild: true });
 if (problem) {
   console.error(problem);
   process.exit(2);
@@ -142,7 +142,7 @@ console.log(`[perf-probe] レポート出力先: ${outputDir}`);
 console.log(`[perf-probe] 予算 assert: ${reportOnly ? "報告のみ (無効)" : "有効"}`);
 
 const playwrightCode = await run(
-  path.join(desktopDir, "..", "..", "node_modules", ".bin", "playwright"),
+  path.join(desktopDir, "node_modules", ".bin", "playwright"),
   ["test", specPath],
   {
     SIGMA_STUDIO_E2E_BASE_URL: baseURL,

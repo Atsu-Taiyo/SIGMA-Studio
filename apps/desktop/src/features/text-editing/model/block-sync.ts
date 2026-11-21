@@ -254,7 +254,7 @@ export function textFlowBlocksContainId(
 }
 
 function getTextFlowBlockIdsForBlock(block: TextFlowBlock): string[] {
-  if (block.type === "boxBlock") {
+  if (block.type === "boxBlock" || block.type === "quote") {
     return [block.id, ...block.blocks.flatMap(getTextFlowBlockIdsForBoxBlockChild)];
   }
   if (block.type === "layoutSection") {

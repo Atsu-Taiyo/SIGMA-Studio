@@ -17,7 +17,9 @@ export interface LayoutProjection { units: LayoutUnit[]; outline: string }
 
 /** The built-in box styles (`BUILTIN_BOX_STYLES`), and a frame the author drew. */
 export const BOX_STYLE_IDS: readonly string[] = ["fancybox", "titlebox", "bandbox", "itembox", "splitbox", "theorembox", "tabbox", "tcolorbox", "tcolorbox-note",
-  "doublebox", "shadebox", "leftbar", "dashedbox", "ruledbox", "screenbox", "ovalbox", "cornerbox", "custom"];
+  "doublebox", "shadebox", "leftbar", "dashedbox", "ruledbox", "screenbox", "ovalbox", "cornerbox",
+  "chart-red-rei", "chart-red-reidai", "chart-red-juyo", "chart-blue-kihon",
+  "focus-gold-reidai", "focus-gold-focus", "kyotsu-choices", "custom"];
 export const PROBLEM_FRAME_IDS: readonly string[] = ["fancybox", "doublebox", "cornerbox", "custom"];
 export const BOX_CATEGORIES = ["definition", "theorem", "point", "example", "summary", "answer", "problem"] as const;
 export const LAYOUT_KINDS = ["heading", "text", "list", "quote", "code", "divider", "problem", "columns", "box"] as const;

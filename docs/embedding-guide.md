@@ -14,15 +14,15 @@ Editorパッケージが担当するのはSigmaDocの検証・表示と、Sigma 
 公開後はホスト側で通常のnpm dependencyとして導入し、ホストのリリース時にバージョンを更新します。
 
 ```sh
-npm install @sigma-studio/editor
+pnpm add @sigma-studio/editor
 ```
 
 このmonorepo内で動作確認する場合は、React 19の組み込み例を使えます。
 
 ```sh
-npm install
-npm run editor:build
-npm run editor:example
+pnpm install
+pnpm run editor:build
+pnpm run editor:example
 ```
 
 ## Basic Usage
@@ -233,6 +233,6 @@ EditorとViewerはデスクトップアプリと独立したSemVerを持ちま�
 現時点ではnpm公開workflowを持たず、次のコマンドで公開物だけを確認します。
 
 ```sh
-npm run viewer:pack
-npm run editor:pack
+pnpm run viewer:pack
+pnpm run editor:pack
 ```

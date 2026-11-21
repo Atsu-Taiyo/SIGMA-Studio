@@ -250,7 +250,7 @@ test("the built-in AI never overwrites a person's concurrent edit: edits made af
 });
 
 // 本物の中継と本物の DeepSeek を使う確認。料金がかかり結果も毎回違うので、明示したときだけ動かす:
-//   SIGMA_AI_LIVE=1 SIGMA_AI_GATEWAY_URL=... SIGMA_AI_GATEWAY_TOKEN=... npm run test:e2e:electron -- sigma-ai
+//   SIGMA_AI_LIVE=1 SIGMA_AI_GATEWAY_URL=... SIGMA_AI_GATEWAY_TOKEN=... pnpm run test:e2e:electron sigma-ai
 test("live: the built-in AI draws a figure, rewrites text, and converts the figure with the real model", async ({}, testInfo) => {
   const url = process.env.SIGMA_AI_GATEWAY_URL ?? "";
   const token = process.env.SIGMA_AI_GATEWAY_TOKEN ?? "";

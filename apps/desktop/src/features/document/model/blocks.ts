@@ -296,6 +296,8 @@ export interface ProblemNumbering {
   fontFamily?: string;
   fontWeight?: number;
   format?: "decimal" | "fullwidth";
+  /** With fullwidth numbering, use full-width digits for １…９ and ASCII from 10 onward. */
+  fullwidthSingleDigit?: boolean;
   widthPx?: number;
   heightPx?: number;
   gapPx?: number;
@@ -304,6 +306,11 @@ export interface ProblemNumbering {
   borderStyle?: "solid" | "double" | "none";
   outlineWidthPx?: number;
   outlineOffsetPx?: number;
+  /**
+   * `start`: the label starts `textOffsetXPx` inside the box (inner left edge) for any
+   * number width; default `center`: `textOffsetXPx` shifts the centred label.
+   */
+  textAlign?: "center" | "start";
   textOffsetXPx?: number;
   textOffsetYPx?: number;
   offsetXPx?: number;

@@ -70,10 +70,12 @@ export function useAiChatModelController() {
         setClaudeModel(selection.model);
         setReasoningEffort(selection.reasoningEffort);
       } else {
-        const nextModel = options.some((option) => option.id === currentPreferences.geminiModel)
-          ? currentPreferences.geminiModel
-          : options.find((option) => option.isDefault)?.id ?? options[0]?.id;
-        if (nextModel) setGeminiModel(nextModel);
+        const selection = resolveCatalogSelection({
+          models: options,
+          model: currentPreferences.geminiModel,
+          reasoningEffort: currentPreferences.reasoningEffort,
+        });
+        setGeminiModel(selection.model);
       }
     } catch (error) {
       if (modelCatalogRequestSeqRef.current !== requestSeq) return;

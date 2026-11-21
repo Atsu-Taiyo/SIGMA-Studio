@@ -172,23 +172,24 @@ async function leadCenters(page: Page, problemId: string) {
   });
 }
 
-test("the lead line sits at the vertical middle of a large number box without changing the area height", async () => {
+test("the number box and the lead line both start at the row top, so the PDF snapshot keeps their relation", async () => {
   const { app, page, profile } = await launch([
     problem("small", "次の問いに答えよ。", "問題文"),
     { ...problem("large", "次の問いに答えよ。", "問題文"), numbering: { fontSize: 28 } },
     { ...problem("empty", "", "問題文"), numbering: { fontSize: 28 } },
   ]);
   try {
-    for (const id of ["large", "empty"]) {
-      await expect.poll(async () => {
-        const { marker, line } = await leadCenters(page, id);
-        return Math.abs(marker - line);
-      }).toBeLessThan(1);
+    for (const id of ["small", "large", "empty"]) {
+      const geometry = await area(page, id, "lead").evaluate((section) => {
+        const marker = section.querySelector(".problem-number-marker")!.getBoundingClientRect();
+        const body = section.querySelector(".problem-area-paper-body")!.getBoundingClientRect();
+        return { markerTop: marker.top, bodyTop: body.top, translate: getComputedStyle(section.querySelector(".problem-area-paper-body")!).translate };
+      });
+      // No measured shift: both items sit at the grid row top.
+      expect(Math.abs(geometry.markerTop - geometry.bodyTop)).toBeLessThan(1);
+      expect(geometry.translate).toBe("none");
     }
-    // ふだんの大きさの番号は今まで通り (行が箱を包むので、動かさない)。
-    const small = await leadCenters(page, "small");
-    expect(Math.abs(small.marker - small.line)).toBeLessThan(2);
-    // 下げるのは translate だけ。エリアの高さ (ページ割り) は番号の箱の高さのまま。
+    // The row is as tall as the larger of the box and the line.
     const large = await leadCenters(page, "large");
     const markerHeight = await area(page, "large", "lead").locator(".problem-number-marker").evaluate((element) => element.getBoundingClientRect().height);
     expect(Math.abs(large.area - markerHeight)).toBeLessThan(1);

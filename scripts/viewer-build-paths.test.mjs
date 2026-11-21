@@ -25,6 +25,8 @@ test("viewer build emits CSS and fonts from paths containing spaces and URL-spec
       await symlink(path.join(repositoryRoot, entry), path.join(fixtureRoot, entry), "junction");
     }
 
+    await symlink(path.join(repositoryRoot, "packages/viewer/node_modules"), path.join(viewerRoot, "node_modules"), "junction");
+
     await run(process.execPath, [path.join(viewerRoot, "scripts/build.mjs")], {
       cwd: fixtureRoot,
       timeout: 30_000,

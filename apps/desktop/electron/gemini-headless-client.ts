@@ -1,6 +1,8 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
+import { withAntigravitySessionSettings } from "./gemini-settings-config";
 import { buildCliChildEnv, getProcessPathEnv } from "./cli-child-env";
 
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
@@ -37,13 +39,10 @@ export interface GeminiRunTurnParams {
   model?: string | null;
   resumeSessionId?: string | null;
   onDelta?: (delta: string) => void;
-  /**
-   * true なら `--output-format stream-json` で起動し、返答の断片 (`step_update.text_delta`) を
-   * 届いた順に `onDelta` へ流す。既定 (省略) の print モードは stdout に本文が終了時まで出ないので、
-   * 生成の途中経過を見せたい呼び出しだけが指定する。
-   */
-  streamOutput?: boolean;
+  /** Enable only the Studio edit workspace's additional MCP and read permissions. */
+  editPermissions?: boolean;
   onToolUse?: (tool: GeminiToolUse) => void;
+  onToolResult?: (tool: { toolUseId: string; images: [] }) => void;
   /** This run's id; lets {@link GeminiHeadlessClient.cancelRun} kill this spawned turn. */
   runId?: string;
   /**
@@ -177,6 +176,7 @@ export class GeminiHeadlessClient {
   private lastError: string | null = null;
   // 直近の turn が認証エラー (exit 41) だった場合に立てる。getStatus() の loggedIn に反映する。
   private authError: string | null = null;
+  private authErrorAt = 0;
   // authError を立てた時点の creds ファイルの mtime (存在しなければ null)。UIはターンを
   // loggedIn ゲートで止めるため、ターミナルで再ログインしてもターンを起動できず authError が
   // 永久に残ってしまう (Finding 2)。getStatus() で creds ファイルの mtime がこれより新しくなって
@@ -217,6 +217,7 @@ export class GeminiHeadlessClient {
     if (next === this.configuredGeminiBin) {
       return;
     }
+    this.authError = null;
     this.configuredGeminiBin = next;
     this.resolvedGeminiBin = null;
     this.availableCache = null;
@@ -241,9 +242,8 @@ export class GeminiHeadlessClient {
       const reloggedIn =
         currentMtimeMs !== null &&
         (this.authErrorCredsMtimeMs === null || currentMtimeMs > this.authErrorCredsMtimeMs);
-      if (reloggedIn) {
-        // ターミナルで再ログインし creds ファイルが (再)作成/更新された。UIがloggedInで
-        // turnをゲートしているため、次のターン完了を待たずにここでフラグを解除する。
+      // Keyring-only logins have no file timestamp. Recheck through agy after the cache expires.
+      if (reloggedIn || Date.now() - this.authErrorAt >= this.availabilityCacheMs) {
         this.authError = null;
         this.authErrorCredsMtimeMs = null;
       } else {
@@ -283,6 +283,7 @@ export class GeminiHeadlessClient {
       // The real CLI does not need stdin for `models`; closing it also keeps
       // test/compatibility wrappers that read stdin before inspecting argv
       // from waiting forever.
+      child.stdin.on("error", () => {});
       child.stdin.end();
       let stdout = "";
       let stderr = "";
@@ -304,7 +305,7 @@ export class GeminiHeadlessClient {
         stderr = `${stderr}${data.toString()}`.slice(-32_000);
       });
       child.on("error", (error) => finish(() => reject(error)));
-      child.on("exit", (code) => finish(() => {
+      child.on("close", (code) => finish(() => {
         if (code === 0) {
           resolve(stdout);
         } else {
@@ -312,22 +313,23 @@ export class GeminiHeadlessClient {
         }
       }));
     });
-    // agy models emits tab-separated IDs and display names in current versions.
-    // --model accepts the display name; older versions emitted only that name.
-    const models = [...new Set(output.split(/\r?\n/).map((line) => {
-      const columns = line.trim().split("\t");
-      return (columns.length > 1 ? columns[1] : columns[0]).trim();
-    }).filter((line) => line && !/^Fetching available models\.{0,3}$/i.test(line)))];
-    return {
-      models: models.map((model, index) => ({
-        id: model,
-        label: model,
-        ...((models.includes(this.defaultModel) ? model === this.defaultModel : index === 0) ? { isDefault: true } : {}),
-      })),
-    };
+    const models = new Map<string, string>();
+    for (const line of output.trim().split(/\r?\n/)) {
+      const [id, label] = line.trim().split("\t");
+      if (id && !/^Fetching available models\.{0,3}$/i.test(id)) models.set(id, label?.trim() || id);
+    }
+    return { models: Array.from(models, ([id, label]) => ({ id, label })) };
   }
 
   async runTurn(params: GeminiRunTurnParams): Promise<GeminiTurnResult> {
+    return withAntigravitySessionSettings(
+      params.editPermissions ? this.userDataDir : null,
+      (settings) => this.spawnTurn(params, settings),
+      path.join(path.dirname(this.credsFilePath), "settings.json"),
+    );
+  }
+
+  private async spawnTurn(params: GeminiRunTurnParams, settings: string): Promise<GeminiTurnResult> {
     const workspaceDir = params.workspaceDir ?? this.workspaceDir;
     await fs.promises.mkdir(workspaceDir, { recursive: true });
     const available = await this.isGeminiAvailable();
@@ -336,27 +338,21 @@ export class GeminiHeadlessClient {
     }
 
     const requestedModel = params.model?.trim() || this.defaultModel;
-    // Refresh for every turn so saved rooms also follow catalog changes.
-    // On catalog failure, let the CLI handle its default/custom model and auth.
-    const { models } = await this.listModels().catch(() => ({ models: [] }));
-    const family = (name: string) => name.replace(/\d+(?:[.-]\d+)*/g, "#");
-    const model = models.find((option) => option.id === requestedModel)?.id
-      ?? models.find((option) => family(option.id) === family(requestedModel))?.id
-      ?? models.find((option) => option.isDefault)?.id
-      ?? models[0]?.id
-      ?? (requestedModel === "auto" ? "" : requestedModel);
-    // F3 (実機確認): printモードのstdoutには会話ID(conversation)を含むJSONイベントが流れないため、
-    // `--log-file` で指定したログファイルに書かれる行から回収する (resume用のsessionIdとして使う)。
-    // このturn専用のファイルにする (runId、無ければ時刻) ことで並行run同士のログが混ざらない。
-    const logsDir = path.join(workspaceDir, "logs");
-    await fs.promises.mkdir(logsDir, { recursive: true });
-    const runFileId = String(params.runId ?? Date.now()).replace(/[^a-zA-Z0-9_-]/g, "_");
-    const logFilePath = path.join(logsDir, `agy-print-${runFileId}.log`);
-    // agy 1.1.x requires the prompt as the string value of --print. An @file
-    // value is not expanded into the prompt by Antigravity: it is treated as a
-    // request for the agent to read that file, so print mode can finish without
-    // ever executing the actual instruction. Pass the instruction itself.
-    const args = this.buildSpawnArgs(model, params.resumeSessionId ?? null, logFilePath, params.instruction, params.streamOutput === true);
+    const args = [
+      "--input-format", "stream-json",
+      "--output-format", "stream-json",
+      "--disable-slash-commands",
+      "--print-timeout", `${Math.ceil(this.turnTimeoutMs / 1000)}s`,
+    ];
+    if (requestedModel !== DEFAULT_MODEL) {
+      const { models } = await this.listModels().catch(() => ({ models: [] }));
+      const family = (name: string) => name.replace(/\d+(?:[.-]\d+)*/g, "#");
+      const match = models.find(({ id, label }) => id === requestedModel || label === requestedModel)
+        ?? models.find(({ id, label }) => [id, label].some((name) => family(name) === family(requestedModel)));
+      if (match || !models.length) args.push("--model", match?.id ?? requestedModel);
+    }
+    if (params.resumeSessionId) args.push("--conversation", params.resumeSessionId);
+    args.push("--settings", settings);
     const geminiBin = this.getGeminiBinForSpawn();
 
     return new Promise<GeminiTurnResult>((resolve, reject) => {
@@ -367,19 +363,18 @@ export class GeminiHeadlessClient {
         windowsHide: true,
       });
 
-      // プロンプト本体は --print=<instruction> で渡す。stdinは使わない。
+      // One stdin frame and EOF run one turn, including prompts larger than the OS argv limit.
       proc.stdin.on("error", () => {});
-      proc.stdin.end();
+      proc.stdin.end(JSON.stringify({ event: "user", message: { content: params.instruction } }) + "\n");
 
       let finalText = "";
-      let stdoutText = "";
       let sessionId: string | null = null;
       let resultEvent: GeminiResultEvent | null = null;
-      // `streamOutput` の agy stream-json は `{event: ...}` 形式の別プロトコル (上の `type` 形式ではない)。
+      // Current agy uses event envelopes. Older wrappers may return type-tagged records.
       let streamResult: { status: string | null; response: string | null; errorMessage: string | null } | null = null;
       let blockedToolCount = 0;
       let stderrTail: string | null = null;
-      let sawJsonProtocolEvent = false;
+      const startedTools = new Set<number>();
       let settled = false;
       let cancelRequested = false;
 
@@ -399,13 +394,6 @@ export class GeminiHeadlessClient {
         if (params.runId) {
           this.cancelHandles.delete(params.runId);
         }
-        // JSONプロトコル経由 (init イベント) で既にsessionIdが取れていれば上書きしない。
-        // 取れていなければ (プレーンテキスト経路含む全てのケース) ログファイルから回収を試みる。
-        if (!sessionId) {
-          sessionId = readSessionIdFromLogFile(logFilePath);
-        }
-        // 読み取り後はbest-effortで削除する (reject経路でも削除)。
-        void fs.promises.unlink(logFilePath).catch(() => {});
         fn();
       };
 
@@ -427,9 +415,6 @@ export class GeminiHeadlessClient {
       }
 
       const rl = readline.createInterface({ input: proc.stdout });
-      proc.stdout.on("data", (data: Buffer) => {
-        stdoutText += data.toString();
-      });
       rl.on("line", (line) => {
         let message: unknown;
         try {
@@ -437,7 +422,7 @@ export class GeminiHeadlessClient {
         } catch {
           return;
         }
-        if (params.streamOutput && isRecord(message) && typeof message.event === "string") {
+        if (isRecord(message) && typeof message.event === "string") {
           if (message.event === "init") {
             const conversationId = message.conversation_id;
             if (typeof conversationId === "string" && conversationId) {
@@ -445,17 +430,32 @@ export class GeminiHeadlessClient {
             }
           } else if (message.event === "step_update" && isRecord(message.step_update)) {
             const step = message.step_update;
+            if (!sessionId && typeof step.conversation_id === "string" && step.conversation_id) {
+              sessionId = step.conversation_id;
+            }
             if (step.step_type === "agent_response" && typeof step.text_delta === "string" && step.text_delta) {
               finalText += step.text_delta;
               params.onDelta?.(step.text_delta);
             }
+            if (step.step_type === "tool" && typeof step.step_index === "number" && typeof step.tool_name === "string") {
+              const index = step.step_index;
+              // The server-side watcher supplies the actual Studio tool inside this wrapper.
+              if (params.editPermissions && this.userDataDir && step.tool_name === "call_mcp_tool") return;
+              const id = `agy-step-${index}`;
+              if (!startedTools.has(index)) {
+                startedTools.add(index);
+                params.onToolUse?.({ id, name: step.tool_name, parameters: isRecord(step.tool_info) ? step.tool_info.parameters : undefined });
+              }
+              if (step.state === "DONE" || step.state === "ERROR") params.onToolResult?.({ toolUseId: id, images: [] });
+            }
           } else if (message.event === "result" && isRecord(message.result)) {
             const result = message.result;
+            if (typeof result.conversation_id === "string" && result.conversation_id) sessionId = result.conversation_id;
             const error = isRecord(result.error) ? result.error : null;
             streamResult = {
               status: typeof result.status === "string" ? result.status : null,
               response: typeof result.response === "string" ? result.response : null,
-              errorMessage: typeof error?.message === "string" ? error.message : null,
+              errorMessage: typeof result.error === "string" ? result.error : typeof error?.message === "string" ? error.message : null,
             };
           }
           return;
@@ -463,7 +463,6 @@ export class GeminiHeadlessClient {
         if (!isRecord(message) || typeof message.type !== "string") {
           return;
         }
-        sawJsonProtocolEvent = true;
         switch (message.type) {
           case "init": {
             const init = message as unknown as GeminiInitEvent;
@@ -505,7 +504,7 @@ export class GeminiHeadlessClient {
       proc.stderr.on("data", (data: Buffer) => {
         const text = data.toString().trim();
         if (text) {
-          stderrTail = text.slice(0, 1000);
+          stderrTail = ((stderrTail ?? "") + text).slice(-4000);
         }
       });
 
@@ -519,7 +518,7 @@ export class GeminiHeadlessClient {
         if (cancelRequested) {
           finish(() =>
             resolve({
-              sessionId,
+              sessionId: sessionId ?? params.resumeSessionId ?? null,
               finalText,
               isError: false,
               errorMessage: null,
@@ -531,7 +530,9 @@ export class GeminiHeadlessClient {
         }
         const resumeRequested = Boolean(params.resumeSessionId);
 
-        if (code === EXIT_AUTH_ERROR) {
+        const diagnostic = streamResult?.errorMessage || stderrTail || "";
+        if (code === EXIT_AUTH_ERROR || /^(?:error:\s*)?authentication required\b/im.test(diagnostic)) {
+          this.authErrorAt = Date.now();
           this.authError = te("electron.antigravity.loginRequiredGoogle");
           this.authErrorCredsMtimeMs = this.getCredsFileMtimeMs();
           this.loginCache = null;
@@ -557,13 +558,16 @@ export class GeminiHeadlessClient {
           this.authErrorCredsMtimeMs = null;
           this.loginCache = null;
           const { status, response, errorMessage } = streamResult;
-          const isError = status !== null && status !== "SUCCESS";
+          const deniedPermission = !response?.trim() && !finalText.trim() ? getHeadlessPermissionDeniedAction(stderrTail) : null;
+          const isError = code !== 0 || status !== "SUCCESS" || Boolean(deniedPermission);
+          if (!isError && response && !finalText) params.onDelta?.(response);
           finish(() =>
             resolve({
               sessionId,
               finalText: response ?? finalText,
               isError,
-              errorMessage: isError ? errorMessage ?? te("electron.antigravity.editFailed") : null,
+              errorMessage: deniedPermission ? formatHeadlessPermissionDeniedMessage(deniedPermission)
+                : isError ? errorMessage || stderrTail || te("electron.antigravity.editFailed") : null,
               blockedToolCount,
             }),
           );
@@ -591,7 +595,7 @@ export class GeminiHeadlessClient {
           return;
         }
 
-        if (code === 0 && !sawJsonProtocolEvent) {
+        if (code === 0) {
           const deniedPermission = getHeadlessPermissionDeniedAction(stderrTail);
           if (deniedPermission) {
             finish(() =>
@@ -605,23 +609,6 @@ export class GeminiHeadlessClient {
             );
             return;
           }
-          this.authError = null;
-          this.authErrorCredsMtimeMs = null;
-          this.loginCache = null;
-          const text = stdoutText.trim();
-          if (text) {
-            params.onDelta?.(text);
-          }
-          finish(() =>
-            resolve({
-              sessionId,
-              finalText: text,
-              isError: false,
-              errorMessage: null,
-              blockedToolCount,
-            }),
-          );
-          return;
         }
 
         finish(() =>
@@ -645,39 +632,6 @@ export class GeminiHeadlessClient {
     }
     handle();
     return true;
-  }
-
-  // aiWebSearchEnabled設定について: agy CLI (1.0.16, --print モード) には Web検索を
-  // 有効/無効化できるフラグや設定キーが見当たらない (`agy --help` に該当フラグなし、
-  // ~/.gemini/config/config.json にも該当キーなし)。そのためこのプロバイダでは
-  // aiWebSearchEnabled はツール実行の可否に影響しない (プロンプトのWeb検索ポリシー節の
-  // 出し分けのみ gemini-edit.ts 側で行う)。CLI側にトグルが追加されたらここで配線すること。
-  private buildSpawnArgs(
-    model: string,
-    resumeSessionId: string | null,
-    logFilePath: string,
-    instruction: string,
-    streamOutput = false,
-  ): string[] {
-    // agy 1.1.x requires the prompt as the value of its string-valued --print
-    // flag. A trailing positional prompt, stdin-only input, and @file expansion
-    // are not supported transports for this mode.
-    const args = [
-      `--print=${instruction}`,
-      "--print-timeout",
-      `${Math.max(1, Math.ceil(this.turnTimeoutMs / 60_000))}m`,
-      ...(model ? ["--model", model] : []),
-      ...(streamOutput ? ["--output-format", "stream-json"] : []),
-    ];
-    if (resumeSessionId) {
-      args.push("--conversation", resumeSessionId);
-    }
-    // F3 (実機確認): printモードのstdoutには会話ID(conversation)を含むJSONイベントが流れない。
-    // `--log-file` に指定したこのファイルへ書かれる
-    // `printmode.go:179] Print mode: conversation=<uuid>, sending message` という行から
-    // resume用のsessionIdを回収する (runTurn の finish() 内で読む)。
-    args.push("--log-file", logFilePath);
-    return args;
   }
 
   private getCredsFileMtimeMs(): number | null {
@@ -806,8 +760,7 @@ function isLegacyGeminiCliBin(value: string): boolean {
 }
 
 function defaultCredsFilePath(): string {
-  const home = process.env.HOME?.trim() || process.env.USERPROFILE?.trim() || "";
-  return path.join(home, ".gemini", "antigravity-cli", "settings.json");
+  return path.join(os.homedir(), ".gemini", "antigravity-cli", "antigravity-oauth-token");
 }
 
 function getHeadlessPermissionDeniedAction(stderr: string | null): string | null {
@@ -855,17 +808,8 @@ function getDefaultWindowsGeminiBinCandidates(): string[] {
   const appData = process.env.APPDATA?.trim();
   const localAppData = process.env.LOCALAPPDATA?.trim();
   const candidates = [
-    ...(appData
-      ? [
-          path.join(appData, "npm", "agy.exe"),
-          path.join(appData, "npm", "agy.cmd"),
-        ]
-      : []),
-    ...(localAppData
-      ? [
-          path.join(localAppData, "agy", "bin", "agy.exe"),
-        ]
-      : []),
+    ...(localAppData ? [path.join(localAppData, "agy", "bin", "agy.exe")] : []),
+    ...(appData ? [path.join(appData, "npm", "agy.exe"), path.join(appData, "npm", "agy.cmd")] : []),
     ...(userProfile
       ? [
           path.join(userProfile, ".local", "bin", "agy.exe"),
@@ -913,11 +857,11 @@ async function canListAntigravityModels(geminiBin: string): Promise<{
         resolve({ loggedIn: true, error: null });
         return;
       }
-      resolve({
-        loggedIn: false,
-        error: stderrTail || null,
-        ...(stderrTail ? {} : { appErrorKey: "loginRequired" as const }),
-      });
+      if (!stderrTail || /please sign in|authentication required/i.test(stderrTail)) {
+        resolve({ loggedIn: false, error: null, appErrorKey: "loginRequired" });
+      } else {
+        resolve({ loggedIn: false, error: stderrTail });
+      }
     });
   });
 }
@@ -930,11 +874,15 @@ function getExtraPathEntries(): string[] {
 
 async function canSpawnGemini(geminiBin: string, timeoutMs: number): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    const child = spawnCliProcess(geminiBin, ["--version"], {
+    const child = spawnCliProcess(geminiBin, ["--help"], {
       env: buildGeminiChildEnv(),
-      stdio: "ignore",
+      stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
+    let help = "";
+    const readHelp = (chunk: Buffer) => { help = (help + chunk.toString()).slice(-64000); };
+    child.stdout.on("data", readHelp);
+    child.stderr.on("data", readHelp);
     const timeout = setTimeout(() => {
       child.kill();
       resolve(false);
@@ -943,9 +891,9 @@ async function canSpawnGemini(geminiBin: string, timeoutMs: number): Promise<boo
       clearTimeout(timeout);
       resolve(false);
     });
-    child.on("exit", (code: number | null) => {
+    child.on("close", (code: number | null) => {
       clearTimeout(timeout);
-      resolve(code === 0);
+      resolve(code === 0 && ["--input-format", "--output-format", "--settings"].every((flag) => help.includes(flag)));
     });
   });
 }
@@ -973,18 +921,6 @@ export function buildGeminiChildEnv(): GeminiChildEnv {
   return next;
 }
 
-
-function readSessionIdFromLogFile(logFilePath: string): string | null {
-  try {
-    const text = fs.readFileSync(logFilePath, "utf8");
-    // 実機の行例: `printmode.go:179] Print mode: conversation=<uuid>, sending message`。
-    // IDの文字集合 (実機はUUID) を仮定せず、次のカンマまたは空白までを緩く受け取る。
-    const match = text.match(/Print mode: conversation=([^,\s]+)/);
-    return match ? match[1] : null;
-  } catch {
-    return null;
-  }
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

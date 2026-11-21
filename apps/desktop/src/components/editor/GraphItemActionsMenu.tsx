@@ -24,6 +24,7 @@ export function GraphItemActionsMenu({
   className,
   hoverAnchorRef,
   onCloseNestedMenus,
+  deferEscapeToOpenPicker = false,
   children,
 }: {
   label: string;
@@ -32,6 +33,11 @@ export function GraphItemActionsMenu({
   /** Optional larger hover target; the trigger remains the explicit keyboard/click control. */
   hoverAnchorRef?: RefObject<HTMLElement | null>;
   onCloseNestedMenus: () => void;
+  /**
+   * The 2D curve card only: its line pickers sit beside this menu on the card (not inside it), so
+   * an open picker in the same panel takes Escape first.
+   */
+  deferEscapeToOpenPicker?: boolean;
   children: ReactNode;
 }) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -39,9 +45,13 @@ export function GraphItemActionsMenu({
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleCloseRef = useRef<() => void>(() => undefined);
   const onCloseNestedMenusRef = useRef(onCloseNestedMenus);
+  const deferEscapeToOpenPickerRef = useRef(deferEscapeToOpenPicker);
   const [menuState, setMenuState] = useState(CLOSED_GRAPH_ITEM_ACTIONS_MENU_STATE);
   const open = menuState.open;
 
+  useEffect(() => {
+    deferEscapeToOpenPickerRef.current = deferEscapeToOpenPicker;
+  }, [deferEscapeToOpenPicker]);
   useEffect(() => {
     onCloseNestedMenusRef.current = onCloseNestedMenus;
   }, [onCloseNestedMenus]);
@@ -115,6 +125,14 @@ export function GraphItemActionsMenu({
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest("[data-toolbar-popover]")) {
         return;
+      }
+      // (opt-in) 同じ設定パネルの中で線種・色などのメニューが開いていれば、そちらを先に閉じる。
+      // Escape はパネル (`GraphSettingsPanel`) が受けてそのメニューを閉じ、`⋯` は次の Escape で閉じる。
+      if (deferEscapeToOpenPickerRef.current) {
+        const panel = buttonRef.current?.closest("[data-graph-settings-panel]");
+        if (panel?.querySelector("[data-toolbar-popover-anchor-open]:not(.graph-item-actions-trigger):not(:disabled)")) {
+          return;
+        }
       }
       event.preventDefault();
       event.stopPropagation();

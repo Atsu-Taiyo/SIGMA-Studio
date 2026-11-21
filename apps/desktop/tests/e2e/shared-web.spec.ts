@@ -13,7 +13,7 @@ import { fromBase64, toBase64 } from "../../src/features/collaboration/model/pro
 import type { ObjectValue } from "../../src/features/collaboration/model/value";
 import type { SharedTargetRef } from "../../src/features/collaboration/model/catalog";
 
-test.skip(process.env.SIGMA_WEB_E2E !== "1", "Run npm run web:build, npm run electron:build, then npm run test:e2e:web.");
+test.skip(process.env.SIGMA_WEB_E2E !== "1", "Run pnpm run web:build, pnpm run electron:build, then pnpm run test:e2e:web.");
 const root = path.resolve(__dirname, "../../../..");
 const appRoot = path.join(root, "apps/desktop");
 const id = "00000000-0000-4000-8000-000000000001";

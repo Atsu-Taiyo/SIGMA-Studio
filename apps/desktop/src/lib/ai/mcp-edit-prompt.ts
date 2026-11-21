@@ -5,7 +5,7 @@ import {
 import { createTranslator, DEFAULT_LOCALE, type AppLocale, type Translate } from "@/lib/i18n";
 import { prompt as jaPrompt } from "@/lib/i18n/dictionaries/ja/prompt";
 import type { AiResourceRunContext } from "../../../electron/ai-resource-store";
-import { SIGMA_DOC_MCP_SERVER_NAME } from "../../../electron/sigma-studio-mcp-launch";
+import { ANTIGRAVITY_WORKSPACE_SERVER_NAME, SIGMA_DOC_MCP_SERVER_NAME } from "../../../electron/sigma-studio-mcp-launch";
 import { formatAiImageAnnotationsForPrompt, type AiImageAnnotation } from "./ai-image-annotations";
 
 /** この層のプロンプト文言は全て `prompt` namespace が持つ。 */
@@ -236,7 +236,7 @@ function toolNamespaceLine(provider: McpEditPromptProvider, t: PromptTranslate):
   // Claude と内蔵AI (dsh) は名前空間つきのツール名で届く (他の provider は素のツール名)。
   return provider === "claude" || provider === "sigma"
     ? t("turn.toolNamespaceClaude", { replace: { server: SIGMA_DOC_MCP_SERVER_NAME } })
-    : t("turn.toolNamespace", { replace: { server: SIGMA_DOC_MCP_SERVER_NAME } });
+    : t("turn.toolNamespace", { replace: { server: provider === "antigravity" ? ANTIGRAVITY_WORKSPACE_SERVER_NAME : SIGMA_DOC_MCP_SERVER_NAME } });
 }
 
 export function formatAiResourcePromptSection(

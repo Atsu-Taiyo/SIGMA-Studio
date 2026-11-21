@@ -83,7 +83,8 @@ async function insertGraphWithAxisLabel(page: Page): Promise<void> {
   await expect(page.locator(".graph-tool-row").getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
 
   // Turning an axis name on materializes it as a graph-owned text shape.
-  const axisNameSection = page.getByRole("button", { name: "軸名", exact: true });
+  // 軸名は「座標軸と範囲」の節の中にある (既定で開いている)。
+  const axisNameSection = page.getByRole("button", { name: "座標軸と範囲", exact: true });
   if ((await axisNameSection.getAttribute("aria-expanded")) !== "true") {
     await axisNameSection.click();
   }

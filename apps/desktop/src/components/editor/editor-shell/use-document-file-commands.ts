@@ -2,7 +2,7 @@
 
 import { normalizeNewFileName } from "@/lib/file-name";
 
-import { useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { DocumentBlockClock, DocumentBlockIdFactory, SigmaDocument } from "@/features/document";
 import type { EditorSaveState } from "@/features/editor-state/types";
 import { writeTextToClipboard } from "@/lib/clipboard-text";
@@ -17,7 +17,7 @@ import { createDocumentFromSigmaDocument, type DocumentFileRecord } from "@/lib/
 import { fileFromDesktopImport, planDocumentFileImport, prepareDocumentFileImport, prepareExtensionDocumentImport, type PreparedDocumentImport } from "./document-file-import";
 import type { EmbeddedEditorHost } from "./document-lifecycle-types";
 import type { DesktopExternalDocument } from "@/types/desktop";
-import { getExtensionBridge, type ExtensionImportIssue } from "@/lib/extension-contracts";
+import { getExtensionBridge, type ExtensionImportIssue, type FolderImportProgress, type FolderImportResult } from "@/lib/extension-contracts";
 
 export interface DocumentFileCommandOptions {
   documentRef: RefObject<SigmaDocument>;
@@ -52,7 +52,11 @@ export function useDocumentFileCommands({
   const otherImportInputRef = useRef<HTMLInputElement | null>(null);
   // 拡張機能の取り込みが添えた所見。ある間だけ結果の通知を出す。
   const extensionImportBusyRef = useRef(false);
+  const progressSubscription = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => { progressSubscription.current?.(); progressSubscription.current = undefined; }, []);
   const [extensionImportBusy, setExtensionImportBusy] = useState(false);
+  const [folderProgress, setFolderProgress] = useState<FolderImportProgress | null>(null);
+  const [folderResult, setFolderResult] = useState<FolderImportResult | null>(null);
   const [importNotice, setImportNotice] = useState<ExtensionImportIssue[] | null>(null);
 
   // 教材のテキスト受け渡し。取り込みは貼り付け面を開くだけ、書き出しは
@@ -200,8 +204,12 @@ export function useDocumentFileCommands({
     if (!bridge || extensionImportBusyRef.current) return;
     extensionImportBusyRef.current = true;
     setExtensionImportBusy(true);
+    setFolderProgress(null);
+    setFolderResult(null);
     setActiveMenu(null);
     setStatusMessage(tEditor("extensions.run.running"));
+    const unsubscribe = bridge.onFolderProgress?.(setFolderProgress);
+    progressSubscription.current = unsubscribe;
     void (async () => {
       try {
         const result = await bridge.run(extensionId, itemId);
@@ -209,6 +217,12 @@ export function useDocumentFileCommands({
           setStatusMessage(result.error === "canceled" ? "" : tEditor(`extensions.run.error.${result.error}`));
           return;
         }
+        if ("kind" in result && result.kind === "folder") {
+          setFolderResult(result);
+          setStatusMessage(tEditor("extensions.folder.summary", result.counts));
+          return;
+        }
+        if (!("document" in result)) return;
         const prepared = prepareExtensionDocumentImport(result, {
           ...DOCUMENT_BLOCK_OPERATION_PORTS,
           createDocumentId: () => createId("doc"),
@@ -219,6 +233,9 @@ export function useDocumentFileCommands({
         setSaveState("error");
         setStatusMessage(error instanceof Error ? error.message : tEditor("extensions.run.error.import-failed"));
       } finally {
+        unsubscribe?.();
+        if (progressSubscription.current === unsubscribe) progressSubscription.current = undefined;
+        setFolderProgress(null);
         extensionImportBusyRef.current = false;
         setExtensionImportBusy(false);
       }
@@ -270,7 +287,7 @@ export function useDocumentFileCommands({
   };
 
   return {
-    importNotice, setImportNotice, runExtensionItem, extensionImportBusy,
+    importNotice, setImportNotice, runExtensionItem, extensionImportBusy, folderProgress, folderResult, setFolderResult,
     importInputRef, otherImportInputRef, textImportOpen, setTextImportOpen, documentTextCopyFallback, setDocumentTextCopyFallback, exportJson, copyDocumentText, openTextImportDialog, openDocumentViaDesktop, openExternalDocument, importDocumentFile, importDocumentFileWithResult, openImportDialog, openOtherImportDialog,
   };
 }

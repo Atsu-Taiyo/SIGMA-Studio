@@ -530,6 +530,13 @@ describe("isFlowBlockFragmentable", () => {
       "screenbox",
       "ovalbox",
       "cornerbox",
+      "chart-red-rei",
+      "chart-red-reidai",
+      "chart-red-juyo",
+      "chart-blue-kihon",
+      "focus-gold-reidai",
+      "focus-gold-focus",
+      "kyotsu-choices",
     ]);
     expect(BUILTIN_BOX_STYLES.every((style) =>
       isFlowBlockFragmentable(createBoxBlock(style.id, "", { id: `box_${style.id}` }), 20, 400),

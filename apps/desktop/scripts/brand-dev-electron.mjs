@@ -19,7 +19,7 @@
 // 失敗しても開発起動そのものは止めない（警告だけ出す）。
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, renameSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -60,6 +60,11 @@ function readPlistString(plistPath, key) {
 }
 
 function writePlistString(plistPath, key, value) {
+  if (statSync(plistPath).nlink > 1) {
+    const temporary = `${plistPath}.sigma-brand-${process.pid}`;
+    copyFileSync(plistPath, temporary);
+    renameSync(temporary, plistPath);
+  }
   execFileSync("plutil", ["-replace", key, "-string", value, plistPath], { stdio: "pipe" });
 }
 
@@ -91,7 +96,9 @@ function main() {
     const source = statSync(sourceIcns);
     const target = statSync(bundleIcns);
     if (source.size !== target.size || source.mtimeMs > target.mtimeMs) {
-      copyFileSync(sourceIcns, bundleIcns);
+      const temporary = `${bundleIcns}.sigma-brand-${process.pid}`;
+      copyFileSync(sourceIcns, temporary);
+      renameSync(temporary, bundleIcns);
       changed.push("electron.icns");
       // Finder / Dock はアイコンを積極的にキャッシュする。バンドルの mtime を進めて
       // キャッシュを無効化しないと、差し替えても古いアイコンが出続けることがある。

@@ -35,19 +35,19 @@
 
 dsh は 600 近いパッケージ (展開して 357MB) を持ち、Node の内部モジュールへ触るネイティブ部品を含みます。
 
-- アプリ本体の `package-lock.json` と依存監査に混ぜないよう、`apps/desktop/dsh-runtime` に独自のマニフェストとロックを置きます (workspace には入れていません)。
+- `apps/desktop/dsh-runtime` は pnpm ワークスペース外に置き、専用の npm ロックで再現します。ルートの依存監査はこのロックを対象に含まないため、同梱前には `npm audit --prefix apps/desktop/dsh-runtime --omit=dev` で個別に確認します。
 - dsh の Office スキルが引き込む LibreOffice 一式 (約 150MB と `fontkit`) は、内蔵AIが使わないので、空の差し替え (`dsh-runtime/stubs/libreoffice-kit`) に置き換えています (`package.json` の `overrides`)。このリポジトリは `fontkit` への依存を持てません (`scripts/audit-private-conversion.mjs`)。
 - その部品は対応する実行環境が固定されていて、**Electron 内蔵の Node では起動できません** (Electron 45.2.3 で確認)。橋渡し (`bridge.mjs`) と dsh は本物の Node (24.9 以上) で動かします。
 
-Node は次の順で探します: `SIGMA_STUDIO_NODE_BIN` → `dsh-runtime/node/bin/node` (同梱する場合の置き場所) → `PATH` の `node`。`npm run electron:dev` は開発スクリプトを動かしている Node を自動で渡します。
+Node は次の順で探します: `SIGMA_STUDIO_NODE_BIN` → `dsh-runtime/node/bin/node` (同梱する場合の置き場所) → `PATH` の `node`。`pnpm run electron:dev` は開発スクリプトを動かしている Node を自動で渡します。
 
 **配布物への同梱はまだ行っていません。** `electron-builder` の設定は変えていないので、インストーラーに dsh と Node は入らず、配布版では「SIGMA AIを利用できません」と表示されます (他のAIは使えます)。同梱する場合は `dsh-runtime` (と Node) を `extraResources` へ足します。実測 (macOS arm64) は dsh が 357MB、Node 本体が 117MB です。別に判断してください。
 
 ## 開発での使い方
 
-1. `npm run sigma-ai:runtime` で dsh の実行環境を入れます (初回と版を変えたとき)。
+1. `pnpm run sigma-ai:runtime` で dsh の実行環境を入れます (初回と版を変えたとき)。
 2. リポジトリ直下に `.env.sigma-ai.local` を作り、`SIGMA_AI_GATEWAY_URL` (中継の URL) と `SIGMA_AI_GATEWAY_TOKEN` (共有トークン) を書きます。このファイルは git に入りません。
-3. `mise exec -- npm run electron:dev` で起動します。
+3. `mise exec -- pnpm run electron:dev` で起動します。
 
 2つの値が無いと内蔵AIは使えず、チャットに理由が出ます。
 
@@ -72,7 +72,7 @@ Node は次の順で探します: `SIGMA_STUDIO_NODE_BIN` → `dsh-runtime/node/
 - `SIGMA_AI_PROVIDER_ROUTING` — 上流の事業者の選び方 (JSON)。下の「応答の速さ」を参照
 
 ```sh
-npm run ai-gateway:test
+pnpm run ai-gateway:test
 pnpm dlx supabase secrets set OPENROUTER_API_KEY=<鍵> SIGMA_AI_GATEWAY_TOKEN=<32バイト以上の乱数> --project-ref <ref>
 pnpm dlx supabase functions deploy sigma-ai-gateway --project-ref <ref> --no-verify-jwt --use-api
 ```
@@ -82,11 +82,11 @@ pnpm dlx supabase functions deploy sigma-ai-gateway --project-ref <ref> --no-ver
 ### 置き先 2: Cloudflare Worker
 
 ```sh
-npm run ai-gateway:check          # デプロイせずに設定を検証
+pnpm run ai-gateway:check          # デプロイせずに設定を検証
 cd apps/web
-npx wrangler secret put OPENROUTER_API_KEY --config ai-gateway/wrangler.jsonc
-npx wrangler secret put GATEWAY_TOKEN --config ai-gateway/wrangler.jsonc
-npx wrangler deploy --config ai-gateway/wrangler.jsonc
+pnpm exec wrangler secret put OPENROUTER_API_KEY --config ai-gateway/wrangler.jsonc
+pnpm exec wrangler secret put GATEWAY_TOKEN --config ai-gateway/wrangler.jsonc
+pnpm exec wrangler deploy --config ai-gateway/wrangler.jsonc
 ```
 
 ### 応答の速さ (上流の事業者を固定する)

@@ -100,6 +100,7 @@ import { DesktopSettingsModal } from "@/components/editor/DesktopSettingsModal";
 import { ExtensionsDialog } from "@/components/editor/extensions/ExtensionsDialog";
 import { DocumentLibraryDialog } from "@/components/editor/DocumentLibraryDialog";
 import { DocumentOpenFailurePanel } from "@/components/editor/DocumentOpenFailurePanel";
+import { FolderImportDialog } from "./extensions/FolderImportDialog";
 import { ExtensionImportLoading } from "@/components/editor/ExtensionImportLoading";
 import { ImportResultNotice } from "@/components/editor/ImportResultNotice";
 import { useExtensionMenu } from "@/components/editor/extensions/use-extension-menu";
@@ -182,7 +183,7 @@ import { PdfExportSuccessDialog } from "@/components/print/PdfExportSuccessDialo
 import { PrintPreviewPageNavigator } from "@/components/print/PrintPreview";
 import { PagedRenderSurface } from "@/components/print/paged-render/PagedRenderSurface";
 import { TemplateGallery, type TemplateGalleryMode } from "@/components/templates/TemplateGallery";
-import { SELECT_INLINE_MATH_EVENT,updateInlineMathDraft } from "@/components/tiptap/inline-math-extension";
+import { SELECT_INLINE_MATH_EVENT } from "@/components/tiptap/inline-math-extension";
 import { NATIVE_HISTORY_COMMAND_EVENT,type NativeHistoryCommandDetail } from "@/components/tiptap/native-history-guard";
 import { QR_CODE_REQUEST_EVENT,type QrCodeRequestDetail } from "@/components/tiptap/url-detection-extension";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -2568,7 +2569,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             }
           : undefined,
         updateTex: (tex, nextCursor) => {
-          updateTex(tex);
+          updateTex(tex, nextCursor);
           if (typeof nextCursor === "number") {
             setCursor?.(nextCursor);
           }
@@ -2981,7 +2982,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           cursor: typeof cursor === "number" ? cursor : selectedInlineMath.cursor,
         };
         const canonicalTex = selectedInlineMath.getCanonicalTex?.(tex) ?? tex;
-        updateInlineMathDraft(selectedInlineMath.id, tex, cursor);
+        selectedInlineMath.updateTex(tex, cursor);
         updateInlineMathTexFromDetails(selectedInlineMath.id, tex, cursor, canonicalTex);
         window.setTimeout(() => {
           setSelectedInlineMath((current) => (
@@ -3792,7 +3793,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     importInputRef,
     otherImportInputRef,
     importNotice,
-    extensionImportBusy,
+    extensionImportBusy, folderProgress, folderResult, setFolderResult,
     setImportNotice,
     runExtensionItem,
     textImportOpen,
@@ -5535,7 +5536,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         />
       )}
 
-      {extensionImportBusy && <ExtensionImportLoading />}
+      {extensionImportBusy && !folderProgress && <ExtensionImportLoading />}
+      {(folderProgress || folderResult) && <FolderImportDialog progress={folderProgress} result={folderResult} onClose={() => setFolderResult(null)} />}
 
       {!extensionImportBusy && importNotice !== null && (
         <ImportResultNotice issues={importNotice} onClose={() => setImportNotice(null)} />

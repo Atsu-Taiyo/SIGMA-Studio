@@ -92,6 +92,9 @@ export function resolveAiModelOptions(
     }];
   });
   if (runtimeModels.length === 0) return getFallbackAiModelOptions(provider);
+  if (provider === "antigravity" && !runtimeModels.some(({ id }) => id === "auto")) {
+    return [...getFallbackAiModelOptions(provider), ...runtimeModels];
+  }
   return runtimeModels;
 }
 
@@ -121,7 +124,7 @@ export function resolveCatalogSelection(input: {
 }): { model: string; reasoningEffort: AiEditReasoningEffort } {
   const model = input.models.some((option) => option.id === input.model)
     ? input.model
-    : input.models.find((option) => option.isDefault)?.id ?? input.models[0]?.id ?? input.model;
+    : input.models.find((option) => option.label === input.model)?.id ?? input.models.find((option) => option.isDefault)?.id ?? input.models[0]?.id ?? input.model;
   const efforts = getModelReasoningEfforts(input.models, model);
   if (efforts.includes(input.reasoningEffort)) {
     return { model, reasoningEffort: input.reasoningEffort };

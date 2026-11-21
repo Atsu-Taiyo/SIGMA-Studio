@@ -132,6 +132,7 @@ export function GraphSettingsPanel({
       onClose={onClose}
       width={GRAPH_SETTINGS_GRID_PANEL_WIDTH_PX}
       minWidth={GRAPH_SETTINGS_PANEL_WIDTH_PX}
+      closeOpenPickerOnEscape
     >
       <OverlayGraphSettings selectedOverlayGraph={selectedOverlayGraph} />
     </GraphSettingsPanelFrame>
@@ -149,6 +150,7 @@ export function GraphSettingsPanelFrame({
   /** 横に置けないときに縮んでよい下限。広いパネルはこれを下げてグラフを覆わずに済ませる。 */
   minWidth = width,
   headerActions,
+  closeOpenPickerOnEscape = false,
   onClose,
 }: {
   shapeId: string;
@@ -159,6 +161,11 @@ export function GraphSettingsPanelFrame({
   width?: number;
   minWidth?: number;
   headerActions?: ReactNode;
+  /**
+   * 2D グラフの設定だけが使う。パネル内のメニューが開いていれば Escape でそれを先に閉じる
+   * (線種・太さのトリガーはマウスで focus を取らず、メニュー自身が Escape を受けられないため)。
+   */
+  closeOpenPickerOnEscape?: boolean;
   onClose: () => void;
 }) {
   const t = useT("shape");
@@ -295,12 +302,27 @@ export function GraphSettingsPanelFrame({
       if (event.target instanceof Element && event.target.closest("[data-toolbar-popover]")) {
         return;
       }
+      // パネルの中で開いているメニュー (線種・太さ・軸の先端など) があれば、パネルではなくそれを閉じる。
+      // ツールバーと共通のトリガーはマウスでは focus を取らないので、focus が別の部品に残ったまま
+      // メニューが開いていることがある (ポップオーバー自身の Escape は自分の中からのキーしか受けない)。
+      // トリガーをもう一度押すのと同じ操作で閉じ、focus をトリガーへ戻す。
+      // `⋯` (hover で開くカードの操作) は自分で Escape を受けるので対象外。
+      // 無効になったトリガー (軸を消したときの先端など) は押せないので対象にしない。
+      const openTrigger = closeOpenPickerOnEscape && panelRef.current?.querySelector<HTMLElement>(
+        "[data-toolbar-popover-anchor-open]:not(.graph-item-actions-trigger):not(:disabled)",
+      );
+      if (openTrigger) {
+        event.preventDefault();
+        openTrigger.click();
+        openTrigger.focus({ preventScroll: true });
+        return;
+      }
       onClose();
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [closeOpenPickerOnEscape, onClose]);
 
   const handleDragStart = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     // 閉じるボタン上の pointerdown までヘッダーが奪うと、クリックが成立しなくなる

@@ -58,7 +58,7 @@ async function drawnCurvePath(graph: Locator) {
  * 2. 全部消すと、その Backspace で欄が閉じて焦点がボタンへ移り、続けて打った式がどこにも入らなかった。
  */
 test("the realtime graph expression field deletes sin(x) one element per Backspace and accepts a new formula after it is emptied", async ({}, testInfo) => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(
     !process.env.SIGMA_STUDIO_E2E_BASE_URL && !process.env.SIGMA_STUDIO_DEV_SERVER_URL && !existsSync(path.join(APP_ROOT, "out/index.html")),
     "Start a private dev server or build the renderer",
@@ -144,7 +144,9 @@ test("the realtime graph expression field deletes sin(x) one element per Backspa
     await page.keyboard.press("Backspace");
     await page.waitForTimeout(200);
     expect(await readFieldState(field)).toEqual({ value: "", focused: true });
-    await expect(panel.locator(".graph-expression-error")).toHaveText("数値や変数を使った式を入力してください。");
+    // 式の行のエラー。定義域や座標軸と範囲の入力も同じ部品なので、関数カードの式の行に絞る。
+    const expressionError = panel.getByTestId("overlay-graph-curve-card").locator(".graph-function-row .graph-expression-error");
+    await expect(expressionError).toHaveText("数値や変数を使った式を入力してください。");
 
     // 新しい式を Ctrl+^ のテンプレートで打っても、通常の冪と同じようにグラフへ反映される。
     await page.keyboard.type("x");
@@ -152,7 +154,7 @@ test("the realtime graph expression field deletes sin(x) one element per Backspa
     await page.keyboard.type("2");
     await expect.poll(async () => (await readFieldState(field))?.value).toBe("x{}^2");
     await expect.poll(() => drawnCurvePath(graph)).not.toBe(sinPath);
-    await expect(panel.locator(".graph-expression-error")).toHaveText("");
+    await expect(expressionError).toHaveText("");
     await page.screenshot({ path: testInfo.outputPath("graph-expression-retyped.png") });
 
     await page.keyboard.press("Enter");

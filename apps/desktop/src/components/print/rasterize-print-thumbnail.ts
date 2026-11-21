@@ -69,14 +69,54 @@ export async function rasterizePagedPageTopHalf(
   const canvas = document.createElement("canvas");
   canvas.width = size.width;
   canvas.height = size.height;
-  const context = canvas.getContext("2d");
+  const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) {
     throw new Error("canvas");
   }
-  context.fillStyle = "#ffffff";
-  context.fillRect(0, 0, size.width, size.height);
-  context.drawImage(image, 0, 0, size.sourceWidth, size.sourceHeight, 0, 0, size.width, size.height);
+  await drawWhenSettled(() => {
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, size.width, size.height);
+    context.drawImage(image, 0, 0, size.sourceWidth, size.sourceHeight, 0, 0, size.width, size.height);
+    return context.getImageData(0, 0, size.width, size.height).data;
+  });
   return canvas.toDataURL("image/png");
+}
+
+const RASTER_SETTLE_INTERVAL_MS = 80;
+const RASTER_SETTLE_MAX_ROUNDS = 12;
+
+/**
+ * The SVG image finishes `load` before the fonts embedded in it are decoded. Text set in a face
+ * that is still decoding is drawn as nothing, so a copy taken at `load` can lose whole runs (the
+ * bigger the embedded font CSS, the likelier — a page whose body is set in a system Mincho next to
+ * fifteen M PLUS 1p subsets lost every body run). The image repaints itself once the fonts are
+ * ready, so draw again until two draws a moment apart are identical. The first comparison is only
+ * made after two intervals: the first draw is often taken before any font has started decoding, and
+ * the decode can still be running one interval later (measured: missing at 0 ms, complete at 100 ms).
+ */
+export async function drawWhenSettled(
+  draw: () => Uint8ClampedArray,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<void> {
+  draw();
+  await wait(RASTER_SETTLE_INTERVAL_MS);
+  let previous = draw();
+  for (let round = 0; round < RASTER_SETTLE_MAX_ROUNDS; round += 1) {
+    await wait(RASTER_SETTLE_INTERVAL_MS);
+    const next = draw();
+    if (samePixels(previous, next)) {
+      return;
+    }
+    previous = next;
+  }
+}
+
+function samePixels(a: Uint8ClampedArray, b: Uint8ClampedArray): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return false;
+  }
+  return true;
 }
 
 /**

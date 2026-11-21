@@ -1,7 +1,10 @@
 import fs from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import os from "node:os";
 import path from "node:path";
 
 import {
+  ANTIGRAVITY_WORKSPACE_SERVER_NAME,
   buildSigmaStudioMcpEnv,
   SIGMA_DOC_MCP_SERVER_NAME,
   type SigmaStudioMcpLaunchSpec,
@@ -20,16 +23,14 @@ export interface GeminiMcpStdioServer {
 
 export interface GeminiWorkspaceSettings {
   mcpServers: {
-    "sigma-studio-local": GeminiMcpStdioServer;
+    [ANTIGRAVITY_WORKSPACE_SERVER_NAME]: GeminiMcpStdioServer;
   };
 }
-
-export { SIGMA_DOC_MCP_SERVER_NAME };
 
 export function buildGeminiWorkspaceSettings(input: GeminiSettingsConfigInput): GeminiWorkspaceSettings {
   return {
     mcpServers: {
-      [SIGMA_DOC_MCP_SERVER_NAME]: {
+      [ANTIGRAVITY_WORKSPACE_SERVER_NAME]: {
         command: input.execPath,
         args: [input.scriptPath],
         env: buildSigmaStudioMcpEnv(input),
@@ -38,30 +39,21 @@ export function buildGeminiWorkspaceSettings(input: GeminiSettingsConfigInput): 
   };
 }
 
-export interface WriteGeminiWorkspaceSettingsOptions {
-  sharedConfigDir?: string | null;
-  cliSettingsPath?: string | null;
-}
-
-export const SIGMA_STUDIO_ANTIGRAVITY_MCP_PERMISSION = `mcp(${SIGMA_DOC_MCP_SERVER_NAME}/*)`;
-
 export async function writeGeminiWorkspaceSettings(
   workspaceDir: string,
   settings: GeminiWorkspaceSettings,
-  options: WriteGeminiWorkspaceSettingsOptions = {},
 ): Promise<void> {
-  await writeMcpConfigFile(path.join(workspaceDir, ".agents", "mcp_config.json"), settings, { mergeExisting: false });
-
-  const sharedConfigDir = options.sharedConfigDir === undefined ? defaultAntigravitySharedConfigDir() : options.sharedConfigDir;
-  if (sharedConfigDir) {
-    await writeMcpConfigFile(path.join(sharedConfigDir, "mcp_config.json"), settings, { mergeExisting: true });
-  }
-
-  const cliSettingsPath = options.cliSettingsPath === undefined
-    ? defaultAntigravityCliSettingsPath()
-    : options.cliSettingsPath;
-  if (cliSettingsPath) {
-    await writeAntigravityCliPermissionSettings(cliSettingsPath, settings);
+  const dir = path.join(workspaceDir, ".agents");
+  await fs.mkdir(dir, { recursive: true });
+  // This is Studio's generated workspace. Replace the old registration atomically,
+  // including when two edits start together.
+  const filePath = path.join(dir, "mcp_config.json");
+  const tmp = `${filePath}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(tmp, JSON.stringify(settings, null, 2), { mode: 0o600 });
+    await fs.rename(tmp, filePath);
+  } finally {
+    await fs.rm(tmp, { force: true });
   }
 }
 
@@ -101,95 +93,40 @@ export async function cleanupStaleAgentWorkspaceGeminiAttachments(dataDir: strin
   }
 }
 
-async function writeMcpConfigFile(
-  filePath: string,
-  settings: GeminiWorkspaceSettings,
-  options: { mergeExisting: boolean },
-): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const current = options.mergeExisting ? await readExistingMcpConfig(filePath) : {};
-  const next = mergeMcpSettings(current, settings);
-  const tmpPath = `${filePath}.tmp`;
-  await fs.writeFile(tmpPath, JSON.stringify(next, null, 2), "utf8");
-  await fs.rename(tmpPath, filePath);
-}
-
-async function readExistingMcpConfig(filePath: string): Promise<Record<string, unknown>> {
+// --settings replaces the permissions object for this process. Retain the user's
+// lists, including restrictions on the old registration, and never resave their profile.
+export async function withAntigravitySessionSettings<T>(
+  editUserDataDir: string | null,
+  run: (settingsPath: string) => Promise<T>,
+  cliSettingsPath = path.join(os.homedir(), ".gemini", "antigravity-cli", "settings.json"),
+): Promise<T> {
+  let permissions: Record<string, string[]> = {};
   try {
-    const parsed = JSON.parse(await fs.readFile(filePath, "utf8")) as unknown;
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
+    const contents = await fs.readFile(cliSettingsPath, "utf8");
+    const settings = JSON.parse(contents.replace(/^\uFEFF/, ""));
+    permissions = settings.permissions ?? {};
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-}
-
-async function writeAntigravityCliPermissionSettings(
-  filePath: string,
-  settings: GeminiWorkspaceSettings,
-): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const current = await readExistingMcpConfig(filePath);
-  const currentPermissions = isRecord(current.permissions) ? current.permissions : {};
-  const currentAllow = Array.isArray(currentPermissions.allow) ? currentPermissions.allow : [];
-  const requiredPermissions = buildSigmaStudioAntigravityPermissionRules(settings);
-  const obsoletePermissions = buildObsoleteSigmaStudioAntigravityPermissionRules(settings);
-  const retainedAllow = currentAllow.filter((permission) => !obsoletePermissions.includes(permission));
-  const nextAllow = [
-    ...retainedAllow,
-    ...requiredPermissions.filter((permission) => !retainedAllow.includes(permission)),
-  ];
-  const next = {
-    ...current,
-    permissions: {
-      ...currentPermissions,
-      allow: nextAllow,
-    },
+  const previousServer = `mcp(${SIGMA_DOC_MCP_SERVER_NAME}/`;
+  const workspaceServer = `mcp(${ANTIGRAVITY_WORKSPACE_SERVER_NAME}/`;
+  const restrictions = (rules: string[] = []) => rules.flatMap((rule) =>
+    rule.startsWith(previousServer) ? [rule, rule.replace(previousServer, workspaceServer)] : [rule]);
+  const scoped = editUserDataDir ? {
+    ...permissions,
+    allow: [...new Set([...(permissions.allow ?? []), `${workspaceServer}*)`, `read_file(${path.join(editUserDataDir, "data", "ai-run-context").replaceAll("\\", "/")})`])],
+    ask: restrictions(permissions.ask),
+    deny: [...restrictions(permissions.deny), `${previousServer}*)`],
+  } : {
+    ...permissions,
+    deny: [...(permissions.deny ?? []), "mcp(*)"],
   };
-  const tmpPath = `${filePath}.tmp`;
-  await fs.writeFile(tmpPath, JSON.stringify(next, null, 2), "utf8");
-  await fs.rename(tmpPath, filePath);
-}
-
-function buildSigmaStudioAntigravityPermissionRules(settings: GeminiWorkspaceSettings): string[] {
-  const userDataDir = settings.mcpServers[SIGMA_DOC_MCP_SERVER_NAME].env.SIGMA_STUDIO_USER_DATA_DIR?.trim();
-  const rules = [SIGMA_STUDIO_ANTIGRAVITY_MCP_PERMISSION];
-  if (userDataDir) {
-    const runContextDir = path.join(userDataDir, "data", "ai-run-context").replaceAll("\\", "/");
-    rules.push(`read_file(${runContextDir})`);
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-agy-"));
+  try {
+    const filePath = path.join(dir, "settings.json");
+    await fs.writeFile(filePath, JSON.stringify({ permissions: scoped }), { mode: 0o600 });
+    return await run(filePath);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
   }
-  return rules;
-}
-
-function buildObsoleteSigmaStudioAntigravityPermissionRules(settings: GeminiWorkspaceSettings): string[] {
-  const userDataDir = settings.mcpServers[SIGMA_DOC_MCP_SERVER_NAME].env.SIGMA_STUDIO_USER_DATA_DIR?.trim();
-  if (!userDataDir) {
-    return [];
-  }
-  const previewDir = path.join(userDataDir, "data", "ai-run-context", "previews").replaceAll("\\", "/");
-  return [`read_file(${previewDir})`];
-}
-
-function mergeMcpSettings(current: Record<string, unknown>, settings: GeminiWorkspaceSettings): GeminiWorkspaceSettings & Record<string, unknown> {
-  const currentServers = isRecord(current.mcpServers) ? current.mcpServers : {};
-  return {
-    ...current,
-    mcpServers: {
-      ...currentServers,
-      ...settings.mcpServers,
-    },
-  } as GeminiWorkspaceSettings & Record<string, unknown>;
-}
-
-function defaultAntigravitySharedConfigDir(): string | null {
-  const home = process.env.HOME?.trim() || process.env.USERPROFILE?.trim();
-  return home ? path.join(home, ".gemini", "config") : null;
-}
-
-function defaultAntigravityCliSettingsPath(): string | null {
-  const home = process.env.HOME?.trim() || process.env.USERPROFILE?.trim();
-  return home ? path.join(home, ".gemini", "antigravity-cli", "settings.json") : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

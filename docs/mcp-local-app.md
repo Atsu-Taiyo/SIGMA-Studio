@@ -254,14 +254,14 @@ SVGは、AIが教材へ入れられる絵の既定の形式です。部品ごと
 
 書き込み後は `data.proposalCreated` だけで完了判定せず、`data.changeSummary` と `data.verification.validation` / `data.verification.preview` を確認します。`data.proposalCreated: true` は承認待ちであり、教材本体への反映済みを意味しません。
 
-## Antigravity CLI (`agy --print`) 実行時の注意
+## Antigravity CLI の非対話実行
 
-Antigravity CLI (`agy`) は実機確認 (1.0.16〜1.1.5) で次の挙動が判明しており、`GeminiHeadlessClient` (`apps/desktop/electron/gemini-headless-client.ts`) の実装はこれを前提にしています。
-
-- `--print` は値を取るGoスタイルのstringフラグで、フラグ単体では機能しません。現行CLIではプロンプト本体を `--print=<本文>` として渡します。stdinだけを渡す方法は `empty prompt` になり、`--print=@ファイルパス` はファイル内容をプロンプトとして展開せず、ファイルを読む依頼として扱われるため使用しません。`--print` の後に値なしで他のフラグを続けると、次のトークンをその値として消費してしまい以降のフラグが丸ごと無視されます。
-- printモードはツールの許可確認を対話表示できません。未設定の権限は自動拒否されるため、アプリは `~/.gemini/antigravity-cli/settings.json` の `permissions.allow` に `mcp(sigma-studio-local/*)` と、Sigma Studioがそのrun用に生成するコンテキスト・添付・検証画像だけを対象にした `read_file(<userDataDir>/data/ai-run-context)` を冪等に追加します。Antigravityは添付画像を読む過程で`previews`の親ディレクトリも列挙するため、`previews`だけの旧ルールはこのrun-contextディレクトリのルールへ自動移行します。既存のモデル・信頼済みワークスペース・ほかの許可/拒否設定は保持し、教材ライブラリや提案保存先、`--dangerously-skip-permissions`、`mcp(*)`、`read_file(*)`のような全許可は使いません。
-- printモードのstdoutは最終応答の**プレーンテキストのみ**で、Claude/Codexのようなツール呼び出しイベント(`tool_use` 等)は一切流れません。会話ID(`conversation`)を含むJSONイベントも出ません。会話IDは `--log-file` に指定したログファイルへ書かれる `printmode.go:179] Print mode: conversation=<id>, sending message` という行から回収し、`--conversation` によるresumeに使います(turn終了後、読み取り済みのログファイルはbest-effortで削除します)。
-- printモードのCLIには呼び出したツール名を得る手段がありません(transcript.jsonlにも載りません)。そのため共有MCPサーバー (`apps/desktop/mcp/tool-activity.ts`) が全ツール呼び出しを自分で `ai-run-context/antigravity[-<runId>].tool-activity.jsonl` へ記録し(`SIGMA_STUDIO_MCP_PROVIDER=antigravity` のときのみ有効)、デスクトップ側 (`apps/desktop/electron/gemini-tool-activity-watcher.ts` を `gemini-edit.ts` がポーリング)がこれを読んでAI編集パネルの「ツール実行中... (ツール名)」表示に変換します。
+- アプリは専用の `agy` を使用します。macOS の標準配置は `~/.local/bin/agy`、Windows は `%LOCALAPPDATA%\agy\bin\agy.exe` です。設定画面で選択した実行ファイルについても、ヘッドレス入出力とセッション設定の対応を `--help` で確認します。[CLIリファレンス](https://antigravity.google/docs/cli/reference)
+- 編集は1ターンにつき1プロセスです。`--input-format stream-json --output-format stream-json` で起動し、本文を1件の `user` イベントとして標準入力に書き、入力を閉じます。`step_update` から応答とツールの進行を、`result` から本文・エラー・次の `--conversation` に使う会話IDを取得します。CLIの診断ログや会話履歴の書式には依存しません。[ヘッドレスモード](https://antigravity.google/docs/cli/headless/)
+- ログインはターミナルで `agy` を起動して行います。アプリは `agy models` で利用状態を確認し、そのアカウントのモデルIDと表示名を使います。「自動」はCLIに選択を任せます。認証はCLIが管理します。[認証](https://antigravity.google/docs/install?tab=cli)
+- 編集用MCPはアプリ管理の作業ディレクトリ内の `.agents/mcp_config.json` に `sigma-studio-workspace` として登録します。実機の1.5.12では、グローバルとワークスペースで同じサーバー名を使うと、古いグローバル登録にツール呼び出しが届きました。共有設定 `~/.gemini/config/mcp_config.json` とツール定義キャッシュ `~/.gemini/antigravity-cli/mcp/` はアプリから書き換えません。[MCPの設定とキャッシュ](https://antigravity.google/docs/mcp?tab=cli)
+- 非対話編集に必要な `mcp(sigma-studio-workspace/*)` と `read_file(<userDataDir>/data/ai-run-context)` は、そのプロセスの `--settings` に渡します。CLI設定 `~/.gemini/antigravity-cli/settings.json` の既存の許可・確認・拒否ルールを引き継ぎ、旧サーバーへの確認・拒否指定は新しい名前にも適用します。編集セッション内では旧サーバーへの呼び出しを拒否します。[設定](https://antigravity.google/docs/settings?tab=cli)・[権限](https://antigravity.google/docs/permissions?tab=cli)
+- 組み込みツールはCLIの `step_update`、SIGMAの教材ツールはMCPサーバーが記録するrun別の `*.tool-activity.jsonl` から進捗を表示します。後者からは `call_mcp_tool` の内側で実行した教材ツールの名前と完了を取得できます。
 - `@ファイル参照` で渡した画像はprintモードのモデルに届きません(実機確認)。MCPツールの結果として返されるimage content(`get_attached_media`)は届くため、添付画像は必ず `get_attached_media` 経由で渡します(プロンプトの誘導は `apps/desktop/electron/gemini-edit.ts` の `formatAttachmentInstruction` / `apps/desktop/src/lib/ai/mcp-edit-prompt.ts` を参照)。
 
 ## 編集ルール

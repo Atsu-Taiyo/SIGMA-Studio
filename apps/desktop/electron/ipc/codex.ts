@@ -16,7 +16,7 @@ const te = createCurrentLocaleTranslator("error");
 
 const CODEX_INSTALL_PAGE_URL = "https://developers.openai.com/codex/cli";
 const CLAUDE_INSTALL_PAGE_URL = "https://docs.anthropic.com/en/docs/claude-code";
-const GEMINI_INSTALL_PAGE_URL = "https://antigravity.google/product/antigravity-cli";
+const GEMINI_INSTALL_PAGE_URL = "https://antigravity.google/docs/getting-started?tab=cli";
 
 function getSuggestedCodexBinPath(): string {
   if (process.platform === "win32") {
@@ -44,11 +44,8 @@ function getSuggestedClaudeBinPath(): string {
 
 function getSuggestedGeminiBinPath(): string {
   if (process.platform === "win32") {
-    const appData = process.env.APPDATA?.trim();
-    if (appData) {
-      return path.join(appData, "npm", "agy.cmd");
-    }
-    return path.join(app.getPath("home"), "AppData", "Roaming", "npm", "agy.cmd");
+    const localAppData = process.env.LOCALAPPDATA?.trim() || path.join(app.getPath("home"), "AppData", "Local");
+    return path.join(localAppData, "agy", "bin", "agy.exe");
   }
 
   return path.join(app.getPath("home"), ".local", "bin", "agy");
@@ -65,6 +62,7 @@ export interface RegisterCodexIpcDeps {
   codexAppServerClient: CodexAppServerClient;
   claudeStreamClient: ClaudeStreamClient;
   geminiHeadlessClient: GeminiHeadlessClient;
+  geminiSkillDraftClient: GeminiHeadlessClient;
   dshHarnessClient: DshHarnessClient;
   getMainWindow: () => BrowserWindow | null;
   openExternalUrl: (url: string) => void;
@@ -188,7 +186,10 @@ export function registerCodexIpc(deps: RegisterCodexIpcDeps): void {
     prefix: "gemini",
     client: {
       getStatus: () => geminiHeadlessClient.getStatus(),
-      setBin: (bin) => geminiHeadlessClient.setGeminiBin(bin),
+      setBin: (bin) => {
+        geminiHeadlessClient.setGeminiBin(bin);
+        deps.geminiSkillDraftClient.setGeminiBin(bin);
+      },
       getConfiguredBin: () => geminiHeadlessClient.getConfiguredGeminiBin(),
     },
     persistBin: (geminiBin) => writeDesktopSettings(dataDir, { antigravityBin: geminiBin }),

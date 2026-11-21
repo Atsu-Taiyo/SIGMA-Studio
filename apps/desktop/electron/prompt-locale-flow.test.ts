@@ -94,7 +94,7 @@ describe("validation locale reaches the MCP server process", () => {
 
   it("carries the locale in the Antigravity workspace settings", () => {
     const settings = buildGeminiWorkspaceSettings({ ...SPEC, provider: "antigravity" });
-    expect(settings["mcpServers"]?.["sigma-studio-local"]?.env?.[VALIDATION_LOCALE_ENV]).toBe("en");
+    expect(settings["mcpServers"]?.["sigma-studio-workspace"]?.env?.[VALIDATION_LOCALE_ENV]).toBe("en");
   });
 });
 

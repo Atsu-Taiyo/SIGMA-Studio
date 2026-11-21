@@ -271,6 +271,9 @@ export const workspace = {
     columns: "{{count}} columns",
     singleColumn: "1 column",
     summary: "{{layout}} · {{blocks}} block(s)",
+    officialTab: "Official",
+    officialHint: "Samples laid out like Japanese reference books and entrance exams. They can't be renamed or deleted.",
+    officialSaveDisabled: "You can't save to the Official tab. Choose a workspace to save to.",
   },
   asset: {
     nameSection: "Section asset",

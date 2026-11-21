@@ -164,7 +164,7 @@ async function finishByClickingPage(page: Page, box: { x: number; y: number; hei
 }
 
 test.describe("graph crop in the desktop app", () => {
-  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run pnpm run electron:build first");
   test.skip(!process.env.SIGMA_STUDIO_DEV_SERVER_URL && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
 
   test("a dragged crop ends at the cropped width, is never saved half-done, and survives reload", async () => {

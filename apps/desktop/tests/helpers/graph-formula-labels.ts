@@ -46,9 +46,8 @@ export async function exerciseFormulaLabels(page: Page, readDocument: ReadGraphD
   await panel.getByRole("button", { name: "関数を追加" }).click();
 
   const toggle = async (visible: boolean) => {
-    await page.getByTestId("overlay-graph-curve-actions").hover();
-    await page.getByRole("button", { name: `グラフ上の式を${visible ? "表示" : "隠す"}`, exact: true }).click();
-    await page.mouse.move(0, 0);
+    // 関数カードの「ラベル」の行のチェックボックス。
+    await page.getByTestId("overlay-graph-formula-label").setChecked(visible);
   };
   const setExpression = async (tex: string) => {
     await page.getByTestId("overlay-graph-expr-input").click();

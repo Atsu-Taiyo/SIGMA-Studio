@@ -235,7 +235,9 @@ export class RendererDocumentSession implements DocumentSession {
     const stack = direction === "undo" ? this.undo.undoStack : this.undo.redoStack;
     this.activeApprovalIds = stack.at(-1)?.meta.get("approvalIds") as string[] | undefined;
     try {
+      const followSelection = this.followSelectionThroughUpdate();
       const item = direction === "undo" ? this.undo.undo() : this.undo.redo();
+      followSelection();
       const ids = this.activeApprovalIds;
       const storage = getDesktopBridge()?.storage;
       if (item && ids?.length && storage) {
@@ -291,10 +293,12 @@ export class RendererDocumentSession implements DocumentSession {
     if (ownApproval) this.undo.stopCapturing();
     this.activeApprovalIds = ownApproval ? event.approvalIds : undefined;
     const version = this.projectionVersion;
+    const followSelection = this.followSelectionThroughUpdate();
     this.shared.applyUpdate(
       fromBase64(event.update, MAX_DOCUMENT_BYTES),
       ownApproval ? this.aiOrigin : REMOTE_ORIGIN,
     );
+    followSelection();
     this.activeApprovalIds = undefined;
     if (ownApproval) this.undo.stopCapturing();
     // Main persistence and the server both echo local updates. Yjs already
@@ -389,6 +393,32 @@ export class RendererDocumentSession implements DocumentSession {
     this.selection = selection;
     this.queuePresence(selection === null);
   }
+  getSelection(): SessionSelection | null {
+    return this.selection;
+  }
+  private followSelectionThroughUpdate(): () => void {
+    // Capture against the CRDT *before* applying a peer's update. Raw offsets
+    // from the old projection have no meaning once text before them changes.
+    const selection = this.selection;
+    if (!selection) return () => {};
+    const anchor = this.relativeSelectionPoint(selection.anchor);
+    const head = this.relativeSelectionPoint(selection.head);
+    if (!anchor || !head) return () => {};
+    return () => {
+      const nextAnchor = Y.createAbsolutePositionFromRelativePosition(anchor, this.shared.doc);
+      const nextHead = Y.createAbsolutePositionFromRelativePosition(head, this.shared.doc);
+      this.selection = nextAnchor && nextHead ? {
+        anchor: { blockId: selection.anchor.blockId, offset: nextAnchor.index },
+        head: { blockId: selection.head.blockId, offset: nextHead.index },
+      } : null;
+    };
+  }
+  private relativeSelectionPoint(point: SessionSelection["anchor"]): Y.RelativePosition | undefined {
+    const fragment = this.shared.getRichFragment(point.blockId, "children");
+    if (!fragment) return;
+    const text = richText(fragment);
+    return Y.createRelativePositionFromTypeIndex(text, Math.min(text.length, Math.max(0, point.offset)));
+  }
   setOverlayPresence(presence: SessionOverlayPresence | null): void {
     const normalized = presence?.selectedShapeIds.length ? structuredClone(presence) : null;
     const ending = normalized === null || (
@@ -418,17 +448,8 @@ export class RendererDocumentSession implements DocumentSession {
   private buildPresence(): PresenceState | null {
     const value = this.selection;
     const encode = (point: SessionSelection["anchor"]): string | undefined => {
-      const fragment = this.shared.getRichFragment(point.blockId, "children");
-      if (!fragment) return;
-      const text = richText(fragment);
-      return toBase64(
-        Y.encodeRelativePosition(
-          Y.createRelativePositionFromTypeIndex(
-            text,
-            Math.min(text.length, Math.max(0, point.offset)),
-          ),
-        ),
-      );
+      const relative = this.relativeSelectionPoint(point);
+      return relative ? toBase64(Y.encodeRelativePosition(relative)) : undefined;
     };
     const anchor = value && encode(value.anchor);
     const head = value && encode(value.head);
