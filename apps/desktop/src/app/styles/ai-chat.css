@@ -3853,6 +3853,7 @@
     height: var(--print-page-height, 297mm);
     margin: 0;
     border: 0;
+    box-shadow: none;
     break-after: page;
     page-break-after: always;
   }

@@ -578,6 +578,7 @@ interface ProblemNumbering {
   fontFamily?: string;
   fontWeight?: number;
   format?: "decimal" | "fullwidth";
+  fullwidthSingleDigit?: boolean;
   widthPx?: number;
   heightPx?: number;
   gapPx?: number;
@@ -586,6 +587,7 @@ interface ProblemNumbering {
   borderStyle?: "solid" | "double" | "none";
   outlineWidthPx?: number;
   outlineOffsetPx?: number;
+  textAlign?: "center" | "start";
   textOffsetXPx?: number;
   textOffsetYPx?: number;
   offsetXPx?: number;
@@ -622,7 +624,7 @@ interface CustomFrame {
 - `solution`: 解答。`heading`、`paragraph`、`list`、`layoutSection`、`boxBlock`
 - `areaLayout`: 導入文・問題文・コメント・解答エリアの表示用レイアウト
 - `fontFamily`: 問題の文字の書体 (CSS の font-family)。導入文・問題文・コメント・解答のうち、書体を指定していない文字と番号に効きます。文字に付けた書体と `numbering.fontFamily` がこれより優先し、未指定なら教材の既定の書体です。紙面・プレビュー・PDF・ビューアは `getProblemFontStyle` が置く `--problem-font-family` を共通に使い、ツールバーの書体表示と打ち始めの書体も、問題の中ではこれを既定として扱います
-- `numbering`: 問題番号の表示設定。未指定または `enabled: true` は本文順の連番を表示し、`enabled: false` はその問題を採番対象から外す。`fontSize` は番号表示の文字サイズ(pt)、`value` は任意の指定番号
+- `numbering`: 問題番号の表示設定。未指定または `enabled: true` は本文順の連番を表示し、`enabled: false` はその問題を採番対象から外す。`fontSize` は番号表示の文字サイズ(pt)、`value` は任意の指定番号。`format: "fullwidth"` と `fullwidthSingleDigit: true` を併用すると、1～9は全角、10以降は半角になる。旧版でも問題を開けるように従来の `format` を使い、試作版の値 `fullwidthSingleDigit` は読み込み時にこの形へ変換する。 `textAlign: "start"` の場合、`textOffsetXPx` は枠の内側左端からの距離になる
 - `frame`: 問題文側の枠線設定。`enabled: true` のときだけ問題文に枠線を表示する。`styleId` は問題枠styleの識別子として使える
 
 `lead`、`solution`、`hint` は独立したtop-level blockではありません。必ず対象の `problem` の内側に置きます。
