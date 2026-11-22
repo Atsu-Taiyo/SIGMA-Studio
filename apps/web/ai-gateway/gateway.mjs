@@ -2,7 +2,7 @@
 //
 // デスクトップアプリは OpenRouter の鍵を持たない。アプリ (DeepSeek Harness) は
 // OpenAI Chat Completions 互換のこの中継へ投げ、鍵はここでだけ付ける。
-// - 認証: `Authorization: Bearer <GATEWAY_TOKEN>`。未設定なら全拒否 (fail closed)。
+// - 認証: 共有サービスで利用者のサインインとPro資格を要求ごとに確認する。
 // - モデル: 許可リストにあるものだけ。それ以外は 400 (鍵を汎用の中継にしない)。
 // - 本文: 既知のフィールドだけを上流へ渡す。プロバイダの経路指定などは受け取らない。
 // 応答 (SSE を含む) は加工せずに流す。
@@ -14,7 +14,7 @@ export const DEFAULT_ALLOWED_MODELS = ["deepseek/deepseek-v4.1-flash-1017"];
 const DEFAULT_UPSTREAM = "https://openrouter.ai/api/v1";
 // 画像の添付 (base64) を含むので大きめ。Workers の本文上限よりは十分小さい。
 const MAX_BODY_BYTES = 24 * 1024 * 1024;
-const MAX_OUTPUT_TOKENS = 65_536;
+const MAX_OUTPUT_TOKENS = 32_768;
 const UPSTREAM_CONNECT_TIMEOUT_MS = 60_000;
 
 // 上流へ渡してよいフィールド。`model` は検証後に付け直し、出力上限は切り詰める。
@@ -23,8 +23,6 @@ const PASSTHROUGH_FIELDS = [
   "temperature", "top_p", "stop", "seed", "response_format",
   "reasoning", "reasoning_effort", "thinking",
 ];
-
-const encoder = new TextEncoder();
 
 function json(value, status = 200) {
   return new Response(JSON.stringify(value), {
@@ -53,35 +51,63 @@ function upstreamBase(env) {
   return url.href.replace(/\/+$/, "");
 }
 
-// 長さの違いも含めて時間差を出さない比較 (両方を SHA-256 にしてから突き合わせる)。
-async function sameSecret(left, right) {
-  const [a, b] = await Promise.all([left, right].map(async value =>
-    new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(value)))));
-  let difference = 0;
-  for (let index = 0; index < a.length; index += 1) difference |= a[index] ^ b[index];
-  return difference === 0;
-}
-
-async function authorized(request, env) {
-  const expected = typeof env.GATEWAY_TOKEN === "string" ? env.GATEWAY_TOKEN : "";
-  // 短い共有鍵は総当たりできるので、設定ミスとして扱う。
-  if (encoder.encode(expected).length < 32) return "unconfigured";
-  const header = request.headers.get("authorization") ?? "";
-  const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
-  return presented && await sameSecret(presented, expected) ? "ok" : "denied";
+async function authorize(request, env) {
+  if (!env.COLLABORATION?.fetch || !env.AI_RATE_LIMIT?.limit) {
+    return { error: fail(503, "GATEWAY_UNCONFIGURED", "The gateway has no account authority or rate limiter.") };
+  }
+  const authorization = request.headers.get("authorization");
+  if (!authorization || !/^Bearer [^\s,]{1,8192}$/.test(authorization)) {
+    return { error: fail(401, "UNAUTHORIZED", "Sign in to SIGMA Studio.") };
+  }
+  try {
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(10_000)]);
+    const init = { headers: { authorization }, signal, redirect: "error" };
+    const [capabilities, profile] = await Promise.all(["/catalog/capabilities", "/profile"]
+      .map(path => env.COLLABORATION.fetch(new Request("https://collaboration.internal" + path, init))));
+    if ([capabilities, profile].some(response => response.status === 401 || response.status === 403)) {
+      return { error: fail(401, "UNAUTHORIZED", "Sign in to SIGMA Studio.") };
+    }
+    if (!capabilities.ok || !profile.ok) throw new Error("Account authority unavailable");
+    const [{ plan }, { userId }] = await Promise.all([capabilities.json(), profile.json()]);
+    if (typeof userId !== "string" || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(userId)) {
+      throw new Error("Invalid account authority response");
+    }
+    if (plan !== "pro" && plan !== "trial") {
+      return { error: fail(403, "PRO_REQUIRED", "SIGMA AI requires Pro or an active trial.") };
+    }
+    return { userId: userId.toLowerCase() };
+  } catch {
+    return { error: fail(503, "AUTHORITY_UNAVAILABLE", "Could not verify your SIGMA account.") };
+  }
 }
 
 async function readBody(request) {
   const declared = Number(request.headers.get("content-length") ?? "0");
   if (declared > MAX_BODY_BYTES) return { error: fail(413, "PAYLOAD_TOO_LARGE", "Request body is too large.") };
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.length > MAX_BODY_BYTES) return { error: fail(413, "PAYLOAD_TOO_LARGE", "Request body is too large.") };
+  if (!request.body) return { error: fail(400, "INVALID_JSON", "Request body must be a JSON object.") };
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks = [];
+  let size = 0;
   try {
-    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_BODY_BYTES) {
+        await reader.cancel();
+        return { error: fail(413, "PAYLOAD_TOO_LARGE", "Request body is too large.") };
+      }
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    const parsed = JSON.parse(chunks.join(""));
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
     return { body: parsed };
   } catch {
     return { error: fail(400, "INVALID_JSON", "Request body must be a JSON object.") };
+  } finally {
+    reader.releaseLock();
   }
 }
 
@@ -125,7 +151,7 @@ function outputLimit(body) {
 }
 
 async function chatCompletions(request, env, fetcher) {
-  if (typeof env.OPENROUTER_API_KEY !== "string" || !env.OPENROUTER_API_KEY) {
+  if (typeof env.OPENROUTER_API_KEY !== "string" || !env.OPENROUTER_API_KEY.trim()) {
     return fail(503, "GATEWAY_UNCONFIGURED", "The gateway has no upstream credential.");
   }
   const { body, error } = await readBody(request);
@@ -160,7 +186,8 @@ async function chatCompletions(request, env, fetcher) {
         "X-Title": "SIGMA Studio",
       },
       body: JSON.stringify(upstreamBody),
-      signal: controller.signal,
+      redirect: "error",
+      signal: AbortSignal.any([controller.signal, request.signal]),
     });
   } catch {
     return fail(502, "UPSTREAM_UNREACHABLE", "The model provider could not be reached.");
@@ -192,23 +219,31 @@ export function stripMountPath(pathname, mount) {
 export async function handleGatewayRequest(request, env, fetcher = fetch) {
   const url = new URL(request.url);
   url.pathname = stripMountPath(url.pathname, env.MOUNT_PATH);
-  if (request.method === "GET" && url.pathname === "/health") return json({ ok: true });
+  if (request.method === "GET" && url.pathname === "/health") {
+    const ready = Boolean(env.COLLABORATION?.fetch && env.AI_RATE_LIMIT?.limit && env.OPENROUTER_API_KEY);
+    return json({ ok: ready, protocol: 1 }, ready ? 200 : 503);
+  }
 
-  const access = await authorized(request, env);
-  if (access === "unconfigured") return fail(503, "GATEWAY_UNCONFIGURED", "The gateway has no access token configured.");
-  if (access !== "ok") return fail(401, "UNAUTHORIZED", "A valid gateway token is required.");
+  const models = request.method === "GET" && url.pathname === "/v1/models";
+  const chat = request.method === "POST" && url.pathname === "/v1/chat/completions";
+  if (!models && !chat) return fail(404, "NOT_FOUND", "Unknown route.");
+  const access = await authorize(request, env);
+  if (access.error) return access.error;
 
-  if (request.method === "GET" && url.pathname === "/v1/models") {
+  if (models) {
     return json({ object: "list", data: allowedModels(env).map(id => ({ id, object: "model" })) });
   }
-  if (request.method === "POST" && url.pathname === "/v1/chat/completions") {
-    try {
-      return await chatCompletions(request, env, fetcher);
-    } catch {
-      return fail(500, "GATEWAY_ERROR", "The gateway failed to process the request.");
+  try {
+    const { success } = await env.AI_RATE_LIMIT.limit({ key: access.userId });
+    if (!success) {
+      const response = fail(429, "RATE_LIMITED", "Too many SIGMA AI requests. Try again in a minute.");
+      response.headers.set("retry-after", "60");
+      return response;
     }
+    return await chatCompletions(request, env, fetcher);
+  } catch {
+    return fail(500, "GATEWAY_ERROR", "The gateway failed to process the request.");
   }
-  return fail(404, "NOT_FOUND", "Unknown route.");
 }
 
 export default {

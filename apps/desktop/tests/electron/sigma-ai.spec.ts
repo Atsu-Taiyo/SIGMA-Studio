@@ -20,7 +20,10 @@ function launchEnv(profile: string, gateway: { url: string; token: string }): Re
   env.SIGMA_AI_GATEWAY_URL = gateway.url;
   env.SIGMA_AI_GATEWAY_TOKEN = gateway.token;
   // dsh は Electron 内蔵の Node では動かない。テストを動かしている Node を使わせる。
-  env.SIGMA_STUDIO_NODE_BIN = process.execPath;
+  const staged = process.env.SIGMA_STUDIO_DSH_RUNTIME_DIR;
+  env.SIGMA_STUDIO_NODE_BIN = staged
+    ? path.join(staged, "node", ...(process.platform === "win32" ? ["node.exe"] : ["bin", "node"]))
+    : process.execPath;
   if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
   return env;
 }
@@ -105,6 +108,14 @@ test("the built-in AI edits through DeepSeek Harness: reads the material, propos
     await expect(composer).toBeVisible();
     await keep(testInfo, "chat-empty", await sidebar.screenshot());
 
+    // Paste an actual PNG through the composer and observe the model request.
+    await composer.evaluate((element) => {
+      const png = atob("iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAANklEQVRIie3WuQkAQAwDwem/aV0VhgsWnAuMnmVuTwJ6kVy0gqaqWG2qwVmTKaoQeAkd/UzXDzaH/C7qwiXmAAAAAElFTkSuQmCC");
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([Uint8Array.from(png, (byte) => byte.charCodeAt(0))], "reference.png", { type: "image/png" }));
+      element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true }));
+    });
+    await expect(sidebar.getByRole("img", { name: "添付画像: reference.png" })).toBeVisible();
     await composer.fill("冒頭の文の下に直角三角形の図を入れて。");
     await sidebar.locator(".ai-chat-send-button").click();
     await expect(sidebar.locator(".ai-chat-turn.user").last()).toContainText("直角三角形の図を入れて");
@@ -136,6 +147,10 @@ test("the built-in AI edits through DeepSeek Harness: reads the material, propos
     expect(gateway.requests.length).toBeGreaterThanOrEqual(3);
     const first = gateway.requests[0]!;
     expect(first.model).toBe("deepseek/deepseek-v4.1-flash-1017");
+    const userContent = first.messages.find((message) => message.role === "user")?.content;
+    expect(userContent).toEqual(expect.arrayContaining([expect.objectContaining({
+      type: "image_url", image_url: expect.objectContaining({ url: expect.stringMatching(/^data:image\/(png|jpeg);base64,/) }),
+    })]));
     const toolNames = (first.tools ?? []).map((tool) => tool.function.name);
     expect(toolNames).toEqual(expect.arrayContaining([TOOL("get_edit_context"), TOOL("insert_svg_image"), TOOL("convert_svg_image"), TOOL("edit_text"), "skill"]));
     expect(toolNames.filter((name) => !name.startsWith("mcp__sigma-studio-local__") && !["skill", "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"].includes(name))).toEqual([]);

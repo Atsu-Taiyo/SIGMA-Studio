@@ -1,14 +1,15 @@
 {
   // SIGMA Studio 内蔵AIの中継。鍵は `wrangler secret put` で入れ、ここには書かない:
   //   OPENROUTER_API_KEY  OpenRouter の鍵
-  //   GATEWAY_TOKEN       アプリが提示する共有トークン (32バイト以上)
-  "$schema": "../../../node_modules/wrangler/config-schema.json",
+    "$schema": "../../../node_modules/wrangler/config-schema.json",
   "name": "sigma-studio-ai-gateway",
   "account_id": "6ccc5b3ea80285e4dd970ecd4effd022",
   "main": "gateway.mjs",
   "compatibility_date": "2026-10-20",
   "workers_dev": true,
   "preview_urls": false,
+  "services": [{ "binding": "COLLABORATION", "service": "sigma-studio-collab-experiment" }],
+  "ratelimits": [{ "name": "AI_RATE_LIMIT", "namespace_id": "54045701", "simple": { "limit": 30, "period": 60 } }],
   "vars": {
     "ALLOWED_MODELS": "deepseek/deepseek-v4.1-flash-1017",
     // 上流の事業者を固定する (docs/sigma-ai.md の「応答の速さ」)。固定しないと応答までの時間と料金が大きくばらつく。

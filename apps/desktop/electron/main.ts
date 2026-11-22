@@ -345,10 +345,9 @@ const claudeStreamClient = new ClaudeStreamClient({
 const dshHarnessClient = new DshHarnessClient({
   dshHome: path.join(SIGMA_STUDIO_DATA_PATH, "sigma-ai", "dsh-home"),
   patchDir: path.join(SIGMA_STUDIO_DATA_PATH, "sigma-ai", "patches"),
-  runtimeDirCandidates: () => [
-    path.join(process.resourcesPath, "dsh-runtime"),
-    path.join(app.getAppPath(), "dsh-runtime"),
-  ],
+  packaged: app.isPackaged,
+  gatewayAccount: collaborationSessions.auth,
+  runtimeDirCandidates: () => [path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), "dsh-runtime")],
   // 内蔵AIは Pro プランだけ (試用期間は Pro と同じ扱い。共有の上限・プランの画面と同じ判定)。
   // 開発中のビルドではサインイン無しで確かめられるよう、配布物でだけ確かめる。
   ...(app.isPackaged ? {

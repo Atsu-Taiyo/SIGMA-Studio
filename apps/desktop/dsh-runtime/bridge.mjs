@@ -17,7 +17,6 @@
 //   {type:"result", sessionId, finalResponse, endReason}
 //   {type:"error", code, message}
 import { createInterface } from "node:readline";
-import { pathToFileURL } from "node:url";
 import { DeepSeekHarness } from "@deepseek-ai/dsh-sdk-client";
 
 const MAX_TOOL_RESULT_TEXT = 2_000;
@@ -180,6 +179,6 @@ async function main() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   await main();
 }

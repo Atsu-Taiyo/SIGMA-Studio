@@ -16,6 +16,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 
 import { getProcessPathEnv } from "./cli-child-env";
+import { startDshGatewaySession, type DshGatewayAccount } from "./dsh-gateway-session";
 import { spawnCliProcess, type CliChildProcess } from "./cli-spawn";
 import { buildSigmaStudioMcpEnv, SIGMA_DOC_MCP_SERVER_NAME, type SigmaStudioMcpLaunchSpec } from "./sigma-studio-mcp-launch";
 
@@ -32,6 +33,7 @@ export const SIGMA_AI_GATEWAY_TOKEN_ENV = "SIGMA_AI_GATEWAY_TOKEN";
 export const SIGMA_AI_NODE_BIN_ENV = "SIGMA_STUDIO_NODE_BIN";
 export const SIGMA_AI_RUNTIME_DIR_ENV = "SIGMA_STUDIO_DSH_RUNTIME_DIR";
 
+const PACKAGED_GATEWAY_URL = "https://sigma-studio-ai-gateway.sigma-studio-experiment.workers.dev/v1";
 const MIN_NODE_VERSION = [24, 9, 0] as const;
 const MODEL_CONTEXT_WINDOW = 1_048_576;
 const MODEL_MAX_OUTPUT_TOKENS = 32_768;
@@ -112,6 +114,8 @@ export interface DshHarnessClientOptions {
   runtimeDirCandidates: () => string[];
   env?: DshEnvironment;
   platform?: NodeJS.Platform;
+  packaged?: boolean;
+  gatewayAccount?: DshGatewayAccount | null;
   /**
    * 内蔵AIを使ってよい利用者か (Pro プラン)。省略すると確かめない。
    * 中継の利用料はこちらの負担なので、アプリ側の入口でも止める。失敗 (未サインイン・通信不可) は不可として扱う。
@@ -307,7 +311,7 @@ export class DshHarnessClient {
     this.platform = options.platform ?? process.platform;
   }
 
-  getGatewayConfig(): DshGatewayConfig | null {
+  private getGatewayConfig(): DshGatewayConfig | null {
     return readDshGatewayConfig(this.env);
   }
 
@@ -316,8 +320,8 @@ export class DshHarnessClient {
     const unavailable = (reason: DshUnavailableReason, error: string): DshHarnessStatus => ({
       ...base, available: false, loggedIn: false, unavailableReason: reason, error,
     });
-    if (!this.getGatewayConfig()) {
-      return unavailable("gateway", `${SIGMA_AI_GATEWAY_URL_ENV} / ${SIGMA_AI_GATEWAY_TOKEN_ENV}`);
+    if (this.options.packaged ? !this.options.gatewayAccount : !this.getGatewayConfig()) {
+      return unavailable("gateway", this.options.packaged ? "" : `${SIGMA_AI_GATEWAY_URL_ENV} / ${SIGMA_AI_GATEWAY_TOKEN_ENV}`);
     }
     const resolution = await this.resolveRuntime();
     if (!resolution.ok) {
@@ -351,11 +355,12 @@ export class DshHarnessClient {
 
   private async nodeCandidates(runtimeDir: string): Promise<string[]> {
     const executable = this.platform === "win32" ? "node.exe" : "node";
+    const bundled = path.join(runtimeDir, "node", this.platform === "win32" ? "" : "bin", executable);
+    if (this.options.packaged) return [bundled];
     const explicit = this.env[SIGMA_AI_NODE_BIN_ENV]?.trim();
     const candidates = [
       ...(explicit ? [explicit] : []),
-      // 配布時に実行環境へ Node を同梱した場合の置き場所。
-      path.join(runtimeDir, "node", this.platform === "win32" ? "" : "bin", executable),
+      bundled,
     ];
     for (const directory of getProcessPathEnv(this.env as NodeJS.ProcessEnv).split(path.delimiter).filter(Boolean)) {
       candidates.push(path.join(directory, executable));
@@ -374,7 +379,7 @@ export class DshHarnessClient {
 
   async resolveRuntime(): Promise<RuntimeResolution> {
     const exists = this.options.pathExists ?? defaultPathExists;
-    const explicitDir = this.env[SIGMA_AI_RUNTIME_DIR_ENV]?.trim();
+    const explicitDir = this.options.packaged ? undefined : this.env[SIGMA_AI_RUNTIME_DIR_ENV]?.trim();
     const directories = [...(explicitDir ? [explicitDir] : []), ...this.options.runtimeDirCandidates()];
     let runtimeDir: string | null = null;
     for (const directory of directories) {
@@ -457,12 +462,13 @@ export class DshHarnessClient {
     const cancelledResult = (): DshRunTurnResult => ({
       finalText: "", sessionId: params.resumeSessionId, isError: false, errorMessage: null, cancelled: true,
     });
-    let patchPath: string | null = null;
+    const cleanup: { patchPath?: string; closeGateway?: () => void } = {};
     try {
-      return await this.runRegisteredTurn(params, entry, cancelledResult, (value) => { patchPath = value; });
+      return await this.runRegisteredTurn(params, entry, cancelledResult, cleanup);
     } finally {
       if (this.activeRuns.get(params.runId) === entry) this.activeRuns.delete(params.runId);
-      if (patchPath) await fs.rm(patchPath, { force: true }).catch(() => {});
+      cleanup.closeGateway?.();
+      if (cleanup.patchPath) await fs.rm(cleanup.patchPath, { force: true }).catch(() => {});
     }
   }
 
@@ -470,12 +476,14 @@ export class DshHarnessClient {
     params: DshRunTurnParams,
     entry: { child: CliChildProcess | null; cancelled: boolean },
     cancelledResult: () => DshRunTurnResult,
-    notePatchPath: (patchPath: string) => void,
+    cleanup: { patchPath?: string; closeGateway?: () => void },
   ): Promise<DshRunTurnResult> {
     if (entry.cancelled) return cancelledResult();
-    const gateway = this.getGatewayConfig();
+    const productionAccount = this.options.packaged ? this.options.gatewayAccount : null;
+    const developmentGateway = this.options.packaged ? null : this.getGatewayConfig();
+    const accountSignal = productionAccount?.accountSignal();
     const resolution = await this.resolveRuntime();
-    if (!gateway || !resolution.ok || !(await this.isEntitled())) {
+    if ((!productionAccount && !developmentGateway) || !resolution.ok || !(await this.isEntitled()) || accountSignal?.aborted) {
       if (entry.cancelled) return cancelledResult();
       const status = await this.getStatus();
       return { finalText: "", sessionId: params.resumeSessionId, isError: true, errorMessage: status.error, cancelled: false };
@@ -490,6 +498,16 @@ export class DshHarnessClient {
       }
     }
 
+    const turnGateway = productionAccount && accountSignal
+      ? await startDshGatewaySession(PACKAGED_GATEWAY_URL, {
+        authorization: () => productionAccount.authorization(),
+        accountSignal: () => accountSignal,
+      })
+      : null;
+    if (turnGateway) cleanup.closeGateway = turnGateway.close;
+    const gateway = turnGateway ?? developmentGateway;
+    if (!gateway) return { finalText: "", sessionId: params.resumeSessionId, isError: true, errorMessage: "SIGMA AI gateway unavailable", cancelled: false };
+
     await fs.mkdir(this.options.patchDir, { recursive: true });
     await fs.mkdir(this.options.dshHome, { recursive: true });
     await fs.mkdir(params.cwd, { recursive: true });
@@ -500,7 +518,7 @@ export class DshHarnessClient {
       systemPrompt: params.systemPrompt,
       skillDirs: [path.join(params.cwd, ".agents", "skills")],
     })), { encoding: "utf8", mode: 0o600 });
-    notePatchPath(patchPath);
+    cleanup.patchPath = patchPath;
     if (entry.cancelled) return cancelledResult();
 
     const request = {

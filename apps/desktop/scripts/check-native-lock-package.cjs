@@ -15,6 +15,9 @@ module.exports = async function checkNativeLockPackage(context) {
   const resources = platform === "darwin"
     ? path.join(context.appOutDir, `${productName}.app`, "Contents", "Resources")
     : path.join(context.appOutDir, "resources");
+  if (platform === "darwin" || platform === "win32") {
+    await require("./package-dsh-runtime.cjs").packageDshRuntime(resources, platform, arch);
+  }
   await require("./audit-release-content.cjs").auditReleaseContent(resources);
   const archive = path.join(resources, "app.asar");
   // asar traverses entries using the host's path separator, including on Windows.

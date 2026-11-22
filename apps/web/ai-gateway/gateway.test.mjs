@@ -3,10 +3,25 @@ import assert from "node:assert/strict";
 import { DEFAULT_ALLOWED_MODELS, handleGatewayRequest } from "./gateway.mjs";
 
 const MODEL = DEFAULT_ALLOWED_MODELS[0];
-const env = { GATEWAY_TOKEN: "fixture-gateway-token-32-bytes-minimum-length", OPENROUTER_API_KEY: "fixture-upstream-key" };
+const TOKEN = "fixture-user-access-token";
+const USER = "892b2764-a58a-4c05-a085-b3e83f605070";
+function authority(plan = "pro") {
+  return { async fetch(incoming) {
+    if (incoming.headers.get("authorization") !== `Bearer ${TOKEN}`) return new Response(null, { status: 401 });
+    const path = new URL(incoming.url).pathname;
+    if (path === "/catalog/capabilities") return Response.json({ plan });
+    assert.equal(path, "/profile");
+    return Response.json({ userId: USER });
+  } };
+}
+const env = {
+  OPENROUTER_API_KEY: "fixture-upstream-key",
+  COLLABORATION: authority(),
+  AI_RATE_LIMIT: { async limit({ key }) { assert.equal(key, USER); return { success: true }; } },
+};
 const origin = "https://gateway.example.test";
 
-function request(path, { token = env.GATEWAY_TOKEN, body, method = body ? "POST" : "GET" } = {}) {
+function request(path, { token = TOKEN, body, method = body ? "POST" : "GET" } = {}) {
   return new Request(`${origin}${path}`, {
     method,
     headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(body ? { "content-type": "application/json" } : {}) },
@@ -17,24 +32,43 @@ function request(path, { token = env.GATEWAY_TOKEN, body, method = body ? "POST"
 const neverFetch = async () => { throw new Error("upstream must not be called"); };
 
 test("health needs no token and reveals nothing", async () => {
-  const response = await handleGatewayRequest(new Request(`${origin}/health`), {}, neverFetch);
+  const resource = new Request(`${origin}/health`);
+  const missing = await handleGatewayRequest(resource, {}, neverFetch);
+  assert.equal(missing.status, 503);
+  assert.deepEqual(await missing.json(), { ok: false, protocol: 1 });
+  const response = await handleGatewayRequest(resource, env, neverFetch);
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true });
+  assert.deepEqual(await response.json(), { ok: true, protocol: 1 });
 });
 
 test("rejects a missing or wrong token before reaching the provider", async () => {
-  for (const token of [null, "wrong", `${env.GATEWAY_TOKEN}x`]) {
+  for (const token of [null, "wrong", `${TOKEN}x`]) {
     const response = await handleGatewayRequest(
       request("/v1/chat/completions", { token, body: { model: MODEL, messages: [{ role: "user", content: "hi" }] } }), env, neverFetch);
     assert.equal(response.status, 401);
   }
 });
 
-test("fails closed when the gateway token is missing or too short", async () => {
-  for (const GATEWAY_TOKEN of [undefined, "", "short"]) {
-    const response = await handleGatewayRequest(
-      request("/v1/models", { token: GATEWAY_TOKEN || "anything" }), { ...env, GATEWAY_TOKEN }, neverFetch);
+test("fails closed when account verification or rate limiting is unavailable", async () => {
+  for (const binding of ["COLLABORATION", "AI_RATE_LIMIT"]) {
+    const response = await handleGatewayRequest(request("/v1/models"), { ...env, [binding]: undefined }, neverFetch);
     assert.equal(response.status, 503);
+  }
+  const down = await handleGatewayRequest(request("/v1/models"), {
+    ...env, COLLABORATION: { async fetch() { return new Response(null, { status: 500 }); } },
+  }, neverFetch);
+  assert.equal(down.status, 503);
+});
+
+test("uses the current account's plan and rate limit before contacting the provider", async () => {
+  const body = { model: MODEL, messages: [{ role: "user", content: "hi" }] };
+  const limited = { async limit({ key }) { assert.equal(key, USER); return { success: false }; } };
+  for (const [plan, status] of [["free", 403], ["trial", 429], ["pro", 429]]) {
+    const response = await handleGatewayRequest(request("/v1/chat/completions", { body }), {
+      ...env, COLLABORATION: authority(plan), AI_RATE_LIMIT: limited,
+    }, neverFetch);
+    assert.equal(response.status, status);
+    if (status === 429) assert.equal(response.headers.get("retry-after"), "60");
   }
 });
 
@@ -61,10 +95,11 @@ test("rejects malformed bodies", async () => {
 
 test("forwards known fields with the upstream key and drops everything else", async () => {
   let seen;
+  const content = [{ type: "text", text: "hi" }, { type: "image_url", image_url: { url: "data:image/png;base64,YQ==" } }];
   const response = await handleGatewayRequest(request("/v1/chat/completions", {
     body: {
       model: MODEL,
-      messages: [{ role: "user", content: "hi" }],
+      messages: [{ role: "user", content }],
       tools: [{ type: "function", function: { name: "t", parameters: {} } }],
       stream: true,
       max_tokens: 10_000_000,
@@ -83,7 +118,8 @@ test("forwards known fields with the upstream key and drops everything else", as
   assert.equal(seen.url, "https://openrouter.ai/api/v1/chat/completions");
   assert.equal(seen.headers.get("authorization"), `Bearer ${env.OPENROUTER_API_KEY}`);
   assert.deepEqual(Object.keys(seen.body).sort(), ["max_tokens", "messages", "model", "stream", "tools"]);
-  assert.equal(seen.body.max_tokens, 65_536);
+  assert.equal(seen.body.max_tokens, 32_768);
+  assert.deepEqual(seen.body.messages[0].content, content);
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("content-type"), "text/event-stream");
   assert.equal(response.headers.get("x-ratelimit-remaining"), null);
@@ -98,7 +134,7 @@ test("never echoes the caller's token or the upstream key", async () => {
   assert.equal(response.status, 429);
   const text = await response.text();
   assert.ok(!text.includes(env.OPENROUTER_API_KEY));
-  assert.ok(!text.includes(env.GATEWAY_TOKEN));
+  assert.ok(!text.includes(TOKEN));
 });
 
 test("routes through a configured https upstream and refuses plain http", async () => {
@@ -120,7 +156,7 @@ test("reports an unreachable provider and a missing upstream key", async () => {
   assert.equal(unconfigured.status, 503);
 });
 
-test("unknown routes are 404 after authentication", async () => {
+test("unknown routes are 404", async () => {
   assert.equal((await handleGatewayRequest(request("/v1/embeddings", { body: {} }), env, neverFetch)).status, 404);
 });
 

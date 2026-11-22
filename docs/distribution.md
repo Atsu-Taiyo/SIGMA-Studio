@@ -33,6 +33,10 @@ OSごとの検証、ビルド成功、署名・インストール後の動作確
 - 画面専用のパッケージを `dependencies` へ戻すと `scripts/desktop-packaged-externals.test.mjs` が落ちます。
 - この整理で macOS arm64 の `.app` は 937MB から 462MB (zip で 400MB から 185MB) になりました (v0.539.0 時点の実測、未署名)。
 
+SIGMA AIはDSHと単体のNodeを `resources/dsh-runtime` に同梱します。
+Electronとは別に、DSH専用の依存監査とmacOS・Windowsでの実行テストが通ることを確認します。
+配布版は稼働中の認証付き中継を必要とします。中継の準備は [SIGMA AI](sigma-ai.md) を参照してください。
+
 ## リリース運用
 
 `v*` タグでReleaseワークフローが起動し、macOS/Windowsの配布物を下書きReleaseへアップロードします。手動実行も対象タグを選択してください。
