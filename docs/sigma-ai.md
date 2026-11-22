@@ -37,7 +37,7 @@ dsh は 600 近いパッケージ (展開して 357MB) を持ち、Node の内�
 - dsh の Office スキルが引き込む LibreOffice 一式 (約 150MB と `fontkit`) は、内蔵AIが使わないので、空の差し替え (`dsh-runtime/stubs/libreoffice-kit`) に置き換えています (`package.json` の `overrides`)。このリポジトリは `fontkit` への依存を持てません (`scripts/audit-private-conversion.mjs`)。
 - その部品は対応する実行環境が固定されていて、**Electron 内蔵の Node では起動できません** (Electron 45.2.3 で確認)。橋渡し (`bridge.mjs`) と dsh は本物の Node (24.9 以上) で動かします。
 
-macOSのApple Silicon・Intel版とWindows x64版には、独立したDSHランタイムとNode 24.22.1を同梱します。ビルドはNodeの配布元とSHA-256を固定し、DSH専用ロックから対象アーキテクチャの依存を入れます。配布版では同梱のNodeを使います。開発時は `SIGMA_STUDIO_NODE_BIN`、同梱Node、`PATH` の順に探し、`pnpm run electron:dev` は自身を動かしたNodeを渡します。
+macOSのApple Silicon・Intel版とWindows x64版には、独立したDSHランタイムとNode 24.22.3を同梱します。ビルドはNodeの配布元とSHA-256を固定し、DSH専用ロックから対象アーキテクチャの依存を入れます。配布版では同梱のNodeを使います。開発時は `SIGMA_STUDIO_NODE_BIN`、同梱Node、`PATH` の順に探し、`pnpm run electron:dev` は自身を動かしたNodeを渡します。
 
 同梱したライセンスと配布元は実行環境の [NOTICES.md](../apps/desktop/dsh-runtime/NOTICES.md) を参照してください。
 

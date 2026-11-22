@@ -7,12 +7,12 @@ const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 
 const exec = promisify(execFile);
-const nodeVersion = "24.22.1";
-// https://nodejs.org/dist/v24.22.1/SHASUMS256.txt
+const nodeVersion = "24.22.3";
+// https://nodejs.org/dist/v24.22.3/SHASUMS256.txt
 const nodeArchives = {
-  "darwin-arm64": "89c682593d76cd44233fa53b1563264e7de9cbb189cad169135c5b4fadfbc0a7",
-  "darwin-x64": "d132557e7ee2b85af08b0c8c34338e65c6430f2238d01f727728ef42dc83b035",
-  "win32-x64": "d2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5",
+  "darwin-arm64": "ff6e17d4874b76d272212b908cc020d6e815fba5a6c7eaaa06add725840307fd",
+  "darwin-x64": "977614af0504c81045e7fd85596dbca0e5f951b96681516dadafedcca8c447f7",
+  "win32-x64": "e612af99f626ab415ea225af6bce5c971feb448cb5cae250bb1c3fa50c5f7d9f",
 };
 const source = path.resolve(__dirname, "../dsh-runtime");
 const installOptions = { timeout: 300_000, maxBuffer: 1024 * 1024 };

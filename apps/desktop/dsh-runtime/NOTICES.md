@@ -6,7 +6,7 @@ Package-specific license files and notices are in the corresponding
 `node_modules` directories. The adjacent lockfile identifies the exact sources.
 
 - [DeepSeek Harness source](https://github.com/deepseek-ai/deepseek-harness)
-- [Node.js 24.22.1 distribution and source](https://nodejs.org/dist/v24.22.1/)
+- [Node.js 24.22.3 distribution and source](https://nodejs.org/dist/v24.22.3/)
 - [sharp 0.35.5 source](https://github.com/lovell/sharp/tree/v0.35.5)
 - [libvips 1.3.4 build scripts, dependencies and notices](https://github.com/lovell/sharp-libvips/tree/v1.3.4)
 - [GNU LGPL v3](licenses/LGPL-3.0.txt) and [GNU GPL v3](licenses/GPL-3.0.txt)
