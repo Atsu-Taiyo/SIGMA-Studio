@@ -58,7 +58,7 @@ function identifiers(request: GatewayRequest): { fileId: string; runId: string }
 
 test("the built-in AI edits through DeepSeek Harness: reads the material, proposes an SVG figure, and the approved figure is saved", async ({}, testInfo) => {
   test.setTimeout(300_000);
-  const triangle = /```svg\n([\s\S]*?)```/u.exec(readFileSync(SVG_SKILL, "utf8"))![1]!.trim();
+  const triangle = /```svg\r?\n([\s\S]*?)```/u.exec(readFileSync(SVG_SKILL, "utf8"))![1]!.trim();
   const gateway = await startGatewayFixture((request, index) => {
     const { fileId, runId } = identifiers(request);
     if (index === 0) {
