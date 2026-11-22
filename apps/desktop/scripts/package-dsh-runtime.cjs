@@ -40,7 +40,12 @@ async function packageDshRuntime(resources, platform, arch) {
     if (createHash("sha256").update(bytes).digest("hex") !== checksum) throw new Error("Bundled Node checksum mismatch.");
     const downloaded = path.join(temp, archive);
     await fs.writeFile(downloaded, bytes);
-    await exec("tar", ["-xf", downloaded, "-C", temp, `${distribution}/${executable}`, `${distribution}/LICENSE`], installOptions);
+    const files = [`${distribution}/${executable}`, `${distribution}/LICENSE`];
+    if (windows && process.platform === "linux") {
+      await exec("unzip", ["-q", downloaded, ...files, "-d", temp], installOptions);
+    } else {
+      await exec("tar", ["-xf", downloaded, "-C", temp, ...files], installOptions);
+    }
 
     await fs.mkdir(destination, { recursive: true });
     for (const name of ["bridge.mjs", "package.json", "package-lock.json", "stubs", "licenses", "NOTICES.md"]) {

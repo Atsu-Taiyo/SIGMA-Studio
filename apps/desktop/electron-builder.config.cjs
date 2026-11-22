@@ -67,7 +67,7 @@ module.exports = {
   // Use the same exact runtime as development and Electron smoke tests.
   electronVersion: desktopPackage.devDependencies.electron,
   npmRebuild: false,
-  afterPack: "./scripts/check-native-lock-package.cjs",
+  afterPack: "./scripts/finalize-desktop-package.cjs",
   directories: {
     buildResources: "build",
     output: "release",
