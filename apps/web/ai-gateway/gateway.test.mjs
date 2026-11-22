@@ -7,6 +7,7 @@ const TOKEN = "fixture-user-access-token";
 const USER = "892b2764-a58a-4c05-a085-b3e83f605070";
 function authority(plan = "pro") {
   return { async fetch(incoming) {
+    assert.equal(incoming.redirect, "manual");
     if (incoming.headers.get("authorization") !== `Bearer ${TOKEN}`) return new Response(null, { status: 401 });
     const path = new URL(incoming.url).pathname;
     if (path === "/catalog/capabilities") return Response.json({ plan });
@@ -125,6 +126,23 @@ test("forwards known fields with the upstream key and drops everything else", as
   assert.equal(response.headers.get("x-ratelimit-remaining"), null);
   assert.equal(response.headers.get("set-cookie"), null);
   assert.equal(await response.text(), "data: [DONE]\n\n");
+});
+
+test("does not follow or forward redirects from the account or model service", async () => {
+  const redirect = () => Response.redirect("https://redirect.example.test", 302);
+  const denied = await handleGatewayRequest(request("/v1/models"), {
+    ...env, COLLABORATION: { async fetch() { return redirect(); } },
+  }, neverFetch);
+  assert.equal(denied.status, 503);
+
+  const response = await handleGatewayRequest(request("/v1/chat/completions", {
+    body: { model: MODEL, messages: [{ role: "user", content: "hi" }] },
+  }), env, async (_url, options) => {
+    assert.equal(options.redirect, "manual");
+    return redirect();
+  });
+  assert.equal(response.status, 502);
+  assert.equal(response.headers.get("location"), null);
 });
 
 test("never echoes the caller's token or the upstream key", async () => {

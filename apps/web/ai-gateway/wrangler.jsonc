@@ -6,6 +6,7 @@
   "account_id": "6ccc5b3ea80285e4dd970ecd4effd022",
   "main": "gateway.mjs",
   "compatibility_date": "2026-10-20",
+  "compatibility_flags": ["enable_request_signal"],
   "workers_dev": true,
   "preview_urls": false,
   "services": [{ "binding": "COLLABORATION", "service": "sigma-studio-collab-experiment" }],

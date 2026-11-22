@@ -61,7 +61,7 @@ async function authorize(request, env) {
   }
   try {
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(10_000)]);
-    const init = { headers: { authorization }, signal, redirect: "error" };
+    const init = { headers: { authorization }, signal, redirect: "manual" };
     const [capabilities, profile] = await Promise.all(["/catalog/capabilities", "/profile"]
       .map(path => env.COLLABORATION.fetch(new Request("https://collaboration.internal" + path, init))));
     if ([capabilities, profile].some(response => response.status === 401 || response.status === 403)) {
@@ -186,13 +186,18 @@ async function chatCompletions(request, env, fetcher) {
         "X-Title": "SIGMA Studio",
       },
       body: JSON.stringify(upstreamBody),
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.any([controller.signal, request.signal]),
     });
   } catch {
     return fail(502, "UPSTREAM_UNREACHABLE", "The model provider could not be reached.");
   } finally {
     clearTimeout(timer);
+  }
+
+  if (upstream.status >= 300 && upstream.status < 400) {
+    await upstream.body?.cancel().catch(() => {});
+    return fail(502, "UPSTREAM_UNREACHABLE", "The model provider could not be reached.");
   }
 
   // 上流のヘッダーは持ち帰らない (レート制限や課金の識別子を利用者へ出さない)。
