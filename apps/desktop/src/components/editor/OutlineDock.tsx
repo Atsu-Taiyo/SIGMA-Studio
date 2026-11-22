@@ -113,10 +113,33 @@ export function OutlineDock({ items, selectedId, onSelectItem, openRequest = 0 }
   const [expanded, setExpanded] = useState(false);
   const [panelMounted, setPanelMounted] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
+  const railRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handledOpenRequestRef = useRef(openRequest);
   const readingId = useReadingItemId(items, anchorRef);
+
+  useLayoutEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+
+    // Move only the clipped rail. Scrolling an ancestor would change the reading position.
+    const revealReadingRow = () => {
+      if (rail.scrollHeight <= rail.clientHeight) return;
+      const row = rail.querySelector<HTMLElement>("[data-reading]");
+      if (!row) return;
+      const visible = rail.getBoundingClientRect();
+      const active = row.getBoundingClientRect();
+      if (active.top < visible.top) {
+        rail.scrollTop += active.top - visible.top;
+      } else if (active.bottom > visible.bottom) {
+        rail.scrollTop += active.bottom - visible.bottom;
+      }
+    };
+    revealReadingRow();
+    window.addEventListener("resize", revealReadingRow);
+    return () => window.removeEventListener("resize", revealReadingRow);
+  }, [items, readingId]);
 
   const clearCloseTimer = useCallback(() => {
     if (closeTimerRef.current) {
@@ -259,6 +282,7 @@ export function OutlineDock({ items, selectedId, onSelectItem, openRequest = 0 }
         aria-label={toggleLabel}
         aria-expanded={expanded}
         title={toggleLabel}
+        ref={railRef}
         data-outline-rail=""
       >
         {items.map((item) => (

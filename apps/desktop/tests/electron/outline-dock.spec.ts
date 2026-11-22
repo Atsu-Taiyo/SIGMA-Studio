@@ -128,3 +128,39 @@ test("no outline entry for a material without headings or problems", async () =>
     await expect(page.locator("[data-outline-dock]")).toHaveCount(0);
   });
 });
+
+test("the reading marker remains visible when a long outline exceeds the rail height", async () => {
+  const material: SigmaDocument = {
+    ...createBlankDocument("長いアウトライン"),
+    content: [
+      ...Array.from({ length: 180 }, (_, index) => ({
+        type: "heading" as const,
+        id: `outline_${index}`,
+        level: 1 as const,
+        children: [{ type: "text" as const, text: `見出し ${index + 1}` }],
+      })),
+      ...Array.from({ length: 12 }, (_, index) => ({
+        type: "paragraph" as const,
+        id: `outline_tail_${index}`,
+        children: [{ type: "text" as const, text: "本文の続きです。".repeat(24) }],
+      })),
+    ],
+  };
+
+  await withMaterial(material, async (page) => {
+    await page.setViewportSize({ width: 1100, height: 630 });
+    const rail = page.locator("[data-outline-rail]");
+    const lastRow = rail.locator("[data-depth]").last();
+    await expect(rail.locator("[data-depth]")).toHaveCount(180);
+
+    await page.locator("#outline_179").evaluate((element) => {
+      element.scrollIntoView({ block: "start", behavior: "instant" });
+    });
+    await expect(lastRow).toHaveAttribute("data-reading", "");
+    await expect.poll(() => lastRow.evaluate((row) => {
+      const railBounds = row.parentElement!.getBoundingClientRect();
+      const markerBounds = row.firstElementChild!.getBoundingClientRect();
+      return markerBounds.top >= railBounds.top && markerBounds.bottom <= railBounds.bottom;
+    })).toBe(true);
+  });
+});
