@@ -63,11 +63,16 @@ test.beforeEach(() => {
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
 });
 
-test("outline card opens from the icon under the AI task entry, jumps to a heading and keeps it selected", async ({}, testInfo) => {
+test("outline card opens from the dash rail under the AI task entry, jumps to a heading and keeps it selected", async ({}, testInfo) => {
   await withMaterial(materialWithHeadings(), async (page) => {
     const dock = page.locator("[data-outline-dock]");
     const toggle = dock.locator("button[aria-expanded]");
     await expect(toggle).toBeVisible();
+
+    // 畳んだ入口は Notion の目次と同じ、項目ごとの線のレール。
+    await expect(toggle.locator("[data-depth]")).not.toHaveCount(0);
+    await expect(toggle.locator("[data-reading]")).toHaveCount(1);
+    await toggle.screenshot({ path: testInfo.outputPath("outline-rail.png") });
 
     // AI タスクの入口の真下 (32px のアイコン + 8px の間隔)。
     const aiBox = (await page.locator(".ai-task-dock-toggle").boundingBox())!;
