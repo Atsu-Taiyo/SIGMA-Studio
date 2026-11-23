@@ -23,9 +23,8 @@ module.exports = async function checkNativeLockPackage(context) {
 
   // Cross-building can inspect the target binary, but cannot execute another OS
   // or an ARM binary on Intel. macOS ARM hosts can also verify Intel via Rosetta.
-  const canExecute = process.platform === platform && (
-    process.arch === arch || (platform === "darwin" && process.arch === "arm64" && arch === "x64")
-  );
+  const usesRosetta = platform === "darwin" && process.arch === "arm64" && arch === "x64";
+  const canExecute = process.platform === platform && (process.arch === arch || usesRosetta);
   if (!canExecute) {
     console.log(`[native-lock] ${platform}-${arch}: packaged binary present; runtime check requires its target host`);
     return;
@@ -34,11 +33,17 @@ module.exports = async function checkNativeLockPackage(context) {
   const executable = platform === "darwin"
     ? path.join(context.appOutDir, `${productName}.app`, "Contents", "MacOS", productName)
     : path.join(context.appOutDir, platform === "win32" ? `${productName}.exe` : context.packager.executableName);
-  const { stdout } = await promisify(execFile)(executable, [path.join(__dirname, "check-native-lock.cjs"), archive], {
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-    // The first Intel Electron/addon launch under Rosetta can exceed 30 seconds.
-    timeout: 120_000,
-    maxBuffer: 1024 * 1024,
-  });
-  console.log(stdout.trim());
+  // A cold Intel Electron launch can spend several minutes translating native code.
+  const timeout = usesRosetta ? 300_000 : 120_000;
+  try {
+    const { stdout } = await promisify(execFile)(executable, [path.join(__dirname, "check-native-lock.cjs"), archive], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      timeout,
+      maxBuffer: 1024 * 1024,
+    });
+    console.log(stdout.trim());
+  } catch (error) {
+    const reason = error.killed ? `timed out after ${timeout / 1000}s` : (error.stderr?.trim() || error.message);
+    throw new Error(`Native dependency check failed for ${platform}-${arch}: ${reason}`, { cause: error });
+  }
 };

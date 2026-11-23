@@ -8,6 +8,10 @@ packages:
 linkWorkspacePackages: true
 # Force inode sharing rather than APFS clones/copies between worktrees.
 packageImportMethod: hardlink
+# Apple Silicon release runners also package Intel macOS native dependencies.
+supportedArchitectures:
+  os: [current]
+  cpu: [current, x64]
 overrides:
   undici@^6: ^6.29.1
   undici@^7: ^7.30.1

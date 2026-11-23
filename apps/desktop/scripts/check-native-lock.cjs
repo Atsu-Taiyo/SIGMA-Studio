@@ -12,6 +12,9 @@ async function main() {
   const packageRequire = createRequire(path.join(packageRoot, "package.json"));
   const loadedBefore = new Set(Object.keys(require.cache));
   const { tryLock, unlock } = packageRequire("fs-native-extensions");
+  const { createCanvas } = packageRequire("@napi-rs/canvas");
+  const png = createCanvas(2, 2).toBuffer("image/png");
+  assert.equal(png.toString("hex", 0, 8), "89504e470d0a1a0a", "the target image renderer must produce a PNG");
   if (packageRoot.endsWith(".asar")) {
     const isPackaged = (filename) => filename.startsWith(`${packageRoot}${path.sep}`)
       || filename.startsWith(`${packageRoot}.unpacked${path.sep}`);
@@ -40,6 +43,7 @@ async function main() {
     assert.equal(tryLock(third.fd), true, "explicit unlock must release ownership");
     console.log(JSON.stringify({
       nativeLock: "passed",
+      nativeCanvas: "passed",
       platform: process.platform,
       arch: process.arch,
       node: process.versions.node,
