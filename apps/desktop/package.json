@@ -83,7 +83,7 @@
     "jszip": "^3.10.1",
     "lucide-react": "^1.77.0",
     "next": "^16.4.6",
-    "pptx-svg": "^0.6.8",
+    "pptx-svg": "^0.6.9",
     "pptx-viewer-core": "^4.14.1",
     "qrcode": "^1.5.4",
     "thinking-orbs": "^0.3.1",
