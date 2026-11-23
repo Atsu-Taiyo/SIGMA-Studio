@@ -140,9 +140,10 @@ export function useDocumentSaveBoundary({
 
   const saveCurrentDocumentRecord = useCallback(async (origin: DocumentVersion["origin"] = "user") => {
     // 開けなかった教材には何も書かない。画面上の document は原因表示用の空の
-    // 下書きなので、保存すれば元の内容を空で上書きしてしまう。
+    // 下書きなので、保存すれば元の内容を空で上書きしてしまう。書かなかったことは
+    // 境界保存と同じ skipped / skippedReason で返し、呼び出し元が保存済みと区別できるようにする。
     if (documentOpenFailureRef.current?.fileId === activeFileIdRef.current) {
-      return { ok: true };
+      return { ok: true, skipped: true, skippedReason: "document-open-failed" } as const;
     }
     const saveRevision = documentDirtyRevisionRef.current;
     const session = documentSessionRef?.current;
