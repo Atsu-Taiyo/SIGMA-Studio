@@ -216,6 +216,7 @@ function SelectionActionBand({
       ref={rootRef}
       className="selection-action-popover selection-action-popover--card"
       style={{ left: `${left}px`, top: `${top}px` }}
+      onPointerDown={keepEditorSelection}
       onMouseDown={keepEditorSelection}
     >
       {children}
@@ -262,6 +263,7 @@ function CommentActions({
 
 /**
  * ボタンを押しても本文の選択とフォーカスを奪わない。ただし入力欄とスライダーは対象外:
+ * カードでは pointerdown の時点で既定の動作を止め、click の前に本文の選択が縮むのを防ぐ。
  * React のイベントはポータルの親へも伝わるので、色パレット (ポータルに出る) のスライダーが
  * ドラッグできず、色作成ダイアログの数値欄もクリックで入力できなくなる。
  */
