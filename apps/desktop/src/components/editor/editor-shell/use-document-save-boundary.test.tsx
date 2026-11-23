@@ -403,7 +403,11 @@ describe("document open failure save guard", () => {
     const fixture = setupOpenFailure(createEmptyEditorDocument());
 
     await act(async () => {
-      expect(await boundary.saveCurrentDocumentRecord()).toMatchObject({ ok: true });
+      expect(await boundary.saveCurrentDocumentRecord()).toEqual({
+        ok: true,
+        skipped: true,
+        skippedReason: "document-open-failed",
+      });
     });
 
     expectSaveSuppressed(fixture);
@@ -435,7 +439,9 @@ describe("document open failure save guard", () => {
     const { ports } = setupOpenFailure(documentWithBody(EDITED_BODY), OTHER_FILE_ID);
 
     await act(async () => {
-      expect(await boundary.saveCurrentDocumentRecord()).toMatchObject({ ok: true, revision: 2 });
+      const result = await boundary.saveCurrentDocumentRecord();
+      expect(result).toMatchObject({ ok: true, revision: 2 });
+      expect(result).not.toHaveProperty("skipped");
     });
 
     expectDocumentSaved(ports);
