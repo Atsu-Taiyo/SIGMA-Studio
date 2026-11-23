@@ -17,12 +17,16 @@ interface PrintPorts {
   isEmbedded: boolean;
   getDocument: () => SigmaDocument;
   getActiveFileId: () => string;
+  hasDocumentOpenFailed: () => boolean;
   flushOverlayChanges: () => void;
-  saveCurrentDocumentRecord: () => Promise<{ ok: boolean; error?: string }>;
+  saveCurrentDocumentRecord: () => Promise<{ ok: boolean; error?: string; skippedReason?: "document-open-failed" }>;
   setSaveState: (state: SaveState) => void;
   setStatusMessage: (message: string) => void;
 }
-export function useDocumentPrintController({ isDesktopApp, isEmbedded, getDocument, getActiveFileId, flushOverlayChanges, saveCurrentDocumentRecord, setSaveState, setStatusMessage }: PrintPorts) {
+export function useDocumentPrintController({
+  isDesktopApp, isEmbedded, getDocument, getActiveFileId, hasDocumentOpenFailed,
+  flushOverlayChanges, saveCurrentDocumentRecord, setSaveState, setStatusMessage,
+}: PrintPorts) {
   const captureLifetime = useEditorOwnerLifetime();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [pdfExporting, setPdfExporting] = useState(false);
@@ -35,7 +39,15 @@ export function useDocumentPrintController({ isDesktopApp, isEmbedded, getDocume
     pageWidthMm: 0,
     pageHeightMm: 0,
   });
+  const reportUnavailableDocument = (skippedReason?: "document-open-failed") => {
+    if (skippedReason !== "document-open-failed" && !hasDocumentOpenFailed()) return false;
+    setSaveState("error");
+    setStatusMessage(tEditor("status.openFailedWithReason"));
+    return true;
+  };
+
   const openPrintPreview = () => {
+    if (reportUnavailableDocument()) return;
     flushOverlayChanges();
     setPreviewOpen(true);
   };
@@ -48,6 +60,7 @@ export function useDocumentPrintController({ isDesktopApp, isEmbedded, getDocume
       setStatusMessage(tEditor("status.preparingPrint"));
       const saveResult = await saveCurrentDocumentRecord();
       if (!isCurrent()) return;
+      if (reportUnavailableDocument(saveResult.skippedReason)) return;
       if (!saveResult.ok) {
         setSaveState("error");
         setStatusMessage(saveResult.error ?? tEditor("status.saveFailed"));
@@ -67,7 +80,7 @@ export function useDocumentPrintController({ isDesktopApp, isEmbedded, getDocume
     const alive = captureLifetime();
     const fileId = getActiveFileId();
     const isCurrent = () => alive() && getActiveFileId() === fileId;
-    if (!isCurrent()) return;
+    if (!isCurrent() || reportUnavailableDocument()) return;
     setPdfExporting(true);
     if (isEmbedded) {
       await printEmbeddedPreview();
@@ -92,6 +105,7 @@ export function useDocumentPrintController({ isDesktopApp, isEmbedded, getDocume
       setStatusMessage(tEditor("status.pdfExporting"));
       const saveResult = await saveCurrentDocumentRecord();
       if (!isCurrent()) return;
+      if (reportUnavailableDocument(saveResult.skippedReason)) return;
       if (!saveResult.ok) {
         setSaveState("error");
         setStatusMessage(saveResult.error ?? tEditor("status.saveFailed"));
@@ -127,7 +141,7 @@ export function useDocumentPrintController({ isDesktopApp, isEmbedded, getDocume
   const openPrintWindow = async () => {
     const isCurrent = captureLifetime();
     const fileId = getActiveFileId();
-    if (!isCurrent()) return;
+    if (!isCurrent() || reportUnavailableDocument()) return;
     flushOverlayChanges();
     if (isEmbedded) {
       await printEmbeddedPreview();
@@ -139,8 +153,9 @@ export function useDocumentPrintController({ isDesktopApp, isEmbedded, getDocume
       setStatusMessage(tEditor("status.pdfPreviewOpened"));
       return;
     }
-    await saveCurrentDocumentRecord();
+    const saveResult = await saveCurrentDocumentRecord();
     if (!isCurrent() || getActiveFileId() !== fileId) return;
+    if (reportUnavailableDocument(saveResult.skippedReason)) return;
     window.open(
       getAppRouteHref("/print", { fileId: getActiveFileId(), profile: "teacher" }),
       "_blank",

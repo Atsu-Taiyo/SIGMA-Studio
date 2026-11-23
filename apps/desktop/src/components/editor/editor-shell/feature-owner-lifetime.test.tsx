@@ -60,12 +60,12 @@ describe("MCP proposal display owner", () => {
 
 describe("print/export owner", () => {
   let current: ReturnType<typeof useDocumentPrintController>;
-  function fixture(save: () => Promise<{ ok: boolean }>) {
+  function fixture(save: Parameters<typeof useDocumentPrintController>[0]["saveCurrentDocumentRecord"]) {
     let fileId = "one";
     const exportPdf = vi.fn(async () => ({ filePath: "/output.pdf" }));
     vi.spyOn(bridge, "getDesktopBridge").mockReturnValue({ file: { exportPdf } } as unknown as DesktopAPI);
     const getDocument = () => createEmptyEditorDocument(); const getActiveFileId = () => fileId;
-    function Probe() { current = useDocumentPrintController({ isDesktopApp: true, isEmbedded: false, getDocument, getActiveFileId, flushOverlayChanges: vi.fn(), saveCurrentDocumentRecord: save, setSaveState: vi.fn(), setStatusMessage: vi.fn() }); return null; }
+    function Probe() { current = useDocumentPrintController({ isDesktopApp: true, isEmbedded: false, getDocument, getActiveFileId, hasDocumentOpenFailed: () => false, flushOverlayChanges: vi.fn(), saveCurrentDocumentRecord: save, setSaveState: vi.fn(), setStatusMessage: vi.fn() }); return null; }
     act(() => root.render(<Probe />));
     act(() => current.setPrintPreviewRenderState({ state: "ready", surfaceId: "surface", revision: 2, pageCount: 1, pageWidthMm: 210, pageHeightMm: 297 }));
     return { exportPdf, switchFile: () => { fileId = "two"; } };
@@ -88,6 +88,13 @@ describe("print/export owner", () => {
     await act(async () => current.exportPdf());
     expect(order).toEqual(["save", "export"]); expect(f.exportPdf).toHaveBeenCalledWith(expect.objectContaining({ surfaceId: "surface", revision: 2, pageCount: 1 }));
     expect(current.exportedPdfPath).toBe("/output.pdf");
+  });
+  it("does not export when saving the document was skipped", async () => {
+    const f = fixture(async () => ({ ok: true, skippedReason: "document-open-failed" }));
+    await act(async () => current.exportPdf());
+    expect(f.exportPdf).not.toHaveBeenCalled();
+    expect(current.exportedPdfPath).toBeNull();
+    expect(current.pdfExporting).toBe(false);
   });
 });
 

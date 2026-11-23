@@ -134,6 +134,8 @@ test("quitting after a managed document fails to open preserves its bytes and re
     const firstPage = await app.firstWindow();
     await expect(firstPage.locator("[data-startup-splash]")).toHaveCount(0);
     const seeded = await firstPage.evaluate(async (document) => {
+      localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      await window.desktopAPI!.settings!.setUiLocale!("ja");
       const storage = window.desktopAPI!.storage;
       const { file } = await storage.createFileFromDocument({ document });
       await storage.saveWorkspace({ openFileIds: [file.fileId], activeFileId: file.fileId });
@@ -150,6 +152,11 @@ test("quitting after a managed document fails to open preserves its bytes and re
     app = await launch();
     const failedPage = await app.firstWindow();
     await expect(failedPage.getByTestId("document-open-failure")).toBeVisible({ timeout: 30_000 });
+    await failedPage.getByRole("button", { name: "ファイル", exact: true }).click();
+    await failedPage.getByRole("menuitem", { name: "エクスポート" }).hover();
+    await failedPage.getByRole("menuitem", { name: "PDFを書き出し" }).click();
+    await expect(failedPage.getByRole("dialog", { name: "PDFプレビュー" })).toHaveCount(0);
+    await expect(failedPage.getByTestId("document-open-failure")).toBeVisible();
     expect(readFileSync(filePath)).toEqual(damaged);
     const child = app.process();
     await app.close();
@@ -162,6 +169,11 @@ test("quitting after a managed document fails to open preserves its bytes and re
     const repairedPage = await app.firstWindow();
     await expect(repairedPage.locator(BODY).first()).toContainText("RECOVERED_BODY", { timeout: 30_000 });
     await expect(repairedPage.getByTestId("document-open-failure")).toHaveCount(0);
+    await repairedPage.getByRole("button", { name: "ファイル", exact: true }).click();
+    await repairedPage.getByRole("menuitem", { name: "エクスポート" }).hover();
+    await repairedPage.getByRole("menuitem", { name: "PDFを書き出し" }).click();
+    const preview = repairedPage.getByRole("dialog", { name: "PDFプレビュー" });
+    await expect(preview.locator('.paged-surface[data-paged-surface-state="ready"]')).toContainText("RECOVERED_BODY");
   } finally {
     try {
       await app?.close();
