@@ -1,6 +1,6 @@
 "use client";
 
-import { ListTree, X } from "lucide-react";
+import { X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -9,6 +9,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
 } from "react";
 
 import { useT } from "@/lib/i18n/react";
@@ -21,6 +22,71 @@ const CLOSE_DELAY_MS = 100;
 
 /** 開く要求のあと、カードの行が描かれるのを待つ最大のフレーム数。 */
 const FOCUS_RETRY_FRAMES = 30;
+
+/** 本文の表示域の上からこの割合までに頭が入った最後の項目を「いま読んでいる所」とする。 */
+const READING_LINE_RATIO = 0.3;
+
+function findScrollParent(element: HTMLElement | null): HTMLElement | null {
+  let current = element?.parentElement ?? null;
+  while (current) {
+    const overflowY = window.getComputedStyle(current).overflowY;
+    if ((overflowY === "auto" || overflowY === "scroll") && current.scrollHeight > current.clientHeight) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
+/**
+ * 本文のスクロール位置から、いま読んでいる項目の id を返す (Notion の目次と同じ考え方)。
+ * 表示域の上 3 割の線より上に頭がある最後の項目。どれも線より下なら先頭。
+ */
+function useReadingItemId(items: readonly OutlineNavigationItem[], anchorRef: RefObject<HTMLElement | null>) {
+  const [readingId, setReadingId] = useState<string | null>(items[0]?.id ?? null);
+
+  useEffect(() => {
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const scroller = findScrollParent(anchorRef.current);
+      const viewTop = scroller ? scroller.getBoundingClientRect().top : 0;
+      const viewHeight = scroller ? scroller.clientHeight : window.innerHeight;
+      const line = viewTop + viewHeight * READING_LINE_RATIO;
+      let next: string | null = items[0]?.id ?? null;
+      for (const item of items) {
+        const element = window.document.getElementById(item.id);
+        if (!element) {
+          continue;
+        }
+        if (element.getBoundingClientRect().top <= line) {
+          next = item.id;
+        } else {
+          break;
+        }
+      }
+      setReadingId((current) => (current === next ? current : next));
+    };
+    const schedule = () => {
+      if (!frame) {
+        frame = window.requestAnimationFrame(measure);
+      }
+    };
+    measure();
+    // 本文のスクロール要素は描画のたびに替わり得るので、capture で全スクロールを拾う。
+    window.document.addEventListener("scroll", schedule, { capture: true, passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      window.document.removeEventListener("scroll", schedule, { capture: true });
+      window.removeEventListener("resize", schedule);
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
+  }, [anchorRef, items]);
+
+  return readingId;
+}
 
 interface OutlineDockProps {
   items: readonly OutlineNavigationItem[];
@@ -35,8 +101,9 @@ interface OutlineDockProps {
 }
 
 /**
- * 見出し・節・問題の一覧。キャンバス左上の AI タスクの入口 (`AiTaskDock`) の真下に、同じ作法で
- * 置く: 畳んでいる間は丸いアイコン 1 つだけ、ホバー / フォーカスでその場にカードが開き、
+ * 見出し・節・問題の一覧。キャンバス左上の AI タスクの入口 (`AiTaskDock`) の真下に置く。
+ * 畳んでいる間は Notion の目次と同じく、項目ごとの短い線を縦に並べたレールだけを出す
+ * (線の長さが段の深さ、青い線がいま読んでいる所)。ホバー / フォーカスでその場にカードが開き、
  * 外へ出る・Esc・外側のクリックで閉じる。ダイアログではないので背景は暗くせず、開いたまま
  * 本文をスクロールできる。
  */
@@ -46,9 +113,33 @@ export function OutlineDock({ items, selectedId, onSelectItem, openRequest = 0 }
   const [expanded, setExpanded] = useState(false);
   const [panelMounted, setPanelMounted] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
+  const railRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handledOpenRequestRef = useRef(openRequest);
+  const readingId = useReadingItemId(items, anchorRef);
+
+  useLayoutEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+
+    // Move only the clipped rail. Scrolling an ancestor would change the reading position.
+    const revealReadingRow = () => {
+      if (rail.scrollHeight <= rail.clientHeight) return;
+      const row = rail.querySelector<HTMLElement>("[data-reading]");
+      if (!row) return;
+      const visible = rail.getBoundingClientRect();
+      const active = row.getBoundingClientRect();
+      if (active.top < visible.top) {
+        rail.scrollTop += active.top - visible.top;
+      } else if (active.bottom > visible.bottom) {
+        rail.scrollTop += active.bottom - visible.bottom;
+      }
+    };
+    revealReadingRow();
+    window.addEventListener("resize", revealReadingRow);
+    return () => window.removeEventListener("resize", revealReadingRow);
+  }, [items, readingId]);
 
   const clearCloseTimer = useCallback(() => {
     if (closeTimerRef.current) {
@@ -191,8 +282,21 @@ export function OutlineDock({ items, selectedId, onSelectItem, openRequest = 0 }
         aria-label={toggleLabel}
         aria-expanded={expanded}
         title={toggleLabel}
+        ref={railRef}
+        data-outline-rail=""
       >
-        <ListTree size={16} aria-hidden="true" />
+        {items.map((item) => (
+          <span
+            key={item.id}
+            className={styles.dashRow}
+            data-kind={item.kind}
+            data-depth={item.depth}
+            data-reading={item.id === readingId ? "" : undefined}
+            aria-hidden="true"
+          >
+            <span className={styles.dash} />
+          </span>
+        ))}
       </button>
       {panelMounted && (
         <div
@@ -227,6 +331,7 @@ export function OutlineDock({ items, selectedId, onSelectItem, openRequest = 0 }
                     className={`${styles.item}${selected ? ` ${styles.itemSelected}` : ""}`}
                     data-kind={item.kind}
                     data-depth={item.depth}
+                    data-reading={item.id === readingId ? "" : undefined}
                     style={{ "--outline-depth": item.depth } as CSSProperties}
                     aria-current={selected ? "location" : undefined}
                     title={item.number ? `${item.number} ${item.title}` : item.title}

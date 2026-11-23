@@ -49,8 +49,12 @@ const hover = () => act(() => {
 });
 
 describe("OutlineDock", () => {
-  it("is only an icon until it is opened, and names the item count", () => {
+  it("is only a rail of dashes until it is opened, and names the item count", () => {
     render();
+
+    const dashes = Array.from(toggle().querySelectorAll<HTMLElement>("[data-depth]"));
+    expect(dashes.map((dash) => dash.dataset.depth)).toEqual(["0", "1", "2"]);
+    expect(dashes.map((dash) => dash.dataset.kind)).toEqual(["heading", "heading", "problem"]);
 
     expect(toggle().getAttribute("aria-label")).toBe("アウトライン (3件)");
     expect(toggle().getAttribute("aria-expanded")).toBe("false");
@@ -67,6 +71,28 @@ describe("OutlineDock", () => {
     expect(rows().map((row) => row.dataset.depth)).toEqual(["0", "1", "2"]);
     expect(rows().map((row) => row.dataset.kind)).toEqual(["heading", "heading", "problem"]);
     expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([null, "location", null]);
+  });
+
+  it("marks the item being read: the last one whose top is above the reading line", () => {
+    const placed: HTMLElement[] = [];
+    for (const [id, top] of [["h1", -400], ["h2", 40], ["p1", 900]] as const) {
+      const element = document.createElement("div");
+      element.id = id;
+      element.getBoundingClientRect = () => ({ top } as DOMRect);
+      document.body.append(element);
+      placed.push(element);
+    }
+    try {
+      render();
+      hover();
+
+      const reading = (scope: HTMLElement) =>
+        Array.from(scope.querySelectorAll<HTMLElement>("[data-reading]")).map((element) => element.dataset.depth);
+      expect(reading(toggle())).toEqual(["1"]);
+      expect(rows().filter((row) => row.hasAttribute("data-reading")).map((row) => row.textContent)).toEqual(["1.1平方完成"]);
+    } finally {
+      placed.forEach((element) => element.remove());
+    }
   });
 
   it("selects the clicked item and folds the card away", () => {

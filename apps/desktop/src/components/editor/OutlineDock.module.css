@@ -11,51 +11,99 @@
   overflow: visible;
 }
 
-/* 32px のアイコン + 8px の間隔 で AI タスクの入口の下へ。 */
+/* 32px の AI タスクの入口 + 8px の間隔 の下へ。 */
 :global(.ai-task-dock-root) + .root {
   top: 52px;
 }
 
-/* 畳んだアイコンからカードまでの間をポインタが渡っても閉じないための、見えない橋。 */
+/* レールからカードまでの間をポインタが渡っても閉じないための、見えない橋。 */
 .hoverBridge {
   position: absolute;
   top: -4px;
   left: -4px;
-  width: 40px;
+  width: 44px;
   height: 40px;
 }
 
+/* 畳んだ入口: Notion の目次と同じ、項目ごとの短い線を縦に並べたレール。
+   線は 1 行 8px。項目が多くて縦に収まらないときは 1 行 3px まで詰め、それ以上は切る。 */
 .toggle {
   position: relative;
   appearance: none;
-  display: grid;
-  place-items: center;
+  display: flex;
   flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-round);
-  background: var(--background);
-  color: var(--text-secondary);
-  box-shadow: 0 8px 20px -12px rgb(15 23 42 / 0.35);
+  flex-direction: column;
+  align-items: flex-start;
+  width: 36px;
+  max-height: calc(100vh - 220px);
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  overflow: hidden;
   cursor: pointer;
   transition:
     opacity 100ms ease,
-    transform 160ms cubic-bezier(0.4, 0, 1, 1);
+    background-color 120ms ease;
 }
 
 .toggle:hover,
 .toggle:focus-visible {
-  border-color: var(--border);
-  color: var(--text-primary);
+  background: var(--surface-soft);
   outline: none;
 }
 
-/* カードが開いている間は、同じ場所からカードが広がるのでアイコンは消す。 */
+.dashRow {
+  display: flex;
+  flex: 0 1 8px;
+  align-items: center;
+  min-height: 3px;
+  width: 100%;
+}
+
+/* 線の長さで段を表す: 一番大きい見出しが最長、深い見出し・問題ほど短い。 */
+.dash {
+  display: block;
+  width: 20px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text-muted);
+  opacity: 0.45;
+  transition:
+    background-color 120ms ease,
+    opacity 120ms ease;
+}
+
+.dashRow[data-depth="1"] .dash {
+  width: 15px;
+}
+
+.dashRow[data-depth="2"] .dash {
+  width: 11px;
+}
+
+.dashRow[data-depth="3"] .dash {
+  width: 8px;
+}
+
+.dashRow[data-kind="problem"] .dash {
+  opacity: 0.32;
+}
+
+.toggle:hover .dash {
+  opacity: 0.7;
+}
+
+/* いま読んでいる所。 */
+.dashRow[data-reading] .dash,
+.toggle:hover .dashRow[data-reading] .dash {
+  background: var(--primary);
+  opacity: 1;
+}
+
+/* カードが開いている間は、同じ場所からカードが広がるのでレールは消す。 */
 .toggleOpen {
   opacity: 0;
-  transform: scale(0.72);
   pointer-events: none;
 }
 
@@ -64,7 +112,7 @@
   top: 0;
   left: 0;
   z-index: 1;
-  transform-origin: 16px 16px;
+  transform-origin: 18px 12px;
 }
 
 .motionExpanded {
@@ -79,7 +127,7 @@
 @keyframes outline-dock-expand {
   from {
     opacity: 0;
-    transform: translateY(-10px) scale(0.08);
+    transform: translateX(-6px) scale(0.96);
   }
 
   to {
@@ -96,7 +144,7 @@
 
   to {
     opacity: 0;
-    transform: translateY(-10px) scale(0.08);
+    transform: translateX(-6px) scale(0.96);
   }
 }
 
@@ -207,6 +255,12 @@
 .itemSelected[data-kind="problem"] {
   background: var(--surface-muted);
   color: var(--text-primary);
+}
+
+/* いま読んでいる所 (レールの青い線と同じ項目)。 */
+.item[data-reading],
+.item[data-reading]:hover {
+  color: var(--primary);
 }
 
 .number {
