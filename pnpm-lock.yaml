@@ -62,8 +62,8 @@ importers:
         specifier: ^5.12.1
         version: 5.12.1
       fs-native-extensions:
-        specifier: 1.5.3
-        version: 1.5.3(bare-url@2.5.4)
+        specifier: 1.5.4
+        version: 1.5.4(bare-url@2.5.4)
       i18next:
         specifier: ^27.2.2
         version: 27.2.2(typescript@7.0.2)
@@ -2348,8 +2348,8 @@ packages:
     resolution: {integrity: sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==}
     engines: {node: 18 || 20 || >=22}
 
-  bare-addon-resolve@1.10.1:
-    resolution: {integrity: sha512-F/SD2du8keuYSb4xipnGz5j2E6yhNdHA8ZVxtHae6h2uOrpBIjjbhXvjzKZbr5XUOzqBzh/i8GVFycj2DlFQIA==}
+  bare-addon-resolve@1.12.0:
+    resolution: {integrity: sha512-MJHQVQXD2QI0O6Lq6kkRFARfJ2/vlS9NSHdK/aXtKn+0+ysbvFjjOIaKKvNXCBs3PBxX67rny81zo7ne/mceHg==}
     peerDependencies:
       bare-url: '*'
     peerDependenciesMeta:
@@ -2373,8 +2373,11 @@ packages:
       bare-buffer:
         optional: true
 
-  bare-module-resolve@1.12.5:
-    resolution: {integrity: sha512-VOncxVvVk8SQVw9vhcBnoTJD/74aR5DgdRPCm0gQ7uB5MsWpBJnoCeJrwEHKiz09O83ndf3NTjsz3LEuFxAq5A==}
+  bare-host-parser@1.0.0:
+    resolution: {integrity: sha512-Tzb/ty4aliZzZmMETMzQQUYhVs8s8cLSIweoJEA03xkrDfpLUvEyOkaGWunAxRaDBXMskP0HFvjpxMPCuNh7Nw==}
+
+  bare-module-resolve@1.12.6:
+    resolution: {integrity: sha512-tsoOqHmtF6VmNX4LYDBZwvQVkSmEagnbykNjK31LMxz/amyKfjCs4K976n7uJd1bvWfxbpLQ3Fy7qq8an6jR6Q==}
     peerDependencies:
       bare-url: '*'
     peerDependenciesMeta:
@@ -3210,8 +3213,8 @@ packages:
     resolution: {integrity: sha512-hcg3ZmepS30/7BSFqRvoo3DOMQu7IjqxO5nCDt+zM9XWjb33Wg7ziNT+Qvqbuc3+gWpzO02JubVyk2G4Zvo1OQ==}
     engines: {node: '>=10'}
 
-  fs-native-extensions@1.5.3:
-    resolution: {integrity: sha512-pl39uoPqAdANcule683Wghiw3UlQc+tDagBtKT8ltKaK/Jxu9cDL5sMjca+4eTgrHnn3I7qRO5jPG/658GOsdg==}
+  fs-native-extensions@1.5.4:
+    resolution: {integrity: sha512-gi8YE7K0ONKOfOWJaPhWFHkmFndUB8BPagq4B2uEZipkQ4QrLFI5k6GSwH/GFggWxPXxQn5IY6EgHa/tyaBjbw==}
 
   fs.realpath@1.0.0:
     resolution: {integrity: sha512-OO0pH2lK6a0hZnAdau5ItzHPI6pUlvI7jMVnxUQRtw4owF2wk8lOSabtGDCTP4Ggrg2MbGnWO9X8K1t4+fGMDw==}
@@ -7154,9 +7157,10 @@ snapshots:
 
   balanced-match@4.0.4: {}
 
-  bare-addon-resolve@1.10.1(bare-url@2.5.4):
+  bare-addon-resolve@1.12.0(bare-url@2.5.4):
     dependencies:
-      bare-module-resolve: 1.12.5(bare-url@2.5.4)
+      bare-host-parser: 1.0.0
+      bare-module-resolve: 1.12.6(bare-url@2.5.4)
       bare-semver: 1.1.0
     optionalDependencies:
       bare-url: 2.5.4
@@ -7174,7 +7178,9 @@ snapshots:
       - bare-abort-controller
       - react-native-b4a
 
-  bare-module-resolve@1.12.5(bare-url@2.5.4):
+  bare-host-parser@1.0.0: {}
+
+  bare-module-resolve@1.12.6(bare-url@2.5.4):
     dependencies:
       bare-semver: 1.1.0
     optionalDependencies:
@@ -7882,7 +7888,7 @@ snapshots:
       '@next/eslint-plugin-next': 16.4.6(eslint@10.15.0(jiti@2.7.0))
       eslint: 10.15.0(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
-      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0)(eslint@10.15.0(jiti@2.7.0))
+      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0))
       eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint-import-resolver-typescript@3.10.1)(eslint@10.15.0(jiti@2.7.0))
       eslint-plugin-jsx-a11y: 6.10.2(eslint@10.15.0(jiti@2.7.0))
       eslint-plugin-react: 7.37.5(eslint@10.15.0(jiti@2.7.0))
@@ -7904,7 +7910,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0)(eslint@10.15.0(jiti@2.7.0)):
+  eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)):
     dependencies:
       '@nolyfill/is-core-module': 1.0.39
       debug: 4.4.3
@@ -7919,14 +7925,14 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-module-utils@2.14.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1)(eslint@10.15.0(jiti@2.7.0)):
+  eslint-module-utils@2.14.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)):
     dependencies:
       debug: 3.2.7
     optionalDependencies:
       '@typescript-eslint/parser': 8.71.0(eslint@10.15.0(jiti@2.7.0))
       eslint: 10.15.0(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
-      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0)(eslint@10.15.0(jiti@2.7.0))
+      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0))
     transitivePeerDependencies:
       - supports-color
 
@@ -7941,7 +7947,7 @@ snapshots:
       doctrine: 2.1.0
       eslint: 10.15.0(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
-      eslint-module-utils: 2.14.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1)(eslint@10.15.0(jiti@2.7.0))
+      eslint-module-utils: 2.14.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0))
       hasown: 2.0.4
       is-core-module: 2.17.0
       is-glob: 4.0.3
@@ -8285,7 +8291,7 @@ snapshots:
       jsonfile: 6.2.1
       universalify: 2.0.1
 
-  fs-native-extensions@1.5.3(bare-url@2.5.4):
+  fs-native-extensions@1.5.4(bare-url@2.5.4):
     dependencies:
       require-addon: 1.3.0(bare-url@2.5.4)
       which-runtime: 1.4.0
@@ -9581,7 +9587,7 @@ snapshots:
 
   require-addon@1.3.0(bare-url@2.5.4):
     dependencies:
-      bare-addon-resolve: 1.10.1(bare-url@2.5.4)
+      bare-addon-resolve: 1.12.0(bare-url@2.5.4)
     transitivePeerDependencies:
       - bare-url
 
