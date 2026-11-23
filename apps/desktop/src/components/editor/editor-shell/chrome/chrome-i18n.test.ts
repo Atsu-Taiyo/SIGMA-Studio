@@ -34,6 +34,8 @@ const CHROME_SOURCES = [
   // ここを入れておかないと「使っているのに辞書に無い」も「誰も使っていない」も見逃す。
   "src/components/editor/EditorSettings.tsx",
   "src/components/editor/overlay-canvas/table-shape-editor.tsx",
+  // 書体メニューの中身。上部ツールバーと選択カードが共有する。
+  "src/components/editor/editor-shell/FontFamilyMenuContent.tsx",
 ];
 
 type DictionaryValue = string | { readonly [key: string]: DictionaryValue };

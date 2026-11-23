@@ -406,8 +406,8 @@ export function ShapeSelectionTools({
         </div>
       )}
 
-      {/* 重なり順・回転反転・整列・ロック・複製・削除 */}
-      <div className="shape-menu-anchor">
+      {/* 重なり順・回転反転・整列・ロック・複製・削除。カードでは直前の段の末尾に並べる。 */}
+      <div className="shape-menu-anchor selection-toolbar-more-anchor">
         <EditorToolbarMenuButton
           buttonRef={moreRef}
           className="selection-toolbar-button"

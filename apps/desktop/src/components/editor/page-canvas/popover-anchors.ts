@@ -38,6 +38,11 @@ export interface SelectionActionPopoverPosition {
    * 図形の選択は持たない (入力欄は帯の下に開く)。
    */
   trailing?: SelectionTrailingAnchor;
+  /**
+   * 選択そのものの上端・下端 (画面座標) と、上に置くときに空ける間隔。縦長のカードは帯 1 本の
+   * 高さの見積もり (`top`) では選択に重なるので、実寸の高さとこれで置き直す。
+   */
+  anchor?: { top: number; bottom: number; clearance: number };
 }
 
 /** 選んだところの右下の角と、チップを収める範囲 (いずれも画面座標)。 */
@@ -128,6 +133,7 @@ export function getSelectionActionPopoverPosition(
       ? fallbackBelowTop
       : Math.min(maxTop, Math.max(SELECTION_ACTION_POPOVER_MARGIN, preferredTop)),
     centerX: rect.left + rect.width / 2,
+    anchor: { top: rect.top, bottom: rect.bottom, clearance: verticalClearance },
   };
 }
 

@@ -16,6 +16,9 @@ import {
   type SelectionTrailingPlacement,
 } from "./popover-anchors";
 
+/** カードと選んだ文の間の隙間 (画面の px)。 */
+const SELECTION_ACTION_CARD_GAP = 8;
+
 const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 export interface SelectionActionPopoverState {
@@ -26,7 +29,7 @@ export interface SelectionActionPopoverState {
 
 /**
  * 選択範囲の近くに浮かぶ操作。書式などの編集操作と、AI への依頼・コメントを選択の上の帯 1 本に
- * 並べる (本文・画像・図形で同じ)。
+ * 並べる (本文・画像・図形で同じ)。横 1 本の帯ではなく、段に分けた縦長のカードにする。
  *
  * 本文の選択 (`position.trailing` がある) では、帯から開く AI・コメントの入力欄を選んだところの
  * すぐ下に開く — 帯の真下に開くと、選んだ文を隠す。数式だけ・ブロックを丸ごと選んだときは
@@ -67,6 +70,7 @@ export function SelectionActionPopover({
   const followUp = trailing ? getSelectionFollowUpAnchor(trailing) : undefined;
   return (
     // 紙面に浮かべる部品が避けるのは図形の選択の帯だけ (`getOverlaySelectionControlsCanvasRect`)。
+    // 書式や図形の操作を段に分けた縦長のカードにする (横 1 本に並べると長くなりすぎる)。
     <SelectionActionBand position={position} onWidthChange={trailing ? undefined : onWidthChange}>
       {tools}
       {extensionAction?.render?.(followUp ?? position)}
@@ -152,7 +156,11 @@ function SelectionTrailingActions({
   );
 }
 
-/** 選択の上に中央寄せで置く帯。`position.left` は幅の見積もりなので、実寸で置き直す。 */
+/**
+ * 選択の上に中央寄せで置く縦長のカード。`position.left` は幅の見積もりなので、実寸で置き直す。
+ * 帯 1 本の高さの見積もり (`position.top`) では選んだものに重なるので、実寸の高さで選択の上に
+ * 置き直す。上に収まらなければ選択の下へ回す。
+ */
 function SelectionActionBand({
   position,
   onWidthChange,
@@ -174,7 +182,13 @@ function SelectionActionBand({
     const place = () => {
       const viewport = root.closest<HTMLElement>(".editor-canvas");
       const minTop = viewport ? Math.max(SELECTION_ACTION_POPOVER_MARGIN, viewport.getBoundingClientRect().top + SELECTION_ACTION_POPOVER_MARGIN) : SELECTION_ACTION_POPOVER_MARGIN;
-      setTop(Math.max(minTop, position.top));
+      const anchor = position.anchor;
+      if (anchor) {
+        const above = anchor.top - anchor.clearance - root.offsetHeight;
+        setTop(above >= minTop ? above : anchor.bottom + SELECTION_ACTION_CARD_GAP);
+      } else {
+        setTop(Math.max(minTop, position.top));
+      }
       const width = root.offsetWidth;
       onWidthChange?.(width);
       const center = position.centerX ?? position.left + width / 2;
@@ -195,12 +209,12 @@ function SelectionActionBand({
       observer.disconnect();
       window.removeEventListener("resize", place);
     };
-  }, [onWidthChange, position.centerX, position.left, position.top]);
+  }, [onWidthChange, position.anchor, position.centerX, position.left, position.top]);
 
   return (
     <div
       ref={rootRef}
-      className="selection-action-popover"
+      className="selection-action-popover selection-action-popover--card"
       style={{ left: `${left}px`, top: `${top}px` }}
       onMouseDown={keepEditorSelection}
     >
@@ -231,7 +245,7 @@ function CommentActions({
       {onCommentAnchorRequest && (
         <button
           type="button"
-          className="selection-action-labeled"
+          className="selection-action-icon"
           title={commentLabel}
           aria-label={commentLabel}
           onClick={(event) => {
@@ -240,7 +254,6 @@ function CommentActions({
           }}
         >
           <MessageSquarePlus size={16} aria-hidden="true" />
-          <span>{tEditorText("pageCanvas.commentShort")}</span>
         </button>
       )}
     </>

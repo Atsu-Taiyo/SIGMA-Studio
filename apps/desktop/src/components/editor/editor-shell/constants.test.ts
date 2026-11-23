@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { resolveDocumentFontFamily } from "@/features/document";
 import { createTranslator } from "@/lib/i18n";
 
 import {
@@ -50,6 +51,18 @@ describe("font family catalog", () => {
     ]));
     for (const option of FONT_FAMILY_GROUPS.flatMap((group) => group.options)) {
       expect(option.value).toMatch(/(?:sans-serif|serif|monospace|cursive)$/);
+    }
+  });
+
+  it("keeps every menu font as chosen, never rewritten to another face on load", () => {
+    // 古い文書の書体を読み替える表 (`resolveDocumentFontFamily`) に一致する値をメニューに置くと、
+    // 選んだ書体と違う書体名が表示され、保存して開き直すと別の書体になる (以前の游明朝)。
+    for (const option of FONT_FAMILY_GROUPS.flatMap((group) => group.options)) {
+      expect(resolveDocumentFontFamily(option.value), option.label).toBe(option.value);
+    }
+    // 空文字は「既定の書体に戻す」。
+    for (const value of Object.values(SHORTCUT_FONT_FAMILIES).filter(Boolean)) {
+      expect(resolveDocumentFontFamily(value)).toBe(value);
     }
   });
 

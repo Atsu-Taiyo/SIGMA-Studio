@@ -8,3 +8,5 @@ export function stepFontSize(current: number, direction: 1 | -1): number {
   const base = Number.isFinite(current) && current > 0 ? current : 12;
   return Math.max(MIN_FONT_SIZE, Math.round((base + direction) * 1000) / 1000);
 }
+
+export { formatFontSize } from "../toolbar-formatting";

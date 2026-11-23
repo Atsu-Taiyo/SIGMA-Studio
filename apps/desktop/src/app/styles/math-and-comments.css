@@ -479,16 +479,6 @@
   white-space: nowrap;
 }
 
-.selection-action-popover .selection-toolbar-select {
-  min-width: 0;
-  gap: 4px;
-  padding: 0 8px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
 .selection-action-popover .selection-toolbar-size {
   display: inline-flex;
   align-items: center;
@@ -510,6 +500,65 @@
   border-radius: 6px;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+}
+
+/* 選択のメニューは縦長のカードにする (Notion の選択メニューと同じ形)。本文の書式は 2 段に分け、
+   図形の操作は区切りごとに段を改める。最後に区切り線を挟んでポケット・AI・コメントを並べる。 */
+.selection-action-popover--card {
+  width: 288px;
+  padding: 6px;
+  gap: 2px;
+  row-gap: 2px;
+  border-radius: 12px;
+}
+
+.selection-action-popover--card > .selection-toolbar-row {
+  display: flex;
+  flex: 0 0 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+}
+
+.selection-action-popover--card > .selection-action-divider {
+  flex: 0 0 100%;
+  width: auto;
+  height: 1px;
+  margin: 4px 0;
+}
+
+/* 図形の「…」は 1 段を取らず、直前の段 (図形の色・画像の操作など) の末尾に並べる。 */
+.selection-action-popover--card > .selection-action-divider:has(+ .selection-toolbar-more-anchor) {
+  display: none;
+}
+
+.selection-action-popover--card .selection-toolbar-size {
+  margin-right: auto;
+}
+
+/* 書体: 書体名をその書体で見せる。長い名前は省略する。 */
+.selection-action-popover .selection-toolbar-font {
+  max-width: 104px;
+  min-width: 0;
+  gap: 2px;
+  padding: 0 4px 0 8px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.selection-toolbar-font-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selection-action-popover .selection-action-icon {
+  padding: 0;
+}
+
+/* カードの最下段では、コメントのアイコンを右端に寄せる。 */
+.selection-action-popover--card > .selection-action-icon:last-child {
+  margin-left: auto;
 }
 
 .selection-toolbar-size-menu {

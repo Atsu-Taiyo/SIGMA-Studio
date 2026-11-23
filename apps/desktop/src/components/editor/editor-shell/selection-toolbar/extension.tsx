@@ -39,7 +39,7 @@ export function createSelectionToolbarExtension(): PageCanvasSelectionExtension 
 /**
  * 選んでいる文章・図形をポケットへ入れる。押しても選択は動かない (ボタンが焦点を奪わない) ので、
  * 続けて別のものを選んで入れられる。入れ方は ⌘⇧C と同じ。
- * アイコンだけでは「何が起きるか」が読み取れないので、AI への依頼やコメントと同じく言葉を添える。
+ * アイコンだけでは「何が起きるか」が読み取れないので、AI への依頼と同じく言葉を添える。
  */
 function PocketAddTool() {
   const t = useT("editor");
@@ -58,8 +58,8 @@ function TextToolsHost() {
   return (
     <>
       <TextSelectionTools text={binding.text} />
-      <PocketAddTool />
       <ToolDivider />
+      <PocketAddTool />
     </>
   );
 }
@@ -72,8 +72,8 @@ function ShapeToolsHost() {
   return (
     <>
       <ShapeSelectionTools shape={binding.shape} text={binding.text} />
-      <PocketAddTool />
       <ToolDivider />
+      <PocketAddTool />
     </>
   );
 }
