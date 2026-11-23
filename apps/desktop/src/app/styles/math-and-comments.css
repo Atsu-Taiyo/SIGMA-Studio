@@ -512,6 +512,11 @@
   border-radius: 12px;
 }
 
+/* ドロップ先の本文を選択メニューが覆わないよう、ポケットのドラッグ中だけ隠す。 */
+[data-pocket-dragging] .selection-action-popover {
+  visibility: hidden;
+}
+
 .selection-action-popover--card > .selection-toolbar-row {
   display: flex;
   flex: 0 0 100%;
