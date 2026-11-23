@@ -65,8 +65,8 @@ importers:
         specifier: 1.5.3
         version: 1.5.3(bare-url@2.5.4)
       i18next:
-        specifier: ^27.1.0
-        version: 27.1.0(typescript@7.0.2)
+        specifier: ^27.1.5
+        version: 27.1.5(typescript@7.0.2)
       jsdom:
         specifier: ^31.0.1
         version: 31.0.1(@napi-rs/canvas@1.1.0)(@noble/hashes@1.8.0)
