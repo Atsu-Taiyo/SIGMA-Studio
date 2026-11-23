@@ -3,14 +3,8 @@ import { pathToFileURL } from "node:url";
 
 // Advisories that the dependency gate tolerates for a limited time.
 //
-// Both entries are approved by the repository owner and are time-limited:
-// - Both packages are development/build dependencies only (lint, test and
-//   packaging tools). Neither is part of the distributed app, and
-//   `npm audit --omit=dev` reports no vulnerabilities. That audit runs below
-//   with no exceptions at all, so an entry here can never cover a shipped
-//   dependency.
-// - picomatch: every published release (up to 4.0.7, the latest) is in the
-//   advisory range. There is no patched version to move to yet.
+// The remaining entry is approved by the repository owner. The separate
+// production audit applies no exceptions to shipped dependencies.
 // - minimatch: fixed in 11.0.1, but every consumer here (eslint,
 //   @eslint/config-array, @typescript-eslint/typescript-estree,
 //   app-builder-lib, @electron/universal) declares minimatch ^10 or ^9, and
@@ -26,12 +20,6 @@ import { pathToFileURL } from "node:url";
 // or renew it deliberately. An entry matches one advisory id of one package and
 // nothing else, so any other advisory is reported exactly as before.
 export const AUDIT_EXCEPTIONS = Object.freeze([
-  Object.freeze({
-    id: "GHSA-fc5q-39xc-vjpf",
-    package: "picomatch",
-    reason: "Development/build dependency only; no patched release exists (latest 4.0.7 is affected).",
-    expires: "2026-12-31",
-  }),
   Object.freeze({
     id: "GHSA-g3hv-75wg-m249",
     package: "minimatch",
