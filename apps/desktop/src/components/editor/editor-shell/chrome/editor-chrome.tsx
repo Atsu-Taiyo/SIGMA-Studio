@@ -1058,8 +1058,9 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   };
 
   const adjustFontSize = (delta: number) => {
-    const parsedInput = Number(fontSizeInput);
-    const baseSize = fontSizeInput.trim() && Number.isFinite(parsedInput) && parsedInput > 0
+    const draft = fontSizeInput.trim();
+    const parsedInput = Number(draft);
+    const baseSize = draft !== shownFontSize && Number.isFinite(parsedInput) && parsedInput > 0
       ? parsedInput
       : activeTextFontSize;
     if (baseSize === null) return;

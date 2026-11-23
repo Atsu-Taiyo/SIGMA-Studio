@@ -132,7 +132,7 @@ test("shows inherited and mixed effective sizes and steps by 1pt", async ({ page
       { type: "heading", id: "heading_size", level: 2, children: [{ type: "text", text: "見出し" }] },
       { type: "paragraph", id: "inherited_size", children: [{ type: "text", text: "本文" }] },
       { type: "paragraph", id: "mixed_size", children: [
-        { type: "text", text: "注記", fontSize: 7.5 }, { type: "text", text: "本文" },
+        { type: "text", text: "注記", fontSize: 7.54 }, { type: "text", text: "本文" },
       ] },
       { type: "paragraph", id: "math_size", children: [
         { type: "text", text: "前" },
@@ -150,7 +150,8 @@ test("shows inherited and mixed effective sizes and steps by 1pt", async ({ page
     const block = (id: string) => page.locator(`.text-flow-editor [data-sigma-doc-id="${id}"]`);
     await expect(block("heading_size")).toBeVisible();
     await placeCaret(page, "heading_size", 1);
-    await expect(sizeButton).toHaveValue("17.04");
+    await expect(sizeButton).toHaveValue("17");
+    await expect(toolbar.locator(".toolbar-font-size-control")).toHaveAttribute("title", "17.04pt");
     await placeCaret(page, "inherited_size", 1);
     await expect(sizeButton).toHaveValue("12");
     await block("empty_size").click();
@@ -163,10 +164,11 @@ test("shows inherited and mixed effective sizes and steps by 1pt", async ({ page
     await expect(sizeButton).toHaveValue("7.5");
     await up.click();
     await expect(sizeButton).toHaveValue("8.5");
+    await expect(toolbar.locator(".toolbar-font-size-control")).toHaveAttribute("title", "8.54pt");
     await expect.poll(() => selectedText(page)).toBe("注記本文");
     await down.click();
     await expect(sizeButton).toHaveValue("7.5");
-    await expect(block("mixed_size").locator("[style*='font-size']")).toHaveCSS("font-size", "10px");
+    await expect(toolbar.locator(".toolbar-font-size-control")).toHaveAttribute("title", "7.54pt");
 
     // Text selection including math uses the outer inline size, not KaTeX's scaled glyph size.
     await selectTextAcrossBlocks(page, "math_size", "math_size");

@@ -61,7 +61,8 @@ test("font sizes use the real Electron bridge and survive an app restart", async
     const up = () => page.locator(QUICK_TOOLBAR).getByRole("button", { name: "フォントサイズを大きく", exact: true });
     const down = () => page.locator(QUICK_TOOLBAR).getByRole("button", { name: "フォントサイズを小さく", exact: true });
     await selectBody(page, "heading_size", 1, 1);
-    await expect(sizeInput()).toHaveValue("17.04");
+    await expect(sizeInput()).toHaveValue("17");
+    await expect(page.locator(".toolbar-font-size-control")).toHaveAttribute("title", "17.04pt");
     await selectBody(page, "body_size", 2, 4);
     await expect(sizeInput()).toHaveValue("12");
     await up().click();
@@ -158,7 +159,8 @@ test("font sizes use the real Electron bridge and survive an app restart", async
     await expect(body.locator("[style*='font-size']")).toHaveText("注記");
     await expect(body.locator("[style*='font-size']")).toHaveCSS("font-size", "10px");
     await selectBody(page, "heading_size", 1, 1);
-    await expect(sizeInput()).toHaveValue("17.04");
+    await expect(sizeInput()).toHaveValue("17");
+    await expect(page.locator(".toolbar-font-size-control")).toHaveAttribute("title", "17.04pt");
     await expect.poll(savedShape).toMatchObject({ props: { blocks: [{ children: [{ fontSize: 14 }] }] } });
     await expect.poll(savedMathShape).toMatchObject({ props: { fontSize: 12, blocks: [{ children: [
       { type: "mathInline", fontSize: 12 }, { type: "text", fontSize: 12 },
