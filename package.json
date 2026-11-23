@@ -1,6 +1,6 @@
 {
   "name": "sigma-studio-workspace",
-  "version": "0.540.0",
+  "version": "0.541.0",
   "private": true,
   "scripts": {
     "postinstall": "node scripts/patch-http-cache-semantics.mjs",
@@ -62,7 +62,7 @@
     "@next/eslint-plugin-next": "16.4.6",
     "typescript-compiler-api": "npm:typescript@5.9.3",
     "js-yaml": "4.3.2",
-    "eslint": "9.39.5",
+    "eslint": "10.15.0",
     "typescript": "7.0.2",
     "@sigma-studio/viewer": "workspace:*"
   },

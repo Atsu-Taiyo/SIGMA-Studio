@@ -1,6 +1,6 @@
 {
   "name": "@sigma-studio/desktop",
-  "version": "0.540.0",
+  "version": "0.541.0",
   "description": "数式と図形を扱う教材エディタ / A teaching-material editor for mathematics and diagrams",
   "private": true,
   "main": "dist-electron/main.cjs",
@@ -32,9 +32,9 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "@napi-rs/canvas": "^1.1.0",
+    "@napi-rs/canvas": "^1.1.1",
     "electron-updater": "^6.8.11",
-    "fast-xml-parser": "^5.12.0",
+    "fast-xml-parser": "^5.12.1",
     "fs-native-extensions": "1.5.3",
     "i18next": "^27.1.5",
     "jsdom": "^31.0.1",
@@ -81,7 +81,7 @@
     "eslint-config-next": "^16.4.6",
     "happy-dom": "^21.0.4",
     "jszip": "^3.10.1",
-    "lucide-react": "^1.73.0",
+    "lucide-react": "^1.75.0",
     "next": "^16.4.6",
     "pptx-svg": "^0.6.8",
     "pptx-viewer-core": "^4.14.1",
@@ -90,7 +90,7 @@
     "three": "^0.187.0",
     "typescript": "^7.0.2",
     "utif": "^3.1.0",
-    "vitest": "^5.1.0",
+    "vitest": "^5.1.1",
     "zustand": "^5.1.0"
   }
 }
