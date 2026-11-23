@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test } from "@playwright/test";
 import type { SigmaDocument } from "@/features/document";
+import { handleSessionPrompts } from "./session-prompts";
 
 const APP_ROOT = path.resolve(__dirname, "../..");
 
@@ -48,11 +49,11 @@ test("large vector measurement and normal PDF preview recover after delayed Font
   };
   try {
     const page = await app.firstWindow();
+    await handleSessionPrompts(page);
     await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
     await page.evaluate(() => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
       localStorage.setItem("sigma-studio:usage-guide-dismissed:v1", "1");
-      localStorage.setItem("sigma-studio:github-star-dismissed:v1", "1");
     });
     await page.reload();
     await expect(page.locator('[data-startup-splash]')).toBeHidden({ timeout: 60_000 });
