@@ -11,7 +11,7 @@ packageImportMethod: hardlink
 overrides:
   undici@^6: ^6.29.1
   undici@^7: ^7.30.1
-  postcss: ^8.5.28
+  postcss: 8.5.33
   http-cache-semantics: 4.3.0
   '@next/eslint-plugin-next>fast-glob': npm:tinyglobby@0.2.17
   # pnpm import otherwise deduplicates npm's nested Node 24 typings into 26.
