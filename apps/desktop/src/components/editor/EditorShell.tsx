@@ -148,6 +148,7 @@ ZOOM_PRESETS
 import { type DocumentOpenFailure } from "@/components/editor/editor-shell/document-open-failure";
 import { formatDocumentRecoveryStatus } from "@/components/editor/editor-shell/recovery-status";
 import { SelectionToolbarProvider,type SelectionToolbarBinding } from "@/components/editor/editor-shell/selection-toolbar/binding";
+import { fontFamilyFormatValue, type FontFamilyMenuModel } from "@/components/editor/editor-shell/FontFamilyMenuContent";
 import { createSelectionToolbarExtension } from "@/components/editor/editor-shell/selection-toolbar/extension";
 import { planShapeTools } from "@/components/editor/editor-shell/selection-toolbar/model";
 import type { DocumentChange,DocumentChangeOptions,HiddenDocumentTargets } from "@/components/editor/editor-shell/types";
@@ -374,8 +375,10 @@ import { getVisibleEditorPageNumber,scrollEditorCanvasToPage } from "@/component
 import {
 clampBoxedTextPaddingY,
 clampBoxedTextRoundness,
+formatFontSize,
 getFontFamilyLabel,
 normalizeBoxedTextVariant,
+normalizeToolbarFontFamily,
 type BlockStyleCommandValue
 } from "@/components/editor/editor-shell/toolbar-formatting";
 import { useRequestedCommentThread } from "@/components/editor/editor-shell/use-requested-comment-thread";
@@ -2885,7 +2888,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     // Keep the inline field in sync with the selection without replacing a value
     // while the user is in the middle of editing it.
     if (fontSizeInputRef.current === window.document.activeElement) return;
-    setFontSizeInput(activeTextFontSize === null ? "" : String(activeTextFontSize));
+    setFontSizeInput(activeTextFontSize === null ? "" : formatFontSize(activeTextFontSize));
   }, [activeTextFontSize, setFontSizeInput]);
   const canUseTextBlockStyle = textToolbar.canUseTextBlockStyle;
   /**
@@ -4685,6 +4688,26 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     );
   }
 
+  // 書体メニューの中身。上部ツールバーと選択カードが同じものを開く。
+  const fontFamilyMenu: FontFamilyMenuModel = {
+    value: fontFamily,
+    label: activeFontFamilyLabel,
+    mixed: fontFamilyIsMixed,
+    isKnownOption: fontFamilyIsKnownOption,
+    query: fontFamilyQuery,
+    setQuery: setFontFamilyQuery,
+    recentOptions: visibleRecentFontOptions,
+    customOptions: visibleCustomFontOptions,
+    groups: visibleFontFamilyGroups,
+    browserFontAccess,
+    requestSystemFonts,
+    shortcut: fontFamilyShortcut,
+    select: (value) => {
+      setFontFamily(normalizeToolbarFontFamily(value));
+      applyInlineFormat("fontFamily", fontFamilyFormatValue(value));
+    },
+  };
+
   // 選択の近くに出す操作バーへ渡す値。上部ツールバーと同じ状態・同じ操作の窓口で、
   // 別の書式実装は持たない (押せる/押せないの判定もツールバーと一致する)。
   const selectionToolbarBinding: SelectionToolbarBinding = {
@@ -4696,6 +4719,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       canAlign: canUseTextAlign,
       fontSize: activeTextFontSize,
       fontSizeMixed: activeTextFontSizeMixed,
+      fontFamily: fontFamilyMenu,
       blockStyle: selectedTextStyle,
       blockStructure: blockStyleState,
       bold: boldActive,
@@ -4799,6 +4823,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen,
       textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef,
       toggleBoxedText, underlineActive, visibleRecentFontOptions, visibleCustomFontOptions, visibleFontFamilyGroups,
+      fontFamilyMenu,
     },
     insert: {
       ActiveLineToolIcon, activeLineToolItem, activeOverlayTool, bodyToolbarLockedByAi,

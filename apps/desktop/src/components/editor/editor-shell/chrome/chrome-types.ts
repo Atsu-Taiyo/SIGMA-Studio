@@ -36,6 +36,7 @@ import type { NewMaterialTargets } from "@/components/editor/editor-shell/use-ne
 import type { UiLayoutPreference } from "@/lib/ui-layout-preference";
 import type { DesktopUpdateState } from "@/types/desktop";
 import type { BrowserFontAccess } from "@/lib/browser-local-fonts";
+import type { FontFamilyMenuModel } from "@/components/editor/editor-shell/FontFamilyMenuContent";
 import type { LucideIcon } from "lucide-react";
 
 import type { ColumnCommandState } from "./layout-commands";
@@ -199,6 +200,8 @@ export interface EditorChromeFormat {
   visibleFontFamilyGroups: FontFamilyGroup[];
   browserFontAccess: BrowserFontAccess | null;
   requestSystemFonts: () => void;
+  /** 書体メニューの中身と操作。上部ツールバーと選択カードで共有する。 */
+  fontFamilyMenu: FontFamilyMenuModel;
 }
 
 /** 挿入グループ。 */

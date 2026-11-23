@@ -63,11 +63,16 @@ test.beforeEach(() => {
   test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
 });
 
-test("outline card opens from the icon under the AI task entry, jumps to a heading and keeps it selected", async ({}, testInfo) => {
+test("outline card opens from the dash rail under the AI task entry, jumps to a heading and keeps it selected", async ({}, testInfo) => {
   await withMaterial(materialWithHeadings(), async (page) => {
     const dock = page.locator("[data-outline-dock]");
     const toggle = dock.locator("button[aria-expanded]");
     await expect(toggle).toBeVisible();
+
+    // 畳んだ入口は Notion の目次と同じ、項目ごとの線のレール。
+    await expect(toggle.locator("[data-depth]")).not.toHaveCount(0);
+    await expect(toggle.locator("[data-reading]")).toHaveCount(1);
+    await toggle.screenshot({ path: testInfo.outputPath("outline-rail.png") });
 
     // AI タスクの入口の真下 (32px のアイコン + 8px の間隔)。
     const aiBox = (await page.locator(".ai-task-dock-toggle").boundingBox())!;
@@ -121,5 +126,41 @@ test("no outline entry for a material without headings or problems", async () =>
   await withMaterial(material, async (page) => {
     await expect(page.locator(".ai-task-dock-toggle")).toBeVisible();
     await expect(page.locator("[data-outline-dock]")).toHaveCount(0);
+  });
+});
+
+test("the reading marker remains visible when a long outline exceeds the rail height", async () => {
+  const material: SigmaDocument = {
+    ...createBlankDocument("長いアウトライン"),
+    content: [
+      ...Array.from({ length: 180 }, (_, index) => ({
+        type: "heading" as const,
+        id: `outline_${index}`,
+        level: 1 as const,
+        children: [{ type: "text" as const, text: `見出し ${index + 1}` }],
+      })),
+      ...Array.from({ length: 12 }, (_, index) => ({
+        type: "paragraph" as const,
+        id: `outline_tail_${index}`,
+        children: [{ type: "text" as const, text: "本文の続きです。".repeat(24) }],
+      })),
+    ],
+  };
+
+  await withMaterial(material, async (page) => {
+    await page.setViewportSize({ width: 1100, height: 630 });
+    const rail = page.locator("[data-outline-rail]");
+    const lastRow = rail.locator("[data-depth]").last();
+    await expect(rail.locator("[data-depth]")).toHaveCount(180);
+
+    await page.locator("#outline_179").evaluate((element) => {
+      element.scrollIntoView({ block: "start", behavior: "instant" });
+    });
+    await expect(lastRow).toHaveAttribute("data-reading", "");
+    await expect.poll(() => lastRow.evaluate((row) => {
+      const railBounds = row.parentElement!.getBoundingClientRect();
+      const markerBounds = row.firstElementChild!.getBoundingClientRect();
+      return markerBounds.top >= railBounds.top && markerBounds.bottom <= railBounds.bottom;
+    })).toBe(true);
   });
 });

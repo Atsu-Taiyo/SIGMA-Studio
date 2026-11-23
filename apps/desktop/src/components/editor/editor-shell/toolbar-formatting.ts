@@ -13,6 +13,14 @@ import {
 } from "@/features/document";
 import { normalizeCodeLanguage } from "@/features/rendering/adapters";
 
+/**
+ * 表示用の文字サイズ。内部の値は小数点以下が長く残ることがある (10.4999… など) ので、
+ * 小数第 1 位までに丸めて末尾の 0 は付けない。上部ツールバーと選択カードで共通。
+ */
+export function formatFontSize(size: number): string {
+  return String(Math.round(size * 10) / 10);
+}
+
 export function normalizeToolbarFontFamily(value: unknown): string {
   return typeof value === "string" && value.trim().length > 0 ? value : DEFAULT_FONT_FAMILY_VALUE;
 }

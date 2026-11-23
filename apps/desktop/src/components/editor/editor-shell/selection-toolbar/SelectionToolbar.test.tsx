@@ -17,6 +17,21 @@ const text: SelectionToolbarTextBinding = {
   canAlign: true,
   fontSize: 12,
   fontSizeMixed: false,
+  fontFamily: {
+    value: "Hiragino Sans",
+    label: "ヒラギノ角ゴ",
+    mixed: false,
+    isKnownOption: true,
+    query: "",
+    setQuery: noop,
+    recentOptions: [],
+    customOptions: [],
+    groups: [],
+    browserFontAccess: null,
+    requestSystemFonts: noop,
+    shortcut: () => undefined,
+    select: noop,
+  },
   blockStyle: "h2",
   blockStructure: { listType: null, orderedMarkerStyle: null, inQuoteBlock: false, inCodeBlock: false, onDivider: false, codeLanguage: null },
   bold: true,
@@ -90,20 +105,30 @@ function render(node: React.ReactElement): string {
 }
 
 describe("TextSelectionTools", () => {
-  it("shows the paragraph style (heading level), font size and inline format for body text", () => {
+  it("shows font size and inline format for body text, without the paragraph style menu", () => {
     const html = render(<TextSelectionTools text={text} />);
-    expect(html).toContain("見出し 2");
+    expect(html).not.toContain('aria-label="段落スタイル"');
+    expect(html).not.toContain("見出し 2");
     expect(html).toContain('aria-label="フォントサイズ"');
     expect(html).toContain(">12<");
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain("囲み文字の種類と上下余白 0px");
+    expect(html).toContain("ヒラギノ角ゴ");
   });
 
-  it("leaves the paragraph style and block menus out for text inside a shape", () => {
+  it("leaves the block menus out for text inside a shape but keeps the font", () => {
     const html = render(<TextSelectionTools text={text} scope="shape" />);
     expect(html).not.toContain('aria-label="段落スタイル"');
     expect(html).not.toContain("その他のブロック");
+    expect(html).toContain("ヒラギノ角ゴ");
     expect(html).toContain('aria-label="フォントサイズ"');
+  });
+
+  it("rounds a long fractional font size to one decimal place", () => {
+    const html = render(<TextSelectionTools text={{ ...text, fontSize: 10.4999999999 }} />);
+    expect(html).toContain(">10.5<");
+    expect(html).toContain('title="10.5pt"');
+    expect(html).not.toContain("10.4999");
   });
 
   it("leaves an unresolved size blank and disables only its steppers", () => {

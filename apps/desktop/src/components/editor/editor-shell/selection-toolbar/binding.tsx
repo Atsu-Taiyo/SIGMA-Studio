@@ -2,6 +2,7 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 
+import type { FontFamilyMenuModel } from "@/components/editor/editor-shell/FontFamilyMenuContent";
 import type { OverlayActionRequestInput, OverlaySelectionStylePatch, OverlaySelectionSummary } from "@/components/editor/page-overlay-types";
 import type { BoxedVariant } from "@/features/document";
 import type { TextAlign } from "@/features/document";
@@ -26,6 +27,8 @@ export interface SelectionToolbarTextBinding {
   /** null until the current selection has supplied its effective size. */
   fontSize: number | null;
   fontSizeMixed: boolean;
+  /** 書体メニュー。上部ツールバーと同じ中身・同じ操作。 */
+  fontFamily: FontFamilyMenuModel;
   /** `paragraph` / `h1`〜`h3`。段落スタイルの対象でなければ空文字。 */
   blockStyle: string;
   blockStructure: BlockStyleToolbarState;
