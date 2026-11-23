@@ -15,6 +15,11 @@ describe("detectCommentAiMention", () => {
     }
   });
 
+  it("maps @sigma to the built-in AI", () => {
+    expect(detectCommentAiMention(text("@sigma ここに図を入れて"))).toEqual({ provider: "sigma", authorName: "SIGMA AI", token: "@sigma" });
+    expect(detectCommentAiMention(text("@sigmaoid は対象外"))).toBeNull();
+  });
+
   it("maps @claude to the claude provider", () => {
     const match = detectCommentAiMention(text("@claude ここを整理して"));
     expect(match).toEqual({ provider: "claude", authorName: "Claude", token: "@claude" });

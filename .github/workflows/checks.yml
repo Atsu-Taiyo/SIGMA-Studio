@@ -16,7 +16,7 @@ jobs:
   required-ci:
     name: Required CI
     if: ${{ always() }}
-    needs: [desktop, dependency-security, electron-smoke, electron-smoke-required, public-packages, file-lock, pdf-parity, windows-pocket-tex]
+    needs: [desktop, dependency-security, electron-smoke, electron-smoke-required, public-packages, file-lock, pdf-parity, windows-pocket-tex, sigma-ai-package]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -26,7 +26,7 @@ jobs:
         run: |
           node <<'NODE'
           const results = JSON.parse(process.env.REQUIRED_CI_RESULTS ?? "{}");
-          const required = ["desktop", "dependency-security", "electron-smoke", "electron-smoke-required", "public-packages", "file-lock", "pdf-parity", "windows-pocket-tex"];
+          const required = ["desktop", "dependency-security", "electron-smoke", "electron-smoke-required", "public-packages", "file-lock", "pdf-parity", "windows-pocket-tex", "sigma-ai-package"];
           const incomplete = required.filter((name) => results[name]?.result !== "success");
           if (incomplete.length > 0) {
             for (const name of incomplete) {
@@ -149,6 +149,47 @@ jobs:
       # Includes build/test dependencies: compromised tooling can affect releases.
       - run: pnpm run dependencies:check
       - run: pnpm run security:audit
+      - name: Audit the separate SIGMA AI runtime and test the gateway
+        run: |
+          npm --prefix apps/desktop/dsh-runtime audit --omit=dev
+          node --test apps/web/ai-gateway/gateway.test.mjs
+
+  sigma-ai-package:
+    name: SIGMA AI packaged runtime (${{ matrix.target }} ${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: mac, arch: arm64 }
+          - { os: macos-latest, target: mac, arch: x64 }
+          - { os: windows-latest, target: win, arch: x64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 11.1.2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24.22.1"
+          cache: pnpm
+      - run: node scripts/check-desktop-runtime-lock.mjs
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @sigma-studio/desktop run electron:prepare
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+      - name: Build an unpacked application with the target's Node and DSH
+        working-directory: apps/desktop
+        run: pnpm exec electron-builder --config electron-builder.config.cjs --${{ matrix.target }} --${{ matrix.arch }} --dir --publish never
+      - name: Exercise attachments and approval with that exact runtime
+        shell: bash
+        run: |
+          runtime="$(find apps/desktop/release -type d -name dsh-runtime -print -quit)"
+          test -n "$runtime"
+          SIGMA_STUDIO_DSH_RUNTIME_DIR="$(node -p 'require("node:path").resolve(process.argv[1])' "$runtime")"
+          export SIGMA_STUDIO_DSH_RUNTIME_DIR
+          pnpm --filter @sigma-studio/desktop run test:e2e:electron tests/electron/sigma-ai.spec.ts --grep 'built-in AI edits through|concurrent edit'
 
   electron-smoke:
     name: Electron persistence and IPC smoke (${{ matrix.shard }}/2)

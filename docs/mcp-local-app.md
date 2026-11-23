@@ -174,6 +174,7 @@ Claudeの `--allowedTools` は `mcp__sigma-studio-local__*` で、sigma-studio-l
 | MCP編集方針 (`buildMcpEditInvariantGuidanceSection`) | ツールをまたぐ方針: 読み取りの順、編集の経路、表・グラフ・図形はoverlayで作り直さず部分更新、insert系の `targetId` (`END_OF_DOCUMENT` / ホワイトボードは `CANVAS`)、図・イラストの使い分け (`svgImageGuidance`)、visual edit session、素材、画像からの再構成、ライブラリ参照、AI設定の変更 | Claude と Antigravity は会話の最初のプロンプト、Codex はスレッド開始時の developerInstructions |
 | 各ツールの description と inputSchema | そのツールだけの使い方: SVGの制約・描き方・確認 (`insert_svg_image`)、`kind:"text"` の寸法や標準kind (`insert_shape`)、`cellPatches` (`update_table`)、部分更新とpreviewでの確認 (`update_page_layout`) など | 3ホストとも、モデルがそのツールを調べたときだけ (最初のプロンプトにはツール名の一覧だけが載る) |
 | server instructions (`SIGMA_DOC_MCP_SERVER_INSTRUCTIONS`) | サーバーの素性だけ (SigmaDoc JSONが正本、書き込みは承認待ちの提案)。作業方針は書かない | 下のとおりホストごとに違う |
+| 内蔵AIの道具の案内 (`prompt.ts` の `sigmaSkillTool`) | 内蔵AI (SIGMA AI) だけに毎ターン付ける短い節: シェル・ファイル・Web検索の道具は無い、スキルは `skill` ツールで読む、ツールを呼ばずに完了を報告しない。構成は [docs/sigma-ai.md](sigma-ai.md) | 内蔵AIだけ |
 | 公式スキル | 作業の種類ごとの詳しい手順 (図の作り方は `official-svg-figure`) | プロバイダが必要なときだけ |
 
 server instructions の届き方は、2026-10-13 に固有の合言葉を入れた検証用MCPサーバーと実際の Sigma Studio MCP で確かめました (Claude Code 2.1.296、Codex CLI 0.154.0 とアプリの実行記録 0.156.1、Antigravity CLI 1.3.4)。

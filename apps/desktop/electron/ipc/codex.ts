@@ -9,6 +9,8 @@ import { assertUsableCliBinPath } from "../cli-spawn";
 import type { CodexAppServerClient } from "../codex-app-server-client";
 import { writeDesktopSettings } from "../desktop-settings";
 import type { GeminiHeadlessClient } from "../gemini-headless-client";
+import type { DshHarnessClient } from "../dsh-harness-client";
+import { describeSigmaUnavailable } from "../sigma-edit";
 
 const te = createCurrentLocaleTranslator("error");
 
@@ -61,12 +63,13 @@ export interface RegisterCodexIpcDeps {
   claudeStreamClient: ClaudeStreamClient;
   geminiHeadlessClient: GeminiHeadlessClient;
   geminiSkillDraftClient: GeminiHeadlessClient;
+  dshHarnessClient: DshHarnessClient;
   getMainWindow: () => BrowserWindow | null;
   openExternalUrl: (url: string) => void;
 }
 
 export function registerCodexIpc(deps: RegisterCodexIpcDeps): void {
-  const { dataDir, codexAppServerClient, claudeStreamClient, geminiHeadlessClient, getMainWindow, openExternalUrl } = deps;
+  const { dataDir, codexAppServerClient, claudeStreamClient, geminiHeadlessClient, dshHarnessClient, getMainWindow, openExternalUrl } = deps;
 
   ipcMain.handle("codex:get-status", async () => {
     return codexAppServerClient.getStatus();
@@ -198,6 +201,12 @@ export function registerCodexIpc(deps: RegisterCodexIpcDeps): void {
     getMainWindow,
     broadcastStatusChange: broadcastGeminiStatusChange,
     mapStatus: (status) => ({ ...status, account: null }),
+  });
+
+  // 内蔵AI (SIGMA AI)。CLI のパス設定もログインも無いので、状態を返すだけ。
+  ipcMain.handle("sigma-ai:get-status", async () => {
+    const status = await dshHarnessClient.getStatus();
+    return { ...status, error: status.available ? null : describeSigmaUnavailable(status) };
   });
 
   ipcMain.handle("gemini:list-models", async () => {

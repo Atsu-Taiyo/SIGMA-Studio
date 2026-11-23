@@ -1,8 +1,10 @@
 import {
   CLAUDE_AI_EDIT_MODELS,
   claudeModelLabel,
+  AI_PROVIDER_LABELS,
   GEMINI_AI_EDIT_MODELS,
   geminiModelLabel,
+  SIGMA_AI_EDIT_MODEL,
   type AiProvider,
 } from "@/lib/ai/ai-providers";
 import {
@@ -53,6 +55,10 @@ export function getFallbackAiModelOptions(provider: AiProvider): DesktopAiModelO
       defaultReasoningEffort: "low",
       supportedReasoningEfforts: AI_EDIT_REASONING_EFFORTS.map((effort) => ({ id: effort })),
     }));
+  }
+  if (provider === "sigma") {
+    // 内蔵AIのモデルは 1 つで、推論の深さも選ばせない。
+    return [{ id: SIGMA_AI_EDIT_MODEL, label: AI_PROVIDER_LABELS.sigma, isDefault: true, supportedReasoningEfforts: [] }];
   }
   if (provider === "antigravity") {
     return GEMINI_AI_EDIT_MODELS.map((id, index) => ({
@@ -108,7 +114,7 @@ export function getProviderReasoningEfforts(
   models: DesktopAiModelOption[],
   selectedModel: string,
 ): string[] {
-  return provider === "antigravity" ? [] : getModelReasoningEfforts(models, selectedModel);
+  return provider === "antigravity" || provider === "sigma" ? [] : getModelReasoningEfforts(models, selectedModel);
 }
 
 export function resolveCatalogSelection(input: {

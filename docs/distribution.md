@@ -7,7 +7,7 @@
 `CONTRIBUTING.md` のWeb・Electron・公開パッケージ検証を先に実行します。
 インストーラの作成には対象OSのツールと署名環境が必要です。署名素材や資格情報をソースに含めないでください。
 
-- Electronの準備: `pnpm run electron:build`
+- Electronの準備: `ppnpm run electron:build`
 - 公開パッケージ: `pnpm run editor:build`
 - 配布内容の確認: `pnpm --filter @sigma-studio/viewer --filter @sigma-studio/editor -r pack --dry-run --config.ignore-scripts=true`
 
@@ -24,6 +24,18 @@ pnpm --filter @sigma-studio/desktop exec cross-env ELECTRON_RUN_AS_NODE=1 electr
 ```
 
 OSごとの検証、ビルド成功、署名・インストール後の動作確認は別々に記録してください。
+
+## 配布物に入れる依存
+
+`electron-builder` は `apps/desktop/package.json` の `dependencies` を、使っているかどうかに関係なく配布物の `node_modules` へ入れます。画面 (Next の静的出力 `out/`) にだけ束ねられるパッケージは `devDependencies` に置きます (`next`・フォント・PowerPoint 取込・エディタ・3D など)。`dependencies` に置くのは、main・preload・ローカル MCP サーバーが実行時に `require` するものと、`build-electron.mjs` が main へ束ねるもの (mathlive・i18next・yjs など) だけです。
+
+- 取り違えは `pnpm run electron:build` が止めます: 束ねずに残した import が `dependencies` に無ければビルドが失敗します (`findUnpackagedExternals`)。
+- 画面専用のパッケージを `dependencies` へ戻すと `scripts/desktop-packaged-externals.test.mjs` が落ちます。
+- この整理で macOS arm64 の `.app` は 937MB から 462MB (zip で 400MB から 185MB) になりました (v0.539.0 時点の実測、未署名)。
+
+SIGMA AIはDSHと単体のNodeを `resources/dsh-runtime` に同梱します。
+Electronとは別に、DSH専用の依存監査とmacOS・Windowsでの実行テストが通ることを確認します。
+配布版は稼働中の認証付き中継を必要とします。中継の準備は [SIGMA AI](sigma-ai.md) を参照してください。
 
 ## リリース運用
 

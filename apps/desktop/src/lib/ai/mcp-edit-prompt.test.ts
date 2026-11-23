@@ -217,6 +217,20 @@ describe("provider prompt parity", () => {
     },
   );
 
+  it("does not tell the built-in AI to read skills with a shell it does not have", () => {
+    for (const locale of ["ja", "en"] as const) {
+      const t = createTranslator(locale, "prompt");
+      const shellRule = t("mcp.editTurnShellRule");
+      // 外す一文は厳守事項の中の文と一字一句同じでなければ、外れずに残る。
+      expect(t("mcp.editTurnHardRules")).toContain(shellRule);
+      const promptFor = (provider: "sigma" | "claude" | "codex") => buildMcpEditPrompt({ locale, provider, instruction: "図を入れて", fileId: "file_1" });
+      expect(promptFor("sigma")).not.toContain(shellRule);
+      expect(promptFor("sigma")).toContain(t("mcp.sigmaSkillTool"));
+      expect(promptFor("claude")).toContain(shellRule);
+      expect(promptFor("codex")).toContain(shellRule);
+    }
+  });
+
   it("uses the mcp__sigma-studio-local__ namespace line for claude", () => {
     const prompt = buildMcpEditPrompt({ locale: "ja", provider: "claude", instruction: "指示", fileId: "file_1" });
     expect(prompt).toContain("mcp__sigma-studio-local__");

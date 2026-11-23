@@ -29,6 +29,8 @@ export function useAiChatModelController() {
   }, [provider, model, claudeModel, geminiModel, reasoningEffort]);
 
   const refreshRuntimeModels = useCallback(async (targetProvider: AiProvider) => {
+    // 内蔵AIのモデルは固定で、問い合わせる一覧が無い。
+    if (targetProvider === "sigma") return;
     const desktop = getDesktopBridge();
     const section = targetProvider === "claude"
       ? desktop?.claude

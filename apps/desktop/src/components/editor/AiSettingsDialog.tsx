@@ -12,7 +12,7 @@ import { Shimmer } from "@/components/ui/Shimmer";
 import { Inline, Stack } from "@/components/ui/layout";
 import { SettingsField, SettingsSection, SettingsStatus, Switch } from "@/components/ui/settings";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
-import { useAiConnection, useClaudeConnection, useGeminiConnection } from "@/lib/ai/ai-connection";
+import { useAiConnection, useClaudeConnection, useGeminiConnection, useSigmaAiConnection } from "@/lib/ai/ai-connection";
 import { getAiModelPreferences } from "@/lib/ai/ai-model-preferences";
 import type { AiProvider } from "@/lib/ai/ai-providers";
 import { composeSkillFile, parseSkillFile, skillSlugFromSourcePath } from "@/lib/ai/skill-frontmatter";
@@ -645,6 +645,7 @@ function SkillEditor({
   const aiConnection = useAiConnection();
   const claudeConnection = useClaudeConnection();
   const geminiConnection = useGeminiConnection();
+  const sigmaConnection = useSigmaAiConnection();
   const [draftPrompt, setDraftPrompt] = useState("");
   const [draftBusy, setDraftBusy] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
@@ -658,11 +659,12 @@ function SkillEditor({
 
   const connectedProviders = useMemo(() => {
     const providers: AiProvider[] = [];
+    if (sigmaConnection.state.kind === "loggedIn") providers.push("sigma");
     if (aiConnection.state.kind === "loggedIn") providers.push("chatgpt");
     if (claudeConnection.state.kind === "loggedIn") providers.push("claude");
     if (geminiConnection.state.kind === "loggedIn") providers.push("antigravity");
     return providers;
-  }, [aiConnection.state.kind, claudeConnection.state.kind, geminiConnection.state.kind]);
+  }, [sigmaConnection.state.kind, aiConnection.state.kind, claudeConnection.state.kind, geminiConnection.state.kind]);
 
   const draftProvider = useMemo<AiProvider | null>(() => {
     if (connectedProviders.length === 0) {

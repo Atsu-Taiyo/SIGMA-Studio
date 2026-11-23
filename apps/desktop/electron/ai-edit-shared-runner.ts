@@ -54,7 +54,7 @@ export function safeCliScalar(value: string | null | undefined): string | null {
   return CLI_SCALAR_CONTROL_CHARACTER.test(trimmed) ? null : trimmed;
 }
 
-export type McpEditProvider = "claude" | "antigravity";
+export type McpEditProvider = "claude" | "antigravity" | "sigma";
 
 export interface McpEditIncomingPayload {
   instruction?: string;

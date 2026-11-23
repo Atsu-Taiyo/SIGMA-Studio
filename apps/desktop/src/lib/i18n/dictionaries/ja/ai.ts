@@ -121,6 +121,7 @@ export const ai = {
       codex: "AIを利用できません",
       claude: "Claudeを利用できません",
       gemini: "Antigravityを利用できません",
+      sigma: "SIGMA AIを利用できません",
     },
     account: {
       codex: "ChatGPTアカウント",
@@ -495,6 +496,15 @@ export const ai = {
       unavailableTitle: "Claude Code が見つかりません",
       stepPastePath: "表示されたフルパスを「設定を開く」→「Claude」タブの「Claude Code」に貼り付けて保存",
     },
+    sigma: {
+      checkingText: "SIGMA AIの準備を確認中です。少しお待ちください。",
+      unavailableTitle: "SIGMA AIを利用できません",
+      unavailableText: "このアプリにはSIGMA AIの接続先または実行環境が入っていません。設定から他のAIに切り替えることもできます。",
+      planTitle: "SIGMA AIはProプランで利用できます",
+      planText: "サインインして、Proプラン（または試用期間）でご利用ください。ご自身のClaude・ChatGPT・Antigravityは、プランにかかわらず設定から接続して使えます。",
+      retry: "もう一度確認",
+      useOtherAi: "他のAIを使う",
+    },
     gemini: {
       checkingText: "Antigravityとの接続状態を確認中です。少しお待ちください。",
       loggedOutTitle: "Antigravityを使うには初回ログインが必要です",
@@ -510,8 +520,6 @@ export const ai = {
     generatedImageUnavailable: "元の生成画像を読み込めませんでした。プレビューを表示しています。",
     emptyTitle: "AIと対話して教材を編集",
     emptyBody: "AIが編集案を作成します。プレビューで確認してから適用できます。",
-    referenceTarget: "参照対象",
-    referenceHint: "ブロックを選択すると、ここに参照内容が表示されます。",
     quickActions: "クイック操作",
     noContent: "内容なし",
     chat: "チャット",

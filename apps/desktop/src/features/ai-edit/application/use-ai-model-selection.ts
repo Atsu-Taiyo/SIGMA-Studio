@@ -9,7 +9,7 @@ import {
   resolveCatalogSelection,
 } from "@/lib/ai/ai-model-catalog";
 import { getAiModelPreferences, saveAiModelPreferences, type AiModelPreferences } from "@/lib/ai/ai-model-preferences";
-import { aiProviderLabel, type AiProvider } from "@/lib/ai/ai-providers";
+import { aiProviderLabel, SIGMA_AI_EDIT_MODEL, type AiProvider } from "@/lib/ai/ai-providers";
 import type { AiEditReasoningEffort } from "@/lib/ai/sigma-doc-edit-schema";
 import type { AiConnectionStateKind } from "@/lib/ai/ai-connection";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
@@ -17,6 +17,8 @@ import type { Translate } from "@/lib/i18n";
 import type { DesktopAiModelCatalog, DesktopAiModelOption } from "@/types/desktop";
 
 function preferredModel(preferences: AiModelPreferences, provider: AiProvider): string {
+  // 内蔵AIはモデルが 1 つに決まっている。Codex の設定値を借りない。
+  if (provider === "sigma") return SIGMA_AI_EDIT_MODEL;
   return provider === "claude"
     ? preferences.claudeModel
     : provider === "antigravity"
@@ -25,6 +27,7 @@ function preferredModel(preferences: AiModelPreferences, provider: AiProvider): 
 }
 
 function withModel(preferences: AiModelPreferences, provider: AiProvider, model: string): AiModelPreferences {
+  if (provider === "sigma") return preferences;
   return provider === "claude"
     ? { ...preferences, claudeModel: model }
     : provider === "antigravity"
@@ -76,7 +79,7 @@ export function useAiModelSelection(
   const preferred = preferences.provider;
   const provider: AiProvider = connections[preferred] === "loggedIn" || connections[preferred] === "checking"
     ? preferred
-    : (["chatgpt", "claude", "antigravity"] as const).find((candidate) => connections[candidate] === "loggedIn") ?? preferred;
+    : (["sigma", "chatgpt", "claude", "antigravity"] as const).find((candidate) => connections[candidate] === "loggedIn") ?? preferred;
   const [catalogs, setCatalogs] = useState<Partial<Record<AiProvider, DesktopAiModelCatalog>>>({});
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -90,6 +93,8 @@ export function useAiModelSelection(
   }), [modelOptions, preferences, provider]);
 
   useEffect(() => {
+    // 内蔵AIに選べるモデルは無い (Codex の一覧を取りに行かない)。
+    if (provider === "sigma") return;
     const desktop = getDesktopBridge();
     const section = provider === "claude"
       ? desktop?.claude

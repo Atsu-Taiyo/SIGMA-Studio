@@ -3,8 +3,8 @@
 import { useState, type ReactNode } from "react";
 import { AlertCircle, Check, ExternalLink, Loader2, LogIn, RefreshCw, Settings } from "lucide-react";
 
-import { AntigravityMark, ClaudeMark, OpenAiMark } from "@/components/branding/provider-logos";
-import type { AiConnection, AiConnectionStateView, ClaudeConnection, GeminiConnection } from "@/lib/ai/ai-connection";
+import { AntigravityMark, ClaudeMark, OpenAiMark, SigmaAiMark } from "@/components/branding/provider-logos";
+import type { AiConnection, AiConnectionStateView, ClaudeConnection, GeminiConnection, SigmaAiConnection } from "@/lib/ai/ai-connection";
 import { useT } from "@/lib/i18n/react";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 
@@ -407,5 +407,60 @@ export function AiConnectionChip({
       <span className="ai-connection-chip-dot" aria-hidden="true" />
       <span className="ai-connection-chip-label">{label}</span>
     </button>
+  );
+}
+
+/**
+ * 内蔵AI (SIGMA AI) が使えないときの案内。ログインや導入の手順は無く、
+ * 状態の再確認と、利用者自身のAIへ切り替える入口だけを出す。
+ */
+export function SigmaAiConnectionGate({
+  connection,
+  onUseOtherAi,
+}: {
+  connection: SigmaAiConnection;
+  onUseOtherAi?: () => void;
+}) {
+  const t = useT("ai");
+  const kind = connection.loading ? "checking" : connection.state.kind;
+  // プランが理由のときは、実行環境の不足とは別の案内にする。
+  const planRequired = connection.status?.unavailableReason === "plan";
+  return (
+    <div className="ai-connection-gate" data-state={kind}>
+      <div className="ai-connection-gate-card">
+        <span className="ai-connection-hero" data-state={kind} aria-hidden="true">
+          <span className="ai-connection-hero-logo">
+            <SigmaAiMark size={30} />
+          </span>
+          <span className="ai-connection-hero-badge" data-state={kind}>
+            {kind === "checking" ? <Loader2 size={13} className="ai-spin" /> : <AlertCircle size={13} />}
+          </span>
+        </span>
+        {kind === "checking" ? (
+          <>
+            <h3 className="ai-connection-title">{t("gate.checking")}</h3>
+            <p className="ai-connection-text">{t("gate.sigma.checkingText")}</p>
+          </>
+        ) : (
+          <>
+            <h3 className="ai-connection-title">{t(planRequired ? "gate.sigma.planTitle" : "gate.sigma.unavailableTitle")}</h3>
+            <p className="ai-connection-text">{t(planRequired ? "gate.sigma.planText" : "gate.sigma.unavailableText")}</p>
+            {connection.status?.error && <p className="ai-connection-gate-error" role="alert">{connection.status.error}</p>}
+            <div className="ai-connection-actions">
+              <button type="button" className="ai-connection-login" onClick={connection.refresh}>
+                <RefreshCw size={15} />
+                <span>{t("gate.sigma.retry")}</span>
+              </button>
+              {onUseOtherAi && (
+                <button type="button" className="ai-connection-secondary" onClick={onUseOtherAi}>
+                  <Settings size={14} />
+                  <span>{t("gate.sigma.useOtherAi")}</span>
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }

@@ -414,6 +414,20 @@ export interface DesktopGeminiStatus {
   error: string | null;
 }
 
+/** 内蔵AI (SIGMA AI) の状態。CLI もログインも無く、接続先と実行環境が揃っているかだけを返す。 */
+export interface DesktopSigmaAiStatus {
+  available: boolean;
+  loggedIn: boolean;
+  model: string;
+  modelLabel: string;
+  unavailableReason: "gateway" | "runtime" | "node" | "plan" | null;
+  error: string | null;
+}
+
+export interface DesktopSigmaAiAPI {
+  getStatus(): Promise<DesktopSigmaAiStatus>;
+}
+
 export interface DesktopGeminiAPI {
   getStatus(): Promise<DesktopGeminiStatus>;
   listModels?(): Promise<DesktopAiModelCatalog>;
@@ -640,7 +654,7 @@ export interface DesktopMcpEditProposalListOptions {
 // electron/local-sigma-doc-proposal-store.ts の McpEditProposalProvider をミラーした型。
 // renderer側 (この .d.ts) は electron モジュールを import できないため、値集合を手動で
 // 同期させる必要がある。electron側の union を変更したら、ここも合わせて更新すること。
-export type DesktopMcpEditProposalProvider = "claude" | "chatgpt" | "antigravity";
+export type DesktopMcpEditProposalProvider = "claude" | "chatgpt" | "antigravity" | "sigma";
 export type DesktopMcpEditProposalConflictReason =
   | "content-stale"
   | "anchor-missing"
@@ -965,6 +979,7 @@ export interface DesktopAPI {
   codex: DesktopCodexAPI;
   claude?: DesktopClaudeAPI;
   gemini?: DesktopGeminiAPI;
+  sigmaAi?: DesktopSigmaAiAPI;
   aiEdit: DesktopAiEditAPI;
   authoringStyle?: import("@/lib/ai/authoring-style").AuthoringStyleAPI;
   aiResources?: DesktopAiResourcesAPI;

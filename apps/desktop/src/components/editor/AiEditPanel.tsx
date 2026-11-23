@@ -4,16 +4,16 @@ import {
   type AiEditPreviewState,
   type StaleMcpProposalGroup,
 } from "@/components/editor/ai-edit-preview-types";
-import { AiConnectionGate, ClaudeConnectionGate, GeminiConnectionGate } from "@/components/editor/AiConnectionGate";
+import { AiConnectionGate, ClaudeConnectionGate, GeminiConnectionGate, SigmaAiConnectionGate } from "@/components/editor/AiConnectionGate";
 import { AiStaleProposalNotice } from "@/components/editor/AiStaleProposalNotice";
 import type { AiEditAttachment } from "@/lib/ai/sigma-doc-agent-tools";
-import { useAiConnection, useClaudeConnection, useGeminiConnection } from "@/lib/ai/ai-connection";
+import { useAiConnection, useClaudeConnection, useGeminiConnection, useSigmaAiConnection } from "@/lib/ai/ai-connection";
 import { type AiEditReference } from "@/lib/ai/ai-edit-reference";
 import { getAttachmentDefaultInstruction } from "@/lib/ai/ai-edit-runtime";
 import { type AiEditShapeOnlyPreview } from "@/lib/ai/ai-edit-shape-preview";
 import { saveAiModelPreferences } from "@/lib/ai/ai-model-preferences";
 import { useAiChatModelController } from "@/features/ai-edit/application/use-ai-chat-model-controller";
-import { toAiResourceProvider } from "@/lib/ai/ai-providers";
+import { SIGMA_AI_EDIT_MODEL, toAiResourceProvider } from "@/lib/ai/ai-providers";
 import {
   addChatRoom,
   aiChatRoomsStore,
@@ -122,6 +122,7 @@ export function AiEditPanel({
   const connection = useAiConnection();
   const claudeConnection = useClaudeConnection();
   const geminiConnection = useGeminiConnection();
+  const sigmaConnection = useSigmaAiConnection();
   const models = useAiChatModelController();
   const { provider, setProvider, model, claudeModel, geminiModel, reasoningEffort } = models;
   const composer = useAiChatComposer({ document, documentIdentityKey, documentWorkspaceId, selectedId, reference, pinnedReferences, pinnedReferencePreviews, pendingAttachments, onRemovePendingAttachment, onSetPendingAttachmentAnnotations, onPendingAttachmentsSent, overlaySelection, provider, refreshRuntimeModels: models.refreshRuntimeModels });
@@ -496,7 +497,7 @@ export function AiEditPanel({
       turnProvider: runProvider,
       turnAiResourceIds,
       turnInstruction: instruction.trim() || getAttachmentDefaultInstruction(turnAttachments),
-      turnModel: runProvider === "claude" ? claudeModel : runProvider === "antigravity" ? geminiModel : model,
+      turnModel: runProvider === "sigma" ? SIGMA_AI_EDIT_MODEL : runProvider === "claude" ? claudeModel : runProvider === "antigravity" ? geminiModel : model,
       turnReasoningEffort: reasoningEffort,
       aiTargetId,
       anchor: createAiRunAnchor({
@@ -681,7 +682,6 @@ export function AiEditPanel({
   }, [activeRoom?.id, setInstruction, setComposerError, focusComposer]);
 
   const hasTurns = visibleTurns.length > 0;
-  const activeReference = composer.view.activeReference;
 
   const startNewChatRoom = () => {
     // R1: creating a new room never has to wait for the active room's run —
@@ -731,17 +731,41 @@ export function AiEditPanel({
   // Block the chat experience until the selected provider is connected, surfacing
   // an in-context sign-in path. A provider switch stays visible so the user can
   // flip to the other provider (which may already be connected) while gated.
-  const activeConnectionState = provider === "claude"
+  const activeConnectionState = provider === "sigma"
+    ? sigmaConnection.state
+    : provider === "claude"
     ? claudeConnection.state
     : provider === "antigravity"
     ? geminiConnection.state
     : connection.state;
   const connectionReady = activeConnectionState.kind === "loggedIn";
-  if (!connectionReady) {
+  // 内蔵AIの会話は、後から使えなくなることがある (試用期間の終了・サインアウト)。そのときも過去の
+  // 会話は読めるようにし、送信だけを実行側の案内で止める。まだ何も無い会話は下の案内を出す。
+  const readableWhileUnavailable = provider === "sigma" && variant !== "inline" && hasTurns;
+  if (!connectionReady && !readableWhileUnavailable) {
+    // 会話はプロバイダに結び付いている。使えない会話から別のAIを選んだら、新しい会話で始める
+    // (結び付いたプロバイダへすぐ戻されて、どのAIも使えなくなるのを防ぐ)。
+    const switchProvider = (next: typeof provider) => {
+      if (lockedProvider && next !== lockedProvider) startNewChatRoom();
+      setProvider(next);
+    };
     return (
       <div className={`ai-edit-panel ${variant === "inline" ? "ai-inline-edit" : ""}`} data-gated="true" data-variant={variant}>
-        <ProviderSwitch provider={provider} onChange={setProvider} disabled={isRunning} />
-        {provider === "claude" ? (
+        {variant !== "inline" && (
+          <ChatRoomHistory
+            rooms={chatRooms}
+            activeRoomId={activeRoomId}
+            loading={historyLoading}
+            runSessions={runSessions}
+            onNewRoom={startNewChatRoom}
+            onSelectRoom={selectChatRoom}
+            onOpenSettings={onOpenAiSettings}
+          />
+        )}
+        <ProviderSwitch provider={provider} onChange={switchProvider} disabled={isRunning} />
+        {provider === "sigma" ? (
+          <SigmaAiConnectionGate connection={sigmaConnection} onUseOtherAi={onOpenAiSettings} />
+        ) : provider === "claude" ? (
           <ClaudeConnectionGate connection={claudeConnection} onOpenSettings={onOpenAiSettings} />
         ) : provider === "antigravity" ? (
           <GeminiConnectionGate connection={geminiConnection} onOpenSettings={onOpenAiSettings} />
@@ -776,10 +800,7 @@ export function AiEditPanel({
       <div className="ai-chat-thread" ref={threadRef}>
         {historyError && <p className="ai-chat-error">{historyError}</p>}
         {!hasTurns ? (
-          <ChatEmptyState
-            reference={activeReference}
-            onSelectPreset={applyActionPreset}
-          />
+          <ChatEmptyState onSelectPreset={applyActionPreset} />
         ) : (
           visibleTurns.map((turn) => {
             if (turn.role === "user") {

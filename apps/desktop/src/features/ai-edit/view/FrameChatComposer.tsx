@@ -14,7 +14,7 @@ import { useT } from "@/lib/i18n/react";
 import type { AiModelSelection } from "../application/use-ai-model-selection";
 import styles from "./FrameChat.module.css";
 
-const PROVIDERS: readonly AiProvider[] = ["chatgpt", "claude", "antigravity"];
+const PROVIDERS: readonly AiProvider[] = ["sigma", "chatgpt", "claude", "antigravity"];
 
 interface ComposerProps {
   draft: string;

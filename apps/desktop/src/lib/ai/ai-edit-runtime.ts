@@ -153,7 +153,7 @@ export interface AiEditRunResult extends AiEditSessionDocumentDraft {
   status?: "draft" | "needsClarification" | "answer" | "cancelled";
   questions?: string[];
   agentThreadId?: string;
-  runtime?: "codex-mcp" | "claude-mcp" | "antigravity-mcp";
+  runtime?: "codex-mcp" | "claude-mcp" | "antigravity-mcp" | "sigma-mcp";
 }
 
 export function buildSigmaDocContextPrompt(t: Translate<"prompt">): string {

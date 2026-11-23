@@ -75,7 +75,7 @@ export interface LocalAiEditChatAssistantTurn {
 
 export type LocalAiEditChatTurn = LocalAiEditChatUserTurn | LocalAiEditChatAssistantTurn;
 
-export type LocalAiProvider = "chatgpt" | "claude" | "antigravity";
+export type LocalAiProvider = "chatgpt" | "claude" | "antigravity" | "sigma";
 
 export interface LocalAiEditChatRoom {
   version: 1;
@@ -402,7 +402,7 @@ function asNumber(value: unknown): number | undefined {
 }
 
 function asProvider(value: unknown): LocalAiProvider | undefined {
-  return value === "chatgpt" || value === "claude" || value === "antigravity" ? value : undefined;
+  return value === "chatgpt" || value === "claude" || value === "antigravity" || value === "sigma" ? value : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

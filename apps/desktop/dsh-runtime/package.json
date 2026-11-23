@@ -1,0 +1,19 @@
+{
+  "name": "@sigma-studio/dsh-runtime",
+  "private": true,
+  "description": "SIGMA Studio 内蔵AIが使う DeepSeek Harness (dsh) の実行環境。アプリ本体の依存・監査とは分けて固定する。",
+  "type": "module",
+  "engines": {
+    "node": ">=24.9.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-sdk-client": "0.2.1-rc.5",
+    "@deepseek-ai/libreoffice-kit": "file:./stubs/libreoffice-kit"
+  },
+  "overrides": {
+    "@deepseek-ai/libreoffice-kit": "$@deepseek-ai/libreoffice-kit",
+    "undici": "8.13.1",
+    "zod": "4.6.7",
+    "@modelcontextprotocol/client": "2.4.0"
+  }
+}

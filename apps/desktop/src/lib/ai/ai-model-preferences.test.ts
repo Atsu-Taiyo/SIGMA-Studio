@@ -30,7 +30,8 @@ describe("ai-model-preferences", () => {
 
   it("returns defaults when nothing is stored", () => {
     expect(getAiModelPreferences()).toEqual({
-      provider: "chatgpt",
+      // 既定は内蔵AI (利用者のアカウント連携なしで使える)。
+      provider: "sigma",
       model: DEFAULT_AI_EDIT_MODEL,
       claudeModel: DEFAULT_CLAUDE_AI_EDIT_MODEL,
       geminiModel: DEFAULT_GEMINI_AI_EDIT_MODEL,
@@ -59,7 +60,8 @@ describe("ai-model-preferences", () => {
       reasoningEffort: " ",
     }));
     expect(getAiModelPreferences()).toEqual({
-      provider: "chatgpt",
+      // 既定は内蔵AI (利用者のアカウント連携なしで使える)。
+      provider: "sigma",
       model: DEFAULT_AI_EDIT_MODEL,
       claudeModel: DEFAULT_CLAUDE_AI_EDIT_MODEL,
       geminiModel: DEFAULT_GEMINI_AI_EDIT_MODEL,

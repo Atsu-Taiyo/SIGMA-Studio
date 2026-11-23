@@ -214,6 +214,7 @@ const PROVIDER_LABELS: Record<McpEditProposalProvider, string> = {
   claude: "Claude",
   chatgpt: "ChatGPT",
   antigravity: "Antigravity",
+  sigma: "SIGMA AI",
 };
 
 export function formatAiProposalProviderLabel(providers: McpEditProposalProvider[]): string {

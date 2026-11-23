@@ -72,6 +72,7 @@ function register() {
     claudeStreamClient: stubCliClient as never,
     geminiHeadlessClient: stubCliClient as never,
     geminiSkillDraftClient: { setGeminiBin: setSkillDraftBin } as never,
+    dshHarnessClient: stubCliClient as never,
     getMainWindow: () => null,
     openExternalUrl: vi.fn(),
   });

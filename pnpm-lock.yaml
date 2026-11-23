@@ -43,36 +43,12 @@ importers:
         version: typescript@5.9.3
   apps/desktop:
     dependencies:
-      '@fontsource/m-plus-1p':
-        specifier: ^5.2.9
-        version: 5.3.0
-      '@fontsource/noto-sans-symbols':
-        specifier: ^5.3.0
-        version: 5.3.0
-      '@fontsource/noto-serif-jp':
-        specifier: ^5.3.1
-        version: 5.3.1
-      '@fontsource/stix-two-math':
-        specifier: ^5.3.0
-        version: 5.3.0
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.2
         version: 1.32.2(zod@4.6.7)
       '@napi-rs/canvas':
         specifier: ^1.1.0
         version: 1.1.0
-      '@tiptap/core':
-        specifier: ^3.34.0
-        version: 3.34.0(@tiptap/pm@3.34.0)
-      '@tiptap/extension-placeholder':
-        specifier: ^3.34.0
-        version: 3.34.0(@tiptap/extensions@3.34.0(@tiptap/core@3.34.0(@tiptap/pm@3.34.0))(@tiptap/pm@3.34.0))
-      '@tiptap/react':
-        specifier: ^3.34.0
-        version: 3.34.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.34.0(@tiptap/pm@3.34.0))(@tiptap/pm@3.34.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@tiptap/starter-kit':
-        specifier: ^3.34.0
-        version: 3.34.0
       electron-updater:
         specifier: ^6.8.11
         version: 6.8.11
@@ -88,9 +64,6 @@ importers:
       jsdom:
         specifier: ^31.0.1
         version: 31.0.1(@napi-rs/canvas@1.1.0)(@noble/hashes@1.8.0)
-      jszip:
-        specifier: ^3.10.1
-        version: 3.10.2
       katex:
         specifier: ^0.19.1
         version: 0.19.1
@@ -100,15 +73,9 @@ importers:
       lowlight:
         specifier: ^3.3.0
         version: 3.3.0
-      lucide-react:
-        specifier: ^1.73.0
-        version: 1.73.0(@types/react@19.3.0)(react@19.3.0)
       mathlive:
         specifier: ^0.111.4
         version: 0.111.4
-      next:
-        specifier: ^16.4.6
-        version: 16.4.6(@babel/core@7.29.7)(@playwright/test@1.65.0)(@types/node@26.6.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       node-tikzjax:
         specifier: ^1.0.5
         version: 1.0.5
@@ -118,36 +85,18 @@ importers:
       pdfjs-dist:
         specifier: 6.5.438
         version: 6.5.438
-      pptx-svg:
-        specifier: ^0.6.8
-        version: 0.6.8
-      pptx-viewer-core:
-        specifier: ^4.14.1
-        version: 4.14.1(@napi-rs/canvas@1.1.0)(@xmldom/xmldom@0.8.15)
-      qrcode:
-        specifier: ^1.5.4
-        version: 1.5.4
       react:
         specifier: ^19.3.0
         version: 19.3.0
       react-dom:
         specifier: ^19.3.0
         version: 19.3.0(react@19.3.0)
-      thinking-orbs:
-        specifier: ^0.3.1
-        version: 0.3.2(react@19.3.0)
-      three:
-        specifier: ^0.187.0
-        version: 0.187.0
       tldts:
         specifier: ^7.5.4
         version: 7.5.4
       unused-filename:
         specifier: ^4.0.1
         version: 4.0.1
-      utif:
-        specifier: ^3.1.0
-        version: 3.1.0
       ws:
         specifier: 8.23.0
         version: 8.23.0
@@ -160,19 +109,40 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
-      zustand:
-        specifier: ^5.1.0
-        version: 5.1.0(@types/react@19.3.0)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
     devDependencies:
       '@eslint/compat':
         specifier: ^2.1.1
         version: 2.1.1(eslint@10.14.0(jiti@2.7.0))
+      '@fontsource/m-plus-1p':
+        specifier: ^5.2.9
+        version: 5.3.0
+      '@fontsource/noto-sans-symbols':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/noto-serif-jp':
+        specifier: ^5.3.1
+        version: 5.3.1
+      '@fontsource/stix-two-math':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@playwright/test':
         specifier: ^1.65.0
         version: 1.65.0
       '@resvg/resvg-js':
         specifier: ^2.6.2
         version: 2.6.2
+      '@tiptap/core':
+        specifier: ^3.34.0
+        version: 3.34.0(@tiptap/pm@3.34.0)
+      '@tiptap/extension-placeholder':
+        specifier: ^3.34.0
+        version: 3.34.0(@tiptap/extensions@3.34.0(@tiptap/core@3.34.0(@tiptap/pm@3.34.0))(@tiptap/pm@3.34.0))
+      '@tiptap/react':
+        specifier: ^3.34.0
+        version: 3.34.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.34.0(@tiptap/pm@3.34.0))(@tiptap/pm@3.34.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@tiptap/starter-kit':
+        specifier: ^3.34.0
+        version: 3.34.0
       '@types/jsdom':
         specifier: ^30.0.0
         version: 30.0.0
@@ -215,12 +185,42 @@ importers:
       happy-dom:
         specifier: ^21.0.4
         version: 21.0.4
+      jszip:
+        specifier: ^3.10.1
+        version: 3.10.2
+      lucide-react:
+        specifier: ^1.73.0
+        version: 1.73.0(@types/react@19.3.0)(react@19.3.0)
+      next:
+        specifier: ^16.4.6
+        version: 16.4.6(@babel/core@7.29.7)(@playwright/test@1.65.0)(@types/node@26.6.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      pptx-svg:
+        specifier: ^0.6.8
+        version: 0.6.8
+      pptx-viewer-core:
+        specifier: ^4.14.1
+        version: 4.14.1(@napi-rs/canvas@1.1.0)(@xmldom/xmldom@0.8.15)
+      qrcode:
+        specifier: ^1.5.4
+        version: 1.5.4
+      thinking-orbs:
+        specifier: ^0.3.1
+        version: 0.3.2(react@19.3.0)
+      three:
+        specifier: ^0.187.0
+        version: 0.187.0
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
+      utif:
+        specifier: ^3.1.0
+        version: 3.1.0
       vitest:
         specifier: ^5.1.0
         version: 5.1.0(@types/node@26.6.6)(happy-dom@21.0.4)(jsdom@31.0.1(@napi-rs/canvas@1.1.0)(@noble/hashes@1.8.0))(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0))
+      zustand:
+        specifier: ^5.1.0
+        version: 5.1.0(@types/react@19.3.0)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
   apps/web:
     devDependencies:
       wrangler:
