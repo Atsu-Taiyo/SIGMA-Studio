@@ -268,6 +268,7 @@ describe("getSelectionActionPopoverPosition", () => {
       left: 55,
       top: 154,
       centerX: 160,
+      anchor: { top: 200, bottom: 224, clearance: 8 },
     });
   });
 
@@ -275,7 +276,7 @@ describe("getSelectionActionPopoverPosition", () => {
     expect(getSelectionActionPopoverPosition(
       rect({ left: 400, top: 200, width: 80, height: 24 }),
       { viewport: { width: 800, height: 600 } },
-    )).toEqual({ left: 335, top: 154, centerX: 440 });
+    )).toEqual({ left: 335, top: 154, centerX: 440, anchor: { top: 200, bottom: 224, clearance: 8 } });
   });
 
   it("moves overlay selection actions above the rotate handle clearance", () => {
@@ -286,6 +287,7 @@ describe("getSelectionActionPopoverPosition", () => {
       left: 55,
       top: 120,
       centerX: 160,
+      anchor: { top: 200, bottom: 224, clearance: 42 },
     });
   });
 
@@ -297,6 +299,7 @@ describe("getSelectionActionPopoverPosition", () => {
       left: 55,
       top: 72,
       centerX: 160,
+      anchor: { top: 40, bottom: 64, clearance: 42 },
     });
   });
 });

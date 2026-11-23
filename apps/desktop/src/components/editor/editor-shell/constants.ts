@@ -118,6 +118,8 @@ export interface FontFamilyGroup {
   options: FontFamilyOption[];
 }
 
+const YU_MINCHO_FONT_FAMILY = '"Yu Mincho", YuMincho, "Hiragino Mincho ProN", serif';
+
 export const FONT_FAMILY_GROUPS: FontFamilyGroup[] = [
   {
     id: "basic",
@@ -127,7 +129,10 @@ export const FONT_FAMILY_GROUPS: FontFamilyGroup[] = [
       { label: "Noto Sans JP", value: '"Noto Sans JP", "Noto Sans CJK JP", "Yu Gothic", "Hiragino Sans", Meiryo, sans-serif' },
       { label: "Noto Serif JP", value: DEFAULT_SERIF_BODY_FONT_FAMILY },
       { label: "游ゴシック", value: '"Yu Gothic", YuGothic, "Hiragino Sans", Meiryo, sans-serif' },
-      { label: "游明朝", value: '"Yu Mincho", YuMincho, "Hiragino Mincho ProN", "BIZ UDPMincho", serif' },
+      // 以前の値 ('"Yu Mincho", YuMincho, "Hiragino Mincho ProN", "BIZ UDPMincho", serif') は古い文書の
+      // 「標準明朝」と同じ文字列で、読み込み・表示のたびに Noto Serif JP へ読み替えられる
+      // (`resolveDocumentFontFamily`)。選んでも游明朝にならないので、読み替えの対象にならない値にする。
+      { label: "游明朝", value: YU_MINCHO_FONT_FAMILY },
       { label: "Hiragino Mincho ProN", value: '"Hiragino Mincho ProN", "Yu Mincho", YuMincho, serif' },
       { label: "Hiragino Maru Gothic ProN", value: '"Hiragino Maru Gothic ProN", "Tsukushi A Round Gothic", "Yu Gothic", sans-serif' },
     ],
@@ -224,7 +229,7 @@ export const SHORTCUT_FONT_FAMILIES: Record<string, string> = {
   "format.font.hiraginoMincho": '"Hiragino Mincho ProN", serif',
   "format.font.hiraginoMaru": '"Hiragino Maru Gothic ProN", "Hiragino Sans", sans-serif',
   "format.font.yuGothic": '"Yu Gothic", YuGothic, "Hiragino Sans", Meiryo, sans-serif',
-  "format.font.yuMincho": '"Yu Mincho", YuMincho, "Hiragino Mincho ProN", "BIZ UDPMincho", serif',
+  "format.font.yuMincho": YU_MINCHO_FONT_FAMILY,
   "format.font.tsukushiARound": '"Tsukushi A Round Gothic", "Hiragino Maru Gothic ProN", sans-serif',
   "format.font.tsukushiBRound": '"Tsukushi B Round Gothic", "Hiragino Maru Gothic ProN", sans-serif',
   "format.font.tsukushiMincho": '"Tsukushi Mincho", "Hiragino Mincho ProN", serif',

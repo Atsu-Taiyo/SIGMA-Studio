@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FONT_SIZE_PRESETS, stepFontSize } from "./text-model";
+import { FONT_SIZE_PRESETS, formatFontSize, stepFontSize } from "./text-model";
 
 describe("stepFontSize", () => {
   it("moves one point at a time like the top toolbar", () => {
@@ -16,5 +16,15 @@ describe("stepFontSize", () => {
 
   it("offers ascending presets", () => {
     expect([...FONT_SIZE_PRESETS]).toEqual([...FONT_SIZE_PRESETS].sort((a, b) => a - b));
+  });
+});
+
+describe("formatFontSize", () => {
+  it("shows at most one decimal place without trailing zeros", () => {
+    expect(formatFontSize(12)).toBe("12");
+    expect(formatFontSize(10.5)).toBe("10.5");
+    expect(formatFontSize(11.999999999)).toBe("12");
+    expect(formatFontSize(10.4999999999)).toBe("10.5");
+    expect(formatFontSize(13.04)).toBe("13");
   });
 });

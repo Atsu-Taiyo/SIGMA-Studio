@@ -216,7 +216,6 @@ export const editor = {
     selectBlockHint: "Click to select (Delete removes it), drag to move (drop at the sides for columns)",
     addBodyHere: "Add body text here",
     addComment: "Add a comment",
-    commentShort: "Comment",
     zoomOut: "Zoom out",
     zoomIn: "Zoom in",
     resetView: "Reset view",

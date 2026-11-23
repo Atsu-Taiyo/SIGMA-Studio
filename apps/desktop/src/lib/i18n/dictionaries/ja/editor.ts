@@ -242,7 +242,6 @@ export const editor = {
     selectBlockHint: "クリックで選択（Delete で削除）・ドラッグで移動（左右端で段組）",
     addBodyHere: "ここに本文を追加",
     addComment: "コメントを追加",
-    commentShort: "コメント",
     zoomOut: "縮小",
     zoomIn: "拡大",
     resetView: "表示をリセット",
