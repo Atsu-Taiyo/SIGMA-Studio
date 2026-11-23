@@ -63,7 +63,7 @@
     "typescript-compiler-api": "npm:typescript@5.9.3",
     "js-yaml": "4.3.2",
     "eslint": "9.39.5",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "@sigma-studio/viewer": "workspace:*"
   },
   "packageManager": "pnpm@11.1.2"
