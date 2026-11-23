@@ -47,7 +47,7 @@
     "pdfjs-dist": "6.5.438",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "tldts": "^7.5.4",
+    "tldts": "^7.5.5",
     "unused-filename": "^4.0.1",
     "ws": "8.23.0",
     "y-protocols": "1.0.7",
