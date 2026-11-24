@@ -54,3 +54,28 @@ it("places the text formatting card below the selected text and flips above only
     expect(toolbar.style.top).toBe("392px");
   } finally { await act(async () => root.unmount()); }
 });
+
+it("places the shape card at the bottom-right of the pointer and flips near the viewport edges", async () => {
+  const viewport = document.createElement("div");
+  viewport.className = "editor-canvas";
+  document.body.append(viewport);
+  vi.spyOn(viewport, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 0, 900, 600));
+  vi.spyOn(window, "innerWidth", "get").mockReturnValue(900);
+  vi.spyOn(window, "innerHeight", "get").mockReturnValue(600);
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(100);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(200);
+  const root = createRoot(viewport);
+  const render = (x: number, y: number) => <SelectionActionPopover popover={{
+    // 図形の上下 (anchor) は画面の外にあっても、マウスの近くに出す。
+    position: { left: x + 12, top: y + 16, pointer: { x, y }, anchor: { top: -2000, bottom: 3000, clearance: 42 } },
+    commentAnchor: null,
+    extensionAction: { key: "shape", renderTools: () => <button>Fill</button> },
+  }} />;
+  try {
+    await act(async () => root.render(render(300, 200)));
+    const card = viewport.querySelector<HTMLElement>(".selection-action-popover")!;
+    expect([card.style.left, card.style.top]).toEqual(["312px", "216px"]);
+    await act(async () => root.render(render(800, 550)));
+    expect([card.style.left, card.style.top]).toEqual(["588px", "434px"]);
+  } finally { await act(async () => root.unmount()); }
+});

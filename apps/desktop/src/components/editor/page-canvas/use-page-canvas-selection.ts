@@ -25,6 +25,7 @@ import {
   getCommentOffsetText,
   getOverlaySelectionActionPopoverPosition,
   getOverlaySelectionControlsCanvasRect,
+  getOverlaySelectionPointer,
   getOverlaySelectionTargetBlockId,
   getRangeScreenRect,
   getRangeTargetBlockId,
@@ -33,6 +34,7 @@ import {
   isRangeInsideElement,
   sameSelectionActionPopoverPosition,
   type CommentAnchorPopoverState,
+  type OverlaySelectionPointer,
   type OverlaySelectionPopoverMeasurement,
   type SelectionActionPopoverPosition,
 } from "./popover-anchors";
@@ -65,6 +67,11 @@ interface Inputs {
 }
 
 const TEXT_SELECTION_ACTION_DEBOUNCE_MS = 120;
+/**
+ * 図形の選択が変わったとき、これより前のマウス操作は「選んだ操作」とみなさない (キーボードで選んだ)。
+ * そのときはマウスの位置ではなく、従来どおり図形の上に置く。
+ */
+const OVERLAY_SELECTION_POINTER_FRESH_MS = 500;
 export function usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight, layoutRevision, overlayPopoverWidthPx, blockHandleSelected = false }: Inputs) {
 
   const [extensionTextSelectionPopover, setExtensionTextSelectionPopover] = useState<ExtensionActionPopoverState | null>(null);
@@ -76,6 +83,45 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
   const [commentSelectedTargetPopover, setCommentSelectedTargetPopover] = useState<CommentAnchorPopoverState | null>(null);
 
   const overlaySelectionKey = JSON.stringify([overlaySelection.selectedShapeIds, overlaySelection.region]);
+
+  // 図形を選んだ (動かした) ときのマウスの位置。カードはこの点の近くに出す (`getOverlaySelectionActionPopoverPosition`)。
+  const [overlaySelectionPointer, setOverlaySelectionPointer] = useState<OverlaySelectionPointer | null>(null);
+  const lastOverlayPointerAtRef = useRef(Number.NEGATIVE_INFINITY);
+  useEffect(() => {
+    if (!pageOverlayEditing) {
+      return;
+    }
+    const record = (event: PointerEvent) => {
+      const canvas = canvasRef.current;
+      const target = event.target;
+      if (!canvas || !(target instanceof Node) || !canvas.contains(target)) {
+        return;
+      }
+      // カードそのもの (とそこから開くメニュー) を押しても、カードは動かさない。
+      if (target instanceof Element && target.closest(".selection-action-popover")) {
+        return;
+      }
+      lastOverlayPointerAtRef.current = performance.now();
+      const next = getOverlaySelectionPointer(
+        canvas,
+        { x: event.clientX, y: event.clientY },
+        zoom,
+        isWhiteboard ? { x: whiteboardPanX, y: whiteboardPanY } : undefined,
+      );
+      setOverlaySelectionPointer((current) => (current && current.x === next.x && current.y === next.y ? current : next));
+    };
+    window.addEventListener("pointerdown", record, true);
+    window.addEventListener("pointerup", record, true);
+    return () => {
+      window.removeEventListener("pointerdown", record, true);
+      window.removeEventListener("pointerup", record, true);
+    };
+  }, [canvasRef, isWhiteboard, pageOverlayEditing, whiteboardPanX, whiteboardPanY, zoom]);
+  useLayoutEffect(() => {
+    if (performance.now() - lastOverlayPointerAtRef.current > OVERLAY_SELECTION_POINTER_FRESH_MS) {
+      setOverlaySelectionPointer(null);
+    }
+  }, [overlaySelectionKey]);
 
   const [overlaySelectionPopoverMeasurement, setOverlaySelectionPopoverMeasurement] = useState<OverlaySelectionPopoverMeasurement | null>(null);
 
@@ -137,9 +183,9 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
   const overlaySelectionPopoverShown = !bodySelectionActionPopover && overlaySelectionActionPopover !== null;
   const selectionControls = useMemo(
     () => overlaySelectionPopoverShown
-      ? getOverlaySelectionControlsCanvasRect(overlaySelection, zoom, overlayPopoverWidthPx)
+      ? getOverlaySelectionControlsCanvasRect(overlaySelection, zoom, overlayPopoverWidthPx, overlaySelectionPointer)
       : null,
-    [overlayPopoverWidthPx, overlaySelection, overlaySelectionPopoverShown, zoom],
+    [overlayPopoverWidthPx, overlaySelection, overlaySelectionPointer, overlaySelectionPopoverShown, zoom],
   );
   // 値が同じなら同じ矩形を渡す (選択の要約が作り直されても、紙面の浮かぶ部品を作り直さない)。
   const [controlsX, controlsY, controlsW, controlsH] = selectionControls
@@ -163,6 +209,7 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
         overlaySelection,
         zoom,
         isWhiteboard ? { x: whiteboardPanX, y: whiteboardPanY } : undefined,
+        overlaySelectionPointer,
       );
       setOverlaySelectionPopoverMeasurement((currentMeasurement) => (
         currentMeasurement?.key === overlaySelectionKey &&
@@ -188,7 +235,7 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
       window.removeEventListener("resize", scheduleUpdate);
       window.removeEventListener("scroll", scheduleUpdate, true);
     };
-  }, [overlaySelection, overlaySelectionKey, pageOverlayEditing, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, canvasRef]);
+  }, [overlaySelection, overlaySelectionKey, overlaySelectionPointer, pageOverlayEditing, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, canvasRef]);
 
   const lastExtensionCandidateKeyRef = useRef<string | null>(null);
 
