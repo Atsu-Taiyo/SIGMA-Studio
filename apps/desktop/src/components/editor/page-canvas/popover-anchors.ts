@@ -221,7 +221,8 @@ export function getOverlaySelectionActionPopoverPosition(
 }
 
 /**
- * 図形の選択の操作が選択範囲の上に取る帯 (紙面の座標): ポップオーバーと、その下の回転ハンドルの間隔。
+ * 図形の選択の操作が取る帯 (紙面の座標)。マウスで選んだ (`pointer` がある) ときは、その右下に置いたカード。
+ * キーボードで選んだときは選択範囲の上の、ポップオーバーとその下の回転ハンドルの間隔。
  * 紙面に浮かべる部品 (拡張の `floatingContent`) がこれを覆わないための障害物。ポップオーバーは画面の px で
  * 置くので、紙面の座標ではズームで割る。幅は中身で変わるので、描いた後は実寸 (`popoverWidthPx`) を
  * 使う (それまでは見積もり)。選んだ範囲そのもの (グループ・複数選択の中) は含めない。
@@ -373,8 +374,9 @@ function findPageSheetRect(canvas: HTMLElement | null, y: number, x: number): DO
 
 /**
  * 本文の選択の帯から開く AI・コメントの入力欄の錨 (画面座標)。入力欄は「押した部品の下」に開く
- * 約束なので、帯がそのまま渡ると、選択の上の帯の真下 = 選んだ文の上に開いて隠す。選んだところの
- * 右下に帯の高さの部品があるとみなした位置を返し、入力欄を選択のすぐ下に開かせる。
+ * 約束なので、帯の位置そのものは使わない (帯は大きさで上下どちらにも回るので、その真下が選んだ文の
+ * 上になることがある)。選んだところの右下に帯の高さの部品があるとみなした位置を返し、入力欄を選択の
+ * すぐ下に開かせる (入力欄が開くと帯は消える)。
  */
 export function getSelectionFollowUpAnchor(anchor: SelectionTrailingAnchor): { left: number; top: number } {
   const { left, top } = placeSelectionTrailingActions(anchor, { width: SELECTION_ACTION_POPOVER_WIDTH, height: 0 });
