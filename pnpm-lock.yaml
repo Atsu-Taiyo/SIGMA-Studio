@@ -65,8 +65,8 @@ importers:
         specifier: 1.5.3
         version: 1.5.3(bare-url@2.5.4)
       i18next:
-        specifier: ^27.2.2
-        version: 27.2.2(typescript@7.0.2)
+        specifier: ^27.2.3
+        version: 27.2.3(typescript@7.0.2)
       jsdom:
         specifier: ^31.0.1
         version: 31.0.1(@napi-rs/canvas@1.1.1)(@noble/hashes@1.8.0)
@@ -3395,8 +3395,8 @@ packages:
     resolution: {integrity: sha512-Y93lCzHYgGWdrJ66yIktxiaGULYc6oGiABxhcO5AufBeOyoIdZF7bIfLaOrbM0iGIOXQQgxxRrFEnb+Y6w1n4A==}
     engines: {node: '>=10.18'}
 
-  i18next@27.2.2:
-    resolution: {integrity: sha512-1/AJgz/bpE/YL6tqekQlZAzDhkmrUBbgU8+Xon/Lwv6c5WdYuyFZ9mb86OVfR2C2XujUDT7Rz23Ydaq4l981lA==}
+  i18next@27.2.3:
+    resolution: {integrity: sha512-14wcQLAu5Aykwk4scBGl8tosKYth4S2PQDcusbES/bUsQ7X7DbcPygMzCe298U/NcAvDpqr+CX6oygbQoyLBRA==}
     engines: {node: '>=22'}
     peerDependencies:
       typescript: ^5 || ^6 || ^7
@@ -7882,7 +7882,7 @@ snapshots:
       '@next/eslint-plugin-next': 16.4.6(eslint@10.15.0(jiti@2.7.0))
       eslint: 10.15.0(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
-      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0)(eslint@10.15.0(jiti@2.7.0))
+      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0))
       eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint-import-resolver-typescript@3.10.1)(eslint@10.15.0(jiti@2.7.0))
       eslint-plugin-jsx-a11y: 6.10.2(eslint@10.15.0(jiti@2.7.0))
       eslint-plugin-react: 7.37.5(eslint@10.15.0(jiti@2.7.0))
@@ -7904,7 +7904,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0)(eslint@10.15.0(jiti@2.7.0)):
+  eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)):
     dependencies:
       '@nolyfill/is-core-module': 1.0.39
       debug: 4.4.3
@@ -7919,14 +7919,14 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-module-utils@2.14.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1)(eslint@10.15.0(jiti@2.7.0)):
+  eslint-module-utils@2.14.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)):
     dependencies:
       debug: 3.2.7
     optionalDependencies:
       '@typescript-eslint/parser': 8.71.0(eslint@10.15.0(jiti@2.7.0))
       eslint: 10.15.0(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
-      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0)(eslint@10.15.0(jiti@2.7.0))
+      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0))
     transitivePeerDependencies:
       - supports-color
 
@@ -7941,7 +7941,7 @@ snapshots:
       doctrine: 2.1.0
       eslint: 10.15.0(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
-      eslint-module-utils: 2.14.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1)(eslint@10.15.0(jiti@2.7.0))
+      eslint-module-utils: 2.14.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.0(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0)))(eslint@10.15.0(jiti@2.7.0))
       hasown: 2.0.4
       is-core-module: 2.17.0
       is-glob: 4.0.3
@@ -8507,7 +8507,7 @@ snapshots:
 
   hyperdyperid@1.2.0: {}
 
-  i18next@27.2.2(typescript@7.0.2):
+  i18next@27.2.3(typescript@7.0.2):
     optionalDependencies:
       typescript: 7.0.2
 
