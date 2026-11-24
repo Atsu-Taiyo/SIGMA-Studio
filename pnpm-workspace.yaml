@@ -17,6 +17,9 @@ overrides:
   undici@^7: ^7.30.1
   postcss: 8.5.33
   http-cache-semantics: 4.3.0
+  # 1.43 changes DOM selection and clears composition before native history guards run.
+  # Lift this pin when IME undo and continued-box selection pass with the newer view.
+  prosemirror-view: 1.42.9
   '@next/eslint-plugin-next>fast-glob': npm:tinyglobby@0.2.17
   # pnpm import otherwise deduplicates npm's nested Node 24 typings into 26.
   '@types/cacheable-request>@types/node': 24.19.0
