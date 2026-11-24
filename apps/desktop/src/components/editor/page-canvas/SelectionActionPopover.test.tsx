@@ -28,3 +28,29 @@ it("keeps selection tools inside the editor viewport when the pocket opens above
     expect(toolbar.style.top).toBe("400px");
   } finally { await act(async () => root.unmount()); }
 });
+
+it("places the text formatting card below the selected text and flips above only near the viewport bottom", async () => {
+  const viewport = document.createElement("div");
+  viewport.className = "editor-canvas";
+  document.body.append(viewport);
+  vi.spyOn(viewport, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 0, 900, 600));
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(100);
+  const root = createRoot(viewport);
+  const render = (selectionTop: number, selectionBottom: number) => <SelectionActionPopover popover={{
+    position: {
+      left: 40,
+      top: selectionTop - 46,
+      anchor: { top: selectionTop, bottom: selectionBottom, clearance: 8 },
+      trailing: { right: 300, bottom: selectionBottom, top: selectionTop, limitRight: 800, limitBottom: 588 },
+    },
+    commentAnchor: null,
+    extensionAction: { key: "format", renderTools: () => <button>Bold</button> },
+  }} />;
+  try {
+    await act(async () => root.render(render(200, 220)));
+    const toolbar = viewport.querySelector<HTMLElement>(".selection-action-popover")!;
+    expect(toolbar.style.top).toBe("228px");
+    await act(async () => root.render(render(500, 520)));
+    expect(toolbar.style.top).toBe("392px");
+  } finally { await act(async () => root.unmount()); }
+});

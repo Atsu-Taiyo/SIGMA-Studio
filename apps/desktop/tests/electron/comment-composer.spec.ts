@@ -103,6 +103,9 @@ test("comments: floating @ list, @claude in the text, Enter to send, and the acc
     await expect(band.getByRole("button", { name: "AIに追加" })).toBeVisible();
     await expect(band.getByRole("button", { name: "ポケットに追加" })).toBeVisible();
     await expect(page.locator(".selection-action-popover--trailing")).toHaveCount(0);
+    // 本文の選択では、帯は選んだ文の下に出る (上に出すと前の行を隠す)。
+    const targetBox = (await target.boundingBox())!;
+    expect((await band.boundingBox())!.y).toBeGreaterThanOrEqual(targetBox.y + targetBox.height);
     // 帯の「コメント」から、ピンと入力欄だけの浮かぶ欄が、帯の下ではなく選んだ文のすぐ下に開く。
     // 書いている間は、選択の操作 (帯・チップ) を重ねない。「@」だけのボタンは無い。
     await band.getByRole("button", { name: "コメントを追加", exact: true }).click();
