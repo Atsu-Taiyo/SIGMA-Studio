@@ -18,6 +18,8 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  // The PowerPoint converter's SSR import can reach the native Node canvas.
+  serverExternalPackages: ["@napi-rs/canvas"],
   // emf-converter reads these raster diagnostic offsets without a browser guard.
   env: { HDX: "0", HDY: "0" },
   turbopack: {
