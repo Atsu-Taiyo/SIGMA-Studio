@@ -202,8 +202,8 @@ importers:
         specifier: ^16.4.6
         version: 16.4.6(@babel/core@7.29.7)(@playwright/test@1.65.1)(@types/node@26.6.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       pptx-svg:
-        specifier: ^0.6.8
-        version: 0.6.8
+        specifier: ^0.6.9
+        version: 0.6.9
       pptx-viewer-core:
         specifier: ^5.0.0
         version: 5.0.0(@napi-rs/canvas@1.1.1)(@xmldom/xmldom@0.9.12)
@@ -4258,8 +4258,8 @@ packages:
     engines: {node: '>=14.0.0'}
     hasBin: true
 
-  pptx-svg@0.6.8:
-    resolution: {integrity: sha512-M5vp573DLDwxCuEDVVPQnkR+xKBnPjSIalpOhGMm3hOKuWXOhGcvCD30DURgjQVVKwOP+i3uS9HLU8Nj9XDAvw==}
+  pptx-svg@0.6.9:
+    resolution: {integrity: sha512-4hIcrcj3+gw+Ks+hNqh9MKI3k5C+0eRi1gq3r3McbF+Jhwp22WTDKtf2/vIkKTFu4VlYO+exVNoZuzebJpYyQA==}
     engines: {node: '>=22'}
 
   pptx-viewer-core@5.0.0:
@@ -9368,7 +9368,7 @@ snapshots:
       commander: 9.5.0
     optional: true
 
-  pptx-svg@0.6.8: {}
+  pptx-svg@0.6.9: {}
 
   pptx-viewer-core@5.0.0(@napi-rs/canvas@1.1.1)(@xmldom/xmldom@0.9.12):
     dependencies:
