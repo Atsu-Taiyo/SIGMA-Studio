@@ -199,16 +199,18 @@ function SelectionActionBand({
       const viewport = root.closest<HTMLElement>(".editor-canvas");
       const viewportRect = viewport?.getBoundingClientRect();
       const minTop = viewportRect ? Math.max(SELECTION_ACTION_POPOVER_MARGIN, viewportRect.top + SELECTION_ACTION_POPOVER_MARGIN) : SELECTION_ACTION_POPOVER_MARGIN;
-      const maxBottom = Math.min(window.innerHeight, viewportRect?.bottom ?? window.innerHeight) - SELECTION_ACTION_POPOVER_MARGIN;
+      const viewportBottom = Math.min(window.innerHeight, viewportRect?.bottom ?? window.innerHeight);
+      const maxBottom = viewportBottom - SELECTION_ACTION_POPOVER_MARGIN;
       const anchor = position.anchor;
       const pointer = position.pointer;
       const width = root.offsetWidth;
       const height = root.offsetHeight;
-      const placeCard = (left: number, top: number, clearance = 0) => {
+      const placeCard = (left: number, top: number, avoidThrough?: number) => {
         const visibleTop = Math.max(minTop, Math.min(top, maxBottom - height));
+        const occupiedHeight = Math.max(height, Math.min(avoidThrough ?? visibleTop, viewportBottom) - visibleTop);
         setLeft(left);
         setTop(visibleTop);
-        onBoundsChange?.({ left, top: visibleTop, width, height: height + (top === visibleTop ? clearance : 0) });
+        onBoundsChange?.({ left, top: visibleTop, width, height: occupiedHeight });
       };
       if (pointer) {
         const below = pointer.y + SELECTION_ACTION_POINTER_OFFSET.y;
@@ -224,7 +226,7 @@ function SelectionActionBand({
         return;
       }
       let top = position.top;
-      let clearance = 0;
+      let avoidThrough: number | undefined;
       if (anchor) {
         const above = anchor.top - anchor.clearance - height;
         const below = anchor.bottom + SELECTION_ACTION_CARD_GAP;
@@ -233,13 +235,13 @@ function SelectionActionBand({
         } else {
           top = above >= minTop ? above : below;
         }
-        // キーボード選択では回転ハンドルがある隙間も避ける。
-        if (top === above) clearance = anchor.clearance;
+        // キーボード選択では、カードの移動後も回転ハンドルまで避ける。
+        if (top === above) avoidThrough = anchor.top;
       }
       const center = position.centerX ?? position.left + width / 2;
       const maxLeft = Math.max(SELECTION_ACTION_POPOVER_MARGIN, window.innerWidth - width - SELECTION_ACTION_POPOVER_MARGIN);
       const next = Math.min(maxLeft, Math.max(SELECTION_ACTION_POPOVER_MARGIN, center - width / 2));
-      placeCard(next, top, clearance);
+      placeCard(next, top, avoidThrough);
     };
     place();
     window.addEventListener("resize", place);
