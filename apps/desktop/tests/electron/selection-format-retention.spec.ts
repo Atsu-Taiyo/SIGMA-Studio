@@ -127,6 +127,38 @@ async function assertSavedRange(page: Page, fileId: string, id: string, offsets:
 
 const toolbar = (page: Page) => page.locator(".selection-action-popover").filter({ has: page.getByRole("button", { name: "フォントサイズを大きく", exact: true }) });
 
+test("keeps the formatting card clickable when a selected range fills the viewport", async () => {
+  const { page, fileId, close } = await openFixture(fixture(false));
+  try {
+    const start = page.locator('.page-flow [data-sigma-doc-id="p2"]').first();
+    const end = page.locator('.page-flow [data-sigma-doc-id="p14"]').first();
+    await start.scrollIntoViewIfNeeded();
+    await drag(page, start, 5, end, 12);
+    await expect.poll(async () => (await paintedSelection(page, ["p2", "p14"])).every(range => range.offsets.length > 0)).toBe(true);
+    const initial = await paintedSelection(page, ["p2", "p14"]);
+
+    await page.setViewportSize({ width: 1500, height: 600 });
+    await start.evaluate(element => {
+      const canvas = element.closest(".editor-canvas")!;
+      canvas.scrollTop += element.getBoundingClientRect().top - canvas.getBoundingClientRect().top - 64;
+    });
+    const card = toolbar(page);
+    await expect.poll(() => card.evaluate(element => {
+      const { bottom } = element.getBoundingClientRect();
+      const viewport = element.closest(".editor-canvas")!.getBoundingClientRect();
+      return Math.round(Math.min(viewport.bottom, innerHeight) - bottom);
+    })).toBe(12);
+
+    await card.getByRole("button", { name: "フォントサイズを大きく", exact: true }).click();
+    await expect.poll(() => paintedSelection(page, ["p2", "p14"])).toEqual(initial.map(range => ({ ...range, sizes: [13] })));
+    for (const [block, range] of [[start, initial[0]], [end, initial[1]]] as const) {
+      await assertSavedRange(page, fileId, range.id, range.offsets, 13, (await block.textContent())!.length);
+    }
+    await page.reload();
+    await expect(start.getByText(initial[0].text, { exact: true })).toHaveCSS("font-size", "17.3333px");
+  } finally { await close(); }
+});
+
 test("a real drag across p5, a problem prompt and p7 stays selected through three size increments", async () => {
   const source = fixture(false);
   const { page, fileId, close } = await openFixture(source);

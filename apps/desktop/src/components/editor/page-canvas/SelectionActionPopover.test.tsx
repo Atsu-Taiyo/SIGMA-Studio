@@ -81,3 +81,43 @@ it("places the shape card at the bottom-right of the pointer and flips near the 
     expect(reportBounds).toHaveBeenLastCalledWith({ left: 588, top: 434, width: 200, height: 100 });
   } finally { await act(async () => root.unmount()); }
 });
+
+it.each([true, false])("keeps the card visible when neither side has room (preferBelow=%s)", async (preferBelow) => {
+  const viewport = document.createElement("div");
+  viewport.className = "editor-canvas";
+  document.body.append(viewport);
+  vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 100, 900, 400));
+  vi.spyOn(window, "innerHeight", "get").mockReturnValue(600);
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(100);
+  const root = createRoot(viewport);
+  try {
+    await act(async () => root.render(<SelectionActionPopover popover={{
+      position: { left: 40, top: 80, anchor: { top: 126, bottom: 470, clearance: 8 } },
+      preferBelow,
+      commentAnchor: null,
+      extensionAction: { key: "format", renderTools: () => <button>Bold</button> },
+    }} />));
+    const card = viewport.querySelector<HTMLElement>(".selection-action-popover")!;
+    expect(card.style.top).toBe("388px");
+  } finally { await act(async () => root.unmount()); }
+});
+
+it("reports the visible rotate-handle clearance when a keyboard shape card is shifted up", async () => {
+  const viewport = document.createElement("div");
+  viewport.className = "editor-canvas";
+  document.body.append(viewport);
+  vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 100, 900, 400));
+  vi.spyOn(window, "innerHeight", "get").mockReturnValue(600);
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(100);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(200);
+  const root = createRoot(viewport);
+  const reportBounds = vi.fn();
+  try {
+    await act(async () => root.render(<SelectionActionPopover popover={{
+      position: { left: 40, top: 450, anchor: { top: 538, bottom: 600, clearance: 42 } },
+      commentAnchor: null,
+      extensionAction: { key: "shape", renderTools: () => <button>Fill</button> },
+    }} onBoundsChange={reportBounds} />));
+    expect(reportBounds).toHaveBeenLastCalledWith({ left: 40, top: 388, width: 200, height: 112 });
+  } finally { await act(async () => root.unmount()); }
+});
