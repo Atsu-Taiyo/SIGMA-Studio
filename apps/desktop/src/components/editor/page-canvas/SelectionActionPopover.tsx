@@ -173,6 +173,7 @@ function SelectionTrailingActions({
  * 帯 1 本の高さの見積もり (`position.top`) では選んだものに重なるので、実寸の高さで置き直す。
  * 既定は選択の上で、上に収まらなければ選択の下へ回す。`preferBelow` (本文の選択) では逆に
  * 選択の下を先に使い、表示域の下端を越えるときだけ上へ回す — 上に出すと、選んだ文の前の行を隠す。
+ * 上下どちらにも収まらないときは、カードを表示域の端に寄せて操作できるようにする。
  */
 function SelectionActionBand({
   position,
@@ -198,22 +199,21 @@ function SelectionActionBand({
       const viewport = root.closest<HTMLElement>(".editor-canvas");
       const viewportRect = viewport?.getBoundingClientRect();
       const minTop = viewportRect ? Math.max(SELECTION_ACTION_POPOVER_MARGIN, viewportRect.top + SELECTION_ACTION_POPOVER_MARGIN) : SELECTION_ACTION_POPOVER_MARGIN;
+      const maxBottom = Math.min(window.innerHeight, viewportRect?.bottom ?? window.innerHeight) - SELECTION_ACTION_POPOVER_MARGIN;
       const anchor = position.anchor;
       const pointer = position.pointer;
       const width = root.offsetWidth;
       const height = root.offsetHeight;
       const placeCard = (left: number, top: number, clearance = 0) => {
+        const visibleTop = Math.max(minTop, Math.min(top, maxBottom - height));
         setLeft(left);
-        setTop(top);
-        onBoundsChange?.({ left, top, width, height: height + clearance });
+        setTop(visibleTop);
+        onBoundsChange?.({ left, top: visibleTop, width, height: height + (top === visibleTop ? clearance : 0) });
       };
       if (pointer) {
-        const maxBottom = Math.min(window.innerHeight, viewportRect?.bottom ?? window.innerHeight) - SELECTION_ACTION_POPOVER_MARGIN;
         const below = pointer.y + SELECTION_ACTION_POINTER_OFFSET.y;
         const above = pointer.y - SELECTION_ACTION_POINTER_OFFSET.y - height;
-        const nextTop = below + height <= maxBottom || above < minTop
-          ? Math.max(minTop, Math.min(below, maxBottom - height))
-          : above;
+        const nextTop = below + height <= maxBottom || above < minTop ? below : above;
         const right = pointer.x + SELECTION_ACTION_POINTER_OFFSET.x;
         const maxRight = window.innerWidth - SELECTION_ACTION_POPOVER_MARGIN;
         const nextLeft = Math.max(
@@ -223,13 +223,12 @@ function SelectionActionBand({
         placeCard(nextLeft, nextTop);
         return;
       }
-      let top = Math.max(minTop, position.top);
+      let top = position.top;
       let clearance = 0;
       if (anchor) {
         const above = anchor.top - anchor.clearance - height;
         const below = anchor.bottom + SELECTION_ACTION_CARD_GAP;
         if (preferBelow) {
-          const maxBottom = Math.min(window.innerHeight, viewportRect?.bottom ?? window.innerHeight) - SELECTION_ACTION_POPOVER_MARGIN;
           top = below + height <= maxBottom || above < minTop ? below : above;
         } else {
           top = above >= minTop ? above : below;
