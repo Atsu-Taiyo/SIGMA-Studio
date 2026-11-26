@@ -26,7 +26,7 @@ const canvas = document.createElement("div");
 canvas.getBoundingClientRect = () => new DOMRect(0, 0, 2000, 4000);
 const canvasRef: RefObject<HTMLDivElement | null> = { current: canvas };
 
-function Probe({ suppressed, status = null, widthPx, selected = selection, math = null, layoutRevision = 1, selectionExtension = extension, comments = false, selectedId = null, overlayEditing = !math, blockHandleSelected, onCandidate, sigmaDocument = document_ }: {
+function Probe({ suppressed, status = null, selected = selection, math = null, layoutRevision = 1, selectionExtension = extension, comments = false, selectedId = null, overlayEditing = !math, blockHandleSelected, onCandidate, sigmaDocument = document_, zoom = 100, panX = 0, panY = 0 }: {
   sigmaDocument?: typeof document_;
   suppressed: boolean;
   selectedId?: string | null;
@@ -34,7 +34,9 @@ function Probe({ suppressed, status = null, widthPx, selected = selection, math 
   blockHandleSelected?: boolean;
   onCandidate?: (anchor: SigmaCommentAnchor | null) => void;
   status?: OverlayModeStatus | null;
-  widthPx?: number;
+  zoom?: number;
+  panX?: number;
+  panY?: number;
   selected?: OverlaySelectionSummary;
   math?: { id: string; tex: string; blockId: string; getCanonicalTex?: () => string } | null;
   selectionExtension?: PageCanvasSelectionExtension;
@@ -51,10 +53,10 @@ function Probe({ suppressed, status = null, widthPx, selected = selection, math 
     bodyOverlayModeStatus: status,
     overlayCommentAnchor: null,
     canvasRef,
-    zoom: 100,
+    zoom,
     isWhiteboard: true,
-    whiteboardPanX: 0,
-    whiteboardPanY: 0,
+    whiteboardPanX: panX,
+    whiteboardPanY: panY,
     onCommentAnchorCandidateChange: onCandidate,
     isOverlayEditing: overlayEditing,
     onCommentAnchorRequest: comments ? () => {} : undefined,
@@ -62,7 +64,6 @@ function Probe({ suppressed, status = null, widthPx, selected = selection, math 
     selectedInlineMath: math,
     totalHeight: 4000,
     layoutRevision,
-    overlayPopoverWidthPx: widthPx,
     blockHandleSelected,
   });
   useLayoutEffect(() => { owner = current; });
@@ -146,13 +147,17 @@ it("opens the shape card next to the pointer that selected it, and back above th
   }
 });
 
-it("spans the shape popover's measured width and keeps the same rect while nothing moves", async () => {
-  await render({ suppressed: false, widthPx: 480 });
+it("projects the placed card's full bounds through zoom and pan and keeps the same rect while nothing moves", async () => {
+  const props = { suppressed: false, zoom: 200, panX: 12, panY: -20 };
+  await render(props);
+  const bounds = { left: 300, top: 240, width: 360, height: 125 };
+  await act(async () => owner.onOverlayCardBoundsChange?.(bounds));
   const first = owner.selectionControlsRect;
-  expect(first).toMatchObject({ x: 350 - 240, w: 480 });
+  expect(first).toEqual({ x: 144, y: 130, w: 180, h: 62.5 });
 
   // 選択の要約が作り直されても (同じ図形・同じ位置)、同じ矩形を渡す。
-  await render({ suppressed: false, widthPx: 480, selected: { ...selection } });
+  await render({ ...props, selected: { ...selection } });
+  await act(async () => owner.onOverlayCardBoundsChange?.(bounds));
   expect(owner.selectionControlsRect).toBe(first);
 });
 

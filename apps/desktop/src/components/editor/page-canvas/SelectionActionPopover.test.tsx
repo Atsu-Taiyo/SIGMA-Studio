@@ -65,17 +65,19 @@ it("places the shape card at the bottom-right of the pointer and flips near the 
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(100);
   vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(200);
   const root = createRoot(viewport);
+  const reportBounds = vi.fn();
   const render = (x: number, y: number) => <SelectionActionPopover popover={{
     // 図形の上下 (anchor) は画面の外にあっても、マウスの近くに出す。
     position: { left: x + 12, top: y + 16, pointer: { x, y }, anchor: { top: -2000, bottom: 3000, clearance: 42 } },
     commentAnchor: null,
     extensionAction: { key: "shape", renderTools: () => <button>Fill</button> },
-  }} />;
+  }} onBoundsChange={reportBounds} />;
   try {
     await act(async () => root.render(render(300, 200)));
     const card = viewport.querySelector<HTMLElement>(".selection-action-popover")!;
     expect([card.style.left, card.style.top]).toEqual(["312px", "216px"]);
     await act(async () => root.render(render(800, 550)));
     expect([card.style.left, card.style.top]).toEqual(["588px", "434px"]);
+    expect(reportBounds).toHaveBeenLastCalledWith({ left: 588, top: 434, width: 200, height: 100 });
   } finally { await act(async () => root.unmount()); }
 });

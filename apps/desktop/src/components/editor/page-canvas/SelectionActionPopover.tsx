@@ -26,7 +26,10 @@ export interface SelectionActionPopoverState {
   extensionAction: PageCanvasSelectionAction | null;
   commentAnchor: SigmaCommentAnchor | null;
   position: SelectionActionPopoverPosition;
+  preferBelow?: boolean;
 }
+
+export type SelectionCardBounds = Pick<DOMRectReadOnly, "left" | "top" | "width" | "height">;
 
 /**
  * 選択範囲の近くに浮かぶ操作。書式などの編集操作と、AI への依頼・コメントを帯 1 本に
@@ -45,14 +48,14 @@ export function SelectionActionPopover({
   popover,
   onCommentAnchorRequest,
   renderSelectionActions,
-  onWidthChange,
+  onBoundsChange,
 }: {
   popover: SelectionActionPopoverState;
   renderSelectionActions?: (anchor: SigmaCommentAnchor) => ReactNode;
   /** `placement` は押した部品の位置 (画面座標)。コメントの入力欄をその下に開ける。 */
   onCommentAnchorRequest?: (anchor: SigmaCommentAnchor, placement?: { left: number; top: number }) => void;
-  /** 実寸の幅 (画面の px)。紙面に浮かべる部品が、このポップオーバーを避けるのに使う。 */
-  onWidthChange?: (widthPx: number) => void;
+  /** 折り返し後のカードの位置と実寸 (画面の px)。 */
+  onBoundsChange?: (bounds: SelectionCardBounds) => void;
 }) {
   const { position, extensionAction, commentAnchor } = popover;
   const trailing = position.trailing;
@@ -74,7 +77,11 @@ export function SelectionActionPopover({
   return (
     // 紙面に浮かべる部品が避けるのは図形の選択の帯だけ (`getOverlaySelectionControlsCanvasRect`)。
     // 書式や図形の操作を段に分けた縦長のカードにする (横 1 本に並べると長くなりすぎる)。
-    <SelectionActionBand position={position} preferBelow={Boolean(trailing)} onWidthChange={trailing ? undefined : onWidthChange}>
+    <SelectionActionBand
+      position={position}
+      preferBelow={popover.preferBelow ?? Boolean(trailing)}
+      onBoundsChange={trailing ? undefined : onBoundsChange}
+    >
       {tools}
       {extensionAction?.render?.(followUp ?? position)}
       <CommentActions
@@ -170,12 +177,12 @@ function SelectionTrailingActions({
 function SelectionActionBand({
   position,
   preferBelow = false,
-  onWidthChange,
+  onBoundsChange,
   children,
 }: {
   position: SelectionActionPopoverPosition;
   preferBelow?: boolean;
-  onWidthChange?: (widthPx: number) => void;
+  onBoundsChange?: (bounds: SelectionCardBounds) => void;
   children: ReactNode;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -193,45 +200,47 @@ function SelectionActionBand({
       const minTop = viewportRect ? Math.max(SELECTION_ACTION_POPOVER_MARGIN, viewportRect.top + SELECTION_ACTION_POPOVER_MARGIN) : SELECTION_ACTION_POPOVER_MARGIN;
       const anchor = position.anchor;
       const pointer = position.pointer;
+      const width = root.offsetWidth;
+      const height = root.offsetHeight;
+      const placeCard = (left: number, top: number, clearance = 0) => {
+        setLeft(left);
+        setTop(top);
+        onBoundsChange?.({ left, top, width, height: height + clearance });
+      };
       if (pointer) {
-        const height = root.offsetHeight;
-        const width = root.offsetWidth;
-        onWidthChange?.(width);
         const maxBottom = Math.min(window.innerHeight, viewportRect?.bottom ?? window.innerHeight) - SELECTION_ACTION_POPOVER_MARGIN;
         const below = pointer.y + SELECTION_ACTION_POINTER_OFFSET.y;
         const above = pointer.y - SELECTION_ACTION_POINTER_OFFSET.y - height;
         const nextTop = below + height <= maxBottom || above < minTop
           ? Math.max(minTop, Math.min(below, maxBottom - height))
           : above;
-        setTop((current) => (Math.abs(current - nextTop) < 0.5 ? current : nextTop));
         const right = pointer.x + SELECTION_ACTION_POINTER_OFFSET.x;
         const maxRight = window.innerWidth - SELECTION_ACTION_POPOVER_MARGIN;
         const nextLeft = Math.max(
           SELECTION_ACTION_POPOVER_MARGIN,
           right + width <= maxRight ? right : Math.min(maxRight - width, pointer.x - SELECTION_ACTION_POINTER_OFFSET.x - width),
         );
-        setLeft((current) => (Math.abs(current - nextLeft) < 0.5 ? current : nextLeft));
+        placeCard(nextLeft, nextTop);
         return;
       }
+      let top = Math.max(minTop, position.top);
+      let clearance = 0;
       if (anchor) {
-        const height = root.offsetHeight;
         const above = anchor.top - anchor.clearance - height;
         const below = anchor.bottom + SELECTION_ACTION_CARD_GAP;
         if (preferBelow) {
           const maxBottom = Math.min(window.innerHeight, viewportRect?.bottom ?? window.innerHeight) - SELECTION_ACTION_POPOVER_MARGIN;
-          setTop(below + height <= maxBottom || above < minTop ? below : above);
+          top = below + height <= maxBottom || above < minTop ? below : above;
         } else {
-          setTop(above >= minTop ? above : below);
+          top = above >= minTop ? above : below;
         }
-      } else {
-        setTop(Math.max(minTop, position.top));
+        // キーボード選択では回転ハンドルがある隙間も避ける。
+        if (top === above) clearance = anchor.clearance;
       }
-      const width = root.offsetWidth;
-      onWidthChange?.(width);
       const center = position.centerX ?? position.left + width / 2;
       const maxLeft = Math.max(SELECTION_ACTION_POPOVER_MARGIN, window.innerWidth - width - SELECTION_ACTION_POPOVER_MARGIN);
       const next = Math.min(maxLeft, Math.max(SELECTION_ACTION_POPOVER_MARGIN, center - width / 2));
-      setLeft((current) => (Math.abs(current - next) < 0.5 ? current : next));
+      placeCard(next, top, clearance);
     };
     place();
     window.addEventListener("resize", place);
@@ -246,7 +255,7 @@ function SelectionActionBand({
       observer.disconnect();
       window.removeEventListener("resize", place);
     };
-  }, [onWidthChange, position.anchor, position.centerX, position.left, position.pointer, position.top, preferBelow]);
+  }, [onBoundsChange, position.anchor, position.centerX, position.left, position.pointer, position.top, preferBelow]);
 
   return (
     <div
