@@ -10,6 +10,7 @@ import type { PageCanvasSelectionAction } from "./editor-extension";
 import {
   getSelectionFollowUpAnchor,
   placeSelectionTrailingActions,
+  SELECTION_ACTION_POINTER_OFFSET,
   SELECTION_ACTION_POPOVER_MARGIN,
   type SelectionActionPopoverPosition,
   type SelectionTrailingAnchor,
@@ -28,8 +29,10 @@ export interface SelectionActionPopoverState {
 }
 
 /**
- * 選択範囲の近くに浮かぶ操作。書式などの編集操作と、AI への依頼・コメントを選択の上の帯 1 本に
+ * 選択範囲の近くに浮かぶ操作。書式などの編集操作と、AI への依頼・コメントを帯 1 本に
  * 並べる (本文・画像・図形で同じ)。横 1 本の帯ではなく、段に分けた縦長のカードにする。
+ * 本文の選択では選んだ文の下に、図形の選択では選んだときのマウスの右下に置く (マウスの位置が
+ * 分からない — キーボードで選んだ — ときは選択の上、回転ハンドルの上)。
  *
  * 本文の選択 (`position.trailing` がある) では、帯から開く AI・コメントの入力欄を選んだところの
  * すぐ下に開く — 帯の真下に開くと、選んだ文を隠す。数式だけ・ブロックを丸ごと選んだときは
@@ -71,7 +74,7 @@ export function SelectionActionPopover({
   return (
     // 紙面に浮かべる部品が避けるのは図形の選択の帯だけ (`getOverlaySelectionControlsCanvasRect`)。
     // 書式や図形の操作を段に分けた縦長のカードにする (横 1 本に並べると長くなりすぎる)。
-    <SelectionActionBand position={position} onWidthChange={trailing ? undefined : onWidthChange}>
+    <SelectionActionBand position={position} preferBelow={Boolean(trailing)} onWidthChange={trailing ? undefined : onWidthChange}>
       {tools}
       {extensionAction?.render?.(followUp ?? position)}
       <CommentActions
@@ -157,16 +160,21 @@ function SelectionTrailingActions({
 }
 
 /**
- * 選択の上に中央寄せで置く縦長のカード。`position.left` は幅の見積もりなので、実寸で置き直す。
- * 帯 1 本の高さの見積もり (`position.top`) では選んだものに重なるので、実寸の高さで選択の上に
- * 置き直す。上に収まらなければ選択の下へ回す。
+ * 選択に中央寄せで置く縦長のカード。`position.pointer` (図形をマウスで選んだ) があれば、その点の右下に置き、
+ * 下・右に収まらなければ点の上・左へ回す。拡大して図形の上下が画面の外にあっても、カードは手元に出る。
+ * それ以外は`position.left` は幅の見積もりなので、実寸で置き直す。
+ * 帯 1 本の高さの見積もり (`position.top`) では選んだものに重なるので、実寸の高さで置き直す。
+ * 既定は選択の上で、上に収まらなければ選択の下へ回す。`preferBelow` (本文の選択) では逆に
+ * 選択の下を先に使い、表示域の下端を越えるときだけ上へ回す — 上に出すと、選んだ文の前の行を隠す。
  */
 function SelectionActionBand({
   position,
+  preferBelow = false,
   onWidthChange,
   children,
 }: {
   position: SelectionActionPopoverPosition;
+  preferBelow?: boolean;
   onWidthChange?: (widthPx: number) => void;
   children: ReactNode;
 }) {
@@ -181,11 +189,40 @@ function SelectionActionBand({
     }
     const place = () => {
       const viewport = root.closest<HTMLElement>(".editor-canvas");
-      const minTop = viewport ? Math.max(SELECTION_ACTION_POPOVER_MARGIN, viewport.getBoundingClientRect().top + SELECTION_ACTION_POPOVER_MARGIN) : SELECTION_ACTION_POPOVER_MARGIN;
+      const viewportRect = viewport?.getBoundingClientRect();
+      const minTop = viewportRect ? Math.max(SELECTION_ACTION_POPOVER_MARGIN, viewportRect.top + SELECTION_ACTION_POPOVER_MARGIN) : SELECTION_ACTION_POPOVER_MARGIN;
       const anchor = position.anchor;
+      const pointer = position.pointer;
+      if (pointer) {
+        const height = root.offsetHeight;
+        const width = root.offsetWidth;
+        onWidthChange?.(width);
+        const maxBottom = Math.min(window.innerHeight, viewportRect?.bottom ?? window.innerHeight) - SELECTION_ACTION_POPOVER_MARGIN;
+        const below = pointer.y + SELECTION_ACTION_POINTER_OFFSET.y;
+        const above = pointer.y - SELECTION_ACTION_POINTER_OFFSET.y - height;
+        const nextTop = below + height <= maxBottom || above < minTop
+          ? Math.max(minTop, Math.min(below, maxBottom - height))
+          : above;
+        setTop((current) => (Math.abs(current - nextTop) < 0.5 ? current : nextTop));
+        const right = pointer.x + SELECTION_ACTION_POINTER_OFFSET.x;
+        const maxRight = window.innerWidth - SELECTION_ACTION_POPOVER_MARGIN;
+        const nextLeft = Math.max(
+          SELECTION_ACTION_POPOVER_MARGIN,
+          right + width <= maxRight ? right : Math.min(maxRight - width, pointer.x - SELECTION_ACTION_POINTER_OFFSET.x - width),
+        );
+        setLeft((current) => (Math.abs(current - nextLeft) < 0.5 ? current : nextLeft));
+        return;
+      }
       if (anchor) {
-        const above = anchor.top - anchor.clearance - root.offsetHeight;
-        setTop(above >= minTop ? above : anchor.bottom + SELECTION_ACTION_CARD_GAP);
+        const height = root.offsetHeight;
+        const above = anchor.top - anchor.clearance - height;
+        const below = anchor.bottom + SELECTION_ACTION_CARD_GAP;
+        if (preferBelow) {
+          const maxBottom = Math.min(window.innerHeight, viewportRect?.bottom ?? window.innerHeight) - SELECTION_ACTION_POPOVER_MARGIN;
+          setTop(below + height <= maxBottom || above < minTop ? below : above);
+        } else {
+          setTop(above >= minTop ? above : below);
+        }
       } else {
         setTop(Math.max(minTop, position.top));
       }
@@ -209,7 +246,7 @@ function SelectionActionBand({
       observer.disconnect();
       window.removeEventListener("resize", place);
     };
-  }, [onWidthChange, position.anchor, position.centerX, position.left, position.top]);
+  }, [onWidthChange, position.anchor, position.centerX, position.left, position.pointer, position.top, preferBelow]);
 
   return (
     <div

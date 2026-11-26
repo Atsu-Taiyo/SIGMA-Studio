@@ -502,8 +502,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 選択のメニューは縦長のカードにする (Notion の選択メニューと同じ形)。本文の書式は 2 段に分け、
-   図形の操作は区切りごとに段を改める。最後に区切り線を挟んでポケット・AI・コメントを並べる。 */
+/* 選択のメニューはカードにする (Notion の選択メニューと同じ形)。本文の書式は 2 段に分け、
+   最後に区切り線を挟んでポケット・AI・コメントを並べる。図形の操作は段を決め打ちしない (下の規則)。 */
 .selection-action-popover--card {
   width: 288px;
   padding: 6px;
@@ -532,9 +532,50 @@
   margin: 4px 0;
 }
 
-/* 図形の「…」は 1 段を取らず、直前の段 (図形の色・画像の操作など) の末尾に並べる。 */
-.selection-action-popover--card > .selection-action-divider:has(+ .selection-toolbar-more-anchor) {
+/* 図形のカード: 段を決め打ちせず、操作を左から並べて幅に収まらなければ自然に折り返す。
+   「…」は右上に固定する (先頭に置いて右へ浮かせ、残りの操作はその左に詰める = 1 段目の
+   操作と「…」の間が空きになる)。幅は中身に合わせ、広くなりすぎたら折り返す。 */
+.selection-action-popover--card:has(> .selection-toolbar-more-anchor) {
+  display: block;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 24px));
+  line-height: 0;
+}
+
+.selection-action-popover--card:has(> .selection-toolbar-more-anchor) > * {
+  margin: 1px;
+  line-height: normal;
+  vertical-align: middle;
+}
+
+.selection-action-popover--card:has(> .selection-toolbar-more-anchor) > button,
+.selection-action-popover--card:has(> .selection-toolbar-more-anchor) > .shape-menu-anchor {
+  display: inline-flex;
+}
+
+.selection-action-popover--card > .selection-toolbar-more-anchor {
+  float: right;
+  margin-left: 6px;
+}
+
+/* 区切りは線ではなく少しの間にする。折り返しで行末に来ても、線だけが残って見えない。 */
+.selection-action-popover--card:has(> .selection-toolbar-more-anchor) > .selection-action-divider {
+  display: inline-block;
+  width: 6px;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+}
+
+/* 区切りが続く (間の操作が出ない) ときと、末尾の区切りは要らない。 */
+.selection-action-popover--card:has(> .selection-toolbar-more-anchor) > .selection-action-divider + .selection-action-divider,
+.selection-action-popover--card:has(> .selection-toolbar-more-anchor) > .selection-action-divider:last-child {
   display: none;
+}
+
+/* 図中の文字の書式 (段に分けた本文の書式) は、それまでどおり 1 段ずつ取る。 */
+.selection-action-popover--card:has(> .selection-toolbar-more-anchor) > .selection-toolbar-row {
+  display: flex;
 }
 
 .selection-action-popover--card .selection-toolbar-size {

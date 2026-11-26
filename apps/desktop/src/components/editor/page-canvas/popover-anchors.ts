@@ -43,6 +43,11 @@ export interface SelectionActionPopoverPosition {
    * 高さの見積もり (`top`) では選択に重なるので、実寸の高さとこれで置き直す。
    */
   anchor?: { top: number; bottom: number; clearance: number };
+  /**
+   * 図形の選択だけが持つ。選んだときのマウスの位置 (画面座標)。カードは図形の上下ではなく、
+   * この点の右下に置く — 拡大していると図形の上下は画面の外に出て、カードが見えなくなる。
+   */
+  pointer?: { x: number; y: number };
 }
 
 /** 選んだところの右下の角と、チップを収める範囲 (いずれも画面座標)。 */
@@ -83,6 +88,14 @@ const SELECTION_ACTION_POPOVER_HEIGHT = 38;
 const SELECTION_ACTION_POPOVER_GAP = 8;
 export const SELECTION_ACTION_POPOVER_MARGIN = 12;
 const OVERLAY_ROTATE_HANDLE_CLEARANCE = 42;
+/** マウスの位置からカードの左上の角までのずれ (画面の px)。カーソルの矢印にカードがかからない。 */
+export const SELECTION_ACTION_POINTER_OFFSET = { x: 12, y: 16 } as const;
+
+/** 図形を選んだときのマウスの位置 (紙面の表示座標 = ズーム前・パン前)。スクロール・ズームしても同じ点に付いていく。 */
+export interface OverlaySelectionPointer {
+  x: number;
+  y: number;
+}
 
 export function viewportToCanvasAnchor(
   viewport: { left: number; top: number },
@@ -155,15 +168,42 @@ function getOverlaySelectionPopoverAnchor(
   };
 }
 
+/** 画面座標のマウスの位置を、紙面の表示座標 (`OverlaySelectionPointer`) にする。 */
+export function getOverlaySelectionPointer(
+  canvas: HTMLElement,
+  client: { x: number; y: number },
+  zoom: number,
+  offset: { x: number; y: number } = { x: 0, y: 0 },
+): OverlaySelectionPointer {
+  const zoomScale = Math.max(0.01, zoom / 100);
+  const canvasRect = canvas.getBoundingClientRect();
+  return {
+    x: (client.x - canvasRect.left - offset.x) / zoomScale,
+    y: (client.y - canvasRect.top - offset.y) / zoomScale,
+  };
+}
+
 export function getOverlaySelectionActionPopoverPosition(
   canvas: HTMLElement | null,
   selection: OverlaySelectionSummary,
   zoom: number,
   offset: { x: number; y: number } = { x: 0, y: 0 },
+  pointer: OverlaySelectionPointer | null = null,
 ): SelectionActionPopoverPosition | null {
   const anchor = getOverlaySelectionPopoverAnchor(selection);
   if (!canvas || !anchor) {
     return null;
+  }
+  if (pointer) {
+    const zoomScale = Math.max(0.01, zoom / 100);
+    const canvasRect = canvas.getBoundingClientRect();
+    const x = canvasRect.left + offset.x + pointer.x * zoomScale;
+    const y = canvasRect.top + offset.y + pointer.y * zoomScale;
+    return {
+      left: x + SELECTION_ACTION_POINTER_OFFSET.x,
+      top: y + SELECTION_ACTION_POINTER_OFFSET.y,
+      pointer: { x, y },
+    };
   }
 
   const { verticalClearance } = anchor;
@@ -181,7 +221,8 @@ export function getOverlaySelectionActionPopoverPosition(
 }
 
 /**
- * 図形の選択の操作が選択範囲の上に取る帯 (紙面の座標): ポップオーバーと、その下の回転ハンドルの間隔。
+ * 図形の選択の操作が取る帯 (紙面の座標)。マウスで選んだ (`pointer` がある) ときは、その右下に置いたカード。
+ * キーボードで選んだときは選択範囲の上の、ポップオーバーとその下の回転ハンドルの間隔。
  * 紙面に浮かべる部品 (拡張の `floatingContent`) がこれを覆わないための障害物。ポップオーバーは画面の px で
  * 置くので、紙面の座標ではズームで割る。幅は中身で変わるので、描いた後は実寸 (`popoverWidthPx`) を
  * 使う (それまでは見積もり)。選んだ範囲そのもの (グループ・複数選択の中) は含めない。
@@ -190,12 +231,22 @@ export function getOverlaySelectionControlsCanvasRect(
   selection: OverlaySelectionSummary,
   zoom: number,
   popoverWidthPx: number = SELECTION_ACTION_POPOVER_WIDTH,
+  pointer: OverlaySelectionPointer | null = null,
 ): { x: number; y: number; w: number; h: number } | null {
   const anchor = getOverlaySelectionPopoverAnchor(selection);
   if (!anchor) {
     return null;
   }
   const zoomScale = Math.max(0.01, zoom / 100);
+  if (pointer) {
+    // マウスの右下に置いたカード。高さは帯 1 本の見積もり (図形の上に置くときと同じ扱い)。
+    return {
+      x: pointer.x + SELECTION_ACTION_POINTER_OFFSET.x / zoomScale,
+      y: pointer.y + SELECTION_ACTION_POINTER_OFFSET.y / zoomScale,
+      w: popoverWidthPx / zoomScale,
+      h: SELECTION_ACTION_POPOVER_HEIGHT / zoomScale,
+    };
+  }
   const height = (SELECTION_ACTION_POPOVER_HEIGHT + anchor.verticalClearance) / zoomScale;
   const width = popoverWidthPx / zoomScale;
   return {
@@ -212,6 +263,7 @@ export function sameSelectionActionPopoverPosition(
 ): boolean {
   return a === b || Boolean(
     a && b && a.left === b.left && a.top === b.top && a.centerX === b.centerX
+      && a.pointer?.x === b.pointer?.x && a.pointer?.y === b.pointer?.y
       && sameSelectionTrailingAnchor(a.trailing, b.trailing),
   );
 }
@@ -322,8 +374,9 @@ function findPageSheetRect(canvas: HTMLElement | null, y: number, x: number): DO
 
 /**
  * 本文の選択の帯から開く AI・コメントの入力欄の錨 (画面座標)。入力欄は「押した部品の下」に開く
- * 約束なので、帯がそのまま渡ると、選択の上の帯の真下 = 選んだ文の上に開いて隠す。選んだところの
- * 右下に帯の高さの部品があるとみなした位置を返し、入力欄を選択のすぐ下に開かせる。
+ * 約束なので、帯の位置そのものは使わない (帯は大きさで上下どちらにも回るので、その真下が選んだ文の
+ * 上になることがある)。選んだところの右下に帯の高さの部品があるとみなした位置を返し、入力欄を選択の
+ * すぐ下に開かせる (入力欄が開くと帯は消える)。
  */
 export function getSelectionFollowUpAnchor(anchor: SelectionTrailingAnchor): { left: number; top: number } {
   const { left, top } = placeSelectionTrailingActions(anchor, { width: SELECTION_ACTION_POPOVER_WIDTH, height: 0 });

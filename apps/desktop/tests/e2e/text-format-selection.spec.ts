@@ -1158,7 +1158,12 @@ for (const releaseAt of ["right margin", "below last line", "problem margin"] as
     await expect(selectionBar.getByRole("button", { name: "フォントサイズを小さく", exact: true })).toBeEnabled();
 
     // A subsequent plain margin click must still clear/select the container normally.
-    await page.mouse.click(points.end.x, points.end.y);
+    // The selection card opens below the selected text, so the release point may be under it;
+    // click the same column just below the card instead.
+    const card = (await selectionBar.boundingBox())!;
+    const coversEnd = points.end.x >= card.x && points.end.x <= card.x + card.width
+      && points.end.y >= card.y && points.end.y <= card.y + card.height;
+    await page.mouse.click(points.end.x, coversEnd ? card.y + card.height + 16 : points.end.y);
     await expect(sizeInput).toBeDisabled();
   });
 }
