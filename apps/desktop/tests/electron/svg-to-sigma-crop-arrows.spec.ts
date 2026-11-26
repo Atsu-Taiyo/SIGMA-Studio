@@ -78,9 +78,12 @@ test("a cropped SVG with arrows converts to the part the canvas shows, with real
     expect(converted.shapes.filter((shape) => shape.type === "image")).toHaveLength(1);
     // The visible circle uses its true diameter; ellipses have no outline inset.
     expect(converted.shapes.filter((shape) => shape.type === "geo" && shape.props.geo === "ellipse")).toMatchObject([{ props: { w: 30, h: 30, size: "l" } }]);
+    await expect(page.locator(".selection-action-popover--card")).toBeVisible();
+    await expect(page.locator(".selection-action-popover--card").getByRole("button", { name: "その他", exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("crop-arrows-converted.png") });
     await page.waitForTimeout(500);
-    const after = await page.screenshot({ clip });
+    // Compare drawing pixels independently of the selection controls.
+    const after = await page.screenshot({ clip, style: ".selection-action-popover { visibility: hidden; }" });
     const [a, b] = [await ink(before), await ink(after)];
     const near = (m: Uint8Array, x: number, y: number) => {
       for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {

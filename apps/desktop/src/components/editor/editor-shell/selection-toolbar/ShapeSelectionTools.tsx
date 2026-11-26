@@ -143,6 +143,61 @@ export function ShapeSelectionTools({
 
   return (
     <>
+      {/* 重なり順・回転反転・整列・ロック・複製・削除。カードの右上に置く (CSS で右に寄せ、残りの操作は
+          その左から自然に折り返す)。右上に置くため、DOM では先頭に置く。 */}
+      <div className="shape-menu-anchor selection-toolbar-more-anchor">
+        <EditorToolbarMenuButton
+          buttonRef={moreRef}
+          className="selection-toolbar-button"
+          active={openId === "more"}
+          title={tEditor("selectionToolbar.more")}
+          aria-label={tEditor("selectionToolbar.more")}
+          aria-haspopup="menu"
+          aria-expanded={openId === "more"}
+          disabled={!shape.enabled}
+          onClick={(event) => {
+            event.stopPropagation();
+            menus.toggle("more");
+          }}
+        >
+          <MoreHorizontal size={TOOLBAR_ICON_SIZE} aria-hidden="true" />
+        </EditorToolbarMenuButton>
+        <ToolMenu id="more" openId={openId} onClose={onClose} buttonRef={moreRef} className="shape-menu selection-toolbar-more-menu" ariaLabel={tEditor("selectionToolbar.more")}>
+          <MoreItem icon={<BringToFront size={16} />} label={t("shapeStyle.arrange.front")} onSelect={() => arrange("front")} />
+          <MoreItem icon={<MoveUp size={16} />} label={t("shapeStyle.arrange.forward")} onSelect={() => arrange("forward")} />
+          <MoreItem icon={<MoveDown size={16} />} label={t("shapeStyle.arrange.backward")} onSelect={() => arrange("backward")} />
+          <MoreItem icon={<SendToBack size={16} />} label={t("shapeStyle.arrange.back")} onSelect={() => arrange("back")} />
+          <div className="selection-toolbar-menu-separator" role="separator" />
+          <MoreItem icon={<RotateCw size={16} />} label={tShape("menu.rotateRight")} onSelect={() => transform("rotateClockwise")} />
+          <MoreItem icon={<RotateCcw size={16} />} label={tShape("menu.rotateLeft")} onSelect={() => transform("rotateCounterclockwise")} />
+          <MoreItem icon={<FlipHorizontal2 size={16} />} label={tShape("menu.flipHorizontal")} onSelect={() => transform("horizontal")} />
+          <MoreItem icon={<FlipVertical2 size={16} />} label={tShape("menu.flipVertical")} onSelect={() => transform("vertical")} />
+          {plan.align && (
+            <>
+              <div className="selection-toolbar-menu-separator" role="separator" />
+              <div className="selection-toolbar-icon-row" role="group" aria-label={tShape("menu.align")}>
+                {ALIGN_ITEMS.map(({ action, icon, key }) => (
+                  <MoreIconItem key={action} icon={icon} label={tShape(key)} onSelect={() => align(action)} />
+                ))}
+              </div>
+            </>
+          )}
+          {plan.distribute && (
+            <>
+              <MoreItem icon={<AlignHorizontalDistributeCenter size={16} />} label={tShape("menu.distributeHorizontal")} onSelect={() => distribute("horizontal")} />
+              <MoreItem icon={<AlignVerticalDistributeCenter size={16} />} label={tShape("menu.distributeVertical")} onSelect={() => distribute("vertical")} />
+            </>
+          )}
+          <div className="selection-toolbar-menu-separator" role="separator" />
+          <MoreItem icon={<Lock size={16} />} label={tEditor("selectionToolbar.lock")} onSelect={() => { run({ type: "toggleLock" }); menus.close("more"); }} />
+          {shape.saveAsMaterial && (
+            <MoreItem icon={<PackagePlus size={16} />} label={tShape("menu.saveAsMaterial")} onSelect={() => { shape.saveAsMaterial?.(); menus.close("more"); }} />
+          )}
+          <MoreItem icon={<Copy size={16} />} label={tShape("menu.duplicate")} onSelect={() => { run({ type: "duplicate" }); menus.close("more"); }} />
+          <MoreItem icon={<Trash2 size={16} />} label={tShape("menu.delete")} danger onSelect={() => { run({ type: "delete" }); menus.close("more"); }} />
+        </ToolMenu>
+      </div>
+
       {plan.text && (
         <>
           <TextSelectionTools text={text} scope="shape" />
@@ -406,59 +461,6 @@ export function ShapeSelectionTools({
         </div>
       )}
 
-      {/* 重なり順・回転反転・整列・ロック・複製・削除。カードでは直前の段の末尾に並べる。 */}
-      <div className="shape-menu-anchor selection-toolbar-more-anchor">
-        <EditorToolbarMenuButton
-          buttonRef={moreRef}
-          className="selection-toolbar-button"
-          active={openId === "more"}
-          title={tEditor("selectionToolbar.more")}
-          aria-label={tEditor("selectionToolbar.more")}
-          aria-haspopup="menu"
-          aria-expanded={openId === "more"}
-          disabled={!shape.enabled}
-          onClick={(event) => {
-            event.stopPropagation();
-            menus.toggle("more");
-          }}
-        >
-          <MoreHorizontal size={TOOLBAR_ICON_SIZE} aria-hidden="true" />
-        </EditorToolbarMenuButton>
-        <ToolMenu id="more" openId={openId} onClose={onClose} buttonRef={moreRef} className="shape-menu selection-toolbar-more-menu" ariaLabel={tEditor("selectionToolbar.more")}>
-          <MoreItem icon={<BringToFront size={16} />} label={t("shapeStyle.arrange.front")} onSelect={() => arrange("front")} />
-          <MoreItem icon={<MoveUp size={16} />} label={t("shapeStyle.arrange.forward")} onSelect={() => arrange("forward")} />
-          <MoreItem icon={<MoveDown size={16} />} label={t("shapeStyle.arrange.backward")} onSelect={() => arrange("backward")} />
-          <MoreItem icon={<SendToBack size={16} />} label={t("shapeStyle.arrange.back")} onSelect={() => arrange("back")} />
-          <div className="selection-toolbar-menu-separator" role="separator" />
-          <MoreItem icon={<RotateCw size={16} />} label={tShape("menu.rotateRight")} onSelect={() => transform("rotateClockwise")} />
-          <MoreItem icon={<RotateCcw size={16} />} label={tShape("menu.rotateLeft")} onSelect={() => transform("rotateCounterclockwise")} />
-          <MoreItem icon={<FlipHorizontal2 size={16} />} label={tShape("menu.flipHorizontal")} onSelect={() => transform("horizontal")} />
-          <MoreItem icon={<FlipVertical2 size={16} />} label={tShape("menu.flipVertical")} onSelect={() => transform("vertical")} />
-          {plan.align && (
-            <>
-              <div className="selection-toolbar-menu-separator" role="separator" />
-              <div className="selection-toolbar-icon-row" role="group" aria-label={tShape("menu.align")}>
-                {ALIGN_ITEMS.map(({ action, icon, key }) => (
-                  <MoreIconItem key={action} icon={icon} label={tShape(key)} onSelect={() => align(action)} />
-                ))}
-              </div>
-            </>
-          )}
-          {plan.distribute && (
-            <>
-              <MoreItem icon={<AlignHorizontalDistributeCenter size={16} />} label={tShape("menu.distributeHorizontal")} onSelect={() => distribute("horizontal")} />
-              <MoreItem icon={<AlignVerticalDistributeCenter size={16} />} label={tShape("menu.distributeVertical")} onSelect={() => distribute("vertical")} />
-            </>
-          )}
-          <div className="selection-toolbar-menu-separator" role="separator" />
-          <MoreItem icon={<Lock size={16} />} label={tEditor("selectionToolbar.lock")} onSelect={() => { run({ type: "toggleLock" }); menus.close("more"); }} />
-          {shape.saveAsMaterial && (
-            <MoreItem icon={<PackagePlus size={16} />} label={tShape("menu.saveAsMaterial")} onSelect={() => { shape.saveAsMaterial?.(); menus.close("more"); }} />
-          )}
-          <MoreItem icon={<Copy size={16} />} label={tShape("menu.duplicate")} onSelect={() => { run({ type: "duplicate" }); menus.close("more"); }} />
-          <MoreItem icon={<Trash2 size={16} />} label={tShape("menu.delete")} danger onSelect={() => { run({ type: "delete" }); menus.close("more"); }} />
-        </ToolMenu>
-      </div>
     </>
   );
 

@@ -87,6 +87,9 @@ test("font sizes use the real Electron bridge and survive an app restart", async
       ] }] });
 
     // Double-click the actual shape to enter its text session, then use the same toolbar.
+    // Collapse the preceding text selection so its card does not cover the shape.
+    await selectBody(page, "body_size", 0, 0);
+    await expect(page.locator(".selection-action-popover--card")).toHaveCount(0);
     const shape = page.locator('.overlay-shape-text[data-overlay-shape-id="shape_size"]');
     await grabShapeFromBody(page, shape);
     await shape.click();

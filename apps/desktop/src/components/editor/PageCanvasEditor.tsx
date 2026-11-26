@@ -935,8 +935,7 @@ const {
     markerDisplacements,
   } = layoutViewState;
   // 図形の選択ポップオーバーの描いた幅 (中身で変わる)。紙面に浮かべる部品が避ける矩形に使う。
-  const [overlayPopoverWidthPx, setOverlayPopoverWidthPx] = useState<number | undefined>(undefined);
-  const { overlaySelectionKey, selectionActionPopover, selectionControlsRect } = usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight, layoutRevision: layoutViewState.revision, overlayPopoverWidthPx, blockHandleSelected: selectedId !== null && blockSelection.ids.includes(selectedId) });
+  const { overlaySelectionKey, selectionActionPopover, selectionControlsRect, onOverlayCardBoundsChange } = usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight, layoutRevision: layoutViewState.revision, blockHandleSelected: selectedId !== null && blockSelection.ids.includes(selectedId) });
   useLayoutEffect(() => {
     requestCaretKeeperReanchor();
   }, [layoutViewState]);
@@ -3180,7 +3179,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
             popover={selectionActionPopover}
             onCommentAnchorRequest={onCommentAnchorRequest}
             renderSelectionActions={renderSelectionActions}
-            onWidthChange={selectionControlsRect ? setOverlayPopoverWidthPx : undefined}
+            onBoundsChange={onOverlayCardBoundsChange}
           />
         )}
       </section>
@@ -3927,9 +3926,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
         <SelectionActionPopover
           popover={selectionActionPopover}
           onCommentAnchorRequest={onCommentAnchorRequest}
-            renderSelectionActions={renderSelectionActions}
-          // 幅を測るのは図形の選択ポップオーバーだけ (出ている間は避ける矩形がある)。
-          onWidthChange={selectionControlsRect ? setOverlayPopoverWidthPx : undefined}
+          renderSelectionActions={renderSelectionActions}
+          onBoundsChange={onOverlayCardBoundsChange}
         />
       )}
       {problemContextMenu && (

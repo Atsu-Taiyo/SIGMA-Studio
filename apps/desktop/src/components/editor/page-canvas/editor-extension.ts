@@ -101,12 +101,12 @@ export type PageCanvasSelectionSource =
 export interface PageCanvasSelectionAction {
   key: string;
   /**
-   * 選択に対する機能の操作 (AI への依頼など)。選択の上の帯の、編集操作の後ろにコメントと並べて出す
+   * 選択に対する機能の操作 (AI への依頼など)。選択に添える帯の、編集操作の後ろにコメントと並べて出す
    * (書式の帯が無い本文の選択では、選んだところの右下のチップ)。`position` は開く面の錨 (画面座標)
    * で、その下に開けば選んだものを隠さない。
    */
   render?: (position: SelectionActionPopoverPosition) => ReactNode;
-  /** 選んだものを直す操作 (書式・図形の操作)。選択の上の帯に出す。 */
+  /** 選んだものを直す操作 (書式・図形の操作)。選択に添える帯に出す (本文は選択の下、図形はマウスの近く)。 */
   renderTools?: () => ReactNode;
   notifyCandidate?: () => void;
 }

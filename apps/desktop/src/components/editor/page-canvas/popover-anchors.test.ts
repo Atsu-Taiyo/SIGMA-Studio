@@ -8,6 +8,7 @@ import {
   getCommentOffsetText,
   getOverlaySelectionActionPopoverPosition,
   getOverlaySelectionControlsCanvasRect,
+  getOverlaySelectionPointer,
   getSelectionFollowUpAnchor,
   getSelectionTrailingAnchor,
   placeSelectionTrailingActions,
@@ -45,7 +46,7 @@ function canvasAt(left: number, top: number): HTMLElement {
 }
 
 describe("getOverlaySelectionControlsCanvasRect", () => {
-  it.each([50, 100, 200])("covers the popover and the rotate handle above the shapes at zoom %i%%", (zoom) => {
+  it.each([50, 100, 200])("without a pointer (keyboard selection), covers the popover and the rotate handle above the shapes at zoom %i%%", (zoom) => {
     const rect = getOverlaySelectionControlsCanvasRect(shapeSelection, zoom);
     const scale = zoom / 100;
 
@@ -96,6 +97,49 @@ describe("getOverlaySelectionControlsCanvasRect", () => {
 
   it("is absent without a selection", () => {
     expect(getOverlaySelectionControlsCanvasRect(selectionOf({}), 100)).toBeNull();
+    expect(getOverlaySelectionControlsCanvasRect(selectionOf({}), 100, 210, { x: 10, y: 10 })).toBeNull();
+  });
+
+  it.each([50, 100, 200])("follows the card at the bottom-right of the pointer at zoom %i%%", (zoom) => {
+    const scale = zoom / 100;
+    const rect = getOverlaySelectionControlsCanvasRect(shapeSelection, zoom, 300, { x: 330, y: 420 });
+
+    // 図形の上の帯ではなく、マウスの右下 (+12, +16 画面 px) から始まるカード。
+    expect(rect!.x).toBeCloseTo(330 + 12 / scale);
+    expect(rect!.y).toBeCloseTo(420 + 16 / scale);
+    expect(rect!.w).toBeCloseTo(300 / scale);
+    expect(rect!.h).toBeCloseTo(38 / scale);
+  });
+});
+
+describe("getOverlaySelectionActionPopoverPosition with a pointer", () => {
+  it("puts the card at the bottom-right of the pointer instead of above the shape", () => {
+    const zoom = 200;
+    const canvas = canvasAt(100, 50);
+    // 図形の中 (紙面の 330, 420) を押した。図形の上端は紙面の 400。
+    const position = getOverlaySelectionActionPopoverPosition(canvas, shapeSelection, zoom, undefined, { x: 330, y: 420 })!;
+
+    expect(position.pointer).toEqual({ x: 100 + 330 * 2, y: 50 + 420 * 2 });
+    expect(position).toMatchObject({ left: 100 + 330 * 2 + 12, top: 50 + 420 * 2 + 16 });
+    expect(position.anchor).toBeUndefined();
+  });
+
+  it("keeps the pointer on the same point of the page when the whiteboard pans", () => {
+    const canvas = canvasAt(0, 0);
+    const pointer = getOverlaySelectionPointer(canvas, { x: 500, y: 300 }, 100, { x: 40, y: 20 });
+    expect(pointer).toEqual({ x: 460, y: 280 });
+
+    const panned = getOverlaySelectionActionPopoverPosition(canvas, shapeSelection, 100, { x: 140, y: -30 }, pointer)!;
+    expect(panned.pointer).toEqual({ x: 600, y: 250 });
+  });
+
+  it("round-trips a screen point through zoom", () => {
+    const canvas = canvasAt(100, 50);
+    const pointer = getOverlaySelectionPointer(canvas, { x: 700, y: 650 }, 150);
+    const position = getOverlaySelectionActionPopoverPosition(canvas, shapeSelection, 150, undefined, pointer)!;
+
+    expect(position.pointer!.x).toBeCloseTo(700);
+    expect(position.pointer!.y).toBeCloseTo(650);
   });
 });
 

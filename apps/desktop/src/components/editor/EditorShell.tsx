@@ -3036,7 +3036,17 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // Automatic re-anchor after a deletion: coalesce into the deletion's undo entry.
   const reanchorOverlay = (overlay: PageOverlay) => writeOverlay(overlay, { history: "coalesce" });
 
-  const { previewOpen, setPreviewOpen, pdfExporting, exportedPdfPath, setExportedPdfPath, printPreviewRenderState, setPrintPreviewRenderState, openPrintPreview, exportPdf, openPrintWindow } = useDocumentPrintController({ isDesktopApp, isEmbedded, getDocument: getCurrentSessionDocument, getActiveFileId: getActiveWorkspaceFileId, flushOverlayChanges, saveCurrentDocumentRecord, setSaveState, setStatusMessage });
+  const { previewOpen, setPreviewOpen, pdfExporting, exportedPdfPath, setExportedPdfPath, printPreviewRenderState, setPrintPreviewRenderState, openPrintPreview, exportPdf, openPrintWindow } = useDocumentPrintController({
+    isDesktopApp,
+    isEmbedded,
+    getDocument: getCurrentSessionDocument,
+    getActiveFileId: getActiveWorkspaceFileId,
+    hasDocumentOpenFailed: () => documentOpenFailureRef.current?.fileId === activeFileIdRef.current,
+    flushOverlayChanges,
+    saveCurrentDocumentRecord,
+    setSaveState,
+    setStatusMessage,
+  });
 
   const getActiveTextTarget = (): "document" | "overlay" | "comment" => {
     // 浮かべたコメントの入力欄は body に出るので、欄 (`.comment-thread-panel`) の外にある。
