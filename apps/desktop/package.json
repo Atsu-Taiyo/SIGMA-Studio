@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "@napi-rs/canvas": "^1.1.1",
+    "@napi-rs/canvas": "^1.2.0",
     "electron-updater": "^6.8.11",
     "fast-xml-parser": "^5.12.1",
     "fs-native-extensions": "1.5.4",
