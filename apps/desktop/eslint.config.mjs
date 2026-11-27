@@ -33,7 +33,7 @@ const eslintConfig = [
     ],
   },
   {
-    // OSネイティブダイアログ禁止 (docs/design-rules.md > Controls > Dialogs)。
+    // OSネイティブダイアログ禁止 (DESIGN.md > Components > Dialogs)。
     // 確認・入力・通知はアプリ内ダイアログコンポーネントで表示する。
     // OSファイルピッカー (dialog.showOpenDialog / showSaveDialog) だけが例外。
     rules: {
@@ -41,17 +41,17 @@ const eslintConfig = [
       "no-restricted-syntax": [
         "error",
         {
-          // OSが描くドロップダウン禁止 (docs/design-rules.md > Controls > Selects And Pickers)。
+          // OSが描くドロップダウン禁止 (DESIGN.md > Components > Selects And Pickers)。
           selector: 'JSXOpeningElement[name.name="select"]',
-          message: "ネイティブの <select> は使わない。@/components/ui/Select へ (docs/design-rules.md > Selects And Pickers)",
+          message: "ネイティブの <select> は使わない。@/components/ui/Select へ (DESIGN.md > Selects And Pickers)",
         },
         {
           selector: 'JSXOpeningElement:has(JSXAttribute[name.name="type"][value.value="color"])',
-          message: "OSのカラーパネルは使わない。ColorPalette / 色作成ダイアログへ (docs/design-rules.md > Selects And Pickers)",
+          message: "OSのカラーパネルは使わない。ColorPalette / 色作成ダイアログへ (DESIGN.md > Selects And Pickers)",
         },
         {
           selector: 'JSXOpeningElement:has(JSXAttribute[name.name="type"][value.value=/^(date|time|datetime-local|month|week)$/])',
-          message: "OSの日付ピッカーは使わない。アプリ内UIで選ばせる (docs/design-rules.md > Selects And Pickers)",
+          message: "OSの日付ピッカーは使わない。アプリ内UIで選ばせる (DESIGN.md > Selects And Pickers)",
         },
       ],
       "no-restricted-properties": [
@@ -59,12 +59,12 @@ const eslintConfig = [
         {
           object: "dialog",
           property: "showMessageBox",
-          message: "OSダイアログは使わない。アプリ内ダイアログUIへ (docs/design-rules.md > Dialogs)",
+          message: "OSダイアログは使わない。アプリ内ダイアログUIへ (DESIGN.md > Dialogs)",
         },
         {
           object: "dialog",
           property: "showErrorBox",
-          message: "OSダイアログは使わない。アプリ内ダイアログUIへ (docs/design-rules.md > Dialogs)",
+          message: "OSダイアログは使わない。アプリ内ダイアログUIへ (DESIGN.md > Dialogs)",
         },
       ],
     },

@@ -116,7 +116,7 @@
   background: var(--surface-soft);
 }
 
-/* 選択中は濃い枠線ではなく薄いグレーの面で示す (design-rules)。
+/* 選択中は濃い枠線ではなく薄いグレーの面で示す (DESIGN.md > Components > Selection)。
    見ているタブは名前を読める幅を保ち、ほかのタブが狭さを引き受ける (溢れたらタブ列がスクロールする)。 */
 .tab[data-selected="true"] {
   min-width: 96px;

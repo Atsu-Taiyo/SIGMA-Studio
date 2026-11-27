@@ -1,5 +1,5 @@
 /* 設定ダイアログの数値欄: ラベル、−、値、単位、＋ を 1 つの箱に収める。ブラウザ標準のスピナーは出さない
-   (docs/design-rules.md: Inputs)。 */
+   (DESIGN.md > Components > Inputs)。 */
 .field {
   display: grid;
   gap: var(--space-sm);

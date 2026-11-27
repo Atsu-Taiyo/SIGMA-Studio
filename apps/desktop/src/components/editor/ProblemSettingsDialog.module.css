@@ -1,5 +1,5 @@
 /* 問題設定。ページ設定と同じ組み方で、左に問題のプレビュー、右に設定を置く。色は無彩色を基本に、
-   プレビューで触っている部分だけをアクセントで示す (docs/design-rules.md: Monochrome And Gray First)。 */
+   プレビューで触っている部分だけをアクセントで示す (DESIGN.md > Colors)。 */
 
 .dialog {
   height: min(88vh, 760px);

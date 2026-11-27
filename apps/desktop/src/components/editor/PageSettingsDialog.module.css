@@ -1,5 +1,5 @@
 /* ページ設定。左に紙面の縮小図、右に設定。色は無彩色を基本に、縮小図で触っている部分だけを
-   アクセントで示す (docs/design-rules.md: Monochrome And Gray First)。 */
+   アクセントで示す (DESIGN.md > Colors)。 */
 
 .dialog {
   height: min(88vh, 760px);

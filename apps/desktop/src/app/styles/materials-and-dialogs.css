@@ -11,7 +11,7 @@
 }
 
 /* 素材ギャラリー: 見出し → 検索と追加 → カードの一覧。面の階層は薄い背景差と 1px の線で作り、
-   カードに影や持ち上がりは付けない (design-rules: Calm And Polished Product UI)。 */
+   カードに影や持ち上がりは付けない (DESIGN.md > Elevation & Depth)。 */
 .material-library-dialog {
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr);
@@ -1089,7 +1089,7 @@
   font-size: 12px;
 }
 
-/* 選択中のワークスペースは濃い枠ではなく薄いグレーの面で示す (design-rules)。 */
+/* 選択中のワークスペースは濃い枠ではなく薄いグレーの面で示す (DESIGN.md > Components > Selection)。 */
 .template-gallery-tab {
   display: inline-flex;
   flex: 0 0 auto;

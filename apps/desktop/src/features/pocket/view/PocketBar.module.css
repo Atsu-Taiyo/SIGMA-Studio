@@ -386,7 +386,7 @@
   background: var(--surface-muted);
 }
 
-/* 「すべて外す」は破壊的なので、ホバーで赤くする (design-rules)。元に戻せる。 */
+/* 「すべて外す」は破壊的なので、ホバーで赤くする (DESIGN.md > Components > Buttons)。元に戻せる。 */
 .dangerOnHover:hover:not(:disabled) {
   background: var(--danger-soft);
   color: var(--danger);

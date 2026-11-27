@@ -80,7 +80,7 @@ function findEnabledIndex(options: SelectOption[], from: number, step: number): 
 /**
  * The app's only dropdown. A native `<select>` hands the list to the OS, which paints it in the
  * platform's own language and changes shape per platform; this keeps the list inside the product
- * (see docs/design-rules.md > Controls > Selects And Pickers).
+ * (see DESIGN.md > Components > Selects And Pickers).
  *
  * Focus stays on the trigger while the menu is open and the active option is published through
  * `aria-activedescendant`, so the portalled list never has to steal focus from the caller.

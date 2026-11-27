@@ -506,7 +506,7 @@ function BuiltInCommandField({
 
 /**
  * 色はOSのカラーパネルではなく、アプリ内の見本 + 色作成ダイアログから選ぶ
- * (docs/design-rules.md > Controls > Selects And Pickers)。
+ * (DESIGN.md > Components > Selects And Pickers)。
  */
 function ColorValueField({
   color,

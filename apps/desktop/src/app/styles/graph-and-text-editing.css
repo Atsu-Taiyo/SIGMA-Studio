@@ -446,7 +446,7 @@
 }
 
 /* このパネルの縦リズムは Stack の gap が持つ。`.field-label` と `.checkbox-field` が自前で持つ
-   margin と二重に効かせない (design-rules: 子要素の margin で間隔を作らず親の gap で管理する)。 */
+   margin と二重に効かせない (DESIGN.md > Layout: 子要素の margin で間隔を作らず親の gap で管理する)。 */
 .chart-settings-panel .field-label,
 .chart-settings-panel .checkbox-field {
   margin: 0;

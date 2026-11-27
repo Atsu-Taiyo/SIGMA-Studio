@@ -1,5 +1,5 @@
 /* 選択肢カードの骨格だけを持つ。色は無彩色トークン、面の階層は薄い背景差と 1px の境界線で、
-   影は使わない (docs/design-rules.md: Monochrome And Gray First / Calm And Polished Product UI)。 */
+   影は使わない (DESIGN.md > Components > Selection / Elevation & Depth)。 */
 .group {
   min-width: 0;
 }
@@ -57,7 +57,7 @@
 
 /* 折り返す。300px のパネルに 4 列だと 1 カードの文字幅は約 56px しかなく、`折れ線グラフ` も
    `Scatter plot` も 1 行には収まらない。省略記号にすると、ドロップダウンでは全部見えていた
-   名前が読めなくなる (design-rules: 長いラベルは折り返し、はみ出さないようにする)。 */
+   名前が読めなくなる (DESIGN.md > Typography > Overflow: 長いラベルは折り返し、はみ出さないようにする)。 */
 .label {
   max-width: 100%;
   color: inherit;

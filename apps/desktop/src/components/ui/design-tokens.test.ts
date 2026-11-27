@@ -42,7 +42,7 @@ describe("design tokens", () => {
   });
 
   it("wraps an exclusive choice in a soft grey face rather than a heavier border", () => {
-    // `docs/design-rules.md`: 選択中は濃い枠線でなく薄いグレーの面。A thicker border on selection
+    // `DESIGN.md` (Components > Selection): 選択中は濃い枠線でなく薄いグレーの面。A thicker border on selection
     // would also move the card, since the unselected state already reserves 1px.
     const css = readFileSync(new URL("./ChoiceGroup.module.css", import.meta.url), "utf8");
     const selected = /\.option\[data-selected="true"\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
@@ -70,7 +70,7 @@ describe("design tokens", () => {
 
   it("wraps a long choice label instead of clipping it", () => {
     // 300px panel / 4 columns leaves ~56px per card: `折れ線グラフ` and `Scatter plot` both need
-    // more, and `docs/design-rules.md` prescribes wrapping rather than an ellipsis.
+    // more, and `DESIGN.md` (Typography > Overflow) prescribes wrapping rather than an ellipsis.
     const css = readFileSync(new URL("./ChoiceGroup.module.css", import.meta.url), "utf8");
     const label = /\.label\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
 

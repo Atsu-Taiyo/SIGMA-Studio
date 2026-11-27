@@ -3,7 +3,7 @@
  * ルール:
  * - すべてのセレクタを `.app-shell[data-ui-layout="word"]` で始める。globals.css の冒頭で
  *   @import されるため、詳細度でしか既存の `.editor-menubar` 等に勝てない。
- * - 色は白・黒・グレーだけ。Word のブランド青は使わない (docs/design-rules.md のアクセント制限)。
+ * - 色は白・黒・グレーだけ。Word のブランド青は使わない (DESIGN.md > Colors のアクセント制限)。
  * - 余白は --space-* トークンのみ。ボタンは既存の .icon-button / .toolbar-select をそのまま使い、
  *   新しいボタン部品は作らない。
  * - 影は使わない。グループの区切りは 1px の縦罫 (= Word の視覚署名)。
