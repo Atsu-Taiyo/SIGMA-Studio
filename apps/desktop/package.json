@@ -36,7 +36,7 @@
     "electron-updater": "^6.8.11",
     "fast-xml-parser": "^5.12.1",
     "fs-native-extensions": "1.5.4",
-    "i18next": "^27.2.3",
+    "i18next": "^27.2.7",
     "jsdom": "^31.0.1",
     "katex": "^0.19.1",
     "lib0": "0.2.120",
