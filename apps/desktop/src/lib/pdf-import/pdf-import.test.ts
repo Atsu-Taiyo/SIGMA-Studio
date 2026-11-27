@@ -185,6 +185,20 @@ describe("buildPdfImportDocument", () => {
     expect(bounds.y + bounds.h).toBeGreaterThan(pageTop + heightPx - 1);
   });
 
+  it.each([[120, 24], [-2.2, 26.666]])("keeps text beyond the source page at its fitted position (baseline offset %s px)", (offset, fontSizePx) => {
+    const result = sampleResult(3);
+    const page = result.pages[2]!;
+    page.widthPx *= 2;
+    page.heightPx *= 2;
+    page.runs = [{ ...result.pages[0]!.runs[0]!, y: page.heightPx + offset, fontSizePx }];
+
+    const layout = build(result).pageLayout!;
+    const { heightPx } = getPageMetrics(layout).page;
+    const pageTop = 2 * (heightPx + PAGE_GAP_PX);
+    const text = layout.overlay!.overlaySnapshot!.shapes.find((shape) => shape.id === "pdf_t_p3_t1")!;
+    expect(text.y).toBeCloseTo(pageTop + heightPx + offset / 2 - fontSizePx / 2 * 0.9, 2);
+  });
+
   it("puts page graphics behind the text as locked background images and keeps a blank last page", () => {
     const document = build(sampleResult(3));
     const snapshot = document.pageLayout!.overlay!.overlaySnapshot!;

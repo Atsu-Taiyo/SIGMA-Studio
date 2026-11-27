@@ -6,11 +6,12 @@ import {
   PAGE_GAP_PX,
   type OverlayAsset,
   type OverlayShape,
+  type OverlayTextShape,
   type PageLayout,
   type SigmaDocument,
   type TextMark,
 } from "@/features/document";
-import { getRotatedShapeVisualBounds } from "@/features/drawing";
+import { getAxisAlignedRotatedBounds, getRotatedShapeVisualBounds } from "@/features/drawing";
 import type { PdfFontClass, PdfImportResult, PdfTextRun } from "./types";
 
 const PX_PER_PT = 96 / 72;
@@ -107,7 +108,7 @@ function runToTextShape(
   id: string,
   pageOffsetY: number,
   measurer: PdfTextMeasurer,
-): OverlayShape {
+): OverlayTextShape {
   const face: PdfTextFace = { font: run.font, bold: Boolean(run.bold), italic: Boolean(run.italic) };
   const { ascent, descent } = measurer.metrics(face);
   // 行高 1 の行の中で、ベースラインは上端から 0.5em + (ascent - descent) / 2 の位置に来る。
@@ -185,10 +186,10 @@ export function buildPdfImportDocument(result: PdfImportResult, options: PdfDocu
 
   result.pages.forEach((page, pageIndex) => {
     const pageOffsetY = pageIndex * stride;
-    const pageBottom = roundDown(pageOffsetY + metrics.page.heightPx);
     const pageNo = pageIndex + 1;
     // 用紙に収まらないページだけ縮める。背景と文字に同じ倍率を使い、紙面内の位置を揃える。
     const scale = Math.min(1, metrics.page.widthPx / page.widthPx, metrics.page.heightPx / page.heightPx);
+    const pageBottom = roundDown(pageOffsetY + Math.min(page.heightPx * scale, metrics.page.heightPx));
     if (page.graphicsSvg) {
       const assetId = `${prefix}_p${pageNo}_graphics_asset`;
       const src = encodeSvgDataUrl(page.graphicsSvg);
@@ -211,7 +212,7 @@ export function buildPdfImportDocument(result: PdfImportResult, options: PdfDocu
         props: {
           assetId,
           w: Math.min(round(page.widthPx * scale), metrics.page.widthPx),
-          h: Math.min(roundDown(pageOffsetY + page.heightPx * scale), pageBottom) - pageOffsetY,
+          h: pageBottom - pageOffsetY,
         },
       });
     }
@@ -225,10 +226,13 @@ export function buildPdfImportDocument(result: PdfImportResult, options: PdfDocu
       };
       const shape = runToTextShape(fitted, `${prefix}_p${pageNo}_t${runIndex + 1}`, pageOffsetY, options.measurer);
       if (scale < 1) {
-        // ページ数の計算が読む描画上の高さを使う。文字の行高の切り上げ分を紙面に収める。
+        // 紙面内にある文字だけ、描画時の行高の切り上げ (最大 1px) によるはみ出しを戻す。
         const bounds = getRotatedShapeVisualBounds(shape);
         const overflow = bounds.y + bounds.h - pageBottom;
-        if (overflow > 0 && bounds.h <= metrics.page.heightPx) shape.y = roundDown(shape.y - overflow);
+        if (overflow > 0 && overflow <= 1) {
+          const original = getAxisAlignedRotatedBounds({ x: shape.x, y: shape.y, w: shape.props.w, h: shape.props.h }, shape.rotation ?? 0);
+          if (original.y + original.h <= pageBottom + 0.001) shape.y = roundDown(shape.y - overflow);
+        }
       }
       shapes.push(shape);
     });
