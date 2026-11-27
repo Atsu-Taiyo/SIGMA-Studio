@@ -1,6 +1,6 @@
 # UI components
 
-このディレクトリは、Sigma Studio のデザインルールを実装へ固定するための共通UI層です。見た目と基本操作だけを統一し、SigmaDoc、AI実行、グラフ編集などの業務状態は持ちません。
+このディレクトリは、Sigma Studio のデザインルール (リポジトリ直下の `DESIGN.md`) を実装へ固定するための共通UI層です。見た目と基本操作だけを統一し、SigmaDoc、AI実行、グラフ編集などの業務状態は持ちません。
 
 ## Component intent
 

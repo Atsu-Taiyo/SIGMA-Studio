@@ -261,7 +261,7 @@
   text-align: center;
 }
 
-/* 幅と高さが同じアイコンは真円にする (design-rules)。会話の入口を静かに示すだけの印。 */
+/* 幅と高さが同じアイコンは真円にする (DESIGN.md > Shapes)。会話の入口を静かに示すだけの印。 */
 .ai-chat-empty-mark {
   display: inline-grid;
   place-items: center;

@@ -11,7 +11,7 @@
 }
 
 /* 追加したものは「どんな見た目か」と名前だけを並べる。ファイル名や日付などの副次情報は
-   各タイルの3点メニューへ収める (docs/design-rules.md > Item Grids And Item Menus)。 */
+   各タイルの3点メニューへ収める (DESIGN.md > Components > Cards And Lists)。 */
 .grid {
   margin: var(--space-none);
   padding: var(--space-none);

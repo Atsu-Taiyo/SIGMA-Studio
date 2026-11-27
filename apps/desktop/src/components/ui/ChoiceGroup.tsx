@@ -41,7 +41,7 @@ export interface ChoiceGroupProps<T extends string> {
  * readable at a glance, and keeping it a `radiogroup` keeps it operable without a pointer.
  *
  * Selection is drawn as a soft grey face rather than a heavy border, and the group owns no colour
- * of its own (`docs/design-rules.md`: monochrome first, calm surfaces, no accent on wide areas).
+ * of its own (`DESIGN.md`: monochrome first, calm surfaces, no accent on wide areas).
  */
 export function ChoiceGroup<T extends string>({
   value,

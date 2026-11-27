@@ -21,8 +21,9 @@ interface WorkspaceEmptyStateProps {
 
 /**
  * The three empty-state variants for the workspace listing (root, an empty
- * folder, and no search results), per docs/design-rules.md's "one icon, one
- * line, one action" empty-state rule. Rendered inside WorkspaceItemList.
+ * folder, and no search results), per the "one icon, one line, one action"
+ * empty-state rule in DESIGN.md (Components > Empty And Error States).
+ * Rendered inside WorkspaceItemList.
  */
 export function WorkspaceEmptyState({
   variant,
