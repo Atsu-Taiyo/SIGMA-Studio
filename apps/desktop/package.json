@@ -35,7 +35,7 @@
     "@napi-rs/canvas": "^1.2.0",
     "electron-updater": "^6.8.11",
     "fast-xml-parser": "^5.12.1",
-    "fs-native-extensions": "1.5.4",
+    "fs-native-extensions": "1.5.5",
     "i18next": "^27.2.3",
     "jsdom": "^31.0.1",
     "katex": "^0.19.1",
