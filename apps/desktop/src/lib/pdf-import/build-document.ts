@@ -6,10 +6,12 @@ import {
   PAGE_GAP_PX,
   type OverlayAsset,
   type OverlayShape,
+  type OverlayTextShape,
   type PageLayout,
   type SigmaDocument,
   type TextMark,
 } from "@/features/document";
+import { getAxisAlignedRotatedBounds, getRotatedShapeVisualBounds } from "@/features/drawing";
 import type { PdfFontClass, PdfImportResult, PdfTextRun } from "./types";
 
 const PX_PER_PT = 96 / 72;
@@ -56,6 +58,11 @@ const round = (value: number, digits = 3): number => {
   return Math.round(value * factor) / factor;
 };
 
+/** 紙面の境界を内側へ丸め、端数で空白ページが増えるのを防ぐ。 */
+function roundDown(value: number): number {
+  return Math.floor(value * 1000) / 1000;
+}
+
 /** 最も多いページ寸法を教材の用紙にする (SigmaDoc の用紙は 1 種類)。 */
 function dominantPageSize(result: PdfImportResult): { widthPx: number; heightPx: number } {
   const counts = new Map<string, { widthPx: number; heightPx: number; count: number }>();
@@ -101,7 +108,7 @@ function runToTextShape(
   id: string,
   pageOffsetY: number,
   measurer: PdfTextMeasurer,
-): OverlayShape {
+): OverlayTextShape {
   const face: PdfTextFace = { font: run.font, bold: Boolean(run.bold), italic: Boolean(run.italic) };
   const { ascent, descent } = measurer.metrics(face);
   // 行高 1 の行の中で、ベースラインは上端から 0.5em + (ascent - descent) / 2 の位置に来る。
@@ -180,6 +187,9 @@ export function buildPdfImportDocument(result: PdfImportResult, options: PdfDocu
   result.pages.forEach((page, pageIndex) => {
     const pageOffsetY = pageIndex * stride;
     const pageNo = pageIndex + 1;
+    // 用紙に収まらないページだけ縮める。背景と文字に同じ倍率を使い、紙面内の位置を揃える。
+    const scale = Math.min(1, metrics.page.widthPx / page.widthPx, metrics.page.heightPx / page.heightPx);
+    const pageBottom = roundDown(pageOffsetY + Math.min(page.heightPx * scale, metrics.page.heightPx));
     if (page.graphicsSvg) {
       const assetId = `${prefix}_p${pageNo}_graphics_asset`;
       const src = encodeSvgDataUrl(page.graphicsSvg);
@@ -195,15 +205,36 @@ export function buildPdfImportDocument(result: PdfImportResult, options: PdfDocu
         id: `${prefix}_p${pageNo}_graphics`,
         type: "image",
         x: 0,
-        y: round(pageOffsetY),
+        y: pageOffsetY,
         stackLayer: "background",
         locked: true,
         anchor: { type: "page" },
-        props: { assetId, w: round(page.widthPx), h: round(page.heightPx) },
+        props: {
+          assetId,
+          w: Math.min(round(page.widthPx * scale), metrics.page.widthPx),
+          h: pageBottom - pageOffsetY,
+        },
       });
     }
     page.runs.forEach((run, runIndex) => {
-      shapes.push(runToTextShape(run, `${prefix}_p${pageNo}_t${runIndex + 1}`, pageOffsetY, options.measurer));
+      const fitted = scale === 1 ? run : {
+        ...run,
+        x: run.x * scale,
+        y: run.y * scale,
+        width: run.width * scale,
+        fontSizePx: run.fontSizePx * scale,
+      };
+      const shape = runToTextShape(fitted, `${prefix}_p${pageNo}_t${runIndex + 1}`, pageOffsetY, options.measurer);
+      if (scale < 1) {
+        // 紙面内にある文字だけ、描画時の行高の切り上げ (最大 1px) によるはみ出しを戻す。
+        const bounds = getRotatedShapeVisualBounds(shape);
+        const overflow = bounds.y + bounds.h - pageBottom;
+        if (overflow > 0 && overflow <= 1) {
+          const original = getAxisAlignedRotatedBounds({ x: shape.x, y: shape.y, w: shape.props.w, h: shape.props.h }, shape.rotation ?? 0);
+          if (original.y + original.h <= pageBottom + 0.001) shape.y = roundDown(shape.y - overflow);
+        }
+      }
+      shapes.push(shape);
     });
   });
 
@@ -211,16 +242,17 @@ export function buildPdfImportDocument(result: PdfImportResult, options: PdfDocu
   const lastIndex = result.pages.length - 1;
   const last = result.pages[lastIndex];
   if (last && !last.graphicsSvg && last.runs.length === 0) {
+    const pageOffsetY = lastIndex * stride;
     shapes.push({
       id: `${prefix}_p${lastIndex + 1}_blank`,
       type: "geo",
       x: 0,
-      y: round(lastIndex * stride),
+      y: pageOffsetY,
       stackLayer: "background",
       locked: true,
       anchor: { type: "page" },
       props: {
-        w: round(widthPx), h: round(metrics.page.heightPx), geo: "rectangle",
+        w: metrics.page.widthPx, h: roundDown(pageOffsetY + metrics.page.heightPx) - pageOffsetY, geo: "rectangle",
         fill: "none", color: "#ffffff", strokeOpacity: 0, labelColor: "#111111", dash: "solid", size: "s",
       },
     } as OverlayShape);

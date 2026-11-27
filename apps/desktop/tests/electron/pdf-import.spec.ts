@@ -168,6 +168,73 @@ test("a 200-page PDF imports as fixed pages whose text lands on the PDF baseline
   }
 });
 
+test("a mixed-size PDF keeps the larger page's edge text and graphics on its own sheet", async () => {
+  const profile = await mkdtemp(path.join(os.tmpdir(), "sigma-pdf-mixed-sizes-"));
+  const pdfPath = path.join(profile, "mixed-sizes.pdf");
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  for (const [width, height] of [[360, 480], [360, 480], [720, 960]] as const) {
+    const source = pdf.addPage([width, height]);
+    source.drawRectangle({ x: 10, y: 10, width: width - 20, height: height - 20, borderColor: rgb(0.1, 0.4, 0.2), borderWidth: 1 });
+    source.drawText(width === 720 ? "Large page edge" : "Regular page", {
+      x: width === 720 ? 550 : 45, y: width === 720 ? 3 : 90, font, size: 20,
+    });
+  }
+  await writeFile(pdfPath, await pdf.save());
+  await mkdir(path.join(profile, "data"), { recursive: true });
+  await writeFile(path.join(profile, "data/settings.json"), JSON.stringify({ uiLocale: "ja" }));
+  const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.SIGMA_STUDIO_DEV_SERVER_URL;
+  env.SIGMA_STUDIO_USER_DATA_DIR = profile;
+  const launch = () => electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
+  let app = await launch();
+  try {
+    let page = await app.firstWindow();
+    await page.waitForFunction(() => Boolean(window.desktopAPI));
+    await page.evaluate(() => {
+      localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      localStorage.setItem("sigma-studio:github-star-dismissed:v1", "1");
+    });
+    await page.reload();
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    await app.evaluate(({ dialog }, file) => {
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [file] })) as typeof dialog.showOpenDialog;
+    }, pdfPath);
+    await page.getByRole("button", { name: "ファイル", exact: true }).click();
+    await page.getByRole("menuitem", { name: "PowerPoint・PDFをインポート" }).click();
+    await expect(page.getByText("PDFをSigmaDocへ変換しました")).toBeVisible();
+    const imported = async () => (await savedDocuments(profile)).find(({ metadata }) => metadata.title === "mixed-sizes");
+    await expect.poll(imported).toBeDefined();
+    const saved = (await imported())!;
+    const snapshot = saved.pageLayout!.overlay!.overlaySnapshot!;
+    const background = snapshot.shapes.find((shape) => shape.type === "image" && shape.id.endsWith("_p3_graphics"));
+    expect(background).toMatchObject({ locked: true, stackLayer: "background" });
+    if (background?.type !== "image") throw new Error("Imported page background is missing");
+    expect(background.props.w).toBeCloseTo(480, 2);
+    expect(background.props.h).toBeCloseTo(640, 2);
+    expect(saved.metadata.source).toMatchObject({ slideCount: 3 });
+    const assertLayout = async () => {
+      await expect(page.locator(".a4-page-sheet")).toHaveCount(3);
+      await expect.poll(() => headingGeometry(page, "Large page edge")).not.toBeNull();
+      const edge = (await headingGeometry(page, "Large page edge"))!;
+      expect(edge.left).toBeCloseTo(550 * PX_PER_PT / 2, 0);
+      expect(edge.left + edge.width).toBeLessThan(480);
+      expect(Math.abs(edge.baseline - 957 * PX_PER_PT / 2)).toBeLessThan(1.5);
+    };
+    await assertLayout();
+    await app.close();
+    app = await launch();
+    page = await app.firstWindow();
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    await assertLayout();
+    expect((await imported())?.pageLayout?.overlay?.overlaySnapshot).toEqual(snapshot);
+  } finally {
+    await app.close().catch(() => undefined);
+    await rm(profile, { recursive: true, force: true, maxRetries: 5 });
+  }
+});
+
 /**
  * 実教材での確認。PDF はリポジトリに置かない (著作権・サイズ)。
  * `SIGMA_PDF_IMPORT_FILE=/path/to/file.pdf` を渡したときだけ走り、取り込み時間と保存容量を出し、

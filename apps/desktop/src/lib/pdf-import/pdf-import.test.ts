@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getPageMetrics, PAGE_GAP_PX, type OverlayTextShape, type SigmaDocument } from "@/features/document";
+import { getRotatedShapeVisualBounds } from "@/features/drawing";
 import { recoverSigmaDocument } from "@/lib/sigma-doc-schema";
 import { buildPdfImportDocument, isPdfFilename, type PdfTextMeasurer } from "./build-document";
 import { buildPdfGraphicsSvg, compactPathData, type PdfDraw } from "./graphics-svg";
@@ -140,6 +141,62 @@ describe("buildPdfImportDocument", () => {
     expect(rotated.x + w / 2 + vx * Math.cos(theta) - vy * Math.sin(theta)).toBeCloseTo(400, 3);
     expect(rotated.y + h / 2 + vx * Math.sin(theta) + vy * Math.cos(theta)).toBeCloseTo(200, 3);
     expect(rotated.props.textScaleX).toBeCloseTo(6 / 5, 3);
+  });
+
+  it.each([[2, 1.5], [1.6, 2]])("fits oversized pages (%s × %s) with the same scale for graphics and text", (widthFactor, heightFactor) => {
+    const result = sampleResult(3);
+    const original = result.pages[0]!;
+    const oversized = result.pages[1]!;
+    oversized.widthPx = original.widthPx * widthFactor;
+    oversized.heightPx = original.heightPx * heightFactor;
+    oversized.graphicsSvg = original.graphicsSvg;
+    oversized.runs = [{ ...original.runs[0]!, x: 1200, y: 1400, width: 120, fontSizePx: 24 }];
+
+    const document = build(result);
+    const layout = document.pageLayout!;
+    const stride = getPageMetrics(layout).page.heightPx + PAGE_GAP_PX;
+    const shapes = layout.overlay!.overlaySnapshot!.shapes;
+    const graphics = shapes.find((shape) => shape.id === "pdf_t_p2_graphics");
+    const title = shapes.find((shape) => shape.id === "pdf_t_p2_t1");
+    expect(graphics?.type).toBe("image");
+    if (graphics?.type !== "image") throw new Error("Missing page background");
+    expect(graphics.x).toBe(0);
+    expect(graphics.y).toBeCloseTo(stride, 2);
+    expect(graphics.props.w).toBeCloseTo(oversized.widthPx / 2, 2);
+    expect(graphics.props.h).toBeCloseTo(oversized.heightPx / 2, 2);
+    expect(title).toMatchObject({ x: 600, props: { w: 60, fontSize: 9 } });
+    expect(title!.y).toBeCloseTo(stride + 700 - 12 * 0.9, 2);
+    expect(shapes.find((shape) => shape.id === "pdf_t_p1_t1")).toMatchObject({ x: 50, props: { w: 40 } });
+  });
+
+  it("keeps the final sheet when fitted text reaches its bottom edge", () => {
+    const result = sampleResult(3);
+    const page = result.pages[2]!;
+    page.widthPx *= 2;
+    page.heightPx *= 2;
+    page.runs = [{ ...result.pages[0]!.runs[0]!, y: page.heightPx - 3, fontSizePx: 26.666 }];
+
+    const layout = build(result).pageLayout!;
+    const { heightPx } = getPageMetrics(layout).page;
+    const pageTop = 2 * (heightPx + PAGE_GAP_PX);
+    const text = layout.overlay!.overlaySnapshot!.shapes.find((shape) => shape.id === "pdf_t_p3_t1")!;
+    const bounds = getRotatedShapeVisualBounds(text);
+    expect(bounds.y + bounds.h).toBeLessThanOrEqual(pageTop + heightPx);
+    expect(bounds.y + bounds.h).toBeGreaterThan(pageTop + heightPx - 1);
+  });
+
+  it.each([[120, 24], [-2.2, 26.666]])("keeps text beyond the source page at its fitted position (baseline offset %s px)", (offset, fontSizePx) => {
+    const result = sampleResult(3);
+    const page = result.pages[2]!;
+    page.widthPx *= 2;
+    page.heightPx *= 2;
+    page.runs = [{ ...result.pages[0]!.runs[0]!, y: page.heightPx + offset, fontSizePx }];
+
+    const layout = build(result).pageLayout!;
+    const { heightPx } = getPageMetrics(layout).page;
+    const pageTop = 2 * (heightPx + PAGE_GAP_PX);
+    const text = layout.overlay!.overlaySnapshot!.shapes.find((shape) => shape.id === "pdf_t_p3_t1")!;
+    expect(text.y).toBeCloseTo(pageTop + heightPx + offset / 2 - fontSizePx / 2 * 0.9, 2);
   });
 
   it("puts page graphics behind the text as locked background images and keeps a blank last page", () => {
