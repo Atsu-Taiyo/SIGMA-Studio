@@ -74,7 +74,7 @@
     "@types/three": "^0.187.0",
     "@types/utif": "^3.0.6",
     "cross-env": "^10.1.0",
-    "electron": "45.4.1",
+    "electron": "45.5.0",
     "electron-builder": "^26.18.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.15.0",
