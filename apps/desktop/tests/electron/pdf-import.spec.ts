@@ -173,11 +173,11 @@ test("a mixed-size PDF keeps the larger page's edge text and graphics on its own
   const pdfPath = path.join(profile, "mixed-sizes.pdf");
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
-  for (const [width, height] of [[360, 480], [720, 960], [360, 480]] as const) {
+  for (const [width, height] of [[360, 480], [360, 480], [720, 960]] as const) {
     const source = pdf.addPage([width, height]);
     source.drawRectangle({ x: 10, y: 10, width: width - 20, height: height - 20, borderColor: rgb(0.1, 0.4, 0.2), borderWidth: 1 });
     source.drawText(width === 720 ? "Large page edge" : "Regular page", {
-      x: width === 720 ? 550 : 45, y: 90, font, size: 20,
+      x: width === 720 ? 550 : 45, y: width === 720 ? 3 : 90, font, size: 20,
     });
   }
   await writeFile(pdfPath, await pdf.save());
@@ -208,7 +208,7 @@ test("a mixed-size PDF keeps the larger page's edge text and graphics on its own
     await expect.poll(imported).toBeDefined();
     const saved = (await imported())!;
     const snapshot = saved.pageLayout!.overlay!.overlaySnapshot!;
-    const background = snapshot.shapes.find((shape) => shape.type === "image" && shape.id.endsWith("_p2_graphics"));
+    const background = snapshot.shapes.find((shape) => shape.type === "image" && shape.id.endsWith("_p3_graphics"));
     expect(background).toMatchObject({ locked: true, stackLayer: "background" });
     if (background?.type !== "image") throw new Error("Imported page background is missing");
     expect(background.props.w).toBeCloseTo(480, 2);
@@ -220,7 +220,7 @@ test("a mixed-size PDF keeps the larger page's edge text and graphics on its own
       const edge = (await headingGeometry(page, "Large page edge"))!;
       expect(edge.left).toBeCloseTo(550 * PX_PER_PT / 2, 0);
       expect(edge.left + edge.width).toBeLessThan(480);
-      expect(Math.abs(edge.baseline - 870 * PX_PER_PT / 2)).toBeLessThan(1.5);
+      expect(Math.abs(edge.baseline - 957 * PX_PER_PT / 2)).toBeLessThan(1.5);
     };
     await assertLayout();
     await app.close();

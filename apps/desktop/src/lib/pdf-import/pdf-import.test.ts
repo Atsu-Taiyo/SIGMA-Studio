@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getPageMetrics, PAGE_GAP_PX, type OverlayTextShape, type SigmaDocument } from "@/features/document";
+import { getRotatedShapeVisualBounds } from "@/features/drawing";
 import { recoverSigmaDocument } from "@/lib/sigma-doc-schema";
 import { buildPdfImportDocument, isPdfFilename, type PdfTextMeasurer } from "./build-document";
 import { buildPdfGraphicsSvg, compactPathData, type PdfDraw } from "./graphics-svg";
@@ -166,6 +167,22 @@ describe("buildPdfImportDocument", () => {
     expect(title).toMatchObject({ x: 600, props: { w: 60, fontSize: 9 } });
     expect(title!.y).toBeCloseTo(stride + 700 - 12 * 0.9, 2);
     expect(shapes.find((shape) => shape.id === "pdf_t_p1_t1")).toMatchObject({ x: 50, props: { w: 40 } });
+  });
+
+  it("keeps the final sheet when fitted text reaches its bottom edge", () => {
+    const result = sampleResult(3);
+    const page = result.pages[2]!;
+    page.widthPx *= 2;
+    page.heightPx *= 2;
+    page.runs = [{ ...result.pages[0]!.runs[0]!, y: page.heightPx - 3, fontSizePx: 26.666 }];
+
+    const layout = build(result).pageLayout!;
+    const { heightPx } = getPageMetrics(layout).page;
+    const pageTop = 2 * (heightPx + PAGE_GAP_PX);
+    const text = layout.overlay!.overlaySnapshot!.shapes.find((shape) => shape.id === "pdf_t_p3_t1")!;
+    const bounds = getRotatedShapeVisualBounds(text);
+    expect(bounds.y + bounds.h).toBeLessThanOrEqual(pageTop + heightPx);
+    expect(bounds.y + bounds.h).toBeGreaterThan(pageTop + heightPx - 1);
   });
 
   it("puts page graphics behind the text as locked background images and keeps a blank last page", () => {

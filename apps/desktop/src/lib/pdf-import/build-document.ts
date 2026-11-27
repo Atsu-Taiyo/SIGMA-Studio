@@ -10,6 +10,7 @@ import {
   type SigmaDocument,
   type TextMark,
 } from "@/features/document";
+import { getRotatedShapeVisualBounds } from "@/features/drawing";
 import type { PdfFontClass, PdfImportResult, PdfTextRun } from "./types";
 
 const PX_PER_PT = 96 / 72;
@@ -56,9 +57,9 @@ const round = (value: number, digits = 3): number => {
   return Math.round(value * factor) / factor;
 };
 
-/** 背景の下端を内側へ丸め、端数で空白ページが増えるのを防ぐ。 */
-function backgroundHeight(top: number, height: number): number {
-  return Math.floor((top + height) * 1000) / 1000 - top;
+/** 紙面の境界を内側へ丸め、端数で空白ページが増えるのを防ぐ。 */
+function roundDown(value: number): number {
+  return Math.floor(value * 1000) / 1000;
 }
 
 /** 最も多いページ寸法を教材の用紙にする (SigmaDoc の用紙は 1 種類)。 */
@@ -184,6 +185,7 @@ export function buildPdfImportDocument(result: PdfImportResult, options: PdfDocu
 
   result.pages.forEach((page, pageIndex) => {
     const pageOffsetY = pageIndex * stride;
+    const pageBottom = roundDown(pageOffsetY + metrics.page.heightPx);
     const pageNo = pageIndex + 1;
     // 用紙に収まらないページだけ縮める。背景と文字に同じ倍率を使い、紙面内の位置を揃える。
     const scale = Math.min(1, metrics.page.widthPx / page.widthPx, metrics.page.heightPx / page.heightPx);
@@ -209,7 +211,7 @@ export function buildPdfImportDocument(result: PdfImportResult, options: PdfDocu
         props: {
           assetId,
           w: Math.min(round(page.widthPx * scale), metrics.page.widthPx),
-          h: backgroundHeight(pageOffsetY, Math.min(page.heightPx * scale, metrics.page.heightPx)),
+          h: Math.min(roundDown(pageOffsetY + page.heightPx * scale), pageBottom) - pageOffsetY,
         },
       });
     }
@@ -221,7 +223,14 @@ export function buildPdfImportDocument(result: PdfImportResult, options: PdfDocu
         width: run.width * scale,
         fontSizePx: run.fontSizePx * scale,
       };
-      shapes.push(runToTextShape(fitted, `${prefix}_p${pageNo}_t${runIndex + 1}`, pageOffsetY, options.measurer));
+      const shape = runToTextShape(fitted, `${prefix}_p${pageNo}_t${runIndex + 1}`, pageOffsetY, options.measurer);
+      if (scale < 1) {
+        // ページ数の計算が読む描画上の高さを使う。文字の行高の切り上げ分を紙面に収める。
+        const bounds = getRotatedShapeVisualBounds(shape);
+        const overflow = bounds.y + bounds.h - pageBottom;
+        if (overflow > 0 && bounds.h <= metrics.page.heightPx) shape.y = roundDown(shape.y - overflow);
+      }
+      shapes.push(shape);
     });
   });
 
@@ -239,7 +248,7 @@ export function buildPdfImportDocument(result: PdfImportResult, options: PdfDocu
       locked: true,
       anchor: { type: "page" },
       props: {
-        w: metrics.page.widthPx, h: backgroundHeight(pageOffsetY, metrics.page.heightPx), geo: "rectangle",
+        w: metrics.page.widthPx, h: roundDown(pageOffsetY + metrics.page.heightPx) - pageOffsetY, geo: "rectangle",
         fill: "none", color: "#ffffff", strokeOpacity: 0, labelColor: "#111111", dash: "solid", size: "s",
       },
     } as OverlayShape);
