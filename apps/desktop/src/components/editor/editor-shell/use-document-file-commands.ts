@@ -183,10 +183,16 @@ export function useDocumentFileCommands({
   const importDocumentFileWithResult = async (file: File): Promise<"imported" | "cancelled" | "error"> => {
     try {
       const request = planDocumentFileImport(file);
+      const bridge = getDesktopBridge();
+      const importPdf = bridge?.file.importPdf;
       return await completeImport(await prepareDocumentFileImport(request, {
         ...DOCUMENT_BLOCK_OPERATION_PORTS,
         createDocumentId: () => createId("doc"),
         defaultTitle: () => tEditor("status.importedDocumentTitle"),
+        ...(importPdf ? {
+          pdfImporter: { importPdf: (bytes, onProgress) => importPdf(bytes, onProgress) },
+          onPdfProgress: (progress) => setStatusMessage(tEditor("status.pdfConverting", { page: progress.page, pageCount: progress.pageCount })),
+        } : {}),
       }));
     } catch (error) {
       setSaveState("error");

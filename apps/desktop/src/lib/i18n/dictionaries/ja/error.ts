@@ -139,6 +139,14 @@ export const error = {
     },
   },
   electron: {
+    pdfImport: {
+      encrypted: "パスワードで保護されたPDFは読み込めません。保護を外してから読み込んでください。",
+      unreadable: "PDFを読み込めませんでした。ファイルが壊れていないか確認してください。",
+      tooManyPages: "このPDFは{{count}}ページあります。一度に読み込めるのは2000ページまでです。",
+      cancelled: "PDFの読み込みを中止しました。",
+      unavailable: "PDFの読み込みはデスクトップ版で使えます。",
+      busy: "別のPDFを読み込んでいます。終わってからもう一度お試しください。",
+    },
     pdfAttachment: {
       invalidPageStart: "PDFのpageStartは1以上の整数で指定してください。",
       pageOutOfRange: "PDFは{{count}}ページです。pageStartを範囲内で指定してください。",
@@ -192,6 +200,7 @@ export const error = {
       documentFiles: "教材ファイル",
       importOtherDocument: "他の形式の教材ファイルをインポート",
       powerPoint: "PowerPoint",
+      pdf: "PDF",
       saveSigmaDoc: "SigmaDocファイルを保存",
       downloadFormatUnsupported: "この形式のファイルは保存できません。",
       downloadNameUnavailable: "ダウンロードフォルダに空きの名前が見つかりませんでした。",

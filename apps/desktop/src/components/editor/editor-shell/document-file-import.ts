@@ -5,31 +5,39 @@ import {
   type DocumentBlockIdFactory,
   type SigmaDocument,
 } from "@/features/document";
-import { getAppLocale } from "@/lib/i18n";
+import { createCurrentLocaleTranslator, getAppLocale } from "@/lib/i18n";
 import type { ExtensionImportIssue } from "@/lib/extension-contracts";
+import { isPdfFilename } from "@/lib/pdf-import/build-document";
+import { importPdfFile, type DesktopPdfImporter } from "@/lib/pdf-import/import-pdf-file";
+import type { PdfImportProgress } from "@/lib/pdf-import/types";
 import { importPowerPointPptxBuffer, isPowerPointPptxFilename } from "@/lib/powerpoint-import";
 import { recoverSigmaDocument, type SigmaDocumentRecoveryIssue } from "@/lib/sigma-doc-schema";
 import { importTexDocument, isTexFilename } from "@/lib/tex-import";
 
-type DocumentFileFormat = "sigmadoc" | "tex" | "pptx";
+type DocumentFileFormat = "sigmadoc" | "tex" | "pptx" | "pdf";
 
 type ReadableDocumentFileImport = { kind: "readable"; file: File; format: DocumentFileFormat };
 
 interface DocumentFileImportEnvironment extends DocumentBlockClock, DocumentBlockIdFactory {
   createDocumentId(): string;
   defaultTitle(): string;
+  /** PDF を読む主プロセスの窓口。Web 版には無い。 */
+  pdfImporter?: DesktopPdfImporter;
+  onPdfProgress?: (progress: PdfImportProgress) => void;
 }
 
 const IMPORT_SUCCESS_KEYS = {
   sigmadoc: "status.jsonImported",
   tex: "status.texConverted",
   pptx: "status.powerPointConverted",
+  pdf: "status.pdfConverted",
 } as const satisfies Record<DocumentFileFormat, string>;
 
 /** ファイル名から取り込み形式を選ぶ。ファイルの読み取りは実行段階で行う。 */
 export function planDocumentFileImport(file: File): ReadableDocumentFileImport {
   const format = isTexFilename(file.name) ? "tex"
-    : isPowerPointPptxFilename(file.name) ? "pptx" : "sigmadoc";
+    : isPowerPointPptxFilename(file.name) ? "pptx"
+      : isPdfFilename(file.name) ? "pdf" : "sigmadoc";
   return { kind: "readable", file, format };
 }
 
@@ -77,6 +85,17 @@ export async function prepareDocumentFileImport(
     case "pptx":
       imported = await importPowerPointPptxBuffer(await file.arrayBuffer(), file.name, { locale: getAppLocale() });
       break;
+    case "pdf": {
+      if (!environment.pdfImporter) {
+        throw new Error(createCurrentLocaleTranslator("error")("electron.pdfImport.unavailable"));
+      }
+      imported = (await importPdfFile(file, environment.pdfImporter, {
+        idPrefix: `pdf_${environment.createDocumentId().replace(/[^A-Za-z0-9_-]/gu, "_")}`,
+        importedAt: environment.now(),
+        onProgress: environment.onPdfProgress,
+      })).document;
+      break;
+    }
     case "sigmadoc": {
       const recovered = recoverSigmaDocument(JSON.parse(await file.text()));
       if (!recovered.ok) {

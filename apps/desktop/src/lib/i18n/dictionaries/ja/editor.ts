@@ -609,6 +609,8 @@ export const editor = {
     importedDocumentTitle: "読み込み教材",
     texConverted: "TeXをSigmaDocへ変換しました",
     powerPointConverted: "PowerPointをSigmaDocへ変換しました",
+    pdfConverted: "PDFをSigmaDocへ変換しました",
+    pdfConverting: "PDFを読み込んでいます… ({{page}} / {{pageCount}} ページ)",
     extensionImported: "拡張機能で取り込みました",
     jsonImported: "JSONを読み込みました",
     documentTextCopied: "教材をテキストでコピーしました",

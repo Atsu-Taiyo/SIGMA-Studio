@@ -79,6 +79,14 @@ export const error = {
     },
   },
   electron: {
+    pdfImport: {
+      encrypted: "Password-protected PDFs cannot be imported. Remove the protection and try again.",
+      unreadable: "The PDF could not be read. Check that the file is not damaged.",
+      tooManyPages: "This PDF has {{count}} pages. Up to 2000 pages can be imported at once.",
+      cancelled: "PDF import was cancelled.",
+      unavailable: "PDF import is available in the desktop app.",
+      busy: "Another PDF is being imported. Try again when it finishes.",
+    },
     pdfAttachment: {
       invalidPageStart: "Set PDF pageStart to an integer of 1 or greater.",
       pageOutOfRange: "This PDF has {{count}} pages. Set pageStart within that range.",
@@ -90,7 +98,7 @@ export const error = {
     inputSource: { unsupported: "Automatic switching to alphanumeric input is not supported on this OS.", restoreMissing: "No input source information was found to restore.", switchFailed: "Failed to switch to alphanumeric input." },
     plugins: { inputFolderTitle: "Choose a folder to convert", outputFolderTitle: "Choose the destination parent folder", importTitle: "Import a file with an extension", importFiles: "Importable files", partialFont: " (some characters only)" },
     app: { addedFont: "Added font", unsupportedFont: "Supported font formats are ttf, otf, woff, woff2, and ttc.", latestReleasePageFailed: "Could not open the latest release page.", addFont: "Add font", addFontFailed: "Could not add the font.", fontNotFound: "The font was not found." },
-    file: { pdfSessionMissing: "The PDF preview output session was not specified.", pdfRevisionInvalid: "The PDF preview revision is invalid.", pdfPageCountInvalid: "The PDF preview page count is invalid.", pdfPageSizeInvalid: "The PDF preview page size is invalid.", exportPdf: "Export PDF", openSigmaDoc: "Open SigmaDoc file", importDocument: "Import teaching-material file", documentFiles: "Teaching-material files", importOtherDocument: "Import another teaching-material format", powerPoint: "PowerPoint", saveSigmaDoc: "Save SigmaDoc file", downloadFormatUnsupported: "This file format cannot be saved.", downloadNameUnavailable: "No available file name was found in the Downloads folder.", downloadContentMissing: "No content was provided to save.", downloadContentEmpty: "The content to save is empty.", downloadFileTooLarge: "The file is too large to save." },
+    file: { pdfSessionMissing: "The PDF preview output session was not specified.", pdfRevisionInvalid: "The PDF preview revision is invalid.", pdfPageCountInvalid: "The PDF preview page count is invalid.", pdfPageSizeInvalid: "The PDF preview page size is invalid.", exportPdf: "Export PDF", openSigmaDoc: "Open SigmaDoc file", importDocument: "Import teaching-material file", documentFiles: "Teaching-material files", importOtherDocument: "Import another teaching-material format", powerPoint: "PowerPoint", pdf: "PDF", saveSigmaDoc: "Save SigmaDoc file", downloadFormatUnsupported: "This file format cannot be saved.", downloadNameUnavailable: "No available file name was found in the Downloads folder.", downloadContentMissing: "No content was provided to save.", downloadContentEmpty: "The content to save is empty.", downloadFileTooLarge: "The file is too large to save." },
     settings: { unsupportedLocale: "This display language is not supported.", invalidShortcuts: "The shortcut settings are not in the correct format.", invalidCustomCommands: "The custom commands are not in the correct format." },
     browser: {
       tabLimit: "You can open up to {{count}} tabs. Close a tab you are not using.",
