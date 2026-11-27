@@ -193,7 +193,7 @@ export const chrome = {
       duplicate: "現在の教材を複製",
       delete: "現在の教材を削除",
       import: "インポート（.sigma / TeX）",
-      importOther: "PowerPointをインポート",
+      importOther: "PowerPoint・PDFをインポート",
       importText: "テキストから読み込み",
       export: "エクスポート",
       exportJson: "sigmaファイルをエクスポート",

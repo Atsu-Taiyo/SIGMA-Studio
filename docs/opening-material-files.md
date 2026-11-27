@@ -46,3 +46,8 @@ macOSのInfo.plist、Windows NSIS/AppX、LinuxのMIME/desktop entryの生成に�
 Windowsではユーザー単位/全ユーザーのインストールとAppXも別々に確認します。
 一般 `.json` の既定アプリが変わっていないことも確認します。
 ローカル検証のためにインストーラを公開したり、OSの既定アプリを強制変更したりしないでください。
+
+## PDF・PowerPoint の取り込み
+
+「ファイル > PowerPoint・PDFをインポート」で `.pptx` と `.pdf` を、見た目を保ったページ固定の新しい教材として取り込めます。
+PDF の取り込みの仕組みと確認方法は [pdf-import.md](pdf-import.md) を参照してください。

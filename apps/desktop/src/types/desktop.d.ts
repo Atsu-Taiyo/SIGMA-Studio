@@ -290,6 +290,8 @@ export interface DesktopFileAPI {
   openSigmaDoc(): Promise<{ filePath: string; data: string } | null>;
   openImportDocument?(): Promise<{ filePath: string; dataBase64: string } | null>;
   openImportOtherDocument?(): Promise<{ filePath: string; dataBase64: string } | null>;
+  /** PDF を読み、ページごとの文字と図を返す (`PdfImportResult`)。描画側で形を検査してから使う。 */
+  importPdf?(bytes: Uint8Array, onProgress?: (progress: { page: number; pageCount: number }) => void): Promise<unknown>;
   saveSigmaDoc(payload: { suggestedName?: string; data: string }): Promise<{ filePath: string } | null>;
   exportPdf?(payload: {
     suggestedName?: string;

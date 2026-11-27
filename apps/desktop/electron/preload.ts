@@ -469,6 +469,13 @@ const desktopAPI = {
     openImportOtherDocument(): Promise<{ filePath: string; dataBase64: string } | null> {
       return ipcRenderer.invoke("file:open-import-other-document");
     },
+    importPdf(bytes: Uint8Array, onProgress?: (progress: { page: number; pageCount: number }) => void): Promise<unknown> {
+      const receive = (_event: unknown, progress: { page: number; pageCount: number }) => onProgress?.(progress);
+      ipcRenderer.on("file:import-pdf-progress", receive);
+      return ipcRenderer.invoke("file:import-pdf", bytes).finally(() => {
+        ipcRenderer.removeListener("file:import-pdf-progress", receive);
+      });
+    },
     saveSigmaDoc(payload: { suggestedName?: string; data: string }): Promise<{ filePath: string } | null> {
       return ipcRenderer.invoke("file:save-sigma-doc", payload);
     },

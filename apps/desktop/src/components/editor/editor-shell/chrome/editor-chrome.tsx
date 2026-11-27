@@ -45,6 +45,7 @@ import { PROBLEM_DISPLAY_PARTS } from "@/features/rendering/core";
 import type { Translate } from "@/lib/i18n";
 import { OVERLAY_IMAGE_FILE_ACCEPT } from "@/lib/overlay-image-files";
 import { POWERPOINT_IMPORT_ACCEPT } from "@/lib/powerpoint-import";
+import { PDF_IMPORT_ACCEPT } from "@/lib/pdf-import/build-document";
 import { EXTENSION_ICON_COMPONENTS } from "@/components/editor/extensions/extension-icons";
 import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, BookOpen, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, Eye, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Puzzle, Quote, RectangleVertical, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Shapes, Share2, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
 import { Fragment } from "react";
@@ -2554,7 +2555,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     <input
       ref={otherImportInputRef}
       type="file"
-      accept={POWERPOINT_IMPORT_ACCEPT}
+      accept={`${POWERPOINT_IMPORT_ACCEPT},${PDF_IMPORT_ACCEPT}`}
       hidden
       onChange={(event) => {
         const file = event.target.files?.[0];

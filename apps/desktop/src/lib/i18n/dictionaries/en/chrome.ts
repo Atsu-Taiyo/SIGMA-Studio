@@ -189,7 +189,7 @@ export const chrome = {
       duplicate: "Duplicate this material",
       delete: "Delete this material",
       import: "Import (.sigma / TeX)",
-      importOther: "Import PowerPoint",
+      importOther: "Import PowerPoint or PDF",
       importText: "Import from text",
       export: "Export",
       exportJson: "Export sigma file",

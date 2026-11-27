@@ -560,6 +560,8 @@ export const editor = {
     importedDocumentTitle: "Imported document",
     texConverted: "Converted the TeX into a SigmaDoc",
     powerPointConverted: "Converted the PowerPoint file into a SigmaDoc",
+    pdfConverted: "Converted the PDF into a SigmaDoc",
+    pdfConverting: "Importing the PDF… (page {{page}} of {{pageCount}})",
     extensionImported: "Imported with an extension",
     jsonImported: "Imported the JSON",
     documentTextCopied: "Copied the material as text",

@@ -191,8 +191,9 @@ export function registerFileIpc(deps: RegisterFileIpcDeps): void {
     const result = await dialog.showOpenDialog({
       title: te("electron.file.importOtherDocument"),
       filters: [
+        { name: te("electron.file.documentFiles"), extensions: ["pptx", "pdf"] },
         { name: te("electron.file.powerPoint"), extensions: ["pptx"] },
-        { name: "PowerPoint", extensions: ["pptx"] },
+        { name: te("electron.file.pdf"), extensions: ["pdf"] },
       ],
       properties: ["openFile"],
     });
@@ -202,6 +203,35 @@ export function registerFileIpc(deps: RegisterFileIpcDeps): void {
     const filePath = result.filePaths[0];
     const dataBase64 = (await fs.readFile(filePath)).toString("base64");
     return { filePath, dataBase64 };
+  });
+
+  // PDF の読み込みは主プロセスで 1 件ずつ行う。pdf.js と画像の符号化は Node の canvas を使う。
+  let pdfImportRunning = false;
+  ipcMain.handle("file:import-pdf", async (event, payload: unknown) => {
+    const bytes = payload instanceof Uint8Array ? payload : null;
+    if (!bytes || bytes.byteLength === 0) {
+      throw new Error(te("electron.pdfImport.unreadable"));
+    }
+    if (pdfImportRunning) {
+      throw new Error(te("electron.pdfImport.busy"));
+    }
+    pdfImportRunning = true;
+    const sender = event.sender;
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    sender.once("destroyed", abort);
+    try {
+      const { extractPdfForImport } = await import("../pdf-import");
+      return await extractPdfForImport(bytes, {
+        signal: controller.signal,
+        onProgress: (progress) => {
+          if (!sender.isDestroyed()) sender.send("file:import-pdf-progress", progress);
+        },
+      });
+    } finally {
+      sender.removeListener("destroyed", abort);
+      pdfImportRunning = false;
+    }
   });
 
   ipcMain.handle("file:save-sigma-doc", async (_event, payload: { suggestedName?: string; data: string }) => {
