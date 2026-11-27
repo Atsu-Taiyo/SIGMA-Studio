@@ -142,6 +142,32 @@ describe("buildPdfImportDocument", () => {
     expect(rotated.props.textScaleX).toBeCloseTo(6 / 5, 3);
   });
 
+  it.each([[2, 1.5], [1.6, 2]])("fits oversized pages (%s × %s) with the same scale for graphics and text", (widthFactor, heightFactor) => {
+    const result = sampleResult(3);
+    const original = result.pages[0]!;
+    const oversized = result.pages[1]!;
+    oversized.widthPx = original.widthPx * widthFactor;
+    oversized.heightPx = original.heightPx * heightFactor;
+    oversized.graphicsSvg = original.graphicsSvg;
+    oversized.runs = [{ ...original.runs[0]!, x: 1200, y: 1400, width: 120, fontSizePx: 24 }];
+
+    const document = build(result);
+    const layout = document.pageLayout!;
+    const stride = getPageMetrics(layout).page.heightPx + PAGE_GAP_PX;
+    const shapes = layout.overlay!.overlaySnapshot!.shapes;
+    const graphics = shapes.find((shape) => shape.id === "pdf_t_p2_graphics");
+    const title = shapes.find((shape) => shape.id === "pdf_t_p2_t1");
+    expect(graphics?.type).toBe("image");
+    if (graphics?.type !== "image") throw new Error("Missing page background");
+    expect(graphics.x).toBe(0);
+    expect(graphics.y).toBeCloseTo(stride, 2);
+    expect(graphics.props.w).toBeCloseTo(oversized.widthPx / 2, 2);
+    expect(graphics.props.h).toBeCloseTo(oversized.heightPx / 2, 2);
+    expect(title).toMatchObject({ x: 600, props: { w: 60, fontSize: 9 } });
+    expect(title!.y).toBeCloseTo(stride + 700 - 12 * 0.9, 2);
+    expect(shapes.find((shape) => shape.id === "pdf_t_p1_t1")).toMatchObject({ x: 50, props: { w: 40 } });
+  });
+
   it("puts page graphics behind the text as locked background images and keeps a blank last page", () => {
     const document = build(sampleResult(3));
     const snapshot = document.pageLayout!.overlay!.overlaySnapshot!;

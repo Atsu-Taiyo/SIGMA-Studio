@@ -56,6 +56,11 @@ const round = (value: number, digits = 3): number => {
   return Math.round(value * factor) / factor;
 };
 
+/** 背景の下端を内側へ丸め、端数で空白ページが増えるのを防ぐ。 */
+function backgroundHeight(top: number, height: number): number {
+  return Math.floor((top + height) * 1000) / 1000 - top;
+}
+
 /** 最も多いページ寸法を教材の用紙にする (SigmaDoc の用紙は 1 種類)。 */
 function dominantPageSize(result: PdfImportResult): { widthPx: number; heightPx: number } {
   const counts = new Map<string, { widthPx: number; heightPx: number; count: number }>();
@@ -180,6 +185,8 @@ export function buildPdfImportDocument(result: PdfImportResult, options: PdfDocu
   result.pages.forEach((page, pageIndex) => {
     const pageOffsetY = pageIndex * stride;
     const pageNo = pageIndex + 1;
+    // 用紙に収まらないページだけ縮める。背景と文字に同じ倍率を使い、紙面内の位置を揃える。
+    const scale = Math.min(1, metrics.page.widthPx / page.widthPx, metrics.page.heightPx / page.heightPx);
     if (page.graphicsSvg) {
       const assetId = `${prefix}_p${pageNo}_graphics_asset`;
       const src = encodeSvgDataUrl(page.graphicsSvg);
@@ -195,15 +202,26 @@ export function buildPdfImportDocument(result: PdfImportResult, options: PdfDocu
         id: `${prefix}_p${pageNo}_graphics`,
         type: "image",
         x: 0,
-        y: round(pageOffsetY),
+        y: pageOffsetY,
         stackLayer: "background",
         locked: true,
         anchor: { type: "page" },
-        props: { assetId, w: round(page.widthPx), h: round(page.heightPx) },
+        props: {
+          assetId,
+          w: Math.min(round(page.widthPx * scale), metrics.page.widthPx),
+          h: backgroundHeight(pageOffsetY, Math.min(page.heightPx * scale, metrics.page.heightPx)),
+        },
       });
     }
     page.runs.forEach((run, runIndex) => {
-      shapes.push(runToTextShape(run, `${prefix}_p${pageNo}_t${runIndex + 1}`, pageOffsetY, options.measurer));
+      const fitted = scale === 1 ? run : {
+        ...run,
+        x: run.x * scale,
+        y: run.y * scale,
+        width: run.width * scale,
+        fontSizePx: run.fontSizePx * scale,
+      };
+      shapes.push(runToTextShape(fitted, `${prefix}_p${pageNo}_t${runIndex + 1}`, pageOffsetY, options.measurer));
     });
   });
 
@@ -211,16 +229,17 @@ export function buildPdfImportDocument(result: PdfImportResult, options: PdfDocu
   const lastIndex = result.pages.length - 1;
   const last = result.pages[lastIndex];
   if (last && !last.graphicsSvg && last.runs.length === 0) {
+    const pageOffsetY = lastIndex * stride;
     shapes.push({
       id: `${prefix}_p${lastIndex + 1}_blank`,
       type: "geo",
       x: 0,
-      y: round(lastIndex * stride),
+      y: pageOffsetY,
       stackLayer: "background",
       locked: true,
       anchor: { type: "page" },
       props: {
-        w: round(widthPx), h: round(metrics.page.heightPx), geo: "rectangle",
+        w: metrics.page.widthPx, h: backgroundHeight(pageOffsetY, metrics.page.heightPx), geo: "rectangle",
         fill: "none", color: "#ffffff", strokeOpacity: 0, labelColor: "#111111", dash: "solid", size: "s",
       },
     } as OverlayShape);
