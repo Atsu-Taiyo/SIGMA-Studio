@@ -4,6 +4,7 @@ import { createCurrentLocaleTranslator, setAppLocale } from "@/lib/i18n";
 const te = createCurrentLocaleTranslator("error");
 
 import type { CodexAppServerClient } from "../codex-app-server-client";
+import { normalizeAiSubagentSettings, resolveAiSubagentPolicy } from "@/lib/ai/subagent-settings";
 import {
   isAiWebSearchEnabled,
   normalizeDesktopCommandShortcuts,
@@ -11,6 +12,7 @@ import {
   normalizeUiLocale,
   parseDesktopCommandSettingsPayload,
   readDesktopSettingsSync,
+  resolveAiSubagentSettings,
   transactDesktopSettings,
   writeDesktopSettings,
 } from "../desktop-settings";
@@ -33,6 +35,7 @@ export function registerSettingsIpc(deps: RegisterSettingsIpcDeps): void {
       hasCustomCommands: "customCommands" in settings,
       aiAutoApplyVerifiedProposals: settings.aiAutoApplyVerifiedProposals ?? false,
       aiWebSearchEnabled: isAiWebSearchEnabled(settings),
+      aiSubagents: resolveAiSubagentSettings(settings),
       // 既定 (ja) はキーごと削除される保存形式なので、未設定は null で返す。
       // ここで既定値に解決してしまうと、初回起動でOSロケール検出が効かなくなる。
       uiLocale: settings.uiLocale ?? null,
@@ -87,6 +90,19 @@ export function registerSettingsIpc(deps: RegisterSettingsIpcDeps): void {
     // ai-edit:run が設定を読み直すので、ここでの伝搬は不要。
     codexAppServerClient.setWebSearchEnabled(value === true);
     return { ok: true };
+  });
+
+  ipcMain.handle("settings:set-ai-subagents", async (_event, value: unknown) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return { ok: false, error: te("electron.settings.invalidAiSubagents") };
+    }
+    const aiSubagents = normalizeAiSubagentSettings(value);
+    await writeDesktopSettings(dataDir, { aiSubagents });
+    // Web検索と同じく、Codex は常駐 app-server の config.toml に [agents] を焼き込むので、
+    // クライアントへ伝えて (アイドル時は) 再起動させる。Claude/Antigravity は turn ごとに
+    // ai-edit:run が設定を読み直すので、ここでの伝搬は不要。
+    codexAppServerClient.setSubagentPolicy(resolveAiSubagentPolicy(aiSubagents, "chatgpt"));
+    return { ok: true, aiSubagents };
   });
 
   ipcMain.handle("settings:set-command-shortcuts", async (_event, value: unknown) => {

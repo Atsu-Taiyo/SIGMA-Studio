@@ -481,6 +481,62 @@ describe("runClaudeEditForIpc", () => {
     expect(capturedCwd).toBe("/data/agent-workspaces/ws_1/claude");
   });
 
+  it("passes the subagent policy to the claude turn and into the prompt", async () => {
+    const { client, lastTurnParams, lastInstruction } = createFakeClaude();
+    const subagents = { enabled: true, maxDepth: 2, maxConcurrent: 4 };
+
+    await runClaudeEditForIpc({ locale: "ja",
+      claude: client,
+      subagents,
+      payload: { instruction: "調べて追記して", fileId: "file_1", document: FAKE_DOCUMENT },
+      onEvent: () => {},
+    });
+
+    expect(lastTurnParams()?.subagents).toEqual(subagents);
+    expect(lastInstruction()).toContain("サブエージェント（Agentツール）を使えます");
+    expect(lastInstruction()).toContain("入れ子は2段までです");
+  });
+
+  it("leaves the subagent policy out of the prompt when none is passed", async () => {
+    const { client, lastTurnParams, lastInstruction } = createFakeClaude();
+
+    await runClaudeEditForIpc({ locale: "ja",
+      claude: client,
+      payload: { instruction: "本文を直して", fileId: "file_1", document: FAKE_DOCUMENT },
+      onEvent: () => {},
+    });
+
+    expect(lastTurnParams()?.subagents).toBeUndefined();
+    expect(lastInstruction()).not.toContain("サブエージェントの方針:");
+  });
+
+  it("shows a subagent launch as its own activity row and counts the subagent's edits", async () => {
+    const events: AiEditRunEvent[] = [];
+    const { client } = createFakeClaude({
+      onTurn: (params) => {
+        params.onToolUse?.({ id: "toolu_agent", name: "Agent", input: { description: "類題の調査", subagent_type: "general-purpose" } });
+        // サブエージェントの中のツール呼び出しも、同じ onToolUse で届く。
+        params.onToolUse?.({ id: "toolu_sub", name: "mcp__sigma-studio-local__insert_content" });
+        params.onToolResult?.({ toolUseId: "toolu_agent", images: [] });
+      },
+    });
+
+    const result = await runClaudeEditForIpc({ locale: "ja",
+      claude: client,
+      subagents: { enabled: true, maxDepth: 1, maxConcurrent: 3 },
+      payload: { instruction: "調べて追記して", fileId: "file_1", document: FAKE_DOCUMENT },
+      onEvent: (event) => events.push(event),
+    });
+
+    const rows = events.filter((event) => event.itemId === "toolu_agent");
+    expect(rows.map((event) => [event.message, event.itemType, event.itemStatus])).toEqual([
+      ["サブエージェント: 類題の調査", "subagent", "started"],
+      ["サブエージェント: 類題の調査", "subagent", "completed"],
+    ]);
+    expect(events.find((event) => event.itemId === "toolu_sub")?.itemType).toBe("mcpToolCall");
+    expect(result.status).toBe("draft");
+  });
+
   it("returns status draft when a write-capable MCP tool was used", async () => {
     const { client } = createFakeClaude({
       toolUseNames: [

@@ -5,6 +5,7 @@ import {
   type AiEditRunResult,
 } from "@/lib/ai/ai-edit-runtime";
 import type { AiEditAttachment, AiEditMentionedDocumentContext } from "@/lib/ai/sigma-doc-agent-tools";
+import type { AiSubagentPolicy } from "@/lib/ai/subagent-settings";
 import { parseAttachedFileDataUrl, parseAttachedImageDataUrl } from "./ai-edit-image";
 import {
   buildMcpEditPromptForProvider,
@@ -77,7 +78,7 @@ function buildClaudeDescriptor(images: ClaudeImageInput[], documents: ClaudePdfI
       return { instruction: prompt };
     },
 
-    async runTurn({ client, instruction, model, reasoningEffort, agentThreadId, mcpConfig, webSearchEnabled, runId, cwd, onDelta, onToolUse, onToolResult }) {
+    async runTurn({ client, instruction, model, reasoningEffort, agentThreadId, mcpConfig, webSearchEnabled, subagents, runId, cwd, onDelta, onToolUse, onToolResult }) {
       const result = await client.runTurn({
         instruction,
         images,
@@ -87,6 +88,7 @@ function buildClaudeDescriptor(images: ClaudeImageInput[], documents: ClaudePdfI
         mcpConfig,
         resumeSessionId: agentThreadId ?? null,
         webSearchEnabled,
+        subagents,
         runId,
         cwd,
         onDelta,
@@ -145,6 +147,8 @@ export async function runClaudeEditForIpc(args: {
   mcpConfig?: unknown;
   /** aiWebSearchEnabled設定の現在値; see ClaudeRunTurnParams.webSearchEnabled. */
   webSearchEnabled?: boolean;
+  /** サブエージェント設定から決めた扱い; see ClaudeRunTurnParams.subagents. */
+  subagents?: AiSubagentPolicy;
   /** This run's id; told to the agent so it can pass it back as the app-context tools' `runId` argument. */
   runId?: string;
   /** Electron userData path used to read the per-run visual-session status file. */
@@ -170,6 +174,7 @@ export async function runClaudeEditForIpc(args: {
       suppressFinalPhase: true,
       mcpConfig: args.mcpConfig,
       webSearchEnabled: args.webSearchEnabled,
+      subagents: args.subagents,
       runId: args.runId,
       cwd: args.cwd,
     });

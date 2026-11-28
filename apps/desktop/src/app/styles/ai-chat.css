@@ -322,8 +322,17 @@
   color: var(--text-primary);
 }
 
-.ai-edit-panel[data-gated="true"] {
-  grid-template-rows: auto minmax(0, 1fr);
+/* AIがつながっていないときの案内。上から、会話の見出し (サイドバーだけ)・AIの切り替え・案内の
+   順に並び、案内だけが残りの高さを使う。子の数が表示の種類で変わるので、行を数で決める
+   grid ではなく縦の flex にする (以前は 2 行ぶんの grid のままで、3 つ目の案内が行の外へ
+   押し出され、AIの切り替えが残りの高さいっぱいに引き伸ばされていた)。 */
+.ai-edit-panel[data-gated="true"]:not(.ai-inline-edit) {
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-edit-panel[data-gated="true"] > .ai-connection-gate {
+  flex: 1 1 auto;
 }
 
 .ai-spin {
@@ -333,20 +342,23 @@
 /* --- AI connection (ChatGPT) sign-in gate --- */
 .ai-connection-gate {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  min-width: 0;
   min-height: 0;
-  padding: 24px 18px;
+  padding: var(--space-xl) var(--space-lg);
   overflow-y: auto;
   background: var(--background);
 }
 
+/* 中央寄せは margin: auto で行う。align-items: center だと、案内がパネルより高いときに
+   上側が切れてスクロールでも届かなくなる。 */
 .ai-connection-gate-card {
   display: grid;
   justify-items: center;
   gap: 10px;
   width: 100%;
+  min-width: 0;
   max-width: 320px;
+  margin: auto;
   text-align: center;
 }
 
@@ -514,6 +526,7 @@
 
 .ai-connection-gate-error {
   width: 100%;
+  min-width: 0;
   margin: 4px 0 0;
   padding: 8px 10px;
   border-radius: 8px;
@@ -521,6 +534,8 @@
   color: var(--danger, #b42318);
   font-size: 11.5px;
   line-height: 1.5;
+  /* 実行ファイルのパスなど、切れ目の無い長い文字列で案内の幅を押し広げない。 */
+  overflow-wrap: anywhere;
 }
 
 @keyframes ai-connection-hero-pulse {
@@ -2348,11 +2363,17 @@
   font-weight: 700;
 }
 
-/* AIプロバイダ切替 (ChatGPT / Claude) — ゲート画面の上部に表示 */
+/* AIの切り替え (SIGMA AI / ChatGPT / Claude / Antigravity) — 接続の案内の上に出す。
+   1 行のセグメントで、選んでいるAIだけを白い面で持ち上げる (色ではなく面で示す)。 */
 .ai-provider-switch {
   display: flex;
-  gap: 6px;
-  padding: 10px 12px 0;
+  flex: 0 0 auto;
+  gap: 2px;
+  min-width: 0;
+  margin: var(--space-md) var(--space-md) 0;
+  padding: 2px;
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
 }
 
 .ai-provider-switch-item {
@@ -2361,21 +2382,34 @@
   gap: 6px;
   flex: 1 1 0;
   justify-content: center;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
+  min-width: 0;
+  height: 30px;
+  padding: 0 var(--space-sm);
+  border: 0;
   border-radius: 8px;
-  background: var(--surface);
+  background: transparent;
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.ai-provider-switch-item:hover:not(:disabled):not([data-active="true"]),
+.ai-provider-switch-item:focus-visible:not([data-active="true"]) {
+  background: color-mix(in srgb, var(--background) 60%, transparent);
+  color: var(--text-secondary);
+}
+
+.ai-provider-switch-item:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 1px;
 }
 
 .ai-provider-switch-item[data-active="true"] {
-  border-color: var(--accent, #2563eb);
-  color: var(--text);
-  background: var(--surface-strong, var(--surface));
+  background: var(--background);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.12), 0 0 0 1px var(--border-subtle);
 }
 
 .ai-provider-switch-item:disabled {

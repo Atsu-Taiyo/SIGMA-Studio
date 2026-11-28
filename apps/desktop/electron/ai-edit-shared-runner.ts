@@ -10,6 +10,7 @@ import { formatAiEditReferencesForPrompt, type AiEditReference } from "@/lib/ai/
 import { createTranslator, type AppLocale } from "@/lib/i18n";
 import { tv } from "@/lib/ai/validation-locale";
 import { buildMcpEditPrompt } from "@/lib/ai/mcp-edit-prompt";
+import type { AiSubagentPolicy } from "@/lib/ai/subagent-settings";
 import type { AiEditAttachment, AiEditMentionedDocumentContext } from "@/lib/ai/sigma-doc-agent-tools";
 import type { SigmaDocument } from "@/features/document";
 import { buildCancelledMcpEditRunResult, buildMcpEditRunResult, isWriteCapableMcpToolName } from "./ai-edit-shared";
@@ -146,6 +147,12 @@ export interface McpEditProviderDescriptor<TClient> {
      * CLI 側に対応するトグルがないため未使用 (gemini-headless-client.ts 参照)。
      */
     webSearchEnabled?: boolean;
+    /**
+     * この実行でのサブエージェントの扱い。Claude はこの値で Agent ツールの許可と上限
+     * (環境変数) を切り替える。Antigravity はCLIに対応する設定が無いため、プロンプトの
+     * 方針だけで伝える (gemini-headless-client.ts 参照)。
+     */
+    subagents?: AiSubagentPolicy;
     onEvent: (event: AiEditRunEvent) => void;
     onDelta: (delta: string) => void;
     /** `input` は tool_use の生の入力 (Claude の WebSearch { query } / WebFetch { url } の activity 表示に使う)。 */
@@ -176,6 +183,8 @@ export function buildMcpEditPromptForProvider(
     runId?: string;
     /** aiWebSearchEnabled設定の現在値。true のときだけ Web検索ポリシー (MCP_WEB_SEARCH_PROMPT) を含める。 */
     webSearchEnabled?: boolean;
+    /** この実行でのサブエージェントの扱い。プロンプトの「サブエージェントの方針」を出し分ける。 */
+    subagents?: AiSubagentPolicy;
     /**
      * True when resuming an existing agentThreadId. Claude/Antigravity are
      * one-shot composed prompts (see buildMcpEditPrompt), so on a resumed
@@ -217,6 +226,11 @@ export async function runMcpEditForIpc<TClient>(
      * Web検索ポリシー節と、Claude の per-turn ツール許可の両方を切り替える。
      */
     webSearchEnabled?: boolean;
+    /**
+     * サブエージェント設定から決めた、このAIの扱い (IPC ハンドラが run ごとに読み直して渡す)。
+     * プロンプトの方針と、Claude の per-turn ツール許可・上限の両方を切り替える。
+     */
+    subagents?: AiSubagentPolicy;
     /**
      * プロンプトを組む言語 (IPC ハンドラが run ごとに解決して渡す)。
      * **必須** — 引き回しの漏れをコンパイル時に落とす。
@@ -267,6 +281,7 @@ export async function runMcpEditForIpc<TClient>(
     attachments,
     runId: args.runId,
     webSearchEnabled: args.webSearchEnabled,
+    subagents: args.subagents,
     locale: args.locale,
     isResumedTurn: Boolean(payload.agentThreadId),
   });
@@ -286,6 +301,7 @@ export async function runMcpEditForIpc<TClient>(
   // the total number of images attached across the whole run (see
   // capRunPreviewImages) so a chatty tool never bloats the chat history/log.
   const toolNameByCallId = new Map<string, string>();
+  const subagentActivityByCallId = new Map<string, string>();
   let remainingImageBudget = MAX_RUN_PREVIEW_IMAGES_PER_RUN;
   try {
     const outcome = await descriptor.runTurn({
@@ -297,6 +313,7 @@ export async function runMcpEditForIpc<TClient>(
       fileId,
       mcpConfig: args.mcpConfig,
       webSearchEnabled: args.webSearchEnabled,
+      subagents: args.subagents,
       onEvent: args.onEvent,
       runId: args.runId,
       cwd: args.cwd,
@@ -315,11 +332,17 @@ export async function runMcpEditForIpc<TClient>(
           toolNameByCallId.set(tool.id, tool.name);
         }
         const webActivity = describeWebToolActivity(tool.name, tool.input);
+        const subagentActivity = describeSubagentToolActivity(tool.name, tool.input);
+        if (tool.id && subagentActivity) {
+          subagentActivityByCallId.set(tool.id, subagentActivity);
+        }
         emit(args.onEvent, {
           kind: "activity",
           phase: "streaming",
-          message: webActivity ?? (tool.name ? tv("run.toolRunningNamed", { p0: tool.name }) : tv("run.toolRunning")),
-          itemType: webActivity ? "webSearch" : "mcpToolCall",
+          message: subagentActivity
+            ?? webActivity
+            ?? (tool.name ? tv("run.toolRunningNamed", { p0: tool.name }) : tv("run.toolRunning")),
+          itemType: subagentActivity ? "subagent" : webActivity ? "webSearch" : "mcpToolCall",
           itemStatus: "started",
           ...(tool.id ? { itemId: tool.id } : {}),
         });
@@ -328,11 +351,13 @@ export async function runMcpEditForIpc<TClient>(
         const images = capRunPreviewImages(result.images, remainingImageBudget);
         remainingImageBudget -= images.length;
         const toolName = result.toolUseId ? toolNameByCallId.get(result.toolUseId) : undefined;
+        // サブエージェントの完了は、開始時と同じ行 (同じ文・同じ種類) へ重ねる。
+        const subagentActivity = result.toolUseId ? subagentActivityByCallId.get(result.toolUseId) : undefined;
         emit(args.onEvent, {
           kind: "activity",
           phase: "streaming",
-          message: toolName ? tv("run.toolRunningNamed", { p0: toolName }) : tv("run.toolRunning"),
-          itemType: "mcpToolCall",
+          message: subagentActivity ?? (toolName ? tv("run.toolRunningNamed", { p0: toolName }) : tv("run.toolRunning")),
+          itemType: subagentActivity ? "subagent" : "mcpToolCall",
           itemStatus: "completed",
           ...(result.toolUseId ? { itemId: result.toolUseId } : {}),
           ...(images.length > 0 ? { images } : {}),
@@ -420,6 +445,29 @@ function describeWebToolActivity(name: string | undefined, input: unknown): stri
   }
   const url = typeof record?.url === "string" ? record.url.trim() : "";
   return url ? tv("run.webFetchUrl", { p0: truncateWebActivityLabel(url) }) : tv("run.webFetchRunning");
+}
+
+// サブエージェントを起動するツール。Claude Code は Agent (旧名 Task)、Antigravity CLI は
+// invoke_subagent / browser_subagent、内蔵AI (dsh) は subagent。教材のMCPツールと区別して
+// 「サブエージェント: <役割>」の行として出す。
+const SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set(["Agent", "Task", "invoke_subagent", "browser_subagent", "subagent"]);
+
+/**
+ * サブエージェントの起動を進行表示の文にする。対象外のツールでは undefined。
+ * 役割の名前は、Claude と内蔵AI (dsh) のツール入力 (`description`) と、Antigravity の
+ * `subagent_info.subagents[].role` (gemini-headless-client.ts が `description` へ詰め直す) から取る。
+ */
+export function describeSubagentToolActivity(name: string | undefined, input: unknown): string | undefined {
+  if (!name || !SUBAGENT_TOOL_NAMES.has(name)) {
+    return undefined;
+  }
+  const record = typeof input === "object" && input !== null && !Array.isArray(input)
+    ? (input as Record<string, unknown>)
+    : undefined;
+  const description = typeof record?.description === "string" ? record.description.trim() : "";
+  return description
+    ? tv("run.subagentNamed", { p0: truncateWebActivityLabel(description) })
+    : tv("run.subagentRunning");
 }
 
 export function truncateWebActivityLabel(value: string): string {

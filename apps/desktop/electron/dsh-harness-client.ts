@@ -19,6 +19,7 @@ import { getProcessPathEnv } from "./cli-child-env";
 import { startDshGatewaySession, type DshGatewayAccount } from "./dsh-gateway-session";
 import { spawnCliProcess, type CliChildProcess } from "./cli-spawn";
 import { buildSigmaStudioMcpEnv, SIGMA_DOC_MCP_SERVER_NAME, type SigmaStudioMcpLaunchSpec } from "./sigma-studio-mcp-launch";
+import type { AiSubagentPolicy } from "@/lib/ai/subagent-settings";
 
 /** 内蔵AIが使うモデル (OpenRouter の ID)。中継の許可リストと揃える。 */
 export const SIGMA_AI_MODEL = "deepseek/deepseek-v4.1-flash-1017";
@@ -27,6 +28,8 @@ export const SIGMA_AI_MODEL_LABEL = "DeepSeek V4.1 Flash";
 export const SIGMA_AI_DSH_PROVIDER = "sigma-gateway";
 /** 動作を確認した dsh の版。実行環境 (dsh-runtime/package.json) の固定と揃える。 */
 export const SIGMA_AI_DSH_VERSION = "0.2.1-rc.5";
+/** dsh がモデルに見せる、サブエージェントを起動するツールの名前。橋渡しもこの名前で結果を預かる。 */
+export const SIGMA_AI_SUBAGENT_TOOL_NAME = "subagent";
 
 export const SIGMA_AI_GATEWAY_URL_ENV = "SIGMA_AI_GATEWAY_URL";
 export const SIGMA_AI_GATEWAY_TOKEN_ENV = "SIGMA_AI_GATEWAY_TOKEN";
@@ -89,6 +92,11 @@ export interface DshRunTurnParams {
   /** 教材の MCP サーバー。null なら道具を一切持たせない (本文を返すだけの一回きりの問い合わせ)。 */
   mcp: SigmaStudioMcpLaunchSpec | null;
   systemPrompt: string;
+  /**
+   * サブエージェントの扱い。有効なときだけ、dsh のサブエージェントの部品を構成に足す
+   * (buildDshPatch)。道具を持たせない問い合わせ (mcp: null) では常に足さない。
+   */
+  subagents?: AiSubagentPolicy;
   onText: (text: string) => void;
   onReasoning: (text: string) => void;
   onToolUse: (tool: { id: string; name: string; input: unknown }) => void;
@@ -188,6 +196,11 @@ export function buildDshPatch(args: {
   systemPrompt: string;
   /** 公式スキル・利用者のスキルが置かれたディレクトリ (run の作業ディレクトリ配下)。 */
   skillDirs: string[];
+  /**
+   * サブエージェントの扱い。有効で、道具を持たせる実行 (mcp あり) のときだけ部品を足す。
+   * 無効・未指定なら何も足さない (sdk-minimal はサブエージェントの部品を持たないので、道具ごと無い)。
+   */
+  subagents?: AiSubagentPolicy;
 }): unknown[] {
   const disabled = (id: string, name: string) => ({ id, name, disabled: true });
   return [{
@@ -247,6 +260,20 @@ export function buildDshPatch(args: {
           config: { includeDefaultRoots: false, watch: false, customSkillDirs: args.skillDirs },
         },
         { id: "tool-skill", name: "@deepseek-ai/dsh-tool-skill" },
+      ] : []),
+      // サブエージェント: 受け付けの窓口 (同時に動かす数を強制)、同じプロセスで子を動かす実体、
+      // モデルに見せる `subagent` ツール (入れ子の深さを強制) の 3 つを足す。子は親と同じ道具
+      // (教材の MCP ツールと skill) を持ち、会話は引き継がない。dsh 0.2.1-rc.5 の実機で、
+      // 深さの超過は "subagent depth N exceeds maxDepth M"、数の超過は "subagent limit reached" の
+      // エラーとしてモデルへ返ることを確認した。
+      ...(args.mcp && args.subagents?.enabled ? [
+        { id: "subagent", name: "@deepseek-ai/dsh-subagent", config: { maxActiveSubagents: args.subagents.maxConcurrent } },
+        { id: "subagent-spawn", name: "@deepseek-ai/dsh-subagent-spawn-in-process" },
+        {
+          id: "tool-subagent",
+          name: "@deepseek-ai/dsh-tool-subagent",
+          config: { provider: "spawn", toolName: SIGMA_AI_SUBAGENT_TOOL_NAME, maxDepth: args.subagents.maxDepth },
+        },
       ] : []),
       {
         id: "system-prompt",
@@ -517,6 +544,7 @@ export class DshHarnessClient {
       mcp: params.mcp,
       systemPrompt: params.systemPrompt,
       skillDirs: [path.join(params.cwd, ".agents", "skills")],
+      subagents: params.subagents,
     })), { encoding: "utf8", mode: 0o600 });
     cleanup.patchPath = patchPath;
     if (entry.cancelled) return cancelledResult();
@@ -531,6 +559,8 @@ export class DshHarnessClient {
       maxTokens: MODEL_MAX_OUTPUT_TOKENS,
       initializeTimeoutMs: INITIALIZE_TIMEOUT_MS,
       ...(params.resumeSessionId ? { sessionId: params.resumeSessionId } : {}),
+      // 橋渡しは、この名前のツールの結果を子が終わるまで預かる (進行表示の行を早く閉じない)。
+      ...(params.mcp && params.subagents?.enabled ? { subagentToolName: SIGMA_AI_SUBAGENT_TOOL_NAME } : {}),
       content: [
         { type: "text", text: params.instruction },
         ...params.images.map(image => ({ type: "image", data: image.base64, mimeType: image.mimeType, ...(image.name ? { name: image.name } : {}) })),

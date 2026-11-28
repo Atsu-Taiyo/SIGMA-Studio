@@ -187,6 +187,9 @@ const desktopAPI = {
     setAiWebSearchEnabled(value: boolean): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("settings:set-ai-web-search-enabled", value);
     },
+    setAiSubagents(value: unknown): Promise<{ ok: boolean; error?: string; aiSubagents?: unknown }> {
+      return ipcRenderer.invoke("settings:set-ai-subagents", value);
+    },
     setUiLocale(value: string): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("settings:set-ui-locale", value);
     },

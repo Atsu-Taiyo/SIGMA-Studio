@@ -138,7 +138,30 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 
 ### Claudeの実行許可
 
-Claudeの `--allowedTools` は `mcp__sigma-studio-local__*` で、sigma-studio-local のツールをすべて許可します (Claude Code の許可ルールは、サーバー名の後の `*` でそのサーバーの全ツールに一致します)。指示文の語・選択中の対象・選んだスキルから使うツールを推定して許可を絞ることはしません。Codex・Antigravityにもツールの絞り込みはありません。Claudeでは Skill・Read を許可し、Bash・Write・Edit・Task は常に不許可です。WebSearch・WebFetch は、Web検索の設定がオンのturnだけ許可します。`sigma-doc-mcp-app-tools.test.ts` は、実際の `tools/list` が内部実装の名前を公開しないことを確かめます。
+Claudeの `--allowedTools` は `mcp__sigma-studio-local__*` で、sigma-studio-local のツールをすべて許可します (Claude Code の許可ルールは、サーバー名の後の `*` でそのサーバーの全ツールに一致します)。指示文の語・選択中の対象・選んだスキルから使うツールを推定して許可を絞ることはしません。Codex・Antigravityにもツールの絞り込みはありません。Claudeでは Skill・Read を許可し、Bash・Write・Edit は常に不許可です。WebSearch・WebFetch は、Web検索の設定がオンのturnだけ許可します。サブエージェントを起動する Agent (旧名 Task) は、サブエージェントの設定がオンのturnだけ許可します ([サブエージェント](#サブエージェント))。`sigma-doc-mcp-app-tools.test.ts` は、実際の `tools/list` が内部実装の名前を公開しないことを確かめます。
+
+### サブエージェント
+
+AI設定の「サブエージェントを使う」(`aiSubagents`。既定はオン・入れ子なし・同時3つ) で、AIが調査・下書き・検証を別のエージェントに分担させます。設定は全体のスイッチ、入れ子の深さ (1〜5。1は入れ子なし)、同時に動かす数 (1〜10)、AIごとのスイッチです。AIごとのスイッチは、内蔵AI (SIGMA AI) だけ既定でオフです (モデルの利用料が利用者の枠ではなく中継の負担になるため)。値の範囲と既定値は `apps/desktop/src/lib/ai/subagent-settings.ts`、保存は `electron/desktop-settings.ts`、実行ごとの解決は `resolveAiSubagentPolicy` が持ちます (設定は実行のたびに読み直します)。
+
+サブエージェントも同じMCPサーバーを通るので、教材を直接書き換える経路は増えません。作った編集は親と同じ実行の承認待ちの提案になります。毎ターンのプロンプトの「サブエージェントの方針」(`buildMcpSubagentPrompt`、文は `prompt.ts` の `subagentsEnabled`) が、上限、引き継ぎに `fileId`・`runId`・対象IDを書くこと、同じブロックや図形を複数に同時に編集させないこと、結果を待って自分で確かめることを伝えます。
+
+AIごとに、設定を強制できる範囲が違います (`AI_SUBAGENT_ENFORCEMENT`)。2026-11-27 に実機で確かめました (Claude Code 2.1.332、Codex CLI 0.171.0、Antigravity CLI 1.5.18、DeepSeek Harness 0.2.1-rc.5)。
+
+| AI | オン・オフ | 入れ子の深さ | 同時に動かす数 |
+| --- | --- | --- | --- |
+| Claude | `--allowedTools` に `Agent Task` を足し、`--disallowedTools` から `Task` を外す。オフでは `Task` の不許可で Agent ツールが外れる | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` (1 でサブエージェントから Agent ツールが外れる) | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` |
+| ChatGPT (Codex) | `config.toml` の `[agents] enabled` (false で協調ツールが外れる)。保険として `subAgentActivity`・`collabAgentToolCall` の item を拒否する | `[agents] max_depth` を書くが、読むのは従来方式だけ (現行方式は無視する)。アプリは `subAgentActivity` の `agentPath` の深さを数え、上限を超えた子スレッドを `turn/interrupt` で止める。プロンプトでも伝える | `[agents] max_concurrent_threads_per_session` |
+| Antigravity | CLIに設定が無く、権限ルールの `deny` (`invoke_subagent(*)` など) でも止まらない。プロンプトで「呼ばない」と伝えるだけ | CLIの固定上限 (10段) の中で、プロンプトで伝えるだけ | プロンプトで伝えるだけ |
+| 内蔵AI (SIGMA AI) | オンのときだけ dsh の構成にサブエージェントの部品 (`dsh-subagent`・`dsh-subagent-spawn-in-process`・`dsh-tool-subagent`) を足す。オフでは `subagent` ツールが無い | `dsh-tool-subagent` の `maxDepth` (超えた起動は `subagent depth N exceeds maxDepth M` のエラーになる) | `dsh-subagent` の `maxActiveSubagents` (超えた起動は `subagent limit reached` のエラーになる) |
+
+- **Claude**: サブエージェントは親の許可ルールとMCPサーバーを引き継ぐので、Bash・Write・Edit はその中でも使えません。`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` も付け、サブエージェントをturnの中で最後まで待たせます (アプリは `result` を受け取るとプロセスを終わらせるため、裏で動かすと作業の途中で止まります)。stream-json では、起動が `Agent` の `tool_use` (`description`・`subagent_type`・`prompt`)、中の出来事が `parent_tool_use_id` 付きのメッセージで届きます。中のツール呼び出しは進行表示と編集案の数え上げに使い、本文はメインの応答に混ぜません。
+- **Codex**: 子スレッドの通知は同じ接続に子の `threadId`・`turnId` で届きます。`CodexAppServerClient` は `subAgentActivity` の `agentThreadId` から子スレッドと親の実行を対応付け、子のMCPツール呼び出しを親の実行へ取り次ぎ (編集案の数え上げ)、子が禁止された操作 (`fileChange`、オフのときのWeb検索) を試みたらその子スレッドだけを止めます。子スレッドは自分のMCPサーバーを起動するので、実行の区別は引数の `runId` が頼りです。`config.toml` は常駐 app-server の起動時にしか読まれないため、設定を変えると誰も実行していないときに再起動します (実行中なら次の実行の前)。Codex は `[agents]` の知らないキーを設定エラーとして扱い、スレッドを開始できなくなります (`failed to load configuration ... expected struct AgentRoleToml`)。このキーを持たない古いCLIでは、クライアントが `[agents]` を外して一度だけやり直し、以後そのCLIにはテーブルを書きません (`requestWithAgentsConfigFallback`)。そのときのオン・オフは item の拒否、上限はプロンプトと `agentPath` の深さの確認だけになります。
+- **Antigravity**: サブエージェント (`invoke_subagent`) は設定に関係なく既定で使えます。起動は stream-json の `step_type:"subagent"` (`subagent_info.subagents[]` に `type_name`・`role`) で届き、進行表示に出します。このステップの `DONE` は起動し終えたことだけを表し、作業はその後も続くので、行は完了にしません。サブエージェントは会話を引き継がないため、親が指示に書いた `runId` を付けて教材ツールを呼びます (実機で、提案がその実行に帰属することを確認)。
+
+- **内蔵AI (dsh)**: `subagent` ツールは子のセッション ID をすぐ返し、子は裏で動きます。子が終わると親の受信箱に完了の知らせが入り、親がもう 1 ターン動いて仕上げます。SDK の `session.run` は親が最初に idle になった時点で終わるので、橋渡し (`dsh-runtime/bridge.mjs` の `runUntilTreeSettles`) が SDK の低レベルの購読 (`subscribeSessionTree`) でセッションの木を見届けます。終わりと決めるのは、親が idle・起動した子がすべて終了・どのセッションにも未読の受信箱が無い、がそろい、その後 1.5 秒何も届かなかったときです (子の終了から親が動き出すまでに、全員が idle に見える短い間があるため)。サブエージェントを使わない実行は、これまでどおり親が idle になった時点で終わります。子は親と同じ道具 (教材のMCPツールと `skill`) を持ち、会話は引き継ぎません。子のツール呼び出しは進行表示と編集案の数え上げに使い、子を起動したツールの結果は、その子が終わった時点で流します。実アプリでの確認は `tests/electron/sigma-ai.spec.ts` (偽の中継の台本で、本物の dsh とMCPサーバーを動かす)、判定の単体テストは `electron/dsh-bridge-session-tree.test.ts` です。
+
+進行表示では、どのAIでも「サブエージェント: <役割>」の行 (`itemType:"subagent"`) になります。
 
 ## 公式スキル
 
@@ -261,7 +284,7 @@ SVGは、AIが教材へ入れられる絵の既定の形式です。部品ごと
 - ログインはターミナルで `agy` を起動して行います。アプリは `agy models` で利用状態を確認し、そのアカウントのモデルIDと表示名を使います。「自動」はCLIに選択を任せます。認証はCLIが管理します。[認証](https://antigravity.google/docs/install?tab=cli)
 - 編集用MCPはアプリ管理の作業ディレクトリ内の `.agents/mcp_config.json` に `sigma-studio-workspace` として登録します。実機の1.5.12では、グローバルとワークスペースで同じサーバー名を使うと、古いグローバル登録にツール呼び出しが届きました。共有設定 `~/.gemini/config/mcp_config.json` とツール定義キャッシュ `~/.gemini/antigravity-cli/mcp/` はアプリから書き換えません。[MCPの設定とキャッシュ](https://antigravity.google/docs/mcp?tab=cli)
 - 非対話編集に必要な `mcp(sigma-studio-workspace/*)` と `read_file(<userDataDir>/data/ai-run-context)` は、そのプロセスの `--settings` に渡します。CLI設定 `~/.gemini/antigravity-cli/settings.json` の既存の許可・確認・拒否ルールを引き継ぎ、旧サーバーへの確認・拒否指定は新しい名前にも適用します。編集セッション内では旧サーバーへの呼び出しを拒否します。[設定](https://antigravity.google/docs/settings?tab=cli)・[権限](https://antigravity.google/docs/permissions?tab=cli)
-- 組み込みツールはCLIの `step_update`、SIGMAの教材ツールはMCPサーバーが記録するrun別の `*.tool-activity.jsonl` から進捗を表示します。後者からは `call_mcp_tool` の内側で実行した教材ツールの名前と完了を取得できます。
+- 組み込みツールとサブエージェントの起動 (`step_type:"subagent"`) はCLIの `step_update`、SIGMAの教材ツールはMCPサーバーが記録するrun別の `*.tool-activity.jsonl` から進捗を表示します。サブエージェントの有効・上限の扱いは[サブエージェント](#サブエージェント)を参照してください。後者からは `call_mcp_tool` の内側で実行した教材ツールの名前と完了を取得できます。
 - `@ファイル参照` で渡した画像はprintモードのモデルに届きません(実機確認)。MCPツールの結果として返されるimage content(`get_attached_media`)は届くため、添付画像は必ず `get_attached_media` 経由で渡します(プロンプトの誘導は `apps/desktop/electron/gemini-edit.ts` の `formatAttachmentInstruction` / `apps/desktop/src/lib/ai/mcp-edit-prompt.ts` を参照)。
 
 ## 編集ルール

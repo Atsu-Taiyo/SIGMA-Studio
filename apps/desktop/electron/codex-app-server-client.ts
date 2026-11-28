@@ -8,6 +8,11 @@ import { buildCliChildEnv, getProcessPathEnv } from "./cli-child-env";
 import { resolveBareBinNames, resolveCliBinForSpawn, spawnCliProcess, type CliChildProcess } from "./cli-spawn";
 
 import { SIGMA_DOC_MCP_SERVER_NAME } from "./sigma-studio-mcp-launch";
+import {
+  areAiSubagentPoliciesEqual,
+  DISABLED_AI_SUBAGENT_POLICY,
+  type AiSubagentPolicy,
+} from "@/lib/ai/subagent-settings";
 
 const te = createCurrentLocaleTranslator("error");
 
@@ -69,6 +74,8 @@ interface ActiveTurn {
   /** Forbidden item types this turn attempted; refused (never executed) but reported to the caller. */
   refusedItemTypes: string[];
   onRefusal?: (itemType: string, itemId?: string) => void;
+  /** この実行が止めたサブエージェントのスレッド (禁止された操作・深さの超過)。同じスレッドを二度止めない。 */
+  interruptedChildThreadIds: Set<string>;
   /**
    * This run's id (from ai-edit:run), threaded in by the caller alongside the
    * turnId Codex itself assigns. Codex's app-server protocol has no concept of
@@ -93,9 +100,14 @@ export interface CodexAppServerClientOptions {
    * config.toml on a runtime setting change; if omitted, setWebSearchEnabled()
    * only updates the in-memory FORBIDDEN_ITEM_TYPES gate.
    */
-  buildConfigToml?: (webSearchEnabled: boolean, uiLocale: AppLocale) => string;
+  buildConfigToml?: (webSearchEnabled: boolean, uiLocale: AppLocale, subagents: AiSubagentPolicy | null) => string;
   /** config.toml に焼く表示言語の初期値。{@link CodexAppServerClient.setUiLocale} で差し替える。 */
   uiLocale: AppLocale;
+  /**
+   * サブエージェントの扱いの初期値。{@link CodexAppServerClient.setSubagentPolicy} で差し替える。
+   * 省略時は無効 (協調ツールの item を拒否する)。
+   */
+  subagentPolicy?: AiSubagentPolicy;
 }
 
 export interface CodexAccountSummary {
@@ -203,11 +215,40 @@ const CLIENT_INFO = {
 };
 
 // "webSearch" はこの Set に含めず、handleNotification 側で webSearchEnabled
-// (aiWebSearchEnabled設定) に応じて動的に禁止判定する。
+// (aiWebSearchEnabled設定) に応じて動的に禁止判定する。サブエージェントの item も同じく
+// 設定 (subagentPolicy) に応じて判定する (SUBAGENT_ITEM_TYPES)。
 const FORBIDDEN_ITEM_TYPES = new Set([
   "fileChange",
+]);
+
+// サブエージェントに関わる item。`subAgentActivity` は起動・やり取り・完了の知らせ
+// (agentPath と agentThreadId を持つ)、`collabAgentToolCall` は協調ツールの呼び出し
+// (従来方式の spawn、現行方式の wait など)。codex-cli 0.171.0 の app-server で確認。
+const SUBAGENT_ITEM_TYPES = new Set([
+  "subAgentActivity",
   "collabAgentToolCall",
 ]);
+
+// サブエージェントのスレッドから親の実行へ取り次ぐ item。本文・思考の差分は取り次がない
+// (親の応答に混ぜない)。ツール呼び出しは進行表示と編集案の数え上げに要る。
+const FORWARDED_CHILD_ITEM_TYPES = new Set([
+  "mcpToolCall",
+  "webSearch",
+  "subAgentActivity",
+]);
+
+// config.toml を読み込めなかったときに app-server がスレッドの開始へ返すエラー
+// (codex-cli 0.171.0: "failed to load configuration: <path>:<line>:<col>: ...")。
+const CONFIG_LOAD_FAILURE_PATTERN = /failed to load configuration/i;
+
+/** `/root/alpha/beta` のような agentPath から入れ子の深さを数える (`/root/alpha` が 1)。 */
+export function getCodexSubagentDepth(agentPath: unknown): number | null {
+  if (typeof agentPath !== "string") {
+    return null;
+  }
+  const segments = agentPath.split("/").filter((segment) => segment.length > 0);
+  return segments.length >= 2 ? segments.length - 1 : null;
+}
 
 // Codex reports SSE retry progress as an `error` notification whose message is
 // "Reconnecting... <attempt>/<max>" (codex core/src/responses_retry.rs). It is a
@@ -281,8 +322,20 @@ export class CodexAppServerClient extends EventEmitter {
   private configToml: string;
   // 現在有効な aiWebSearchEnabled 値。handleNotification の webSearch item 禁止判定に使う。
   private webSearchEnabled: boolean;
-  private readonly buildConfigToml: ((webSearchEnabled: boolean, uiLocale: AppLocale) => string) | null;
+  private readonly buildConfigToml:
+    ((webSearchEnabled: boolean, uiLocale: AppLocale, subagents: AiSubagentPolicy | null) => string) | null;
+  // このCLIが config.toml の [agents] テーブルを受け付けるか。受け付けないCLI (キーを知らない
+  // 古い版) では設定の読み込みごと失敗するので、一度拒否されたら以後はテーブルを書かない。
+  private agentsConfigSupported = true;
   private uiLocale: AppLocale;
+  // 現在有効なサブエージェントの扱い。config.toml の [agents] と、item の禁止判定・深さの確認に使う。
+  private subagentPolicy: AiSubagentPolicy;
+  // 実行中の turn があるあいだに config.toml が変わると、その場では app-server を止められない。
+  // 次に誰も実行していないときに再起動するための印 (restartIfConfigPending)。
+  private configRestartPending = false;
+  // サブエージェントのスレッド id → それを起動した実行 (親の turnId)。子スレッドの通知は
+  // 子の turnId で届くので、ここから親の実行へ取り次ぐ。親の実行が終わったら消す。
+  private readonly childThreadParents = new Map<string, string>();
   private configuredCodexBin: string | null;
   private resolvedCodexBin: string | null = null;
   private proc: CliChildProcess | null = null;
@@ -310,6 +363,7 @@ export class CodexAppServerClient extends EventEmitter {
     this.configToml = options.configToml;
     this.webSearchEnabled = options.webSearchEnabled === true;
     this.uiLocale = options.uiLocale;
+    this.subagentPolicy = options.subagentPolicy ?? DISABLED_AI_SUBAGENT_POLICY;
     this.buildConfigToml = options.buildConfigToml ?? null;
     this.configuredCodexBin = normalizeCodexBin(options.codexBin);
   }
@@ -391,9 +445,35 @@ export class CodexAppServerClient extends EventEmitter {
    */
   rebuildConfigToml(): void {
     if (this.buildConfigToml) {
-      this.configToml = this.buildConfigToml(this.webSearchEnabled, this.uiLocale);
+      this.configToml = this.buildConfigToml(
+        this.webSearchEnabled,
+        this.uiLocale,
+        this.agentsConfigSupported ? this.subagentPolicy : null,
+      );
     }
-    if (this.activeTurns.size === 0) {
+    this.configRestartPending = true;
+    this.restartIfConfigPending();
+  }
+
+  /**
+   * サブエージェント設定の実行時変更を反映する。**`setWebSearchEnabled` と同型**で、
+   * config.toml の [agents] は次の spawn から効き、item の禁止判定と深さの確認は即時に効く。
+   *
+   * ai-edit:run は実行のたびに設定を読み直してこれを呼ぶ。値が同じでも、実行中の turn の
+   * せいで先送りになっていた再起動があれば、ここで (誰も実行していなければ) 済ませる。
+   */
+  setSubagentPolicy(policy: AiSubagentPolicy): void {
+    if (areAiSubagentPoliciesEqual(policy, this.subagentPolicy)) {
+      this.restartIfConfigPending();
+      return;
+    }
+    this.subagentPolicy = { ...policy };
+    this.rebuildConfigToml();
+  }
+
+  private restartIfConfigPending(): void {
+    if (this.configRestartPending && this.activeTurns.size === 0) {
+      this.configRestartPending = false;
       this.dispose();
     }
   }
@@ -519,7 +599,7 @@ export class CodexAppServerClient extends EventEmitter {
     await this.ensureStarted();
     const resolvedCwd = cwd ?? this.codexWorkspace;
     await fs.mkdir(resolvedCwd, { recursive: true });
-    const result = await this.request<Record<string, unknown>>("thread/start", {
+    const result = await this.requestWithAgentsConfigFallback<Record<string, unknown>>("thread/start", {
       model: model ?? undefined,
       reasoningEffort: reasoningEffort ?? undefined,
       cwd: resolvedCwd,
@@ -546,7 +626,7 @@ export class CodexAppServerClient extends EventEmitter {
     await this.ensureStarted();
     const resolvedCwd = cwd ?? this.codexWorkspace;
     await fs.mkdir(resolvedCwd, { recursive: true });
-    const result = await this.request<Record<string, unknown>>("thread/resume", {
+    const result = await this.requestWithAgentsConfigFallback<Record<string, unknown>>("thread/resume", {
       threadId,
       model: model ?? undefined,
       reasoningEffort: reasoningEffort ?? undefined,
@@ -558,6 +638,32 @@ export class CodexAppServerClient extends EventEmitter {
     const thread = getRecord(result.thread);
     const resumedThreadId = typeof thread?.id === "string" ? thread.id : threadId;
     return { threadId: resumedThreadId };
+  }
+
+  /**
+   * スレッドを開く要求。config.toml を読み込めないと言われたら、[agents] テーブルを外して
+   * 一度だけやり直す。
+   *
+   * Codex は [agents] の知らないキーを設定エラーにする (codex-mcp-config.ts 参照)。サブエージェントの
+   * 設定キーを持たないCLIでは、テーブルを書いただけでAIが一切使えなくなるので、ここで外す。
+   * 外した後は、オン・オフは item の拒否 (handleNotification) が、上限はプロンプトと深さの確認が受け持つ。
+   * ほかの理由で読み込めないときは、やり直しても同じエラーになるのでそのまま返す。
+   */
+  private async requestWithAgentsConfigFallback<T>(method: string, params: unknown): Promise<T> {
+    try {
+      return await this.request<T>(method, params);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (!CONFIG_LOAD_FAILURE_PATTERN.test(message) || !this.agentsConfigSupported || !this.buildConfigToml) {
+        throw error;
+      }
+      this.agentsConfigSupported = false;
+      this.configToml = this.buildConfigToml(this.webSearchEnabled, this.uiLocale, null);
+      this.configRestartPending = false;
+      this.dispose();
+      await this.ensureStarted();
+      return this.request<T>(method, params);
+    }
   }
 
   async runTurn(params: CodexRunTurnParams): Promise<CodexTurnResult> {
@@ -599,6 +705,7 @@ export class CodexAppServerClient extends EventEmitter {
         timeout,
         interrupted: false,
         refusedItemTypes: [],
+        interruptedChildThreadIds: new Set(),
         runId: params.runId,
       });
       if (params.runId) {
@@ -937,6 +1044,13 @@ export class CodexAppServerClient extends EventEmitter {
     }
     const active = this.activeTurns.get(turnId);
     if (!active) {
+      const childThreadId = typeof params.threadId === "string" ? params.threadId : null;
+      const parentTurnId = childThreadId ? this.childThreadParents.get(childThreadId) : undefined;
+      const parent = parentTurnId ? this.activeTurns.get(parentTurnId) : undefined;
+      if (childThreadId && parent) {
+        this.handleChildThreadNotification(parent, childThreadId, notification);
+        return;
+      }
       this.queueTurnNotification(turnId, notification);
       return;
     }
@@ -956,6 +1070,17 @@ export class CodexAppServerClient extends EventEmitter {
       const itemId = typeof item?.id === "string" ? item.id : typeof params.itemId === "string" ? params.itemId : undefined;
       if (FORBIDDEN_ITEM_TYPES.has(type)) {
         void this.refuseForbiddenItem(active, type, itemId);
+        return;
+      }
+      if (SUBAGENT_ITEM_TYPES.has(type)) {
+        // サブエージェントが無効なら、協調ツールの呼び出しは拒否する (config.toml の
+        // [agents] enabled = false で道具ごと外れるので、通常ここには来ない。再起動が
+        // 先送りになっているあいだの保険)。
+        if (!this.subagentPolicy.enabled) {
+          void this.refuseForbiddenItem(active, "collabAgentToolCall", itemId);
+          return;
+        }
+        this.trackSubagentItem(active, item);
         return;
       }
       // webSearch は aiWebSearchEnabled設定が無効のときだけ禁止する。
@@ -1047,6 +1172,90 @@ export class CodexAppServerClient extends EventEmitter {
     this.completeTurn(active.turnId);
   }
 
+  /**
+   * サブエージェントの item (親でも子でも) から、子スレッドと親の実行の対応を覚える。
+   * 設定した深さを超える起動は、その子スレッドを止める (現行のサブエージェント方式は
+   * config.toml の max_depth を読まないため、アプリ側でも確かめる)。
+   */
+  private trackSubagentItem(parent: ActiveTurn, item: Record<string, unknown> | null): void {
+    if (!item) {
+      return;
+    }
+    const childThreadIds: string[] = [];
+    if (typeof item.agentThreadId === "string" && item.agentThreadId) {
+      childThreadIds.push(item.agentThreadId);
+    }
+    if (Array.isArray(item.receiverThreadIds)) {
+      for (const threadId of item.receiverThreadIds) {
+        if (typeof threadId === "string" && threadId) {
+          childThreadIds.push(threadId);
+        }
+      }
+    }
+    for (const childThreadId of childThreadIds) {
+      if (childThreadId !== parent.threadId) {
+        this.childThreadParents.set(childThreadId, parent.turnId);
+      }
+    }
+    if (item.type !== "subAgentActivity" || item.kind !== "started") {
+      return;
+    }
+    const depth = getCodexSubagentDepth(item.agentPath);
+    const childThreadId = typeof item.agentThreadId === "string" ? item.agentThreadId : null;
+    if (childThreadId && depth !== null && depth > this.subagentPolicy.maxDepth
+      && !parent.interruptedChildThreadIds.has(childThreadId)) {
+      parent.interruptedChildThreadIds.add(childThreadId);
+      void this.interruptTurn(childThreadId);
+    }
+  }
+
+  /**
+   * サブエージェントのスレッドから届いた通知。親の実行と同じ禁止を当て (子スレッドだけを止める)、
+   * ツール呼び出しは親の実行へ取り次ぐ。本文や完了の通知は親の応答に混ぜない。
+   */
+  private handleChildThreadNotification(
+    parent: ActiveTurn,
+    childThreadId: string,
+    notification: JsonRpcNotification,
+  ): void {
+    if (notification.method !== "item/started" && notification.method !== "item/completed") {
+      return;
+    }
+    const params = notification.params ?? {};
+    const item = getRecord(params.item);
+    const type = typeof item?.type === "string" ? item.type : "";
+    const itemId = typeof item?.id === "string" ? item.id : undefined;
+    const forbidden = FORBIDDEN_ITEM_TYPES.has(type)
+      || (type === "webSearch" && !this.webSearchEnabled)
+      || (SUBAGENT_ITEM_TYPES.has(type) && !this.subagentPolicy.enabled);
+    if (forbidden) {
+      if (!parent.interruptedChildThreadIds.has(childThreadId)) {
+        parent.interruptedChildThreadIds.add(childThreadId);
+        try {
+          parent.onRefusal?.(SUBAGENT_ITEM_TYPES.has(type) ? "collabAgentToolCall" : type, itemId);
+        } catch {
+          // 進行表示の失敗で、子スレッドの停止を飛ばさない (refuseForbiddenItem と同じ)。
+        }
+        void this.interruptTurn(childThreadId);
+      }
+      return;
+    }
+    if (SUBAGENT_ITEM_TYPES.has(type)) {
+      this.trackSubagentItem(parent, item);
+    }
+    if (FORWARDED_CHILD_ITEM_TYPES.has(type)) {
+      parent.onNotification?.(notification);
+    }
+  }
+
+  private forgetChildThreads(parentTurnId: string): void {
+    for (const [childThreadId, turnId] of this.childThreadParents) {
+      if (turnId === parentTurnId) {
+        this.childThreadParents.delete(childThreadId);
+      }
+    }
+  }
+
   private completeTurn(turnId: string, error?: Error): void {
     const active = this.activeTurns.get(turnId);
     if (!active) {
@@ -1057,6 +1266,7 @@ export class CodexAppServerClient extends EventEmitter {
     if (active.runId) {
       this.activeTurnsByRunId.delete(active.runId);
     }
+    this.forgetChildThreads(turnId);
     this.clearQueuedTurnNotifications(turnId);
     this.clearQueuedServerRequests(turnId);
     if (error) {
@@ -1082,6 +1292,7 @@ export class CodexAppServerClient extends EventEmitter {
     if (active.runId) {
       this.activeTurnsByRunId.delete(active.runId);
     }
+    this.forgetChildThreads(turnId);
     this.clearQueuedTurnNotifications(turnId);
     this.clearQueuedServerRequests(turnId);
     active.resolve({
@@ -1100,6 +1311,7 @@ export class CodexAppServerClient extends EventEmitter {
       this.pending.delete(id);
     }
     this.activeTurnsByRunId.clear();
+    this.childThreadParents.clear();
     for (const [turnId, active] of this.activeTurns) {
       clearTimeout(active.timeout);
       active.reject(error);

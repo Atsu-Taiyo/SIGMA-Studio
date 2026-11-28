@@ -5,6 +5,12 @@ import path from "node:path";
 import { normalizeNewDocumentPageSetup, type NewDocumentPageSetup } from "@/features/document";
 import { parseEditorCustomCommands, parseEditorShortcutOverrides } from "@/lib/editor-command-shortcuts";
 import { DEFAULT_LOCALE, normalizeLocale, type AppLocale } from "@/lib/i18n/locale";
+import {
+  areAiSubagentSettingsEqual,
+  DEFAULT_AI_SUBAGENT_SETTINGS,
+  normalizeAiSubagentSettings,
+  type AiSubagentSettings,
+} from "@/lib/ai/subagent-settings";
 
 const MAX_FONT_FAMILY_LENGTH = 512;
 const MAX_CUSTOM_FONTS = 4096;
@@ -27,6 +33,10 @@ export interface DesktopSettings {
   // 未設定 (キー欠落) も true として扱う (isAiWebSearchEnabled 参照)。false のときだけ
   // キーを書き込む (設定ファイルを簡潔に保つため、他の bool 設定と極性が逆な点に注意)。
   aiWebSearchEnabled?: boolean;
+  // AIエージェントがサブエージェントを使う設定 (全体のスイッチ・入れ子の深さ・同時に動かす数・
+  // AIごとのスイッチ)。未設定 (キー欠落) は既定値 (DEFAULT_AI_SUBAGENT_SETTINGS) として扱い、
+  // 既定値と同じ内容はキーごと書かない (resolveAiSubagentSettings 参照)。
+  aiSubagents?: AiSubagentSettings;
   // UIの表示言語。mainプロセスとMCPサーバーも読むので、localStorageではなくここが正本。
   // 他の既定値と違いキーの「不在」が「まだ選んでいない」を意味する (= OSロケール検出に
   // 委ねる) ので、既定の ja を選んだ場合もキーを消さずに書く。
@@ -151,6 +161,15 @@ async function writeDesktopSettingsNow(dataDir: string, settings: DesktopSetting
     } else {
       // 既定値 (true) はキーごと削除して設定ファイルを簡潔に保つ。
       delete next.aiWebSearchEnabled;
+    }
+  }
+  if ("aiSubagents" in settings) {
+    const aiSubagents = normalizeAiSubagentSettings(settings.aiSubagents);
+    if (areAiSubagentSettingsEqual(aiSubagents, DEFAULT_AI_SUBAGENT_SETTINGS)) {
+      // 既定値はキーごと削除して設定ファイルを簡潔に保つ。
+      delete next.aiSubagents;
+    } else {
+      next.aiSubagents = aiSubagents;
     }
   }
   if ("newDocumentPageSetup" in settings) {
@@ -328,6 +347,7 @@ function normalizeDesktopSettings(value: unknown): DesktopSettings {
   const aiWebSearchEnabled = parsed.aiWebSearchEnabled !== false;
   const uiLocale = normalizeUiLocale(parsed.uiLocale);
   const newDocumentPageSetup = normalizeStoredNewDocumentPageSetup(parsed.newDocumentPageSetup);
+  const aiSubagents = normalizeAiSubagentSettings(parsed.aiSubagents);
 
   if (codexBin) {
     next.codexBin = codexBin;
@@ -356,6 +376,9 @@ function normalizeDesktopSettings(value: unknown): DesktopSettings {
   if (!aiWebSearchEnabled) {
     next.aiWebSearchEnabled = false;
   }
+  if (!areAiSubagentSettingsEqual(aiSubagents, DEFAULT_AI_SUBAGENT_SETTINGS)) {
+    next.aiSubagents = aiSubagents;
+  }
   if (uiLocale) {
     next.uiLocale = uiLocale;
   }
@@ -374,6 +397,11 @@ export function normalizeUiLocale(value: unknown): AppLocale | undefined {
 /** Web検索設定の既定値 (true) を含めて解決する。未設定 (キー欠落) は true として扱う。 */
 export function isAiWebSearchEnabled(settings: DesktopSettings): boolean {
   return settings.aiWebSearchEnabled !== false;
+}
+
+/** サブエージェント設定の既定値を含めて解決する。未設定 (キー欠落) は既定値として扱う。 */
+export function resolveAiSubagentSettings(settings: DesktopSettings): AiSubagentSettings {
+  return normalizeAiSubagentSettings(settings.aiSubagents);
 }
 
 function normalizeTrimmedString(value: unknown): string | undefined {

@@ -9,6 +9,7 @@ import {
   type AiEditRunResult,
 } from "@/lib/ai/ai-edit-runtime";
 import type { AiEditAttachment, AiEditMentionedDocumentContext } from "@/lib/ai/sigma-doc-agent-tools";
+import type { AiSubagentPolicy } from "@/lib/ai/subagent-settings";
 import { runContextDirPath } from "./ai-edit-run-context";
 import { parseAttachedFileDataUrl, type ParsedAttachedFile } from "./ai-edit-image";
 import {
@@ -243,6 +244,12 @@ export async function runGeminiEditForIpc(args: {
    * ツール実行の可否そのものはこの設定では制御できない。
    */
   webSearchEnabled?: boolean;
+  /**
+   * サブエージェント設定から決めた扱い。Antigravity CLI はサブエージェント (invoke_subagent) を
+   * 既定で使え、止める設定も上限の設定も無い (権限ルールの deny でも止まらないことを 1.5.18 の
+   * 実機で確認)。そのため有効・無効・上限はプロンプトの「サブエージェントの方針」だけで伝える。
+   */
+  subagents?: AiSubagentPolicy;
   /** Test-only override for ToolActivityWatcher's poll interval (see gemini-tool-activity-watcher.ts). */
   toolActivityPollIntervalMs?: number;
   /** Electron userData path used to read the per-run visual-session status file. */
@@ -264,6 +271,7 @@ export async function runGeminiEditForIpc(args: {
       onEvent: args.onEvent,
       suppressFinalPhase: true,
       webSearchEnabled: args.webSearchEnabled,
+      subagents: args.subagents,
       runId,
       cwd: args.cwd,
     });

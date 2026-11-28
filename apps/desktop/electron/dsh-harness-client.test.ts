@@ -100,6 +100,35 @@ describe("dsh composition", () => {
     expect(ids.map((entry) => entry.id)).not.toEqual(expect.arrayContaining(["mcp-sigma-studio", "skill", "skill-filesystem", "tool-skill"]));
     expect(ids.filter((entry) => entry.disabled).map((entry) => entry.id)).toEqual(["persistent-bash", "persistent-pwsh", "tool-working-directory", "tool-fs"]);
   });
+  it("adds no subagent parts unless subagents are enabled for a run that has tools", () => {
+    const ids = (built: unknown[]) => (built[0] as { insert: Array<{ id: string }> }).insert.map((entry) => entry.id);
+    const subagentIds = ["subagent", "subagent-spawn", "tool-subagent"];
+    const base = { gatewayUrl: "https://g.example.test/v1", systemPrompt: "persona", skillDirs: [] };
+    expect(rows.map((entry) => entry.id)).not.toEqual(expect.arrayContaining(subagentIds));
+    expect(ids(buildDshPatch({ ...base, mcp, subagents: { enabled: false, maxDepth: 3, maxConcurrent: 5 } })))
+      .not.toEqual(expect.arrayContaining(subagentIds));
+    // 道具を持たせない問い合わせ (コメントへの返事など) では、有効でも足さない。
+    expect(ids(buildDshPatch({ ...base, mcp: null, subagents: { enabled: true, maxDepth: 1, maxConcurrent: 3 } })))
+      .not.toEqual(expect.arrayContaining(subagentIds));
+  });
+  it("mounts the subagent service, backend and tool with the depth and count limits when enabled", () => {
+    const enabled = buildDshPatch({
+      gatewayUrl: "https://g.example.test/v1", mcp, systemPrompt: "persona", skillDirs: [],
+      subagents: { enabled: true, maxDepth: 2, maxConcurrent: 4 },
+    });
+    const entries = (enabled[0] as { insert: Array<{ id: string; name: string; config?: Record<string, unknown> }> }).insert;
+    const entry = (id: string) => entries.find((candidate) => candidate.id === id)!;
+    expect(entry("subagent")).toMatchObject({ name: "@deepseek-ai/dsh-subagent", config: { maxActiveSubagents: 4 } });
+    expect(entry("subagent-spawn").name).toBe("@deepseek-ai/dsh-subagent-spawn-in-process");
+    expect(entry("tool-subagent")).toMatchObject({
+      name: "@deepseek-ai/dsh-tool-subagent",
+      config: { provider: "spawn", toolName: "subagent", maxDepth: 2 },
+    });
+    // シェルとファイルの道具は、サブエージェントを足しても外したまま。
+    for (const id of ["persistent-bash", "persistent-pwsh", "tool-working-directory", "tool-fs"]) {
+      expect((entry(id) as { disabled?: boolean }).disabled).toBe(true);
+    }
+  });
   it("gives the agent the material MCP server and skills, and removes shell and file tools", () => {
     expect(row("mcp-sigma-studio").config).toMatchObject({
       serverName: "sigma-studio-local", transport: "stdio", command: "/app/electron", args: ["/app/mcp.cjs"], failOnStartupError: true,
@@ -185,6 +214,28 @@ describe("a turn", () => {
     expect(capture.env).toMatchObject({ SIGMA_AI_GATEWAY_TOKEN: TOKEN, PATH: "/usr/bin" });
     expect(capture.env).not.toHaveProperty("ELECTRON_RUN_AS_NODE");
     expect(readdirSync(path.join(root, "patches"))).toEqual([]);
+  });
+
+  it("tells the bridge the subagent tool's name and composes the subagent parts only when subagents are enabled", async () => {
+    const noop = { onText: () => {}, onReasoning: () => {}, onToolUse: () => {}, onToolResult: () => {} };
+    const done = [{ type: "result", sessionId: "s", finalResponse: "done", endReason: { kind: "completed" } }];
+    const composedIds = (capture: Parameters<typeof fakeBridge>[1]) =>
+      ((capture.patch as Array<{ insert: Array<{ id: string }> }>)[0]!.insert).map((entry) => entry.id);
+
+    const off: Parameters<typeof fakeBridge>[1] = {};
+    const first = client(done, off);
+    await first.client.runTurn({ ...params("run-off", path.join(first.root, "ws")), ...noop });
+    expect(off.request).not.toHaveProperty("subagentToolName");
+    expect(composedIds(off)).not.toContain("tool-subagent");
+
+    const on: Parameters<typeof fakeBridge>[1] = {};
+    const second = client(done, on);
+    await second.client.runTurn({
+      ...params("run-on", path.join(second.root, "ws")), ...noop,
+      subagents: { enabled: true, maxDepth: 1, maxConcurrent: 3 },
+    });
+    expect(on.request).toMatchObject({ subagentToolName: "subagent" });
+    expect(composedIds(on)).toEqual(expect.arrayContaining(["subagent", "subagent-spawn", "tool-subagent"]));
   });
 
   it("reports a provider failure and a truncated answer as errors", async () => {

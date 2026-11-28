@@ -162,6 +162,130 @@ test("the built-in AI edits through DeepSeek Harness: reads the material, propos
   }
 });
 
+// サブエージェント (AI設定で内蔵AIのスイッチをオンにしたとき)。本物の dsh がサブエージェントを動かし、
+// 子が教材の MCP ツールで提案を作り、親が完了の知らせを受けて仕上げるまでを通す。
+//   - 子は親と同じ道具 (教材ツール・skill) を持つ
+//   - 子からのさらなる起動は、設定した深さ (ここでは入れ子なし) で dsh が断る
+//   - 親が先に応答を終えても、子の作業と親の最終報告を待つ (実行を途中で畳まない)
+test("the built-in AI delegates to a subagent: the child edits through the material tools and the run waits for it", async ({}, testInfo) => {
+  test.setTimeout(300_000);
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const nestedRefusals: string[] = [];
+  const childTools: string[][] = [];
+  const gateway = await startGatewayFixture(async (request) => {
+    const prompt = promptOf(request);
+    const results = toolResults(request);
+    if (prompt.includes("CHILD_TASK")) {
+      // 子: 会話を引き継がないので、親が指示に書いた fileId と runId だけが頼り。
+      childTools.push((request.tools ?? []).map((tool) => tool.function.name));
+      const fileId = /fileId=(\S+)/u.exec(prompt)?.[1] ?? "";
+      const runId = /runId=(\S+)/u.exec(prompt)?.[1] ?? "";
+      if (results.length === 0) {
+        return { tool: "subagent", arguments: { description: "さらに分担", prompt: "GRANDCHILD_TASK" } };
+      }
+      if (results.length === 1) {
+        nestedRefusals.push(results[0]!);
+        // 親が先に応答を終えるよう、子の作業を少し遅らせる。
+        await sleep(1_500);
+        return { tool: TOOL("get_edit_context"), arguments: { fileId, runId } };
+      }
+      if (results.length === 2) {
+        const revision = Number(/"(?:revision|fileRevision)"\s*:\s*(\d+)/u.exec(results[0] ?? "")?.[1] ?? "0");
+        return {
+          tool: TOOL("insert_content"),
+          arguments: {
+            fileId, runId, expectedRevision: revision, targetId: "END_OF_DOCUMENT",
+            content: { format: "markdown", markdown: "まとめ: 三角形の内角の和は180度である。" },
+          },
+        };
+      }
+      return { text: "まとめの段落を末尾に追加する提案を作りました。" };
+    }
+    const { fileId, runId } = identifiers(request);
+    if (results.length === 0) {
+      return {
+        say: "まとめの追記をサブエージェントに任せます。",
+        tool: "subagent",
+        arguments: { description: "まとめの追記", prompt: `CHILD_TASK fileId=${fileId} runId=${runId} 教材の末尾にまとめを1文追加してください。` },
+      };
+    }
+    if (!prompt.includes("Background subagent")) {
+      return { text: "サブエージェントに任せました。完了を待ちます。" };
+    }
+    return { text: "サブエージェントが、まとめの段落を末尾に追加しました。" };
+  });
+  const profile = mkdtempSync(path.join(os.tmpdir(), "sigma-ai-subagent-"));
+  const env = launchEnv(profile, gateway);
+  // 内蔵AIのサブエージェントは、はじめはオフ。設定でオンにした状態から始める。
+  writeFileSync(path.join(profile, "data", "settings.json"), JSON.stringify({ uiLocale: "ja", aiSubagents: { providers: { sigma: true } } }));
+  const source = ensurePageLayout({
+    ...sampleDocument,
+    docId: "sigma_ai_subagent",
+    metadata: { title: "内蔵AIのサブエージェント" },
+    content: [
+      { type: "paragraph", id: "p_intro", children: [{ type: "text", text: "三角形の内角を調べる。" }] },
+    ],
+  });
+  const sourceFile = path.join(profile, "内蔵AIのサブエージェント.sigma");
+  writeFileSync(sourceFile, JSON.stringify(source));
+
+  const app = await electron.launch({ args: [APP_ROOT, sourceFile], cwd: APP_ROOT, env });
+  try {
+    const page = await app.firstWindow();
+    await page.waitForURL(/^(https?|file):/u, { timeout: 120_000 });
+    await page.waitForFunction(() => Boolean(window.desktopAPI));
+    await page.evaluate(() => {
+      localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true, ribbonCollapsed: false }));
+    });
+    await page.reload();
+    await expect(page.getByText("三角形の内角を調べる。").first()).toBeVisible({ timeout: 180_000 });
+    await expect(page.locator(".startup-splash")).toBeHidden();
+
+    const sidebar = await openSideChat(page);
+    const composer = sidebar.locator(".ai-chat-composer textarea");
+    await expect(composer).toBeVisible();
+    await composer.fill("末尾にまとめを追加して。");
+    await sidebar.locator(".ai-chat-send-button").click();
+
+    // 親の最終報告は、子が終わった知らせを受けた後のターンで出る。ここまで実行が続いている。
+    await expect(sidebar).toContainText("サブエージェントが、まとめの段落を末尾に追加しました。", { timeout: 180_000 });
+    await keep(testInfo, "chat-subagent", await sidebar.screenshot());
+
+    const fileId = (await page.evaluate(() => window.desktopAPI!.storage.listFiles())).find((file) => file.title === "内蔵AIのサブエージェント")!.fileId;
+    const proposals = (await page.evaluate(() => window.desktopAPI!.storage.listMcpEditProposals({ status: "pending" })))
+      .filter((proposal) => proposal.fileId === fileId);
+    // 子が作った編集も、親と同じ実行の承認待ちの提案になる (教材にはまだ入らない)。
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]!.provider).toBe("sigma");
+    expect(JSON.stringify((await page.evaluate((id) => window.desktopAPI!.storage.loadDocument(id), fileId))!.content)).not.toContain("まとめ:");
+
+    await sidebar.getByRole("button", { name: "適用", exact: true }).first().click();
+    await expect.poll(async () => page.evaluate(() => window.desktopAPI!.storage.listMcpEditProposals({ status: "pending" }))).toEqual([]);
+    const saved = await page.evaluate((id) => window.desktopAPI!.storage.loadDocument(id), fileId);
+    expect(JSON.stringify(saved!.content)).toContain("まとめ: 三角形の内角の和は180度である。");
+
+    // 親: 方針の節と subagent ツールを受け取っている。
+    const first = gateway.requests[0]!;
+    expect(promptOf(first)).toContain("サブエージェントの方針:");
+    expect(promptOf(first)).toContain("サブエージェント（subagentツール）を使えます");
+    expect((first.tools ?? []).map((tool) => tool.function.name)).toContain("subagent");
+    // 子: 親と同じ道具を持つ。シェルやファイルの道具は増えていない。
+    expect(childTools[0]).toEqual(expect.arrayContaining([TOOL("get_edit_context"), TOOL("insert_content"), "skill", "subagent"]));
+    expect(childTools[0]!.filter((name) => !name.startsWith("mcp__sigma-studio-local__")
+      && !["skill", "subagent", "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"].includes(name))).toEqual([]);
+    // 入れ子なしの設定: 子からの起動は dsh が断る。
+    expect(nestedRefusals).toHaveLength(1);
+    expect(nestedRefusals[0]).toMatch(/exceeds maxDepth 1/u);
+    // 親は完了の知らせを受けて、もう 1 ターン動いている。
+    expect(gateway.requests.some((request) => promptOf(request).includes("Background subagent"))).toBe(true);
+    expect(gateway.rejected).toBe(0);
+  } finally {
+    await app.close().catch(() => undefined);
+    await gateway.close();
+    rmSync(profile, { recursive: true, force: true });
+  }
+});
+
 // 人と内蔵AIが同じ段落を同時に直しても、どちらの編集も落とさない (MISS R2・#249)。
 // 内蔵AIも他のAIと同じ MCP サーバーと提案の経路を通るので、(1) AIが読んだ後・書く前の人の編集は
 // 読んだ内容を基準に合成され、(2) 提案の後・承認の前の人の編集は承認時に三者マージされる。

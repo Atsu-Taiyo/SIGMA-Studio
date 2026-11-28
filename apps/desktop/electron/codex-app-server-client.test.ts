@@ -16,6 +16,7 @@ interface ClientFixture {
 }
 
 interface FakeCapture {
+  interruptedThreadIds?: string[];
   processCwd: string;
   threadCwd?: string;
   resumeCwd?: string;
@@ -595,6 +596,218 @@ describe("CodexAppServerClient", () => {
     expect(readFileSync(path.join(codexHome, "config.toml"), "utf8")).toBe('web_search = "live"\n');
   });
 
+  it("refuses subagent activity when subagents are off (the default)", async () => {
+    const { client } = createClient();
+    const thread = await client.startThread("gpt-test");
+    const refusals: string[] = [];
+
+    const result = await client.runTurn({
+      threadId: thread.threadId,
+      model: "gpt-test",
+      input: [{ type: "text", text: "SUBAGENT", text_elements: [] }],
+      onRefusal: (itemType) => refusals.push(itemType),
+    });
+    client.dispose();
+
+    // 起動の知らせ (subAgentActivity) も、呼び名は「サブエージェントの呼び出し」に揃える。
+    expect(result.refusedItemTypes).toEqual(["collabAgentToolCall"]);
+    expect(refusals).toEqual(["collabAgentToolCall"]);
+  });
+
+  it("lets a subagent run when subagents are on, forwarding its tool calls but not its text", async () => {
+    const { client, dir } = createClient({ subagentPolicy: { enabled: true, maxDepth: 1, maxConcurrent: 3 } });
+    const thread = await client.startThread("gpt-test");
+    const forwarded: string[] = [];
+    const deltas: string[] = [];
+
+    const result = await client.runTurn({
+      threadId: thread.threadId,
+      model: "gpt-test",
+      input: [{ type: "text", text: "SUBAGENT", text_elements: [] }],
+      onDelta: (delta) => deltas.push(delta),
+      onNotification: (notification) => {
+        const item = notification.params?.item as { type?: string; tool?: string; kind?: string } | undefined;
+        if (item?.type === "mcpToolCall" || item?.type === "subAgentActivity") {
+          forwarded.push(`${notification.method}:${item.type}:${item.tool ?? item.kind}`);
+        }
+      },
+    });
+    const capture = readFakeCapture(dir);
+    client.dispose();
+
+    expect(result.refusedItemTypes).toBeUndefined();
+    // 子スレッドの本文も、子の turn/completed も、親の応答と完了に混ざらない。
+    expect(result.finalText).toBe("SUBAGENT_FINAL");
+    expect(deltas).toEqual([]);
+    expect(forwarded).toEqual([
+      "item/started:subAgentActivity:started",
+      "item/completed:subAgentActivity:started",
+      "item/started:mcpToolCall:insert_content",
+      "item/started:subAgentActivity:completed",
+    ]);
+    expect(capture.interruptedThreadIds ?? []).toEqual([]);
+  });
+
+  it("stops a subagent that is nested deeper than the configured depth, without failing the run", async () => {
+    const { client, dir } = createClient({ subagentPolicy: { enabled: true, maxDepth: 1, maxConcurrent: 3 } });
+    const thread = await client.startThread("gpt-test");
+
+    const result = await client.runTurn({
+      threadId: thread.threadId,
+      model: "gpt-test",
+      input: [{ type: "text", text: "SUBAGENT_NESTED", text_elements: [] }],
+    });
+    const capture = readFakeCapture(dir);
+    client.dispose();
+
+    expect(capture.interruptedThreadIds).toEqual(["thread_child_2"]);
+    expect(result.finalText).toBe("SUBAGENT_FINAL");
+    expect(result.refusedItemTypes).toBeUndefined();
+  });
+
+  it("allows nesting up to the configured depth and still follows the nested subagent's tool calls", async () => {
+    const { client, dir } = createClient({ subagentPolicy: { enabled: true, maxDepth: 2, maxConcurrent: 3 } });
+    const thread = await client.startThread("gpt-test");
+    const tools: string[] = [];
+
+    const result = await client.runTurn({
+      threadId: thread.threadId,
+      model: "gpt-test",
+      input: [{ type: "text", text: "SUBAGENT_NESTED_ALLOWED", text_elements: [] }],
+      onNotification: (notification) => {
+        const item = notification.params?.item as { type?: string; tool?: string } | undefined;
+        if (notification.method === "item/started" && item?.type === "mcpToolCall" && item.tool) {
+          tools.push(item.tool);
+        }
+      },
+    });
+    const capture = readFakeCapture(dir);
+    client.dispose();
+
+    expect(capture.interruptedThreadIds ?? []).toEqual([]);
+    expect(tools).toEqual(["insert_content", "edit_text"]);
+    expect(result.finalText).toBe("SUBAGENT_FINAL");
+  });
+
+  it("stops only the subagent's thread when it attempts a forbidden operation", async () => {
+    const { client, dir } = createClient({ subagentPolicy: { enabled: true, maxDepth: 1, maxConcurrent: 3 } });
+    const thread = await client.startThread("gpt-test");
+    const refusals: Array<[string, string | undefined]> = [];
+
+    const result = await client.runTurn({
+      threadId: thread.threadId,
+      model: "gpt-test",
+      input: [{ type: "text", text: "SUBAGENT_CHILD_FORBIDDEN", text_elements: [] }],
+      onRefusal: (itemType, itemId) => refusals.push([itemType, itemId]),
+    });
+    const capture = readFakeCapture(dir);
+    client.dispose();
+
+    expect(capture.interruptedThreadIds).toEqual(["thread_child_1"]);
+    expect(refusals).toEqual([["fileChange", "file_child_1"]]);
+    // 親の turn は止めない (続行プロンプトも要らない)。
+    expect(result.refusedItemTypes).toBeUndefined();
+    expect(result.finalText).toBe("SUBAGENT_FINAL");
+  });
+
+  it("setSubagentPolicy rebuilds config.toml with the new policy and rewrites it on the next spawn", async () => {
+    const policies: Array<{ enabled: boolean; maxDepth: number; maxConcurrent: number } | null> = [];
+    const { client, codexHome } = createClient({
+      buildConfigToml: (_webSearchEnabled, _uiLocale, subagents) => {
+        policies.push(subagents);
+        return `agents_enabled = ${subagents?.enabled}\nmax_depth = ${subagents?.maxDepth}\n`;
+      },
+    });
+
+    await client.startThread("gpt-test");
+    expect(readFileSync(path.join(codexHome, "config.toml"), "utf8")).toBe(TEST_CONFIG_TOML);
+
+    client.setSubagentPolicy({ enabled: true, maxDepth: 2, maxConcurrent: 4 });
+    // 同じ値をもう一度渡しても作り直さない (ai-edit:run は実行のたびに呼ぶ)。
+    client.setSubagentPolicy({ enabled: true, maxDepth: 2, maxConcurrent: 4 });
+    await client.startThread("gpt-test");
+    client.dispose();
+
+    expect(policies).toEqual([{ enabled: true, maxDepth: 2, maxConcurrent: 4 }]);
+    expect(readFileSync(path.join(codexHome, "config.toml"), "utf8")).toBe("agents_enabled = true\nmax_depth = 2\n");
+  });
+
+  it("applies a policy changed during a turn once no turn is running", async () => {
+    const { client, codexHome, dir } = createClient({
+      buildConfigToml: (_webSearchEnabled, _uiLocale, subagents) => `agents_enabled = ${subagents?.enabled}\n`,
+    });
+    const thread = await client.startThread("gpt-test");
+    const turn = client.runTurn({
+      threadId: thread.threadId,
+      model: "gpt-test",
+      runId: "run_policy",
+      input: [{ type: "text", text: "HANG", text_elements: [] }],
+    });
+    // turn/start が届き、その応答でクライアントが実行中として覚えるまで待つ。
+    await vi.waitFor(() => expect(readFakeCapture(dir).turnCwd).toBeDefined());
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // 実行中は app-server を止めない (巻き添えで turn を落とさない)。
+    client.setSubagentPolicy({ enabled: true, maxDepth: 1, maxConcurrent: 3 });
+    expect(readFileSync(path.join(codexHome, "config.toml"), "utf8")).toBe(TEST_CONFIG_TOML);
+    expect(client.cancelByRunId("run_policy")).toBe(true);
+    await expect(turn).resolves.toMatchObject({ cancelled: true });
+
+    // 次の実行の前に同じ値で呼ばれたとき、先送りになっていた再起動を済ませる。
+    client.setSubagentPolicy({ enabled: true, maxDepth: 1, maxConcurrent: 3 });
+    await client.startThread("gpt-test");
+    client.dispose();
+
+    expect(readFileSync(path.join(codexHome, "config.toml"), "utf8")).toBe("agents_enabled = true\n");
+  });
+
+  it("drops the [agents] table and retries when the CLI rejects it, then keeps it out of later configs", async () => {
+    const agentsToml = (subagents: { enabled: boolean } | null) =>
+      subagents ? `[agents]\nenabled = ${subagents.enabled}\n` : "# no agents table\n";
+    const { client, codexHome } = createClient({
+      configToml: agentsToml({ enabled: true }),
+      subagentPolicy: { enabled: true, maxDepth: 1, maxConcurrent: 3 },
+      buildConfigToml: (_webSearchEnabled, _uiLocale, subagents) => agentsToml(subagents),
+    }, FAKE_CODEX_BIN.replace("const rl = readline", "const OLD_CLI_REJECTS_AGENTS_TABLE = true;\nconst rl = readline"));
+
+    // 古いCLIでも、AIが使えなくならない: テーブルを外して同じ要求をやり直す。
+    const thread = await client.startThread("gpt-test");
+    expect(thread.threadId).toBe("thread_1");
+    expect(readFileSync(path.join(codexHome, "config.toml"), "utf8")).toBe("# no agents table\n");
+
+    // 以後の設定変更でも、このCLIにはテーブルを書かない。
+    client.setSubagentPolicy({ enabled: false, maxDepth: 1, maxConcurrent: 3 });
+    await client.resumeThread(thread.threadId);
+    expect(readFileSync(path.join(codexHome, "config.toml"), "utf8")).toBe("# no agents table\n");
+
+    // オフはアプリ側の拒否が受け持つ。
+    const result = await client.runTurn({
+      threadId: thread.threadId,
+      model: "gpt-test",
+      input: [{ type: "text", text: "SUBAGENT", text_elements: [] }],
+    });
+    client.dispose();
+    expect(result.refusedItemTypes).toEqual(["collabAgentToolCall"]);
+    // app-server を3回起動する (最初・やり直し・設定変更後) ので、既定の5秒より長く待つ。
+  }, 30_000);
+
+  it("reports a config that fails to load for another reason instead of retrying forever", async () => {
+    const builds: Array<unknown> = [];
+    const { client } = createClient({
+      buildConfigToml: (_webSearchEnabled, _uiLocale, subagents) => {
+        builds.push(subagents);
+        return TEST_CONFIG_TOML;
+      },
+    }, FAKE_CODEX_BIN.replace("const rl = readline", "const BROKEN_CONFIG = true;\nconst rl = readline"));
+
+    await expect(client.startThread("gpt-test")).rejects.toThrow(/failed to load configuration/);
+    await expect(client.startThread("gpt-test")).rejects.toThrow(/failed to load configuration/);
+    client.dispose();
+
+    // やり直しは最初の1回だけ ([agents] を外して作り直す)。
+    expect(builds).toEqual([null]);
+  }, 30_000);
+
   it("cancels an active turn by runId and resolves with a cancelled result instead of rejecting", async () => {
     const { client } = createClient();
     const thread = await client.startThread("gpt-test");
@@ -807,6 +1020,9 @@ let abortOnInterrupt = null;
 // ユーザーがキャンセルする窓を再現する。
 let slowInterrupt = false;
 const pendingServerRequests = new Map();
+// SUBAGENT_*: サブエージェントのスレッドへの turn/interrupt を待ってから親の turn を終える。
+const interruptWaiters = new Map();
+const interruptedThreadIds = [];
 
 function sendServerRequest(id, method, params, onResponse) {
   pendingServerRequests.set(id, onResponse);
@@ -913,6 +1129,20 @@ rl.on("line", (line) => {
       },
     });
     return;
+  }
+
+  if (message.method === "thread/start" || message.method === "thread/resume") {
+    // OLD_CLI: サブエージェントの設定キーを知らないCLI。[agents] の未知のキーを役割の定義として
+    // 読もうとして、設定の読み込みごと失敗する (codex-cli 0.171.0 に未知のキーを渡して確認した文面)。
+    const configPath = path.join(process.env.CODEX_HOME, "config.toml");
+    if (typeof OLD_CLI_REJECTS_AGENTS_TABLE !== "undefined" && fs.readFileSync(configPath, "utf8").includes("[agents]")) {
+      send({ id: message.id, error: { code: -32600, message: "failed to load configuration: " + configPath + ":12:1: invalid type: boolean \`true\`, expected struct AgentRoleToml" } });
+      return;
+    }
+    if (typeof BROKEN_CONFIG !== "undefined") {
+      send({ id: message.id, error: { code: -32600, message: "failed to load configuration: " + configPath + ":1:1: invalid TOML" } });
+      return;
+    }
   }
 
   if (message.method === "thread/start") {
@@ -1088,6 +1318,43 @@ rl.on("line", (line) => {
         send({ method: "turn/completed", params: { threadId: message.params.threadId, turn: { id: turnId, status: "completed" } } });
         return;
       }
+      if (text.includes("SUBAGENT")) {
+        // codex-cli 0.171.0 の app-server: 起動は親スレッドの subAgentActivity item、
+        // サブエージェントの中の出来事は子スレッドの threadId / turnId で届く。
+        const threadId = message.params.threadId;
+        const childTurn = { threadId: "thread_child_1", turnId: "turn_child_1" };
+        const finish = () => {
+          send({ method: "item/started", params: { threadId, turnId, item: { id: "done_1", type: "subAgentActivity", agentPath: "/root/alpha", agentThreadId: "thread_child_1", kind: "completed" } } });
+          send({ method: "item/completed", params: { threadId, turnId, item: { type: "agentMessage", text: "SUBAGENT_FINAL" } } });
+          send({ method: "turn/completed", params: { threadId, turn: { id: turnId, status: "completed" } } });
+        };
+        send({ method: "item/started", params: { threadId, turnId, item: { id: "call_1", type: "subAgentActivity", agentPath: "/root/alpha", agentThreadId: "thread_child_1", kind: "started" } } });
+        send({ method: "item/completed", params: { threadId, turnId, item: { id: "call_1", type: "subAgentActivity", agentPath: "/root/alpha", agentThreadId: "thread_child_1", kind: "started" } } });
+        send({ method: "turn/started", params: { ...childTurn, turn: { id: childTurn.turnId } } });
+        send({ method: "item/agentMessage/delta", params: { ...childTurn, delta: "CHILD_DELTA" } });
+        send({ method: "item/started", params: { ...childTurn, item: { id: "mcp_child_1", type: "mcpToolCall", server: "sigma-studio-local", tool: "insert_content" } } });
+        send({ method: "item/completed", params: { ...childTurn, item: { type: "agentMessage", text: "CHILD_TEXT" } } });
+        if (text.includes("SUBAGENT_CHILD_FORBIDDEN")) {
+          interruptWaiters.set("thread_child_1", finish);
+          send({ method: "item/started", params: { ...childTurn, item: { id: "file_child_1", type: "fileChange" } } });
+          return;
+        }
+        if (text.includes("SUBAGENT_NESTED")) {
+          interruptWaiters.set("thread_child_2", finish);
+          send({ method: "item/started", params: { ...childTurn, item: { id: "call_2", type: "subAgentActivity", agentPath: "/root/alpha/beta", agentThreadId: "thread_child_2", kind: "started" } } });
+          if (text.includes("SUBAGENT_NESTED_ALLOWED")) {
+            // 深さの上限の中なら止められない。孫のツール呼び出しも親へ届くことを確かめて終える。
+            interruptWaiters.delete("thread_child_2");
+            send({ method: "item/started", params: { threadId: "thread_child_2", turnId: "turn_child_2", item: { id: "mcp_child_2", type: "mcpToolCall", server: "sigma-studio-local", tool: "edit_text" } } });
+            send({ method: "turn/completed", params: { threadId: "thread_child_2", turn: { id: "turn_child_2", status: "completed" } } });
+            finish();
+          }
+          return;
+        }
+        send({ method: "turn/completed", params: { threadId: "thread_child_1", turn: { id: "turn_child_1", status: "completed" } } });
+        finish();
+        return;
+      }
       if (text.includes("FORBIDDEN_MULTI")) {
         send({ method: "item/started", params: { turnId, item: { id: "item_file_1", type: "fileChange" } } });
         send({ method: "item/started", params: { turnId, item: { id: "item_agent_1", type: "collabAgentToolCall" } } });
@@ -1136,6 +1403,16 @@ rl.on("line", (line) => {
   }
 
   if (message.method === "turn/interrupt") {
+    const interruptedThreadId = message.params && message.params.threadId;
+    interruptedThreadIds.push(interruptedThreadId);
+    writeCapture({ interruptedThreadIds });
+    const waiter = interruptWaiters.get(interruptedThreadId);
+    if (waiter) {
+      interruptWaiters.delete(interruptedThreadId);
+      send({ id: message.id, result: {} });
+      waiter();
+      return;
+    }
     if (slowInterrupt) {
       slowInterrupt = false;
       setTimeout(() => send({ id: message.id, result: {} }), 200);

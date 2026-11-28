@@ -7,6 +7,7 @@ import { prompt as jaPrompt } from "@/lib/i18n/dictionaries/ja/prompt";
 import type { AiResourceRunContext } from "../../../electron/ai-resource-store";
 import { ANTIGRAVITY_WORKSPACE_SERVER_NAME, SIGMA_DOC_MCP_SERVER_NAME } from "../../../electron/sigma-studio-mcp-launch";
 import { formatAiImageAnnotationsForPrompt, type AiImageAnnotation } from "./ai-image-annotations";
+import type { AiSubagentPolicy } from "./subagent-settings";
 
 /** この層のプロンプト文言は全て `prompt` namespace が持つ。 */
 type PromptTranslate = Translate<"prompt">;
@@ -84,6 +85,46 @@ export function buildMcpGraphToolGuidePrompt(t: PromptTranslate): string {
 // 条件付きで送る。出典の提示は MCP_LIBRARY_REFERENCE_PROMPT と同じ sourceReferences 機構。
 export function buildMcpWebSearchPrompt(t: PromptTranslate): string {
   return section(t, "webSearch");
+}
+
+/**
+ * サブエージェントの方針。Web検索と同じく実行時に変わる設定なので、毎turn条件付きで送る。
+ *
+ * - 有効: 使ってよいこと・同時に動かす数・入れ子の段数・引き継ぎの書き方を伝える。
+ *   Claude と Codex の上限はCLIも強制する (electron/claude-stream-client.ts・codex-mcp-config.ts)。
+ *   Antigravity はCLIに設定が無いので、この節だけが上限を伝える。
+ * - 無効: Claude・Codex・内蔵AIは実行環境が道具ごと外すので何も送らない。Antigravity だけ、
+ *   呼ばないよう伝える (道具は残るため)。
+ * - 内蔵AI (dsh) の `subagent` ツールは起動してすぐ返り、終わると完了の知らせが届く。待つための
+ *   道具は無いので、知らせを待ってから仕上げるよう一文を足す。
+ */
+export function buildMcpSubagentPrompt(
+  provider: McpEditPromptProvider,
+  policy: AiSubagentPolicy | undefined,
+  t: PromptTranslate,
+): string {
+  if (!policy) {
+    return "";
+  }
+  if (!policy.enabled) {
+    return provider === "antigravity"
+      ? t("mcp.subagentsDisabled", { replace: { tool: t("mcp.subagentToolsAntigravityAll") } })
+      : "";
+  }
+  const tool = provider === "claude"
+    ? t("mcp.subagentToolClaude")
+    : provider === "codex"
+      ? t("mcp.subagentToolCodex")
+      : provider === "sigma"
+        ? t("mcp.subagentToolSigma")
+        : t("mcp.subagentToolAntigravity");
+  const depthRule = policy.maxDepth <= 1
+    ? t("mcp.subagentsNoNesting")
+    : t("mcp.subagentsNested", { replace: { maxDepth: policy.maxDepth } });
+  const body = t("mcp.subagentsEnabled", {
+    replace: { tool, maxConcurrent: policy.maxConcurrent, depthRule },
+  });
+  return provider === "sigma" ? `${body}\n${t("mcp.subagentsSigmaWait")}` : body;
 }
 
 // AIが自分のskill/設定を書き換えられることをエージェントへ知らせる恒常ガイダンス。
@@ -311,6 +352,11 @@ export interface BuildMcpEditTurnPromptArgs {
    * 変わりうるため、静的ガイダンスではなく意図的に per-turn で送る (resumed turn 含む)。
    */
   webSearchEnabled?: boolean;
+  /**
+   * このAIの、この実行でのサブエージェントの扱い (設定は run ごとに読み直す)。
+   * 未指定なら節を出さない。詳しくは buildMcpSubagentPrompt。
+   */
+  subagents?: AiSubagentPolicy;
 }
 
 // 複数参照 (最大8件) の連結分の余裕を持たせる。
@@ -386,7 +432,11 @@ function formatAttachmentsHint(
   ].filter((line) => line.length > 0).join("\n");
 }
 
-function turnPromptTailLines(args: BuildMcpEditTurnPromptArgs, t: PromptTranslate): string[] {
+function turnPromptTailLines(
+  provider: McpEditPromptProvider,
+  args: BuildMcpEditTurnPromptArgs,
+  t: PromptTranslate,
+): string[] {
   return [
     formatAttachmentsHint(args.attachments, t),
     formatMentionedDocumentsHint(args.mentionedDocuments, t),
@@ -395,6 +445,7 @@ function turnPromptTailLines(args: BuildMcpEditTurnPromptArgs, t: PromptTranslat
     formatReferenceSection(args.referenceText, t),
     mentionsGraphContext(args.instruction, args.referenceText) ? section(t, "editGraphExamples") : "",
     args.webSearchEnabled ? section(t, "webSearch") : "",
+    buildMcpSubagentPrompt(provider, args.subagents, t),
     "",
     t("turn.userInstruction"),
     args.instruction,
@@ -407,7 +458,7 @@ export function buildMcpEditTurnPrompt(
   locale: AppLocale = DEFAULT_LOCALE,
 ): string {
   const t = createTranslator(locale, "prompt");
-  return withPolicy(t, [...turnPromptHeadLines(provider, args, t), ...turnPromptTailLines(args, t)]
+  return withPolicy(t, [...turnPromptHeadLines(provider, args, t), ...turnPromptTailLines(provider, args, t)]
     .filter((line) => line.length > 0)
     .join("\n"));
 }
@@ -457,6 +508,6 @@ export function buildMcpEditPrompt(args: BuildMcpEditPromptArgs): string {
     "",
     // 合成する側なのでポリシー無しの節を使う (先頭で 1 度だけ付ける)。
     buildMcpEditInvariantGuidanceSection(t),
-    ...turnPromptTailLines(turnArgs, t),
+    ...turnPromptTailLines(provider, turnArgs, t),
   ].filter((line) => line.length > 0).join("\n"));
 }

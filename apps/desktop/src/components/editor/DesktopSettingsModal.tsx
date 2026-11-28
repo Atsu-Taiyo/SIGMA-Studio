@@ -16,6 +16,7 @@ import { SUPPORTED_LOCALES, type AppLocale } from "@/lib/i18n";
 import type { Translate } from "@/lib/i18n";
 import { setAppLocale, useAppLocale, useT } from "@/lib/i18n/react";
 
+import { AiSubagentSettings } from "./AiSubagentSettings";
 import { useSettingsEntryFocus } from "./settings-entry-focus";
 import { useEditorHost } from "./editor-shell/editor-host";
 import type { DesktopAppInfo, DesktopClaudeStatus, DesktopCodexStatus, DesktopGeminiStatus, DesktopUpdateState } from "@/types/desktop";
@@ -1023,6 +1024,7 @@ function DesktopSettingsBody({
               />
             )}
           />
+          <AiSubagentSettings id="desktop-settings-subagents" />
         </SettingsSection>
         )}
 

@@ -33,6 +33,7 @@ import {
 import { LocalAiResourceStore } from "./ai-resource-store";
 import { AppUpdateController } from "./app-updater";
 import { CodexAppServerClient } from "./codex-app-server-client";
+import { resolveAiSubagentPolicy } from "@/lib/ai/subagent-settings";
 import { buildCodexAgentConfigToml, type CodexAgentConfigInput } from "./codex-mcp-config";
 import { ClaudeStreamClient } from "./claude-stream-client";
 import { buildClaudeMcpConfig } from "./claude-mcp-config";
@@ -45,6 +46,7 @@ import {
 import {
   desktopSettingsPath,
   isAiWebSearchEnabled,
+  resolveAiSubagentSettings,
   readDesktopSettingsSync,
   readNewDocumentPageSetup,
   resolveDesktopPromptLocale,
@@ -308,7 +310,7 @@ const localAiRenderBridgeStore = new LocalAiRenderBridgeStore(USER_DATA_PATH);
 const startupPromptLocale = resolveDesktopPromptLocale(SIGMA_STUDIO_DATA_PATH, app.getLocale());
 setAppLocale(startupPromptLocale);
 
-const codexAgentConfigBase: Omit<CodexAgentConfigInput, "webSearchEnabled" | "uiLocale"> = {
+const codexAgentConfigBase: Omit<CodexAgentConfigInput, "webSearchEnabled" | "uiLocale" | "subagents"> = {
   execPath: process.execPath,
   scriptPath: resolveMcpServerScriptPath(),
   userDataDir: USER_DATA_PATH,
@@ -316,14 +318,22 @@ const codexAgentConfigBase: Omit<CodexAgentConfigInput, "webSearchEnabled" | "ui
   renderBridgeFile: localAiRenderBridgeStore.getBridgeFilePath(),
   provider: "chatgpt",
 };
+const startupCodexSubagentPolicy = resolveAiSubagentPolicy(resolveAiSubagentSettings(desktopSettings), "chatgpt");
 const codexAppServerClient = new CodexAppServerClient({
   codexHome: path.join(SIGMA_STUDIO_DATA_PATH, "codex-agent-home"),
   codexWorkspace: path.join(SIGMA_STUDIO_DATA_PATH, "codex-agent-workspace"),
   codexBin: process.env.SIGMA_STUDIO_CODEX_BIN?.trim() || usablePersistedBin(desktopSettings.codexBin),
-  configToml: buildCodexAgentConfigToml({ ...codexAgentConfigBase, uiLocale: startupPromptLocale, webSearchEnabled: isAiWebSearchEnabled(desktopSettings) }),
+  configToml: buildCodexAgentConfigToml({
+    ...codexAgentConfigBase,
+    uiLocale: startupPromptLocale,
+    webSearchEnabled: isAiWebSearchEnabled(desktopSettings),
+    subagents: startupCodexSubagentPolicy,
+  }),
   webSearchEnabled: isAiWebSearchEnabled(desktopSettings),
   uiLocale: startupPromptLocale,
-  buildConfigToml: (webSearchEnabled, uiLocale) => buildCodexAgentConfigToml({ ...codexAgentConfigBase, uiLocale, webSearchEnabled }),
+  subagentPolicy: startupCodexSubagentPolicy,
+  buildConfigToml: (webSearchEnabled, uiLocale, subagents) =>
+    buildCodexAgentConfigToml({ ...codexAgentConfigBase, uiLocale, webSearchEnabled, subagents }),
 });
 const claudeStreamClient = new ClaudeStreamClient({
   claudeConfigDir: path.join(SIGMA_STUDIO_DATA_PATH, "claude-agent-home"),
@@ -1593,6 +1603,7 @@ function startAiSettingsWatch(): void {
     lastHash = hash;
     const settings = readDesktopSettingsSync(SIGMA_STUDIO_DATA_PATH);
     codexAppServerClient.setWebSearchEnabled(isAiWebSearchEnabled(settings));
+    codexAppServerClient.setSubagentPolicy(resolveAiSubagentPolicy(resolveAiSubagentSettings(settings), "chatgpt"));
     scheduleAutoApplyCheck();
     // The shortcuts live in this file too: send a change on to the account's other devices. The language stays on this one.
     localAuthoringStyleStore.sync.soon();
