@@ -19,6 +19,7 @@ import {
   buildMcpMaterialReusePrompt,
   buildMcpOfficialSkillGuide,
   buildMcpShapeToolGuidePrompt,
+  buildMcpSubagentPrompt,
   buildMcpTableToolGuidePrompt,
   buildMcpWebSearchPrompt,
 } from "./mcp-edit-prompt";
@@ -729,6 +730,87 @@ describe("buildMcpWebSearchPrompt(tJa) gating", () => {
 
     const resumed = buildMcpEditPrompt({ locale: "ja", provider: "claude", instruction: "指示", fileId: "file_1", webSearchEnabled: true, isResumedTurn: true });
     expect(resumed).toContain(buildMcpWebSearchPrompt(tJa));
+  });
+});
+
+describe("buildMcpSubagentPrompt gating", () => {
+  const on = { enabled: true, maxDepth: 1, maxConcurrent: 3 };
+  const off = { enabled: false, maxDepth: 1, maxConcurrent: 3 };
+
+  it("tells each AI that subagents are available, with its own tool name and the limits", () => {
+    const claude = buildMcpEditTurnPrompt("claude", { instruction: "指示", fileId: "file_1", subagents: on });
+    expect(claude).toContain("サブエージェントの方針:");
+    expect(claude).toContain("サブエージェント（Agentツール）を使えます");
+    expect(claude).toContain("同時に動かすサブエージェントは3つまでです。");
+    expect(claude).toContain("サブエージェントからさらにサブエージェントを起動させません");
+
+    expect(buildMcpEditTurnPrompt("codex", { instruction: "指示", fileId: "file_1", subagents: on }))
+      .toContain("サブエージェント（spawn_agentなどの協調ツール）を使えます");
+    expect(buildMcpEditTurnPrompt("antigravity", { instruction: "指示", fileId: "file_1", subagents: on }))
+      .toContain("サブエージェント（invoke_subagent）を使えます");
+  });
+
+  it("states the nesting limit when nesting is allowed", () => {
+    const prompt = buildMcpSubagentPrompt("claude", { enabled: true, maxDepth: 3, maxConcurrent: 5 }, tJa);
+    expect(prompt).toContain("入れ子は3段までです");
+    expect(prompt).toContain("同時に動かすサブエージェントは5つまでです。");
+    expect(prompt).not.toContain("さらにサブエージェントを起動させません");
+  });
+
+  it("tells the subagent's instructions to carry the ids a fresh context needs", () => {
+    const prompt = buildMcpSubagentPrompt("antigravity", on, tJa);
+    expect(prompt).toContain("fileIdとrunId");
+    expect(prompt).toContain("同じブロック・同じ図形を複数のサブエージェントに同時に編集させません");
+    expect(prompt).toContain("結果をすべて待ち");
+  });
+
+  it("tells the built-in AI how its subagent tool reports back (it returns at once, then a notice arrives)", () => {
+    const prompt = buildMcpEditTurnPrompt("sigma", { instruction: "指示", fileId: "file_1", subagents: on });
+    expect(prompt).toContain("サブエージェント（subagentツール）を使えます");
+    expect(prompt).toContain("完了の知らせが届きます");
+    expect(prompt).toContain("知らせが届いてから結果を確かめて最終報告を書いてください");
+    // ほかのAIには、内蔵AIだけの待ち方を伝えない。
+    expect(buildMcpSubagentPrompt("claude", on, tJa)).not.toContain("完了の知らせ");
+  });
+
+  it("says nothing when subagents are off for the AIs whose runtime removes the tool", () => {
+    expect(buildMcpSubagentPrompt("claude", off, tJa)).toBe("");
+    expect(buildMcpSubagentPrompt("codex", off, tJa)).toBe("");
+    expect(buildMcpSubagentPrompt("sigma", off, tJa)).toBe("");
+    for (const provider of ["claude", "codex", "sigma"] as const) {
+      expect(buildMcpEditTurnPrompt(provider, { instruction: "指示", fileId: "file_1", subagents: off }))
+        .not.toContain("サブエージェントの方針:");
+    }
+  });
+
+  it("tells Antigravity not to call its subagent tools when subagents are off (the CLI cannot remove them)", () => {
+    const prompt = buildMcpEditTurnPrompt("antigravity", { instruction: "指示", fileId: "file_1", subagents: off });
+    expect(prompt).toContain("サブエージェントの方針:");
+    expect(prompt).toContain("サブエージェントは無効です");
+    expect(prompt).toContain("invoke_subagent / define_subagent");
+    expect(prompt).not.toContain("を使えます");
+  });
+
+  it("is omitted when no policy is passed", () => {
+    for (const provider of ["claude", "codex", "antigravity", "sigma"] as const) {
+      expect(buildMcpEditTurnPrompt(provider, { instruction: "指示", fileId: "file_1" })).not.toContain("サブエージェントの方針:");
+    }
+  });
+
+  it("carries through buildMcpEditPrompt on the first and on resumed turns (the setting can change between turns)", () => {
+    const first = buildMcpEditPrompt({ locale: "ja", provider: "claude", instruction: "指示", fileId: "file_1", subagents: on });
+    const resumed = buildMcpEditPrompt({ locale: "ja", provider: "claude", instruction: "指示", fileId: "file_1", subagents: on, isResumedTurn: true });
+    for (const prompt of [first, resumed]) {
+      expect(prompt.split("サブエージェントの方針:")).toHaveLength(2);
+    }
+  });
+
+  it("is written in the UI language", () => {
+    const prompt = buildMcpSubagentPrompt("claude", { enabled: true, maxDepth: 2, maxConcurrent: 4 }, tEn);
+    expect(prompt).toContain("Subagent policy:");
+    expect(prompt).toContain("Run at most 4 subagent(s) at the same time.");
+    expect(prompt).toContain("Nesting is limited to 2 levels");
+    expect(prompt).not.toMatch(/[ぁ-んァ-ヶ一-龠]/u);
   });
 });
 

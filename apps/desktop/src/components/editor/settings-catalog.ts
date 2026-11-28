@@ -107,6 +107,14 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     descriptionKey: "provider.webSearch.description",
     keywordsKey: "catalog.keywords.webSearch",
   },
+  {
+    id: "settings.ai.subagents",
+    surface: "desktopAi",
+    anchorId: "desktop-settings-subagents",
+    labelKey: "provider.subagents.label",
+    descriptionKey: "provider.subagents.description",
+    keywordsKey: "catalog.keywords.subagents",
+  },
   // --- ページ設定 (PageSettingsDialog) ---
   {
     id: "settings.page.paper",

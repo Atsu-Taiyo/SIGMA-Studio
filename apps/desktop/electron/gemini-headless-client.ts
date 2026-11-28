@@ -437,6 +437,24 @@ export class GeminiHeadlessClient {
               finalText += step.text_delta;
               params.onDelta?.(step.text_delta);
             }
+            // サブエージェントの起動は step_type:"subagent" で届く (tool とは別の種類。1.5.18 の実機で確認)。
+            // 進行表示に出すため、役割の名前を description へ詰めてツール呼び出しとして通知する。
+            if (step.step_type === "subagent" && typeof step.step_index === "number") {
+              const index = step.step_index;
+              const id = `agy-step-${index}`;
+              if (!startedTools.has(index)) {
+                startedTools.add(index);
+                params.onToolUse?.({
+                  id,
+                  name: typeof step.tool_name === "string" && step.tool_name ? step.tool_name : "invoke_subagent",
+                  parameters: { description: describeAntigravitySubagents(step.subagent_info) },
+                });
+              }
+              // このステップの DONE は「起動し終えた」で、サブエージェントの作業はその後も続く
+              // (実機では起動の約2秒後に DONE になり、その後に教材ツールの呼び出しが続いた)。
+              // 完了として知らせると行がすぐ閉じてしまうので、起動に失敗したときだけ閉じる。
+              if (step.state === "ERROR") params.onToolResult?.({ toolUseId: id, images: [] });
+            }
             if (step.step_type === "tool" && typeof step.step_index === "number" && typeof step.tool_name === "string") {
               const index = step.step_index;
               // The server-side watcher supplies the actual Studio tool inside this wrapper.
@@ -921,6 +939,26 @@ export function buildGeminiChildEnv(): GeminiChildEnv {
   return next;
 }
 
+
+/**
+ * `step_update.subagent_info.subagents[]` の役割名 (`role`、無ければ `type_name`) を
+ * 進行表示用に1行へまとめる。同じステップで複数を起動したときは「、」ではなく ", " で並べる
+ * (役割名はモデルが書く文で、言語が決まらないため)。
+ */
+export function describeAntigravitySubagents(subagentInfo: unknown): string {
+  const subagents = isRecord(subagentInfo) && Array.isArray(subagentInfo.subagents) ? subagentInfo.subagents : [];
+  return subagents
+    .map((subagent) => {
+      if (!isRecord(subagent)) {
+        return "";
+      }
+      const role = typeof subagent.role === "string" ? subagent.role.trim() : "";
+      const typeName = typeof subagent.type_name === "string" ? subagent.type_name.trim() : "";
+      return role || typeName;
+    })
+    .filter((label) => label.length > 0)
+    .join(", ");
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

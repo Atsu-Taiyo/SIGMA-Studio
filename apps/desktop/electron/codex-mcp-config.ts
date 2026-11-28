@@ -9,9 +9,28 @@
 //   抑止しない)。有効値は auto / prompt / approve のみ。MCPサーバーは各ツールの
 //   safety annotationsを宣言するが、最終的な承認判断はCodex側のポリシーが持つ。
 
+// - [agents] はサブエージェント (spawn_agent などの協調ツール) の設定。enabled = false で
+//   道具ごと外れる (codex-cli 0.171.0 の実機で確認: 既定では使え、false にすると
+//   モデルから協調ツールが見えなくなる)。max_concurrent_threads_per_session は同時に開ける
+//   サブエージェントのスレッド数。max_depth は入れ子の深さで、従来方式のサブエージェントだけが
+//   読む (設定スキーマの説明: "Maximum nesting depth for V1 agent threads. Ignored by V2")。
+//   現行の方式では、アプリ側 (codex-app-server-client.ts) が agentPath の深さでも確かめる。
+//   **[agents] の知らないキーは設定エラーになる** (Codex はこのテーブルの未知のキーを
+//   エージェントの役割の定義として読むため、`failed to load configuration ... expected struct
+//   AgentRoleToml` でスレッドを開始できなくなる)。これらのキーを持たない古いCLIのために、
+//   クライアントは設定を拒否されたら subagents を null にして作り直す ([agents] を書かない)。
+
+import type { AiSubagentPolicy } from "@/lib/ai/subagent-settings";
 import { buildSigmaStudioMcpEnv, SIGMA_DOC_MCP_SERVER_NAME, type SigmaStudioMcpLaunchSpec } from "./sigma-studio-mcp-launch";
 
-export type CodexAgentConfigInput = SigmaStudioMcpLaunchSpec & { webSearchEnabled: boolean };
+export type CodexAgentConfigInput = SigmaStudioMcpLaunchSpec & {
+  webSearchEnabled: boolean;
+  /**
+   * サブエージェント設定から決めた Codex の扱い。null・未指定のときは [agents] テーブルを
+   * 書かない (このテーブルを受け付けないCLI向け。CLIの既定の動作になる)。
+   */
+  subagents?: AiSubagentPolicy | null;
+};
 
 const MCP_STARTUP_TIMEOUT_SEC = 30;
 const MCP_TOOL_TIMEOUT_SEC = 240;
@@ -47,6 +66,19 @@ export function buildCodexAgentConfigToml(input: CodexAgentConfigInput): string 
     // 画像閲覧の有効化によって教材ファイルへの書き込み権限は増えない。
     "view_image = true",
     "",
+    ...(input.subagents
+      ? [
+          "[agents]",
+          ...(input.subagents.enabled
+            ? [
+                "enabled = true",
+                `max_depth = ${input.subagents.maxDepth}`,
+                `max_concurrent_threads_per_session = ${input.subagents.maxConcurrent}`,
+              ]
+            : ["enabled = false"]),
+          "",
+        ]
+      : []),
     `[mcp_servers.${SIGMA_DOC_MCP_SERVER_NAME}]`,
     `command = ${tomlString(input.execPath)}`,
     `args = [${tomlString(input.scriptPath)}]`,

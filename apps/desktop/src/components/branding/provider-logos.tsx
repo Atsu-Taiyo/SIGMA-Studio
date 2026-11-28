@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { CSSProperties, ReactElement } from "react";
 
 import { SIGMA_MARK_PATH } from "./SigmaMark";
@@ -58,6 +59,9 @@ const GEMINI_MARK_D =
   "M20.71 10.72c-1.85-.8-3.47-1.89-4.86-3.28-1.39-1.39-2.48-3.01-3.28-4.86-.31-.71-.55-1.44-.74-2.19A.59.59 0 0 0 11.29 0a.59.59 0 0 0-.53.39c-.19.75-.44 1.48-.74 2.19-.8 1.85-1.89 3.47-3.28 4.86-1.39 1.39-3.01 2.48-4.86 3.28-.71.31-1.44.55-2.19.74a.59.59 0 0 0-.39.53c0 .27.16.5.39.53.75.19 1.48.44 2.19.74 1.85.8 3.47 1.89 4.86 3.28 1.39 1.39 2.48 3.01 3.28 4.86.31.71.55 1.44.74 2.19.06.23.28.39.53.39s.47-.16.53-.39c.19-.75.44-1.48.74-2.19.8-1.85 1.89-3.47 3.28-4.86 1.39-1.39 3.01-2.48 4.86-3.28.71-.31 1.44-.55 2.19-.74.23-.06.39-.28.39-.53a.59.59 0 0 0-.39-.53c-.75-.19-1.48-.44-2.19-.74z";
 
 export function AntigravityMark({ size = 16, className }: ProviderMarkProps) {
+  // グラデーションの id はロゴごとに変える。同じ id を共有すると、先に置かれたロゴが
+  // 表示されていない場所 (閉じたタブなど) にあるとき、後のロゴの塗りまで消える。
+  const gradientId = `${ANTIGRAVITY_GRADIENT_ID}-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   return (
     <svg
       viewBox="0 0 24 24"
@@ -67,14 +71,14 @@ export function AntigravityMark({ size = 16, className }: ProviderMarkProps) {
       style={markStyle(size)}
     >
       <defs>
-        <linearGradient id={ANTIGRAVITY_GRADIENT_ID} x1="4.2" y1="20.8" x2="20.6" y2="4.6" gradientUnits="userSpaceOnUse">
+        <linearGradient id={gradientId} x1="4.2" y1="20.8" x2="20.6" y2="4.6" gradientUnits="userSpaceOnUse">
           <stop offset="0" stopColor="#34A853" />
           <stop offset="0.34" stopColor="#FBBC04" />
           <stop offset="0.67" stopColor="#EA4335" />
           <stop offset="1" stopColor="#4285F4" />
         </linearGradient>
       </defs>
-      <path d={ANTIGRAVITY_MARK_D} fill={`url(#${ANTIGRAVITY_GRADIENT_ID})`} />
+      <path d={ANTIGRAVITY_MARK_D} fill={`url(#${gradientId})`} />
     </svg>
   );
 }

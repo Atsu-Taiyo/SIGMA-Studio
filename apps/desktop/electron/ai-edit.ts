@@ -13,6 +13,7 @@ import {
   buildMcpWebSearchPrompt,
 } from "@/lib/ai/mcp-edit-prompt";
 import type { AiEditAttachment, AiEditMentionedDocumentContext } from "@/lib/ai/sigma-doc-agent-tools";
+import type { AiSubagentPolicy } from "@/lib/ai/subagent-settings";
 import { buildCancelledMcpEditRunResult, buildMcpEditRunResult, isWriteCapableMcpToolName, toCodexImageInputUrls } from "./ai-edit-shared";
 import {
   DEFAULT_AI_EDIT_REASONING_EFFORT,
@@ -155,6 +156,12 @@ export async function runAiEditForIpc(args: {
   userDataPath?: string;
   /** aiWebSearchEnabled設定の現在値 (main.ts が run ごとに読み直して渡す)。 */
   webSearchEnabled?: boolean;
+  /**
+   * サブエージェント設定から決めた Codex の扱い (main.ts が run ごとに読み直して渡す)。
+   * 道具の有無と上限は config.toml の [agents] が持つ (codex-mcp-config.ts) ので、ここでは
+   * プロンプトの「サブエージェントの方針」の出し分けにだけ使う。
+   */
+  subagents?: AiSubagentPolicy;
   /** True when ai-edit:cancel was requested between provider turns. */
   isCancelRequested?: () => boolean;
   /**
@@ -234,6 +241,7 @@ export async function runAiEditForIpc(args: {
     attachments,
     runId: args.runId,
     webSearchEnabled: args.webSearchEnabled,
+    subagents: args.subagents,
   }, locale) + `\n\n${tPrompt("generatedImages.guide")}`;
 
   emit(args.onEvent, {
@@ -540,6 +548,38 @@ function codexItemTypeLabel(itemType: AiEditAgentItemType): string {
   return tv(`run.itemType_${itemType}`);
 }
 
+/**
+ * サブエージェントの起動から完了までを、進行表示の 1 行にまとめる。
+ *
+ * Codex は `subAgentActivity` を知らせのたびに別の item として送り (起動・やり取り・完了で
+ * id が違い、それぞれ item/started と item/completed が続けて届く)、そのまま出すと
+ * 起動の行がすぐ完了になる。サブエージェントのスレッド id を行の id にして、
+ * 起動で「作業中」、完了・中断で「完了」に切り替える。
+ */
+function emitCodexSubagentActivity(
+  onEvent: (event: AiEditRunEvent) => void,
+  method: string,
+  item: Record<string, unknown> | undefined,
+): void {
+  // 同じ知らせの item/completed は情報が増えないので、item/started だけを使う。
+  if (method !== "item/started") {
+    return;
+  }
+  const kind = asString(item?.kind);
+  const agentThreadId = asString(item?.agentThreadId);
+  const name = asString(item?.agentPath)?.split("/").filter((segment) => segment.length > 0).pop();
+  emit(onEvent, {
+    kind: "activity",
+    phase: "streaming",
+    message: name && name !== "root"
+      ? tv("run.subagentNamed", { p0: truncateWebActivityLabel(name) })
+      : tv("run.subagentRunning"),
+    itemType: "subagent",
+    itemStatus: kind === "completed" || kind === "interrupted" ? "completed" : "started",
+    ...(agentThreadId ? { itemId: `subagent:${agentThreadId}` } : {}),
+  });
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -561,6 +601,10 @@ function normalizeCodexItemType(type: string | undefined): AiEditAgentItemType {
     case "webSearch":
     case "todoList":
       return type;
+    // サブエージェントの起動・完了の知らせと、協調ツール (wait など) の呼び出し。
+    case "subAgentActivity":
+    case "collabAgentToolCall":
+      return "subagent";
     default:
       return "other";
   }
@@ -645,6 +689,10 @@ function emitCodexTurnNotification(
     // agentMessage / userMessage are already surfaced via the output stream and
     // the final result, so skip them here to avoid duplicate noise.
     if (rawType === "agentMessage" || rawType === "userMessage") {
+      return;
+    }
+    if (rawType === "subAgentActivity") {
+      emitCodexSubagentActivity(onEvent, method, item);
       return;
     }
     const itemType = normalizeCodexItemType(rawType);

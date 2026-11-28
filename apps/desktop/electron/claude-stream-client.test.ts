@@ -494,6 +494,71 @@ describe("ClaudeStreamClient", () => {
     expect(argv).toContain("WebFetch");
   });
 
+  it("keeps the Agent tool disallowed when subagents are omitted or turned off, and sets no subagent env", async () => {
+    const { client, dir } = createClient();
+
+    await client.runTurn({ instruction: "no subagents" });
+    const omitted = readFakeCapture(dir);
+    await client.runTurn({ instruction: "subagents off", subagents: { enabled: false, maxDepth: 3, maxConcurrent: 5 } });
+    const off = readFakeCapture(dir);
+    client.dispose();
+
+    for (const capture of [omitted, off]) {
+      expect(allowedToolsOf(capture)).toBe(ALLOWED_TOOLS);
+      expect(disallowedToolsOf(capture)).toContain("Task");
+      expect(capture.env.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH).toBeUndefined();
+      expect(capture.env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS).toBeUndefined();
+      expect(capture.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBeUndefined();
+    }
+  });
+
+  it("allows the Agent tool and passes the depth and concurrency limits when subagents are on", async () => {
+    const { client, dir } = createClient();
+
+    await client.runTurn({
+      instruction: "with subagents",
+      webSearchEnabled: true,
+      subagents: { enabled: true, maxDepth: 2, maxConcurrent: 4 },
+    });
+    const capture = readFakeCapture(dir);
+    client.dispose();
+
+    expect(allowedToolsOf(capture)).toBe(`${ALLOWED_TOOLS} WebSearch WebFetch Agent Task`);
+    // Bash / Write / Edit stay blocked: a subagent inherits the parent's permission rules.
+    expect(disallowedToolsOf(capture)).toEqual(["Bash", "Write", "Edit"]);
+    expect(capture.env.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH).toBe("2");
+    expect(capture.env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS).toBe("4");
+    // Subagents must finish inside the turn: the process is ended as soon as the result arrives.
+    expect(capture.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBe("1");
+  });
+
+  it("reports a subagent's tool calls but keeps its text out of the main reply", async () => {
+    const { client } = createClient();
+    const toolUses: Array<{ id?: string; name?: string }> = [];
+    const toolResults: Array<string | undefined> = [];
+    const deltas: string[] = [];
+
+    const result = await client.runTurn({
+      instruction: "SUBAGENT",
+      subagents: { enabled: true, maxDepth: 1, maxConcurrent: 3 },
+      onToolUse: (tool) => toolUses.push({ id: tool.id, name: tool.name }),
+      onToolResult: (toolResult) => toolResults.push(toolResult.toolUseId),
+      onDelta: (delta) => deltas.push(delta),
+    });
+    client.dispose();
+
+    // A subagent's result is reported even without images, so its activity row can be closed;
+    // an ordinary text-only tool result still is not.
+    expect(toolResults).toEqual(["toolu_agent"]);
+
+    expect(toolUses).toEqual([
+      { id: "toolu_agent", name: "Agent" },
+      { id: "toolu_sub_tool", name: "mcp__sigma-studio-local__insert_content" },
+    ]);
+    expect(deltas).toEqual(["MAIN_DELTA"]);
+    expect(result.finalText).toBe("MAIN_TEXT");
+  });
+
   it("allows every sigma-studio-local tool on every turn, whatever the instruction or an earlier refusal", async () => {
     const { client, dir } = createClient();
 
@@ -824,6 +889,28 @@ rl.on("line", (line) => {
         content: [{ type: "tool_result", tool_use_id: "toolu_999", content: [{ type: "text", text: "OK" }] }],
       },
     });
+  }
+  if (text.includes("SUBAGENT")) {
+    // The real CLI: the launch is a main-conversation tool_use named Agent; everything the
+    // subagent does carries parent_tool_use_id = that tool_use's id.
+    send({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", content: [
+      { type: "tool_use", id: "toolu_agent", name: "Agent", input: { description: "図の下書き", subagent_type: "general-purpose", prompt: "..." } },
+    ] }, session_id: sessionId });
+    send({ type: "stream_event", parent_tool_use_id: "toolu_agent", event: { delta: { type: "text_delta", text: "SUB_DELTA" } } });
+    send({ type: "assistant", parent_tool_use_id: "toolu_agent", message: { role: "assistant", content: [
+      { type: "text", text: "SUB_TEXT" },
+      { type: "tool_use", id: "toolu_sub_tool", name: "mcp__sigma-studio-local__insert_content", input: {} },
+    ] }, session_id: sessionId });
+    send({ type: "user", parent_tool_use_id: "toolu_agent", message: { role: "user", content: [
+      { type: "tool_result", tool_use_id: "toolu_sub_tool", content: [{ type: "text", text: "ok" }] },
+    ] } });
+    send({ type: "user", parent_tool_use_id: null, message: { role: "user", content: [
+      { type: "tool_result", tool_use_id: "toolu_agent", content: [{ type: "text", text: "下書きを作りました" }] },
+    ] } });
+    send({ type: "stream_event", parent_tool_use_id: null, event: { delta: { type: "text_delta", text: "MAIN_DELTA" } } });
+    send({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", content: [{ type: "text", text: "MAIN_TEXT" }] }, session_id: sessionId });
+    send({ type: "result", subtype: "success", is_error: false, result: "", session_id: sessionId, total_cost_usd: 0.01, num_turns: 1, permission_denials: [] });
+    return;
   }
   send({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "ECHO:" + text }] }, session_id: sessionId });
   send({ type: "result", subtype: "success", is_error: false, result: "ECHO:" + text, session_id: sessionId, total_cost_usd: 0.01, num_turns: 1, permission_denials: permissionDenials(text) });

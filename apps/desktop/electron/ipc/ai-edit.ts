@@ -21,7 +21,8 @@ import { buildClaudeMcpConfig } from "../claude-mcp-config";
 import { runClaudeEditForIpc } from "../claude-edit";
 import type { ClaudeStreamClient } from "../claude-stream-client";
 import type { CodexAppServerClient } from "../codex-app-server-client";
-import { isAiWebSearchEnabled, readDesktopSettingsSync } from "../desktop-settings";
+import { isAiWebSearchEnabled, readDesktopSettingsSync, resolveAiSubagentSettings } from "../desktop-settings";
+import { resolveAiSubagentPolicy } from "@/lib/ai/subagent-settings";
 import { runGeminiEditForIpc } from "../gemini-edit";
 import type { DshHarnessClient } from "../dsh-harness-client";
 import { runSigmaEditForIpc } from "../sigma-edit";
@@ -220,6 +221,13 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
     // 設定は run ごとに 1 度だけ読む (Web検索の可否と表示言語の両方をここから取る)。
     const runSettings = readDesktopSettingsSync(dataDir);
     const webSearchEnabled = isAiWebSearchEnabled(runSettings);
+    // サブエージェントの扱いも同じく run ごとに読み直す (AIごとのスイッチもここで効く)。
+    const subagents = resolveAiSubagentPolicy(resolveAiSubagentSettings(runSettings), provider);
+    if (provider === "chatgpt") {
+      // Codex は常駐 app-server の config.toml に [agents] を焼き込む。設定画面を通らない変更
+      // (設定ファイルの直接編集など) もここで拾い、誰も実行していなければ再起動して反映する。
+      codexAppServerClient.setSubagentPolicy(subagents);
+    }
     // プロンプトを組む言語も run ごとに読み直す (設定はturn間で変わりうる)。**main には
     // renderer の React context が無い**ので、ここで解決して各 provider へ引き回す。
     // 教材の中身の言語はこれとは独立で、`prompt.documentLanguagePolicy` が文書に従わせる。
@@ -271,6 +279,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
                 runId,
                 userDataPath,
                 webSearchEnabled,
+                subagents,
                 locale,
                 isCancelRequested: () => cancelRequestedAiEditRuns.has(runId),
                 cwd: agentWorkspaceDir,
@@ -302,6 +311,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
                 payload,
                 runId,
                 userDataPath,
+                subagents,
                 locale,
                 isCancelRequested: () => cancelRequestedAiEditRuns.has(runId),
                 cwd: agentWorkspaceDir,
@@ -349,6 +359,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
                 runId,
                 userDataPath,
                 webSearchEnabled,
+                subagents,
                 locale,
                 isCancelRequested: () => cancelRequestedAiEditRuns.has(runId),
                 cwd: agentWorkspaceDir,
@@ -371,6 +382,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
               runId,
               userDataPath,
               webSearchEnabled,
+              subagents,
               locale,
               isCancelRequested: () => cancelRequestedAiEditRuns.has(runId),
               cwd: agentWorkspaceDir,

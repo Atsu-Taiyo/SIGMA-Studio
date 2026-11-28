@@ -24,6 +24,31 @@ describe("buildCodexAgentConfigToml", () => {
     expect(toml).toContain("view_image = true");
   });
 
+  it("turns the subagent tools off when subagents are disabled", () => {
+    const toml = buildCodexAgentConfigToml({ ...BASE_INPUT, subagents: { enabled: false, maxDepth: 3, maxConcurrent: 5 } });
+
+    expect(toml).toContain("[agents]\nenabled = false\n");
+    expect(toml).not.toContain("max_depth");
+    expect(toml).not.toContain("max_concurrent_threads_per_session");
+  });
+
+  it("writes no [agents] table at all when no policy is given (for a CLI that rejects the table)", () => {
+    // Codex は [agents] の知らないキーを設定エラーにするので、受け付けないCLIにはテーブルごと書かない。
+    for (const toml of [buildCodexAgentConfigToml(BASE_INPUT), buildCodexAgentConfigToml({ ...BASE_INPUT, subagents: null })]) {
+      expect(toml).not.toContain("[agents]");
+      expect(toml).toContain("view_image = true\n\n[mcp_servers.sigma-studio-local]");
+    }
+  });
+
+  it("writes the subagent depth and concurrency limits when subagents are enabled", () => {
+    const toml = buildCodexAgentConfigToml({ ...BASE_INPUT, subagents: { enabled: true, maxDepth: 2, maxConcurrent: 4 } });
+
+    expect(toml).toContain("[agents]\nenabled = true\nmax_depth = 2\nmax_concurrent_threads_per_session = 4\n");
+    // [agents] は独立したテーブル。MCPサーバーのテーブルより前に閉じ、その中のキーにならない。
+    expect(toml.indexOf("[agents]")).toBeLessThan(toml.indexOf("[mcp_servers.sigma-studio-local]"));
+    expect(toml.indexOf("[agents]")).toBeGreaterThan(toml.indexOf("[tools]"));
+  });
+
   it("registers the sigma-studio-local MCP server with command/args and timeouts", () => {
     const toml = buildCodexAgentConfigToml(BASE_INPUT);
 

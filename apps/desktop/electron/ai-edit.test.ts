@@ -715,6 +715,65 @@ describe("runAiEditForIpc", () => {
     expect(events.some((event) => event.itemType === "other")).toBe(true);
   });
 
+  it("shows a subagent as one activity row from its launch to its completion, and counts its edits", async () => {
+    const events: AiEditRunEvent[] = [];
+    const subagentActivity = (id: string, kind: string) => ({
+      id, type: "subAgentActivity", agentPath: "/root/alpha", agentThreadId: "thread_child_1", kind,
+    });
+    const codex = createFakeCodex({
+      turn: async (params) => {
+        const onNotification = params.onNotification as NotificationHandler;
+        // Codex は知らせごとに別の item を送り、どれにも item/started と item/completed が続けて届く。
+        onNotification({ method: "item/started", params: { item: subagentActivity("call_1", "started") } });
+        onNotification({ method: "item/completed", params: { item: subagentActivity("call_1", "started") } });
+        // サブエージェントのスレッドのツール呼び出し (クライアントが親の実行へ取り次いだもの)。
+        onNotification({ method: "item/started", params: { threadId: "thread_child_1", item: mcpToolCallItem("item_child", "insert_content") } });
+        onNotification({ method: "item/started", params: { item: { id: "wait_1", type: "collabAgentToolCall", tool: "wait" } } });
+        onNotification({ method: "item/started", params: { item: subagentActivity("done_1", "completed") } });
+        onNotification({ method: "item/completed", params: { item: subagentActivity("done_1", "completed") } });
+        return "完了しました。";
+      },
+    });
+
+    const result = await runAiEditForIpc({ locale: "ja",
+      codex,
+      subagents: { enabled: true, maxDepth: 1, maxConcurrent: 3 },
+      payload: { instruction: "調べてから追記して", document: createDocument(), fileId: "file_1" },
+      onEvent: (event) => events.push(event),
+    });
+
+    const rows = events.filter((event) => event.itemId === "subagent:thread_child_1");
+    expect(rows.map((event) => [event.message, event.itemType, event.itemStatus])).toEqual([
+      ["サブエージェント: alpha", "subagent", "started"],
+      ["サブエージェント: alpha", "subagent", "completed"],
+    ]);
+    // 協調ツール (結果待ちなど) も、種類は「サブエージェント」として出す。
+    expect(events.find((event) => event.itemId === "wait_1")?.itemType).toBe("subagent");
+    // サブエージェントが作った編集案も、この実行の編集案として数える (回答ではなく下書きになる)。
+    expect(result.status).toBe("draft");
+  });
+
+  it("puts the subagent policy into the turn prompt only when a policy is passed", async () => {
+    const prompts: string[] = [];
+    const codex = createFakeCodex({
+      turn: async (params) => {
+        prompts.push((params.input[0] as { text: string }).text);
+        return "完了しました。";
+      },
+    });
+    const payload = { instruction: "本文を直して", document: createDocument(), fileId: "file_1" };
+
+    await runAiEditForIpc({ locale: "ja", codex, payload, onEvent: () => {} });
+    await runAiEditForIpc({ locale: "ja", codex, payload, onEvent: () => {}, subagents: { enabled: true, maxDepth: 2, maxConcurrent: 4 } });
+    await runAiEditForIpc({ locale: "ja", codex, payload, onEvent: () => {}, subagents: { enabled: false, maxDepth: 2, maxConcurrent: 4 } });
+
+    expect(prompts[0]).not.toContain("サブエージェントの方針:");
+    expect(prompts[1]).toContain("サブエージェント（spawn_agentなどの協調ツール）を使えます");
+    expect(prompts[1]).toContain("入れ子は2段までです");
+    // 無効のときは config.toml が道具ごと外すので、プロンプトでは触れない。
+    expect(prompts[2]).not.toContain("サブエージェントの方針:");
+  });
+
   it("only forwards claude/codex-allowlisted image mime types to the codex turn, dropping svg attachments", async () => {
     let capturedInput: CodexRunTurnParams["input"] = [];
     const codex = createFakeCodex({

@@ -74,6 +74,7 @@ export type AiEditAgentItemType =
   | "fileChange"
   | "mcpToolCall"
   | "imageGeneration"
+  | "subagent"
   | "webSearch"
   | "todoList"
   | "other";

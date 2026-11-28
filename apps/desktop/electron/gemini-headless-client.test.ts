@@ -477,6 +477,32 @@ describe("GeminiHeadlessClient", () => {
     expect(onToolResult.mock.calls.map(([tool]) => tool.toolUseId)).toEqual(["agy-step-4", "agy-step-5"]);
   });
 
+  it("reports a subagent launch as one activity carrying the subagents' roles", async () => {
+    // agy 1.5.18 の実機の形: サブエージェントの起動は step_type:"subagent" (tool ではない) で届き、
+    // 同じ step_index が ACTIVE → DONE と進む。
+    const subagentStep = (state: string) => `send(${JSON.stringify({ event: "step_update", step_update: {
+      step_type: "subagent", step_index: 2, state, tool_name: "invoke_subagent",
+      subagent_info: { subagents: [
+        { type_name: "research", role: "類題の調査", initial_prompt: "..." },
+        { type_name: "self", initial_prompt: "..." },
+      ] },
+    } })});`;
+    const source = AGY_STREAM_JSON_BIN.replace('if (printArg.includes("FAIL"))',
+      [subagentStep("ACTIVE"), subagentStep("DONE"), 'if (printArg.includes("FAIL"))'].join("\n"));
+    const { client } = createClient({ binSource: source });
+    const onToolUse = vi.fn();
+    const onToolResult = vi.fn();
+    await client.runTurn({ instruction: "hello", onToolUse, onToolResult });
+
+    expect(onToolUse.mock.calls).toEqual([[{
+      id: "agy-step-2",
+      name: "invoke_subagent",
+      parameters: { description: "類題の調査, self" },
+    }]]);
+    // DONE は起動し終えただけ (作業は続く) なので、行を完了にしない。
+    expect(onToolResult).not.toHaveBeenCalled();
+  });
+
   it("reports an agy stream-json failure as an error result with its message", async () => {
     const { client } = createClient({ binSource: AGY_STREAM_JSON_BIN });
     const result = await client.runTurn({ instruction: "FAIL please" });

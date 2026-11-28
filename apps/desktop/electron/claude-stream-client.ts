@@ -14,6 +14,7 @@ import { SIGMA_DOC_MCP_SERVER_NAME } from "./sigma-studio-mcp-launch";
 import { resolveBareBinNames, resolveCliBinForSpawn, spawnCliProcess, type CliChildProcess } from "./cli-spawn";
 
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
+import type { AiSubagentPolicy } from "@/lib/ai/subagent-settings";
 
 const te = createCurrentLocaleTranslator("error");
 
@@ -139,10 +140,16 @@ export interface ClaudeRunTurnParams {
   /**
    * aiWebSearchEnabled設定の現在値 (main.ts が run ごとに読み直して渡す)。true のとき
    * だけこの turn の spawn args で WebSearch / WebFetch を許可する。未指定 (undefined)
-   * は従来どおり不許可 (この turn ではWeb検索できない)。Bash / Write / Edit / Task は
-   * この設定に関係なく常に不許可。
+   * は従来どおり不許可 (この turn ではWeb検索できない)。Bash / Write / Edit は
+   * この設定に関係なく常に不許可 (Task / Agent は subagents が決める)。
    */
   webSearchEnabled?: boolean;
+  /**
+   * この turn でのサブエージェントの扱い (設定は run ごとに読み直す)。有効なときだけ
+   * Agent ツールを許可し、入れ子の深さと同時に動かす数を子プロセスの環境変数で制限する
+   * (buildClaudeSubagentEnv)。未指定は従来どおり不許可。
+   */
+  subagents?: AiSubagentPolicy;
   onDelta?: (delta: string) => void;
   /**
    * `summarized` で思考の要約を `onThinkingDelta` へ流す (`--thinking-display summarized`)。
@@ -180,6 +187,11 @@ export interface ClaudeTurnResult {
 // 本体はSkillツールが読むが、supporting files(references/等)を読ませるためReadも許可する)。
 const DEFAULT_ALLOWED_TOOLS = `mcp__${SIGMA_DOC_MCP_SERVER_NAME}__* Skill Read`;
 const DEFAULT_DISALLOWED_TOOLS = ["Bash", "Write", "Edit", "WebFetch", "WebSearch", "Task"];
+// サブエージェントを起動する組み込みツール。Claude Code 2.1.63 で Task から Agent に改名され、
+// 許可・不許可のルールでは Task が別名として残っている (2.1.332 の実機で、--disallowedTools Task が
+// Agent ツールを外すこと、--allowedTools Agent で起動できることを確認)。改名前後のCLIの
+// どちらでも効くよう、許可するときも外すときも両方の名前を扱う。
+const SUBAGENT_TOOL_NAMES = ["Agent", "Task"];
 const DEFAULT_MODEL = "sonnet";
 
 const CLAUDE_AVAILABILITY_CACHE_MS = 10_000;
@@ -406,10 +418,11 @@ export class ClaudeStreamClient extends EventEmitter {
       params.webSearchEnabled === true,
       params.reasoningEffort,
       params.thinkingDisplay,
+      params.subagents,
     );
     const proc = spawnCliProcess(claudeBin, args, {
       cwd,
-      env: buildClaudeChildEnv(),
+      env: { ...buildClaudeChildEnv(), ...buildClaudeSubagentEnv(params.subagents) },
       stdio: "pipe",
       windowsHide: true,
     });
@@ -417,6 +430,8 @@ export class ClaudeStreamClient extends EventEmitter {
 
     let sessionId: string | null = null;
     let finalText = "";
+    // この turn で起動したサブエージェント (Agent ツールの tool_use の id)。結果が届いたら消す。
+    const subagentToolUseIds = new Set<string>();
     let stderrTail: string | null = null;
     let settled = false;
     let cancelRequested = false;
@@ -569,14 +584,23 @@ export class ClaudeStreamClient extends EventEmitter {
           case "assistant": {
             const inner = getRecord(message.message);
             const content = Array.isArray(inner?.content) ? inner?.content : [];
+            // サブエージェントの中のメッセージは parent_tool_use_id に起動元の tool_use の id を持つ。
+            // そのツール呼び出しは進行表示へ出すが、本文はメインの応答へ混ぜない。
+            const fromSubagent = isSubagentMessage(message);
             for (const part of content) {
               if (!isRecord(part)) {
                 continue;
               }
               if (part.type === "text" && typeof part.text === "string") {
+                if (fromSubagent) {
+                  continue;
+                }
                 finalText += part.text;
                 params.onAssistantText?.(part.text);
               } else if (part.type === "tool_use") {
+                if (typeof part.id === "string" && typeof part.name === "string" && SUBAGENT_TOOL_NAMES.includes(part.name)) {
+                  subagentToolUseIds.add(part.id);
+                }
                 params.onToolUse?.({
                   id: typeof part.id === "string" ? part.id : undefined,
                   name: typeof part.name === "string" ? part.name : undefined,
@@ -613,13 +637,18 @@ export class ClaudeStreamClient extends EventEmitter {
                 const mediaType = typeof source?.media_type === "string" ? source.media_type : "image/png";
                 images.push({ dataUrl: `data:${mediaType};base64,${data}` });
               }
-              if (images.length > 0) {
+              // 画像の無い結果は知らせないが、サブエージェントの結果だけは知らせる
+              // (進行表示で、そのサブエージェントの行を完了にするため)。
+              if (images.length > 0 || (toolUseId !== undefined && subagentToolUseIds.delete(toolUseId))) {
                 params.onToolResult?.({ toolUseId, images });
               }
             }
             return;
           }
           case "stream_event": {
+            if (isSubagentMessage(message)) {
+              return;
+            }
             const event = getRecord(message.event);
             const delta = getRecord(event?.delta);
             if (delta?.type === "text_delta" && typeof delta.text === "string") {
@@ -753,19 +782,25 @@ export class ClaudeStreamClient extends EventEmitter {
     webSearchEnabled = false,
     reasoningEffort?: string | null,
     thinkingDisplay?: string,
+    subagents?: AiSubagentPolicy,
   ): string[] {
     // Web検索が有効な turn では WebSearch / WebFetch を許可リストへ追加し、不許可リスト
     // から取り除く。baseAllowedTools / this.disallowedTools はこのturn用に解決済みで、
     // 変異させず、per-turn の配列/文字列をここで組み立てる。--allowedTools は
     // 「Comma or space-separated list of tool names」(claude --help で確認) を1引数で
-    // 受け取れるため、空白区切りの1文字列として渡す。Bash / Write / Edit / Task は
-    // webSearchEnabled に関係なく常に不許可のまま残す (WebSearch/WebFetch だけを外す)。
-    const allowedTools = webSearchEnabled
-      ? `${baseAllowedTools} WebSearch WebFetch`
-      : baseAllowedTools;
-    const disallowedTools = webSearchEnabled
-      ? this.disallowedTools.filter((tool) => tool !== "WebSearch" && tool !== "WebFetch")
-      : this.disallowedTools;
+    // 受け取れるため、空白区切りの1文字列として渡す。Bash / Write / Edit は
+    // どの設定でも不許可のまま残す (外すのは WebSearch/WebFetch と、サブエージェントの Task だけ)。
+    // サブエージェントが有効な turn では Agent ツールを許可リストへ足し、不許可リストから外す。
+    // サブエージェントは親の許可ルールを引き継ぐので、Bash / Write / Edit はその中でも使えない。
+    const subagentsEnabled = subagents?.enabled === true;
+    const allowedTools = [
+      baseAllowedTools,
+      ...(webSearchEnabled ? ["WebSearch", "WebFetch"] : []),
+      ...(subagentsEnabled ? SUBAGENT_TOOL_NAMES : []),
+    ].join(" ");
+    const disallowedTools = this.disallowedTools.filter((tool) =>
+      !(webSearchEnabled && (tool === "WebSearch" || tool === "WebFetch"))
+      && !(subagentsEnabled && SUBAGENT_TOOL_NAMES.includes(tool)));
     const args = [
       "--print",
       "--verbose",
@@ -951,6 +986,29 @@ async function canSpawnClaude(claudeBin: string, timeoutMs: number): Promise<boo
   });
 }
 
+/**
+ * サブエージェントが有効な turn だけ、子プロセスへ足す環境変数 (Claude Code 2.1.217 以降)。
+ *
+ * - `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`: メインの会話より下に何段まで起動できるか。
+ *   1 で入れ子なし (サブエージェントから Agent ツールが外れる。2.1.332 の実機で確認)。
+ * - `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`: 同時に動かせる数。
+ * - `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`: サブエージェントを turn の中で最後まで待たせる。
+ *   アプリは 1 turn = 1 プロセスで、result を受け取ったらプロセスを終わらせる。既定のままだと
+ *   サブエージェントが裏で動き続けるうちに result が届き、作業の途中で止めてしまう。
+ *
+ * 古いCLIは知らない変数を無視する (上限は効かないが、起動はできる)。
+ */
+export function buildClaudeSubagentEnv(subagents: AiSubagentPolicy | undefined): Record<string, string> {
+  if (!subagents?.enabled) {
+    return {};
+  }
+  return {
+    CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: String(subagents.maxDepth),
+    CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: String(subagents.maxConcurrent),
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+  };
+}
+
 export function buildClaudeChildEnv(): ClaudeChildEnv {
   const next: ClaudeChildEnv = buildCliChildEnv(CLAUDE_CHILD_ENV_KEYS, WINDOWS_CLAUDE_CHILD_ENV_KEYS, getExtraPathEntries());
 
@@ -963,6 +1021,11 @@ export function buildClaudeChildEnv(): ClaudeChildEnv {
   return next;
 }
 
+
+/** stream-json のメッセージがサブエージェントの中のものか (メインの会話では null)。 */
+function isSubagentMessage(message: Record<string, unknown>): boolean {
+  return typeof message.parent_tool_use_id === "string" && message.parent_tool_use_id.length > 0;
+}
 
 function isAuthErrorMessage(text: string): boolean {
   return /not logged in|\/login|please log ?in|unauthorized|authenticate|invalid api key|credit balance/i.test(text);

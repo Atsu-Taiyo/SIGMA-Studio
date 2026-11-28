@@ -32,6 +32,7 @@ export function resolveAiThinkingOrbState(events: ReadonlyArray<ActivityEvent>):
     latest.itemType === "commandExecution"
     || latest.itemType === "fileChange"
     || latest.itemType === "mcpToolCall"
+    || latest.itemType === "subagent"
   ) {
     return "working";
   }

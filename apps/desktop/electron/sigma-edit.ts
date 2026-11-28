@@ -10,6 +10,7 @@ import { createTranslator } from "@/lib/i18n";
 import { tv } from "@/lib/ai/validation-locale";
 import type { AiEditRunEvent, AiEditRunResult } from "@/lib/ai/ai-edit-runtime";
 import type { AiEditAttachment } from "@/lib/ai/sigma-doc-agent-tools";
+import type { AiSubagentPolicy } from "@/lib/ai/subagent-settings";
 import { parseAttachedImageDataUrl } from "./ai-edit-image";
 import { runMcpEditForIpc, type McpEditProviderDescriptor } from "./ai-edit-shared-runner";
 import type { AiResourceRunContext } from "./ai-resource-store";
@@ -87,7 +88,7 @@ function buildSigmaDescriptor(
       return { instruction: prompt };
     },
 
-    async runTurn({ client, instruction, agentThreadId, mcpConfig, runId, cwd, onEvent, onDelta, onToolUse, onToolResult }) {
+    async runTurn({ client, instruction, agentThreadId, mcpConfig, subagents, runId, cwd, onEvent, onDelta, onToolUse, onToolResult }) {
       if (!runId || !cwd || !mcpConfig) {
         return {
           finalText: "", isError: true, errorMessage: tv("run.sigmaRuntimeMissing"),
@@ -111,6 +112,7 @@ function buildSigmaDescriptor(
         cwd,
         mcp: mcpConfig as SigmaStudioMcpLaunchSpec,
         systemPrompt,
+        subagents,
         // dsh は 1 ステップぶんの本文をまとめて通知する。ステップの区切りが読めるよう改行を挟む。
         onText: (text) => {
           onDelta(emittedText ? `\n\n${text}` : text);
@@ -158,6 +160,11 @@ export async function runSigmaEditForIpc(args: {
   locale: AppLocale;
   isCancelRequested?: () => boolean;
   cwd: string;
+  /**
+   * サブエージェント設定から決めた内蔵AIの扱い。有効なときだけ dsh の構成にサブエージェントの
+   * 部品を足し (深さと同時に動かす数は dsh が強制する)、プロンプトに方針の節を出す。
+   */
+  subagents?: AiSubagentPolicy;
 }): Promise<AiEditRunResult> {
   const payload = (args.payload ?? {}) as { attachments?: AiEditAttachment[] };
   const images = buildSigmaImages(payload.attachments);
@@ -186,6 +193,7 @@ export async function runSigmaEditForIpc(args: {
       mcpConfig: args.mcp,
       // 内蔵AIに Web 検索の道具は無い。方針の節を出すと「検索した」と書かれるので常に切る。
       webSearchEnabled: false,
+      subagents: args.subagents,
       runId: args.runId,
       cwd: args.cwd,
     });

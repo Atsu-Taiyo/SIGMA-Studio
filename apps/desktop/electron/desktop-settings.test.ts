@@ -8,8 +8,10 @@ import {
   readDesktopEditorPreferences,
   readDesktopSettingsSync,
   readNewDocumentPageSetup,
+  resolveAiSubagentSettings,
   writeDesktopSettings,
 } from "./desktop-settings";
+import { DEFAULT_AI_SUBAGENT_SETTINGS } from "@/lib/ai/subagent-settings";
 import { getDefaultPageLayout } from "@/features/document";
 
 describe("desktop-settings", () => {
@@ -266,6 +268,56 @@ describe("desktop-settings", () => {
     const settings = readDesktopSettingsSync(dir);
     expect(settings.aiWebSearchEnabled).toBeUndefined();
     expect(isAiWebSearchEnabled(settings)).toBe(true);
+  });
+
+  it("treats an absent aiSubagents key (including a missing settings.json) as the defaults", async () => {
+    expect(resolveAiSubagentSettings(readDesktopSettingsSync(dir))).toEqual(DEFAULT_AI_SUBAGENT_SETTINGS);
+
+    await writeDesktopSettings(dir, { codexBin: "/usr/local/bin/codex" });
+
+    const settings = readDesktopSettingsSync(dir);
+    expect(settings.aiSubagents).toBeUndefined();
+    expect(resolveAiSubagentSettings(settings)).toEqual(DEFAULT_AI_SUBAGENT_SETTINGS);
+  });
+
+  it("persists aiSubagents only when it differs from the defaults, clamped into range", async () => {
+    await writeDesktopSettings(dir, {
+      codexBin: "/usr/local/bin/codex",
+      aiSubagents: {
+        enabled: true,
+        maxDepth: 99,
+        maxConcurrent: 2,
+        providers: { claude: true, chatgpt: false, antigravity: true, sigma: true },
+      },
+    });
+
+    const expected = {
+      enabled: true,
+      maxDepth: 5,
+      maxConcurrent: 2,
+      providers: { claude: true, chatgpt: false, antigravity: true, sigma: true },
+    };
+    expect(readDesktopSettingsSync(dir)).toEqual({ codexBin: "/usr/local/bin/codex", aiSubagents: expected });
+    expect(JSON.parse(await readFile(path.join(dir, "settings.json"), "utf8")).aiSubagents).toEqual(expected);
+
+    // 既定値へ戻すとキーごと消える。ほかの設定はそのまま残る。
+    await writeDesktopSettings(dir, { aiSubagents: DEFAULT_AI_SUBAGENT_SETTINGS });
+
+    expect(readDesktopSettingsSync(dir)).toEqual({ codexBin: "/usr/local/bin/codex" });
+    expect(JSON.parse(await readFile(path.join(dir, "settings.json"), "utf8"))).not.toHaveProperty("aiSubagents");
+  });
+
+  it("repairs a hand-edited aiSubagents value instead of dropping the whole setting", async () => {
+    await writeFile(
+      path.join(dir, "settings.json"),
+      JSON.stringify({ aiSubagents: { enabled: false, maxDepth: "deep", providers: "all" } }),
+      "utf8",
+    );
+
+    expect(resolveAiSubagentSettings(readDesktopSettingsSync(dir))).toEqual({
+      ...DEFAULT_AI_SUBAGENT_SETTINGS,
+      enabled: false,
+    });
   });
 
   it("reads the legacy geminiBin setting as the Antigravity CLI path", async () => {
