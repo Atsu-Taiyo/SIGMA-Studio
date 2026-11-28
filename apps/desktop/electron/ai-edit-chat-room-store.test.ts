@@ -40,6 +40,19 @@ describe("LocalAiEditChatRoomStore", () => {
     });
   });
 
+  it("keeps a conversation's context usage with the room, and drops a value that is not one", async () => {
+    await store.saveRoom({ ...createRoom("room_usage", "file_1", "thread_1"), contextUsage: { usedTokens: 40_622, windowTokens: 1_000_000 } });
+    await store.saveRoom({ ...createRoom("room_unknown_window", "file_1", "thread_2"), contextUsage: { usedTokens: 120, windowTokens: null } });
+    await store.saveRoom({ ...createRoom("room_bad", "file_1", "thread_3"), contextUsage: { usedTokens: "many" } as never });
+    await store.saveRoom(createRoom("room_none", "file_1", "thread_4"));
+
+    const byId = new Map((await store.listRooms("file_1")).map((room) => [room.id, room]));
+    expect(byId.get("room_usage")!.contextUsage).toEqual({ usedTokens: 40_622, windowTokens: 1_000_000 });
+    expect(byId.get("room_unknown_window")!.contextUsage).toEqual({ usedTokens: 120, windowTokens: null });
+    expect(byId.get("room_bad")).not.toHaveProperty("contextUsage");
+    expect(byId.get("room_none")).not.toHaveProperty("contextUsage");
+  });
+
   it("filters rooms by document identity and lists newest first", async () => {
     await store.saveRoom(createRoom("old_room", "file_1", "thread_old", "2026-06-08T00:00:00.000Z"));
     await store.saveRoom(createRoom("other_file_room", "file_2", "thread_other", "2026-06-08T01:00:00.000Z"));

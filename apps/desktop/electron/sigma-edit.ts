@@ -8,11 +8,12 @@
 import type { AppLocale } from "@/lib/i18n";
 import { createTranslator } from "@/lib/i18n";
 import { tv } from "@/lib/ai/validation-locale";
-import type { AiEditRunEvent, AiEditRunResult } from "@/lib/ai/ai-edit-runtime";
+import { contextUsageEvent, type AiEditRunEvent, type AiEditRunResult } from "@/lib/ai/ai-edit-runtime";
 import type { AiEditAttachment } from "@/lib/ai/sigma-doc-agent-tools";
 import { parseAttachedImageDataUrl } from "./ai-edit-image";
 import { runMcpEditForIpc, type McpEditProviderDescriptor } from "./ai-edit-shared-runner";
 import type { AiResourceRunContext } from "./ai-resource-store";
+import type { DshGatewayRefusal } from "./dsh-gateway-session";
 import type { DshHarnessClient, DshHarnessStatus, DshImageInput } from "./dsh-harness-client";
 import type { SigmaStudioMcpLaunchSpec } from "./sigma-studio-mcp-launch";
 import { enforceVisualLoop, stripVisualLoopExhausted } from "./visual-loop-enforcer";
@@ -42,6 +43,26 @@ export function describeSigmaUnavailable(status: DshHarnessStatus): string {
   return status.error ? `${base} (${status.error})` : base;
 }
 
+/** 利用枠が戻る時刻を、利用者の言語の短い日時にする (例: 12月5日(土) 12:14)。 */
+export function formatUsageResetTime(resetsAt: string | null, locale: AppLocale): string | null {
+  const time = resetsAt ? Date.parse(resetsAt) : Number.NaN;
+  if (!Number.isFinite(time)) return null;
+  return new Intl.DateTimeFormat(locale, { month: "long", day: "numeric", weekday: "short", hour: "numeric", minute: "2-digit" }).format(time);
+}
+
+/** 中継が断った理由を、利用者へ見せる文にする。中継の理由に当たらなければ null。 */
+export function describeGatewayRefusal(refusal: DshGatewayRefusal | undefined, locale: AppLocale): string | null {
+  if (!refusal) return null;
+  if (refusal.code === "USAGE_LIMIT_REACHED") {
+    const when = formatUsageResetTime(refusal.resetsAt, locale);
+    return when ? tv("run.sigmaUsageLimitReached", { p0: when }) : tv("run.sigmaUsageLimitReachedNoReset");
+  }
+  if (refusal.code === "PRO_REQUIRED") return tv("run.sigmaPlanRequired");
+  if (refusal.code === "RATE_LIMITED") return tv("run.sigmaRateLimited");
+  if (refusal.code === "UNAUTHORIZED" || refusal.status === 401) return tv("run.sigmaGatewayRejected");
+  return null;
+}
+
 function describeTurnError(message: string | null): string {
   if (message === "max-tokens") return tv("run.sigmaOutputTruncated");
   if (message === "timeout") return tv("run.sigmaTimedOut");
@@ -61,6 +82,7 @@ function buildSigmaDescriptor(
   images: DshImageInput[],
   systemPrompt: string,
   isCancelRequested: (() => boolean) | undefined,
+  locale: AppLocale,
 ): McpEditProviderDescriptor<DshHarnessClient> {
   return {
     provider: "sigma",
@@ -125,6 +147,7 @@ function buildSigmaDescriptor(
           toolUseId: result.toolUseId,
           images: result.images.map(image => ({ dataUrl: `data:${image.mimeType};base64,${image.base64}` })),
         }),
+        onContextUsage: usage => onEvent(contextUsageEvent(usage)),
       });
 
       if (result.resumeFailed) throw new SigmaResumeFailedError();
@@ -137,7 +160,7 @@ function buildSigmaDescriptor(
       return {
         finalText: result.finalText,
         isError: result.isError,
-        errorMessage: result.isError ? describeTurnError(result.errorMessage) : null,
+        errorMessage: result.isError ? describeGatewayRefusal(result.refusal, locale) ?? describeTurnError(result.errorMessage) : null,
         agentThreadId: result.sessionId ?? undefined,
         repairCount: 0,
         repairMessage: null,
@@ -156,6 +179,8 @@ export async function runSigmaEditForIpc(args: {
   runId: string;
   userDataPath?: string;
   locale: AppLocale;
+  /** AIの権限が「読み取りのみ」(main が run ごとに読み直して渡す)。編集せずに返答で答える一文を足す。 */
+  readOnly?: boolean;
   isCancelRequested?: () => boolean;
   cwd: string;
 }): Promise<AiEditRunResult> {
@@ -176,7 +201,7 @@ export async function runSigmaEditForIpc(args: {
     }
   };
   const runTurnOnce = (turnPayload: unknown, turnImages: DshImageInput[]) =>
-    runMcpEditForIpc(buildSigmaDescriptor(turnImages, systemPrompt, args.isCancelRequested), {
+    runMcpEditForIpc(buildSigmaDescriptor(turnImages, systemPrompt, args.isCancelRequested, args.locale), {
       client: args.sigma,
       payload: turnPayload,
       aiResources: args.aiResources,
@@ -186,6 +211,7 @@ export async function runSigmaEditForIpc(args: {
       mcpConfig: args.mcp,
       // 内蔵AIに Web 検索の道具は無い。方針の節を出すと「検索した」と書かれるので常に切る。
       webSearchEnabled: false,
+      readOnly: args.readOnly,
       runId: args.runId,
       cwd: args.cwd,
     });

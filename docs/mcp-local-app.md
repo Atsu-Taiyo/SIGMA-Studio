@@ -32,6 +32,8 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 - `save_ai_resource` - Studio管理下のAIリソース(skill/instruction)を新規作成または更新します。skillは常にアプリ全体スコープ(全ワークスペースで使用)・全プロバイダ(Codex/Claude/Antigravity)向けに保存されます。`kind:"instruction"` はnameに既存の `global-instructions` のみ指定できます。
 - `delete_ai_resource` - Studio管理下のskillをnameで削除します。ユーザーが明示的に削除を依頼した場合のみ使用してください。
 - `update_ai_settings` - `aiAutoApplyVerifiedProposals` / `aiWebSearchEnabled` を部分更新します。変更内容は必ずユーザーへ報告してください。
+
+AIの権限が「読み取りのみ」(`aiReadOnlyMode`) の間は、読み取りツール以外のすべてのツールが `PERMISSION_DENIED` で断られます ([ローカルAIとの協調](local-ai-collaboration.md) の「AIの権限」)。
 - `list_local_documents` - ワークスペース、フォルダ、教材ファイルと revision を一覧します。
 - `create_local_document` - 個人ワークスペース内に空のSigmaDoc教材を作成します。`workspaceId` / `folderId` は `list_local_documents` が返すアプリ管理IDだけを受け取り、任意のOSパスは扱いません。
 - `update_local_document` - 個人ワークスペース内の教材名または配置フォルダを更新します。競合防止のため `expectedRevision` が必須で、ルート直下への移動は `folderId:null` を指定します。
@@ -174,6 +176,7 @@ Claudeの `--allowedTools` は `mcp__sigma-studio-local__*` で、sigma-studio-l
 | MCP編集方針 (`buildMcpEditInvariantGuidanceSection`) | ツールをまたぐ方針: 読み取りの順、編集の経路、表・グラフ・図形はoverlayで作り直さず部分更新、insert系の `targetId` (`END_OF_DOCUMENT` / ホワイトボードは `CANVAS`)、図・イラストの使い分け (`svgImageGuidance`)、visual edit session、素材、画像からの再構成、ライブラリ参照、AI設定の変更 | Claude と Antigravity は会話の最初のプロンプト、Codex はスレッド開始時の developerInstructions |
 | 各ツールの description と inputSchema | そのツールだけの使い方: SVGの制約・描き方・確認 (`insert_svg_image`)、`kind:"text"` の寸法や標準kind (`insert_shape`)、`cellPatches` (`update_table`)、部分更新とpreviewでの確認 (`update_page_layout`) など | 3ホストとも、モデルがそのツールを調べたときだけ (最初のプロンプトにはツール名の一覧だけが載る) |
 | server instructions (`SIGMA_DOC_MCP_SERVER_INSTRUCTIONS`) | サーバーの素性だけ (SigmaDoc JSONが正本、書き込みは承認待ちの提案)。作業方針は書かない | 下のとおりホストごとに違う |
+| 権限「読み取りのみ」の一文 (`prompt.ts` の `readOnlyMode`) | AIの権限が「読み取りのみ」の実行にだけ、利用者の指示の直前へ付ける: 編集ツールは断られるので呼ばず、読み取りツールで確かめて返答で答える。断るのは MCP サーバーで、この一文は試行を省くためのもの | 4つのAIとも、その権限の間の毎ターン |
 | 内蔵AIの道具の案内 (`prompt.ts` の `sigmaSkillTool`) | 内蔵AI (SIGMA AI) だけに毎ターン付ける短い節: シェル・ファイル・Web検索の道具は無い、スキルは `skill` ツールで読む、ツールを呼ばずに完了を報告しない。構成は [docs/sigma-ai.md](sigma-ai.md) | 内蔵AIだけ |
 | 公式スキル | 作業の種類ごとの詳しい手順 (図の作り方は `official-svg-figure`) | プロバイダが必要なときだけ |
 

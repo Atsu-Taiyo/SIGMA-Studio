@@ -15,7 +15,7 @@ describe("collaboration plan", () => {
     expect(FREE_PLAN_FEATURES).toEqual(["editing", "documentSharing", "joining", "basicRoles"]);
     expect(formatUsd(PRO_PLAN.priceUsd)).toBe("$9");
     expect(PRO_PLAN.collaboratorLimit).toBe(15);
-    expect(PRO_PLAN_FEATURES).toEqual(["collaborators", "unlimitedDocuments", "workspaceSharing", "roles"]);
+    expect(PRO_PLAN_FEATURES).toEqual(["collaborators", "unlimitedDocuments", "workspaceSharing", "roles", "sigmaAi"]);
   });
 
   it("derives the displayed plan only from server capabilities", () => {

@@ -392,7 +392,8 @@ test("model and effort choices open as runtime-backed hover submenus", async ({ 
   await expect(modelSubmenu).toContainText("ChatGPT");
 
   await modelSubmenu.getByRole("menuitemradio", { name: "GPT E2E Runtime" }).click();
-  await expect(composer.locator(".ai-chat-model-button")).toContainText("ChatGPT");
+  // ボタンに出すのはモデルの短い名前と思考の深さ。どの AI かはロゴと、ボタンの説明が持つ。
+  await expect(composer.locator(".ai-chat-model-button")).toHaveAttribute("aria-label", /ChatGPT/);
   await expect(composer.locator(".ai-chat-model-button")).toContainText("GPT E2E Runtime");
   await expect(composer.locator(".ai-chat-model-button")).toContainText("最大");
 
@@ -461,7 +462,7 @@ test("Windows restores provider, model, and effort immediately after reload", as
   await menu.locator('.ai-chat-model-submenu[data-kind="effort"]')
     .getByRole("menuitemradio", { name: "最大" })
     .click();
-  await expect(modelButton).toContainText("Claude");
+  await expect(modelButton).toHaveAttribute("aria-label", /Claude/);
   await expect(modelButton).toContainText("最大");
   await expect.poll(() => page.evaluate(() => {
     const raw = localStorage.getItem("sigma-studio:ai-edit-model-preferences");
@@ -473,8 +474,10 @@ test("Windows restores provider, model, and effort immediately after reload", as
   await page.keyboard.press("ControlOrMeta+K");
   composer = page.locator(".ai-chat-composer--inline");
   modelButton = composer.locator(".ai-chat-model-button");
-  await expect(modelButton).toContainText("Claude");
-  await expect(modelButton).toContainText("Claude Sonnet 5");
+  // ボタンにはモデルの短い名前 (製品名の接頭辞なし)、説明には省略しない名前。
+  await expect(modelButton).toHaveAttribute("aria-label", /Claude Sonnet 5/);
+  await expect(modelButton).toContainText("Sonnet 5");
+  await expect(modelButton).not.toContainText("Claude");
   await expect(modelButton).toContainText("最大");
 });
 
@@ -525,8 +528,10 @@ test("Claude Sonnet exposes effort choices and Shift+Arrow changes the effort", 
   const modelButton = composer.locator(".ai-chat-model-button");
   await modelButton.click();
   await page.locator(".ai-chat-model-menu").getByRole("menuitemradio", { name: "Claude", exact: true }).click();
-  await expect(modelButton).toContainText("Claude");
-  await expect(modelButton).toContainText("Claude Sonnet 5");
+  // ボタンにはモデルの短い名前 (製品名の接頭辞なし)、説明には省略しない名前。
+  await expect(modelButton).toHaveAttribute("aria-label", /Claude Sonnet 5/);
+  await expect(modelButton).toContainText("Sonnet 5");
+  await expect(modelButton).not.toContainText("Claude");
   await expect(modelButton).toContainText("低");
 
   const effortTrigger = page.locator(".ai-chat-model-menu .ai-chat-model-submenu-trigger").filter({ hasText: "エフォート" });
@@ -552,8 +557,10 @@ test("a model without effort support is labeled explicitly", async ({ page }) =>
 
   const menu = page.locator(".ai-chat-model-menu");
   await menu.getByRole("menuitemradio", { name: "Antigravity", exact: true }).click();
-  await expect(modelButton).toContainText("Antigravity");
-  await expect(modelButton).toContainText("エフォート非対応");
+  // ボタンはモデルの名前だけになる。思考の深さを選べないことは、ボタンの説明と、押せない項目で分かる。
+  await expect(modelButton).toHaveAttribute("aria-label", /Antigravity/);
+  await expect(modelButton).toHaveAttribute("aria-label", /エフォート非対応/);
+  await expect(modelButton).not.toContainText("エフォート");
 
   const effortTrigger = menu.locator(".ai-chat-model-submenu-trigger").filter({ hasText: "エフォート" });
   await expect(effortTrigger).toBeDisabled();

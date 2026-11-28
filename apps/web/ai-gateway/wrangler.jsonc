@@ -1,6 +1,7 @@
 {
   // SIGMA Studio 内蔵AIの中継。鍵は `wrangler secret put` で入れ、ここには書かない:
   //   OPENROUTER_API_KEY  OpenRouter の鍵
+  //   ADMIN_TOKEN         (任意) 運用者が 1 人の使用量を読む・枠を戻すための鍵。32 文字以上
     "$schema": "../../../node_modules/wrangler/config-schema.json",
   "name": "sigma-studio-ai-gateway",
   "account_id": "6ccc5b3ea80285e4dd970ecd4effd022",
@@ -11,8 +12,13 @@
   "preview_urls": false,
   "services": [{ "binding": "COLLABORATION", "service": "sigma-studio-collab-experiment" }],
   "ratelimits": [{ "name": "AI_RATE_LIMIT", "namespace_id": "54045701", "simple": { "limit": 30, "period": 60 } }],
+  // 利用者ごとの使用量の台帳 (usage-ledger.mjs)。利用者 1 人につき 1 つの Durable Object。
+  "durable_objects": { "bindings": [{ "name": "AI_USAGE", "class_name": "AiUsageLedger" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AiUsageLedger"] }],
   "vars": {
     "ALLOWED_MODELS": "deepseek/deepseek-v4.1-flash-1017",
+    // プランごとの月の予算 (USD)。週の枠はこの 12/52。上位プランは行を足す (docs/sigma-ai.md の「利用枠」)。
+    "AI_PLAN_MONTHLY_BUDGET_USD": "{\"trial\":5,\"pro\":5}",
     // 上流の事業者を固定する (docs/sigma-ai.md の「応答の速さ」)。固定しないと応答までの時間と料金が大きくばらつく。
     "PROVIDER_ROUTING": "{\"order\":[\"Morph\",\"InferenceNet\"],\"ignore\":[\"Reka\"],\"allow_fallbacks\":true}"
   },

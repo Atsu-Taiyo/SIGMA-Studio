@@ -14,6 +14,7 @@ import { SIGMA_DOC_MCP_SERVER_NAME } from "./sigma-studio-mcp-launch";
 import { resolveBareBinNames, resolveCliBinForSpawn, spawnCliProcess, type CliChildProcess } from "./cli-spawn";
 
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
+import { claudeContextUsage, type AiContextUsage } from "@/lib/ai/ai-usage";
 
 const te = createCurrentLocaleTranslator("error");
 
@@ -39,6 +40,8 @@ interface ClaudeResultEvent {
   total_cost_usd?: number;
   num_turns?: number;
   permission_denials?: unknown[];
+  /** モデルごとの集計。`contextWindow` (そのモデルのコンテキスト上限) だけを読む。 */
+  modelUsage?: unknown;
 }
 
 interface AvailabilityCache {
@@ -156,6 +159,11 @@ export interface ClaudeRunTurnParams {
   /** Fired for each `tool_result` (stream-json `type:"user"` message) that carries image content blocks, e.g. an MCP tool's PNG preview. */
   onToolResult?: (result: ClaudeToolResult) => void;
   onSystemInit?: (init: { sessionId: string | null; apiKeySource: string | null }) => void;
+  /**
+   * 会話のコンテキスト使用量 (モデルの応答ごと)。上限はそのモデルの最初の `result` で分かるので、
+   * それまでは `windowTokens: null` で届く。
+   */
+  onContextUsage?: (usage: AiContextUsage) => void;
   /** This run's id; lets {@link ClaudeStreamClient.cancelRun} kill this spawned turn. */
   runId?: string;
 }
@@ -242,6 +250,8 @@ export class ClaudeStreamClient extends EventEmitter {
   // process without touching any other concurrent turn. Populated at the top
   // of runTurn() when the caller passes a runId, removed once the turn settles.
   private readonly cancelHandles = new Map<string, () => void>();
+  // モデル → コンテキスト上限。`result.modelUsage` で知り、次の turn の最初の応答から割合を出す。
+  private readonly contextWindows = new Map<string, number>();
   private readonly availabilityProbeTimeoutMs: number;
   private readonly turnIdleTimeoutMs: number;
   private readonly turnMaxTimeoutMs: number;
@@ -417,6 +427,17 @@ export class ClaudeStreamClient extends EventEmitter {
 
     let sessionId: string | null = null;
     let finalText = "";
+    let turnModel: string | null = null;
+    let lastUsage: unknown = null;
+    let reportedContextUsage: AiContextUsage | null = null;
+    // 同じ値を 2 度は知らせない (上限が分かった時点の知らせ直しだけを通す)。
+    const reportContextUsage = (usage: AiContextUsage | null) => {
+      if (!usage || (usage.usedTokens === reportedContextUsage?.usedTokens && usage.windowTokens === reportedContextUsage.windowTokens)) {
+        return;
+      }
+      reportedContextUsage = usage;
+      params.onContextUsage?.(usage);
+    };
     let stderrTail: string | null = null;
     let settled = false;
     let cancelRequested = false;
@@ -568,6 +589,14 @@ export class ClaudeStreamClient extends EventEmitter {
           }
           case "assistant": {
             const inner = getRecord(message.message);
+            // サブエージェントの応答 (parent_tool_use_id つき) は別のコンテキストなので数えない。
+            if (typeof message.parent_tool_use_id !== "string") {
+              if (typeof inner?.model === "string") {
+                turnModel = inner.model;
+              }
+              lastUsage = inner?.usage ?? lastUsage;
+              reportContextUsage(claudeContextUsage(lastUsage, this.contextWindows.get(turnModel ?? "") ?? null));
+            }
             const content = Array.isArray(inner?.content) ? inner?.content : [];
             for (const part of content) {
               if (!isRecord(part)) {
@@ -629,11 +658,17 @@ export class ClaudeStreamClient extends EventEmitter {
             }
             return;
           }
+          case "rate_limit_event": {
+            // 利用枠 (5 時間・1 週間の窓) の知らせ。会話ではなくアカウントのものなので、run とは別に流す。
+            this.emit("rateLimit", message.rate_limit_info);
+            return;
+          }
           case "result": {
             const result = message as unknown as ClaudeResultEvent;
             if (typeof result.session_id === "string") {
               sessionId = result.session_id;
             }
+            reportContextUsage(claudeContextUsage(lastUsage, this.rememberContextWindows(result.modelUsage, turnModel)));
             const resolvedText = typeof result.result === "string" && result.result.length > 0
               ? result.result
               : finalText;
@@ -725,6 +760,33 @@ export class ClaudeStreamClient extends EventEmitter {
    * `cancelled: true`. Returns false if no turn with this runId is running
    * (already settled, or never started with a runId).
    */
+  /**
+   * `result.modelUsage` からモデルごとのコンテキスト上限を覚え、この turn のモデルの上限を返す。
+   * 応答のモデル名と集計のキーが一致しないとき (別名で頼んだとき) は、集計が 1 件ならそれを使う。
+   */
+  private rememberContextWindows(modelUsage: unknown, turnModel: string | null): number | null {
+    if (!isRecord(modelUsage)) {
+      return this.contextWindows.get(turnModel ?? "") ?? null;
+    }
+    const windows: number[] = [];
+    for (const [model, usage] of Object.entries(modelUsage)) {
+      const window = isRecord(usage) ? usage.contextWindow : null;
+      if (typeof window === "number" && Number.isFinite(window) && window > 0) {
+        this.contextWindows.set(model, window);
+        windows.push(window);
+      }
+    }
+    const exact = this.contextWindows.get(turnModel ?? "");
+    if (exact !== undefined) {
+      return exact;
+    }
+    if (windows.length === 1 && turnModel) {
+      this.contextWindows.set(turnModel, windows[0]);
+      return windows[0];
+    }
+    return null;
+  }
+
   cancelRun(runId: string): boolean {
     const handle = this.cancelHandles.get(runId);
     if (!handle) {

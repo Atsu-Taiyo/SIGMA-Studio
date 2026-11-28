@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { AiEditReference } from "@/lib/ai/ai-edit-reference";
 import { normalizeAiImageAnnotations, type AiImageAnnotation } from "@/lib/ai/ai-image-annotations";
+import { parseAiContextUsage, type AiContextUsage } from "@/lib/ai/ai-usage";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import {
   capRunPreviewImages,
@@ -84,6 +85,8 @@ export interface LocalAiEditChatRoom {
   title: string;
   agentThreadId: string | null;
   provider?: LocalAiProvider;
+  /** この会話のコンテキスト使用量 (最後の応答の時点)。 */
+  contextUsage?: AiContextUsage;
   createdAt: string;
   updatedAt: string;
   turns: LocalAiEditChatTurn[];
@@ -224,6 +227,7 @@ function normalizeRoom(value: unknown): LocalAiEditChatRoom | null {
   const turns = Array.isArray(value.turns)
     ? value.turns.map(normalizeTurn).filter((turn): turn is LocalAiEditChatTurn => Boolean(turn))
     : [];
+  const contextUsage = parseAiContextUsage(value.contextUsage);
 
   return {
     version: 1,
@@ -236,6 +240,7 @@ function normalizeRoom(value: unknown): LocalAiEditChatRoom | null {
     title: asString(value.title)?.trim() ?? "",
     agentThreadId: asString(value.agentThreadId) ?? null,
     provider: asProvider(value.provider),
+    ...(contextUsage ? { contextUsage } : {}),
     createdAt,
     updatedAt,
     turns: turns.slice(-MAX_TURNS_PER_ROOM),

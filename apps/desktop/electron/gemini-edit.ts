@@ -243,6 +243,8 @@ export async function runGeminiEditForIpc(args: {
    * ツール実行の可否そのものはこの設定では制御できない。
    */
   webSearchEnabled?: boolean;
+  /** AIの権限が「読み取りのみ」(main が run ごとに読み直して渡す)。編集せずに返答で答える一文を足す。 */
+  readOnly?: boolean;
   /** Test-only override for ToolActivityWatcher's poll interval (see gemini-tool-activity-watcher.ts). */
   toolActivityPollIntervalMs?: number;
   /** Electron userData path used to read the per-run visual-session status file. */
@@ -264,6 +266,7 @@ export async function runGeminiEditForIpc(args: {
       onEvent: args.onEvent,
       suppressFinalPhase: true,
       webSearchEnabled: args.webSearchEnabled,
+      readOnly: args.readOnly,
       runId,
       cwd: args.cwd,
     });

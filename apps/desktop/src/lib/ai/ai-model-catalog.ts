@@ -32,6 +32,29 @@ export const REASONING_EFFORT_IDS = [
 
 const REASONING_EFFORT_ID_SET: ReadonlySet<string> = new Set(REASONING_EFFORT_IDS);
 
+/**
+ * 入力欄のボタンに出す、モデルの短い名前 (Fable 5.2・Haiku・GPT-5.5 など)。
+ * どの AI かはボタンのロゴが示すので、製品名の接頭辞と「(latest)」を落とす。
+ * 一覧やボタンの説明 (title・読み上げ) には、省略しない名前を使う。
+ */
+export function shortAiModelLabel(
+  provider: AiProvider,
+  model: { id: string; label: string },
+  t: Translate<"ai"> = DEFAULT_AI_TRANSLATE,
+): string {
+  const label = model.label.trim() || model.id.trim();
+  if (provider === "antigravity" && model.id === "auto") {
+    return t("model.runtimeDefaultShort");
+  }
+  if (provider === "claude") {
+    return label.replace(/^claude[\s-]+/iu, "").replace(/\s*\(latest\)$/iu, "").trim() || label;
+  }
+  if (provider === "chatgpt") {
+    return label.replace(/^(?:openai|chatgpt)\s+/iu, "").trim() || label;
+  }
+  return label;
+}
+
 /** Never renders a blank effort label; unknown runtime values remain identifiable by id. */
 export function formatReasoningEffortLabel(
   value: unknown,

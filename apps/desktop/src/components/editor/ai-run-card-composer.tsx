@@ -1,4 +1,5 @@
 "use client";
+import { AiModelButtonLabel } from "./AiModelButtonLabel";
 import { AiModelMenuContents } from "./ai-model-menu-contents";
 
 // B案: a full-capability follow-up composer embedded directly in the in-body run
@@ -728,17 +729,11 @@ export function AiRunCardComposer({
               }}
             >
               {renderModelMark(selectedModel, provider, { size: 13 })}
-              <span className="ai-chat-model-button-label">
-                <span>{selectedProviderLabel}</span>
-                {!builtIn && (
-                  <>
-                    <span className="ai-chat-model-button-divider" aria-hidden="true">·</span>
-                    <span>{selectedModelLabel}</span>
-                    <span className="ai-chat-model-button-divider" aria-hidden="true">·</span>
-                    <span>{reasoningEffortSupported ? selectedReasoningEffortLabel : t("composer.effortUnsupported")}</span>
-                  </>
-                )}
-              </span>
+              <AiModelButtonLabel
+                provider={provider} providerLabel={selectedProviderLabel}
+                modelId={selectedModel} modelLabel={selectedModelLabel}
+                effortLabel={!builtIn && reasoningEffortSupported ? selectedReasoningEffortLabel : null} t={t}
+              />
               {!builtIn && <ChevronDown size={12} />}
             </button>
             {modelMenuOpen && (

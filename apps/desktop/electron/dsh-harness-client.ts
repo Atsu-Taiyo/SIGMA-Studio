@@ -15,8 +15,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
 
+import { chatCompletionContextUsage, sigmaUsageFromGateway, type AiAccountUsage, type AiContextUsage } from "@/lib/ai/ai-usage";
 import { getProcessPathEnv } from "./cli-child-env";
-import { startDshGatewaySession, type DshGatewayAccount } from "./dsh-gateway-session";
+import { startDshGatewaySession, type DshGatewayAccount, type DshGatewayRefusal } from "./dsh-gateway-session";
 import { spawnCliProcess, type CliChildProcess } from "./cli-spawn";
 import { buildSigmaStudioMcpEnv, SIGMA_DOC_MCP_SERVER_NAME, type SigmaStudioMcpLaunchSpec } from "./sigma-studio-mcp-launch";
 
@@ -49,6 +50,9 @@ const TURN_IDLE_TIMEOUT_MS = 10 * 60_000;
 // 開始前に届いた中断を覚えておく件数の上限。
 const MAX_REMEMBERED_CANCELS = 64;
 const STDERR_TAIL_CHARS = 4_000;
+const USAGE_REQUEST_TIMEOUT_MS = 10_000;
+// 中継がこの理由で断ったら、DSH の再試行を待たずに実行を止める (待っても通らない)。
+const TERMINAL_REFUSAL_CODES = new Set(["USAGE_LIMIT_REACHED", "PRO_REQUIRED"]);
 
 /** 環境変数の写し。テストから最小の集合を渡せるよう、NODE_ENV を必須にしない形で受ける。 */
 export type DshEnvironment = Readonly<Record<string, string | undefined>>;
@@ -93,6 +97,8 @@ export interface DshRunTurnParams {
   onReasoning: (text: string) => void;
   onToolUse: (tool: { id: string; name: string; input: unknown }) => void;
   onToolResult: (result: { toolUseId: string; isError: boolean; images: Array<{ mimeType: string; base64: string }> }) => void;
+  /** 会話のコンテキスト使用量 (モデルの応答ごと)。 */
+  onContextUsage?: (usage: AiContextUsage) => void;
 }
 
 export interface DshRunTurnResult {
@@ -103,6 +109,8 @@ export interface DshRunTurnResult {
   cancelled: boolean;
   /** 続きの会話 (resumeSessionId) を開けなかった。呼び出し側は新しい会話としてやり直す。 */
   resumeFailed?: boolean;
+  /** 中継が断った理由 (利用枠・プラン・回数制限)。失敗した turn にだけ付く。 */
+  refusal?: DshGatewayRefusal;
 }
 
 export interface DshHarnessClientOptions {
@@ -128,7 +136,10 @@ export interface DshHarnessClientOptions {
   entitlementAccount?: () => string | null;
   /** テスト用: 橋渡しから何も届かないまま待つ上限。 */
   turnIdleTimeoutMs?: number;
+  /** 利用枠を読めたときに知らせる (設定画面とチャットの表示を更新する)。 */
+  onAccountUsage?: (usage: AiAccountUsage) => void;
   /** テスト用の差し替え。 */
+  fetcher?: typeof fetch;
   spawnBridge?: (nodeBin: string, bridgePath: string, env: NodeJS.ProcessEnv, cwd: string) => CliChildProcess;
   probeNodeVersion?: (nodeBin: string) => Promise<string | null>;
   pathExists?: (target: string) => Promise<boolean>;
@@ -343,7 +354,10 @@ export class DshHarnessClient {
     if (cached && cached.account === account && now - cached.at < ENTITLEMENT_CACHE_MS) return cached.value;
     let value = false;
     try {
-      value = await check();
+      // 配布版では、中継に聞く。どのプランに利用枠があるかは中継の表が決めるので、プランが増えても
+      // アプリの側を直さずに済む。中継が答えないとき (通信不可・使用量を返さない古い中継) だけ、プラン名で確かめる。
+      const usage = this.options.packaged && this.options.gatewayAccount ? await this.getUsage() : null;
+      value = usage ? usage.state !== "notIncluded" : await check();
     } catch {
       value = false;
     }
@@ -351,6 +365,31 @@ export class DshHarnessClient {
     if ((this.options.entitlementAccount?.() ?? null) !== account) return false;
     this.entitlement = { value, at: now, account };
     return value;
+  }
+
+  /**
+   * いまの利用枠 (中継の `GET /v1/usage`)。サインインしていない・中継が答えない・
+   * 使用量を返さない中継 (開発用の代わり) なら null。
+   */
+  async getUsage(now: number = Date.now()): Promise<AiAccountUsage | null> {
+    const account = this.options.packaged ? this.options.gatewayAccount : null;
+    const development = this.options.packaged ? null : this.getGatewayConfig();
+    if (!account && !development) return null;
+    const signals = [AbortSignal.timeout(USAGE_REQUEST_TIMEOUT_MS), ...(account ? [account.accountSignal()] : [])];
+    try {
+      const authorization = account ? await account.authorization() : `Bearer ${development!.token}`;
+      const response = await (this.options.fetcher ?? fetch)(`${account ? PACKAGED_GATEWAY_URL : development!.url}/usage`, {
+        headers: { authorization },
+        redirect: "error",
+        signal: AbortSignal.any(signals),
+      });
+      if (!response.ok) return null;
+      const usage = sigmaUsageFromGateway(await response.json(), now);
+      if (usage) this.options.onAccountUsage?.(usage);
+      return usage;
+    } catch {
+      return null;
+    }
   }
 
   private async nodeCandidates(runtimeDir: string): Promise<string[]> {
@@ -498,15 +537,30 @@ export class DshHarnessClient {
       }
     }
 
-    const turnGateway = productionAccount && accountSignal
-      ? await startDshGatewaySession(PACKAGED_GATEWAY_URL, {
-        authorization: () => productionAccount.authorization(),
-        accountSignal: () => accountSignal,
-      })
-      : null;
-    if (turnGateway) cleanup.closeGateway = turnGateway.close;
-    const gateway = turnGateway ?? developmentGateway;
-    if (!gateway) return { finalText: "", sessionId: params.resumeSessionId, isError: true, errorMessage: "SIGMA AI gateway unavailable", cancelled: false };
+    // 開発時も配布版と同じローカル中継を通す。DSH へ渡すのはこの turn だけの鍵で、
+    // 中継が断った理由と使用量を main が読める。
+    const upstream = productionAccount && accountSignal
+      ? { url: PACKAGED_GATEWAY_URL, authorization: () => productionAccount.authorization(), signal: accountSignal }
+      : developmentGateway
+        ? { url: developmentGateway.url, authorization: async () => `Bearer ${developmentGateway.token}`, signal: new AbortController().signal }
+        : null;
+    if (!upstream) return { finalText: "", sessionId: params.resumeSessionId, isError: true, errorMessage: "SIGMA AI gateway unavailable", cancelled: false };
+    // 中継の応答は別の経路 (ローカルの HTTP) で届くので、入れ物に受ける。
+    const relay: { refusal: DshGatewayRefusal | null; stop: (() => void) | null } = { refusal: null, stop: null };
+    const gateway = await startDshGatewaySession(upstream.url, {
+      authorization: upstream.authorization,
+      accountSignal: () => upstream.signal,
+    }, this.options.fetcher ?? fetch, {
+      onRefusal: (refusal) => {
+        relay.refusal = refusal;
+        if (refusal.code && TERMINAL_REFUSAL_CODES.has(refusal.code)) relay.stop?.();
+      },
+      onUsage: (usage) => {
+        const contextUsage = chatCompletionContextUsage(usage, MODEL_CONTEXT_WINDOW);
+        if (contextUsage) params.onContextUsage?.(contextUsage);
+      },
+    });
+    cleanup.closeGateway = gateway.close;
 
     await fs.mkdir(this.options.patchDir, { recursive: true });
     await fs.mkdir(this.options.dshHome, { recursive: true });
@@ -574,6 +628,17 @@ export class DshHarnessClient {
       stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_CHARS);
     });
     child.stdin.on("error", () => { /* 橋渡しが先に終わったときの EPIPE は exit 側で扱う。 */ });
+
+    // 利用枠・プランで断られたら、中断と同じ手順で DSH を畳む (結果は中断ではなく失敗として返す)。
+    let refusedTerminally = false;
+    relay.stop = () => {
+      if (refusedTerminally) return;
+      refusedTerminally = true;
+      child.stdin.end();
+      const kill = setTimeout(() => child.kill("SIGKILL"), CANCEL_KILL_GRACE_MS);
+      kill.unref?.();
+      child.once("exit", () => clearTimeout(kill));
+    };
 
     let idleTimedOut = false;
     const idleLimit = this.options.turnIdleTimeoutMs ?? TURN_IDLE_TIMEOUT_MS;
@@ -673,6 +738,10 @@ export class DshHarnessClient {
     if (entry.cancelled) {
       return { finalText: finalText || lastText, sessionId, isError: false, errorMessage: null, cancelled: true };
     }
+    const refused = relay.refusal;
+    if (refusedTerminally && refused) {
+      return { finalText: finalText || lastText, sessionId, isError: true, errorMessage: refused.code, cancelled: false, refusal: refused };
+    }
     if (idleTimedOut) {
       return { finalText: finalText || lastText, sessionId, isError: true, errorMessage: "timeout", cancelled: false };
     }
@@ -686,6 +755,8 @@ export class DshHarnessClient {
       errorMessage,
       cancelled: false,
       ...(resumeFailed ? { resumeFailed: true } : {}),
+      // 回数制限など、DSH が再試行しても通らずに失敗した turn。理由を言葉にできるように添える。
+      ...(errorMessage !== null && refused ? { refusal: refused } : {}),
     };
   }
 }

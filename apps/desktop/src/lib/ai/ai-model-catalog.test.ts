@@ -7,7 +7,31 @@ import {
   getProviderReasoningEfforts,
   resolveAiModelOptions,
   resolveCatalogSelection,
+  shortAiModelLabel,
 } from "@/lib/ai/ai-model-catalog";
+import { createTranslator } from "@/lib/i18n";
+
+describe("the short model name on the composer button", () => {
+  const ja = createTranslator("ja", "ai");
+  const en = createTranslator("en", "ai");
+
+  it("drops the product name the logo already shows", () => {
+    expect(shortAiModelLabel("claude", { id: "claude-fable-5-2", label: "Claude Fable 5.2" }, ja)).toBe("Fable 5.2");
+    expect(shortAiModelLabel("claude", { id: "haiku", label: "Claude Haiku (latest)" }, ja)).toBe("Haiku");
+    // 一覧を取れず、ID がそのまま名前になっているとき。
+    expect(shortAiModelLabel("claude", { id: "claude-sonnet-5", label: "claude-sonnet-5" }, ja)).toBe("sonnet-5");
+    expect(shortAiModelLabel("chatgpt", { id: "gpt-5.5", label: "GPT-5.5" }, ja)).toBe("GPT-5.5");
+    expect(shortAiModelLabel("chatgpt", { id: "neon", label: "Neon" }, ja)).toBe("Neon");
+    expect(shortAiModelLabel("antigravity", { id: "gemini-x", label: "Gemini 3.5 Flash (High)" }, ja)).toBe("Gemini 3.5 Flash (High)");
+  });
+
+  it("names the automatic model in a word, and never returns a blank", () => {
+    expect(shortAiModelLabel("antigravity", { id: "auto", label: "自動（利用可能なモデル）" }, ja)).toBe("自動");
+    expect(shortAiModelLabel("antigravity", { id: "auto", label: "Automatic (available model)" }, en)).toBe("Auto");
+    expect(shortAiModelLabel("claude", { id: "claude", label: "Claude" }, ja)).toBe("Claude");
+    expect(shortAiModelLabel("chatgpt", { id: "gpt-x", label: "  " }, ja)).toBe("gpt-x");
+  });
+});
 
 describe("ai-model-catalog", () => {
   it("offers the latest-model aliases, never a pinned version, when Claude reports no catalog", () => {

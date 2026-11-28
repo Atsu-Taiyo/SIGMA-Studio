@@ -113,6 +113,7 @@ export function AiEditPanel({
   onRebaseStaleProposals,
   onForceApplyStaleProposals,
   onOpenAiSettings,
+  onOpenAiUsageSettings,
   onCloseInline,
   onPromoteToSidebar,
   onInlineRunAnchorChange,
@@ -725,7 +726,8 @@ export function AiEditPanel({
       onRemovePinnedReference={onRemovePinnedReference} lockedProvider={lockedProvider}
       composerVariant={composerVariant} inlineSessionId={inlineSessionId}
       onPromoteToSidebar={onPromoteToSidebar} historyLoading={historyLoading}
-      isRunning={isRunning} hasTurns={hasTurns} onSubmit={runEdit} />
+      isRunning={isRunning} hasTurns={hasTurns} onSubmit={runEdit}
+      contextUsage={activeRoom?.contextUsage ?? null} onOpenUsageSettings={onOpenAiUsageSettings} />
   );
 
   // Block the chat experience until the selected provider is connected, surfacing

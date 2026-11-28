@@ -49,7 +49,7 @@ import {
 } from "../electron/ai-edit-run-context";
 import { LocalMaterialStore } from "../electron/local-material-store";
 import { LocalAiResourceStore } from "../electron/ai-resource-store";
-import { isAiWebSearchEnabled, readDesktopSettingsSync, writeDesktopSettings } from "../electron/desktop-settings";
+import { isAiWebSearchEnabled, readAiReadOnlyModeSync, readDesktopSettingsSync, writeDesktopSettings } from "../electron/desktop-settings";
 import {
   getShapeBounds,
   normalizeCalloutCornerRadius,
@@ -3301,6 +3301,9 @@ const { registerTool, registerBodyImplementation, bodyImplementations } = create
   activityLogger: createToolActivityLogger(process.env),
   activeRunId: resolveActiveRunId,
   visualSessionRunId: (sessionId) => visualEditSessions.peek(sessionId)?.runId ?? undefined,
+  // AIの権限「読み取りのみ」。main と同じ settings.json を、呼び出しのたびに確かめる
+  // (ファイルが変わっていなければ読み直さない)。
+  readOnlyMode: () => readAiReadOnlyModeSync(storeContext.dataDir),
 });
 
 registerTool(

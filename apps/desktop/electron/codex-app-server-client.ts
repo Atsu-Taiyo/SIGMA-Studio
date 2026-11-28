@@ -780,6 +780,29 @@ export class CodexAppServerClient extends EventEmitter {
     );
   }
 
+  /**
+   * いまの利用枠 (`account/rateLimits/read` の `rateLimits`)。ChatGPT でサインインしていない・
+   * app-server が古いなど、読めないときは null。
+   */
+  async readRateLimits(options: { start?: boolean } = {}): Promise<unknown | null> {
+    // 使用量を見るためだけに app-server を起こさない (利用者が開いて確かめるときだけ起こす)。
+    if (!options.start && (!this.proc || !this.initialized)) {
+      return null;
+    }
+    try {
+      await this.ensureStarted();
+      const result = await this.request<{ rateLimits?: unknown }>(
+        "account/rateLimits/read",
+        // 使用率だけを読む。リセット回数の明細は別の問い合わせになるので頼まない。
+        { excludeResetCreditDetails: true },
+        8000,
+      );
+      return result?.rateLimits ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   private getDisplayCodexBin(): string {
     return this.configuredCodexBin ?? this.resolvedCodexBin ?? "codex";
   }
@@ -922,6 +945,11 @@ export class CodexAppServerClient extends EventEmitter {
   private handleNotification(notification: JsonRpcNotification): void {
     if (notification.method === "account/login/completed" || notification.method === "account/updated") {
       this.emit("statusChanged");
+      return;
+    }
+    // 利用枠 (5 時間・1 週間の窓) の知らせ。turn ではなくアカウントのものなので、ここで拾う。
+    if (notification.method === "account/rateLimits/updated") {
+      this.emit("rateLimits", getRecord(notification.params)?.rateLimits ?? null);
       return;
     }
 

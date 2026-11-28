@@ -31,6 +31,8 @@ import {
 import type { AiEditAttachment, AiEditMentionedDocumentContext } from "@/lib/ai/sigma-doc-agent-tools";
 import type { AiEditReasoningEffort } from "@/lib/ai/sigma-doc-edit-schema";
 import type { AiEditPlanStep, AiEditRunEvent, AiEditRunResult } from "@/lib/ai/ai-edit-runtime";
+import { parseAiContextUsage } from "@/lib/ai/ai-usage";
+import { ipcFailureReason } from "@/lib/ipc-failure-reason";
 import { SIGMA_AI_EDIT_MODEL, type AiProvider } from "@/lib/ai/ai-providers";
 import type {
   DesktopAiEditChatAttachmentSummary,
@@ -1054,10 +1056,20 @@ async function executeRun(
         activeAiEditRunIds.set(assistantTurnId, runId);
       },
       onEvent: (event) => {
-        if (isCurrentRun()) {
-          appendEventToTurn(roomId, assistantTurnId, event);
-          aiRunSessionStore.appendEvent(roomId, event);
+        if (!isCurrentRun()) {
+          return;
         }
+        // コンテキスト使用量の知らせは、会話の状態として持つ (履歴の行には並べない)。
+        // 保存は run の終わりの保存に任せる。
+        if (event.kind === "usage") {
+          const contextUsage = parseAiContextUsage(event.contextUsage);
+          if (contextUsage) {
+            updateRoomAndMaybePersist(roomId, (room) => ({ ...room, contextUsage }), { persist: false });
+          }
+          return;
+        }
+        appendEventToTurn(roomId, assistantTurnId, event);
+        aiRunSessionStore.appendEvent(roomId, event);
       },
     });
     preparingAiEditRuns.delete(assistantTurnId);
@@ -1090,7 +1102,8 @@ async function executeRun(
     if (!isCurrentRun()) {
       return;
     }
-    const errorMessage = error instanceof Error ? error.message : tAiNow("run.failed");
+    // main が返した理由だけを見せる (IPC の呼び出し名は利用者の文に混ぜない)。
+    const errorMessage = ipcFailureReason(error) || tAiNow("run.failed");
     const endedAt = Date.now();
     appendEventToTurn(roomId, assistantTurnId, { kind: "error", phase: "complete", message: errorMessage, timestamp: endedAt });
     updateRoomAndMaybePersist(roomId, (room) => ({

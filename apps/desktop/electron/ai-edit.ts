@@ -20,7 +20,9 @@ import {
   type AiEditModel,
   type AiEditReasoningEffort,
 } from "@/lib/ai/sigma-doc-edit-schema";
+import { codexContextUsage } from "@/lib/ai/ai-usage";
 import {
+  contextUsageEvent,
   getAttachmentDefaultInstruction,
   type AiEditAgentItemType,
   type AiEditPlanStep,
@@ -155,6 +157,8 @@ export async function runAiEditForIpc(args: {
   userDataPath?: string;
   /** aiWebSearchEnabled設定の現在値 (main.ts が run ごとに読み直して渡す)。 */
   webSearchEnabled?: boolean;
+  /** AIの権限が「読み取りのみ」(main が run ごとに読み直して渡す)。編集せずに返答で答える一文を足す。 */
+  readOnly?: boolean;
   /** True when ai-edit:cancel was requested between provider turns. */
   isCancelRequested?: () => boolean;
   /**
@@ -234,6 +238,7 @@ export async function runAiEditForIpc(args: {
     attachments,
     runId: args.runId,
     webSearchEnabled: args.webSearchEnabled,
+    readOnly: args.readOnly,
   }, locale) + `\n\n${tPrompt("generatedImages.guide")}`;
 
   emit(args.onEvent, {
@@ -610,6 +615,15 @@ function emitCodexTurnNotification(
         message: tv("run.thinking"),
         delta,
       });
+    }
+    return;
+  }
+
+  // Context size as of the latest model response (`tokenUsage.last`) and the model's window.
+  if (method === "thread/tokenUsage/updated") {
+    const contextUsage = codexContextUsage(params.tokenUsage);
+    if (contextUsage) {
+      onEvent(contextUsageEvent(contextUsage));
     }
     return;
   }

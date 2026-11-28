@@ -21,7 +21,7 @@ import { buildClaudeMcpConfig } from "../claude-mcp-config";
 import { runClaudeEditForIpc } from "../claude-edit";
 import type { ClaudeStreamClient } from "../claude-stream-client";
 import type { CodexAppServerClient } from "../codex-app-server-client";
-import { isAiWebSearchEnabled, readDesktopSettingsSync } from "../desktop-settings";
+import { isAiReadOnlyMode, isAiWebSearchEnabled, readDesktopSettingsSync } from "../desktop-settings";
 import { runGeminiEditForIpc } from "../gemini-edit";
 import type { DshHarnessClient } from "../dsh-harness-client";
 import { runSigmaEditForIpc } from "../sigma-edit";
@@ -69,6 +69,8 @@ function getRoomIdForProposalLifecycle(payload: unknown): string {
 }
 
 export interface RegisterAiEditIpcDeps {
+  /** 実行が終わった AI の利用枠を読み直す (待たない)。 */
+  refreshAiUsage?: (provider: AiEditProvider) => void;
   userDataPath: string;
   dataDir: string;
   localSigmaDocStore: LocalSigmaDocStore;
@@ -90,6 +92,7 @@ export interface RegisterAiEditIpcDeps {
 
 export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
   const {
+    refreshAiUsage,
     userDataPath,
     dataDir,
     localSigmaDocStore,
@@ -220,6 +223,9 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
     // 設定は run ごとに 1 度だけ読む (Web検索の可否と表示言語の両方をここから取る)。
     const runSettings = readDesktopSettingsSync(dataDir);
     const webSearchEnabled = isAiWebSearchEnabled(runSettings);
+    // AIの権限「読み取りのみ」。断るのは MCP サーバー (呼び出しのたびに設定を読む) で、ここで渡すのは
+    // 「編集せずに返答で答える」という一文をプロンプトへ足すための値。
+    const readOnly = isAiReadOnlyMode(runSettings);
     // プロンプトを組む言語も run ごとに読み直す (設定はturn間で変わりうる)。**main には
     // renderer の React context が無い**ので、ここで解決して各 provider へ引き回す。
     // 教材の中身の言語はこれとは独立で、`prompt.documentLanguagePolicy` が文書に従わせる。
@@ -272,6 +278,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
                 userDataPath,
                 webSearchEnabled,
                 locale,
+                readOnly,
                 isCancelRequested: () => cancelRequestedAiEditRuns.has(runId),
                 cwd: agentWorkspaceDir,
                 mcpConfig: buildClaudeMcpConfig({
@@ -303,6 +310,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
                 runId,
                 userDataPath,
                 locale,
+                readOnly,
                 isCancelRequested: () => cancelRequestedAiEditRuns.has(runId),
                 cwd: agentWorkspaceDir,
                 mcp: {
@@ -350,6 +358,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
                 userDataPath,
                 webSearchEnabled,
                 locale,
+                readOnly,
                 isCancelRequested: () => cancelRequestedAiEditRuns.has(runId),
                 cwd: agentWorkspaceDir,
                 onEvent: emitAiEditEvent,
@@ -372,6 +381,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
               userDataPath,
               webSearchEnabled,
               locale,
+              readOnly,
               isCancelRequested: () => cancelRequestedAiEditRuns.has(runId),
               cwd: agentWorkspaceDir,
               onEvent: emitAiEditEvent,
@@ -424,6 +434,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
     } finally {
       activeAiEditRuns.delete(runId);
       cancelRequestedAiEditRuns.delete(runId);
+      refreshAiUsage?.(provider);
     }
   });
 

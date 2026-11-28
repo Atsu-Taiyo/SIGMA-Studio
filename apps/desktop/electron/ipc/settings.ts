@@ -3,6 +3,7 @@ import { createCurrentLocaleTranslator, setAppLocale } from "@/lib/i18n";
 
 const te = createCurrentLocaleTranslator("error");
 
+import { aiPermissionModeSettings, parseAiPermissionMode, resolveAiPermissionMode } from "@/lib/ai/ai-permission-mode";
 import type { CodexAppServerClient } from "../codex-app-server-client";
 import {
   isAiWebSearchEnabled,
@@ -32,6 +33,7 @@ export function registerSettingsIpc(deps: RegisterSettingsIpcDeps): void {
       hasCommandShortcuts: "commandShortcuts" in settings,
       hasCustomCommands: "customCommands" in settings,
       aiAutoApplyVerifiedProposals: settings.aiAutoApplyVerifiedProposals ?? false,
+      aiPermissionMode: resolveAiPermissionMode(settings),
       aiWebSearchEnabled: isAiWebSearchEnabled(settings),
       // 既定 (ja) はキーごと削除される保存形式なので、未設定は null で返す。
       // ここで既定値に解決してしまうと、初回起動でOSロケール検出が効かなくなる。
@@ -76,6 +78,19 @@ export function registerSettingsIpc(deps: RegisterSettingsIpcDeps): void {
   ipcMain.handle("settings:set-ai-auto-apply-verified-proposals", async (_event, value: unknown) => {
     await writeDesktopSettings(dataDir, { aiAutoApplyVerifiedProposals: value === true });
     // 設定をONにした直後、既存の検証済みpending提案がすでにあれば即座に自動承認する。
+    scheduleAutoApplyCheck();
+    return { ok: true };
+  });
+
+  // AIの権限 (読み取りのみ / 承認を求める / 自動で適用)。2 つの設定を 1 回の書き込みでそろえる。
+  // 走っている実行には次のツール呼び出しから効く (MCPサーバーが呼び出しのたびに設定を読む)。
+  ipcMain.handle("settings:set-ai-permission-mode", async (_event, value: unknown) => {
+    const mode = parseAiPermissionMode(value);
+    if (!mode) {
+      return { ok: false, error: te("electron.settings.invalidPermissionMode") };
+    }
+    await writeDesktopSettings(dataDir, aiPermissionModeSettings(mode));
+    // 「自動で適用」にした直後、既存の検証済みpending提案がすでにあれば即座に自動承認する。
     scheduleAutoApplyCheck();
     return { ok: true };
   });

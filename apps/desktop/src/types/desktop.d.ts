@@ -1,5 +1,7 @@
 import type { AiEditReference } from "@/lib/ai/ai-edit-reference";
 import type { AiProvider } from "@/lib/ai/ai-providers";
+import type { AiPermissionMode } from "@/lib/ai/ai-permission-mode";
+import type { AiContextUsage, AiUsageSnapshot } from "@/lib/ai/ai-usage";
 import type { AiImageAnnotation } from "@/lib/ai/ai-image-annotations";
 import type { AiEditPlanStep, AiEditRunEvent, AiEditRunResult } from "@/lib/ai/ai-edit-runtime";
 import type { AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
@@ -79,6 +81,8 @@ export interface DesktopAiEditChatRoom {
   // thread never switches providers mid-conversation. Undefined for rooms that
   // predate this field / have not run yet.
   provider?: AiProvider;
+  /** この会話のコンテキスト使用量 (最後の応答の時点)。AI が知らせた会話にだけ付く。 */
+  contextUsage?: AiContextUsage;
   createdAt: string;
   updatedAt: string;
   turns: DesktopAiEditChatTurn[];
@@ -112,6 +116,8 @@ export interface DesktopSettingsAPI {
     hasCommandShortcuts?: boolean;
     hasCustomCommands?: boolean;
     aiAutoApplyVerifiedProposals?: boolean;
+    /** AIの権限 (読み取りのみ / 承認を求める / 自動で適用)。lib/ai/ai-permission-mode.ts。 */
+    aiPermissionMode?: AiPermissionMode;
     aiWebSearchEnabled?: boolean;
     /** UIの表示言語。settings.jsonが正本。未設定はnullで、レンダラ側のOSロケール検出に委ねる。 */
     uiLocale?: "ja" | "en" | null;
@@ -124,6 +130,8 @@ export interface DesktopSettingsAPI {
   }): Promise<DesktopStorageResult>;
   /** MCPサーバーが検証済みと報告した pending 提案を、baseRevisionが現在と一致する場合に限り自動承認する。既定false。 */
   setAiAutoApplyVerifiedProposals?(value: boolean): Promise<DesktopStorageResult>;
+  /** AIの権限を選ぶ。読み取りのみ・自動承認の 2 つの設定を 1 度にそろえる。 */
+  setAiPermissionMode?(value: AiPermissionMode): Promise<DesktopStorageResult>;
   /** AIエージェント (Codex/Claude/Antigravity) にWeb検索を許可する。既定true (未設定は有効扱い)。 */
   setAiWebSearchEnabled?(value: boolean): Promise<DesktopStorageResult>;
   /** UIの表示言語。既定(ja)を渡すとキーごと削除される。 */
@@ -422,6 +430,15 @@ export interface DesktopSigmaAiStatus {
   modelLabel: string;
   unavailableReason: "gateway" | "runtime" | "node" | "plan" | null;
   error: string | null;
+}
+
+/** AIの利用枠 (AIごとの使用率とリセットの時刻)。値は main が各 AI から受け取ったもの。 */
+export interface DesktopAiUsageAPI {
+  /** 覚えている値をすぐ返す (問い合わせない)。 */
+  get(): Promise<AiUsageSnapshot>;
+  /** AI に問い合わせてから返す。provider を省くと、問い合わせられる AI すべて。 */
+  refresh(provider?: AiProvider): Promise<AiUsageSnapshot>;
+  onChanged(handler: (snapshot: AiUsageSnapshot) => void): () => void;
 }
 
 export interface DesktopSigmaAiAPI {
@@ -980,6 +997,7 @@ export interface DesktopAPI {
   claude?: DesktopClaudeAPI;
   gemini?: DesktopGeminiAPI;
   sigmaAi?: DesktopSigmaAiAPI;
+  aiUsage?: DesktopAiUsageAPI;
   aiEdit: DesktopAiEditAPI;
   authoringStyle?: import("@/lib/ai/authoring-style").AuthoringStyleAPI;
   aiResources?: DesktopAiResourcesAPI;

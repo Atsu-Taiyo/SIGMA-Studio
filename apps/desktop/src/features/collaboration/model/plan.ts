@@ -28,6 +28,8 @@ export const PRO_PLAN_FEATURES = [
   "unlimitedDocuments",
   "workspaceSharing",
   "roles",
+  // 内蔵AI (SIGMA AI) の利用枠。枠の大きさは中継の表が決める (docs/sigma-ai.md の「利用枠」)。
+  "sigmaAi",
 ] as const;
 export type ProPlanFeature = (typeof PRO_PLAN_FEATURES)[number];
 

@@ -1,6 +1,7 @@
 import type { AppLocale } from "@/lib/i18n";
 import { tv } from "@/lib/ai/validation-locale";
 import {
+  contextUsageEvent,
   type AiEditRunEvent,
   type AiEditRunResult,
 } from "@/lib/ai/ai-edit-runtime";
@@ -77,7 +78,7 @@ function buildClaudeDescriptor(images: ClaudeImageInput[], documents: ClaudePdfI
       return { instruction: prompt };
     },
 
-    async runTurn({ client, instruction, model, reasoningEffort, agentThreadId, mcpConfig, webSearchEnabled, runId, cwd, onDelta, onToolUse, onToolResult }) {
+    async runTurn({ client, instruction, model, reasoningEffort, agentThreadId, mcpConfig, webSearchEnabled, runId, cwd, onEvent, onDelta, onToolUse, onToolResult }) {
       const result = await client.runTurn({
         instruction,
         images,
@@ -92,6 +93,7 @@ function buildClaudeDescriptor(images: ClaudeImageInput[], documents: ClaudePdfI
         onDelta,
         onToolUse,
         onToolResult,
+        onContextUsage: usage => onEvent(contextUsageEvent(usage)),
       });
 
       if (result.cancelled) {
@@ -145,6 +147,8 @@ export async function runClaudeEditForIpc(args: {
   mcpConfig?: unknown;
   /** aiWebSearchEnabled設定の現在値; see ClaudeRunTurnParams.webSearchEnabled. */
   webSearchEnabled?: boolean;
+  /** AIの権限が「読み取りのみ」(main が run ごとに読み直して渡す)。編集せずに返答で答える一文を足す。 */
+  readOnly?: boolean;
   /** This run's id; told to the agent so it can pass it back as the app-context tools' `runId` argument. */
   runId?: string;
   /** Electron userData path used to read the per-run visual-session status file. */
@@ -170,6 +174,7 @@ export async function runClaudeEditForIpc(args: {
       suppressFinalPhase: true,
       mcpConfig: args.mcpConfig,
       webSearchEnabled: args.webSearchEnabled,
+      readOnly: args.readOnly,
       runId: args.runId,
       cwd: args.cwd,
     });

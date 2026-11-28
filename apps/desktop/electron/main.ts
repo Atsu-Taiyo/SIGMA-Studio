@@ -71,6 +71,10 @@ import { registerTikzIpc } from "./ipc/tikz";
 import { assertUsableCliBinPath } from "./cli-spawn";
 import { registerCodexIpc } from "./ipc/codex";
 import { registerAiEditIpc } from "./ipc/ai-edit";
+import { registerAiUsageIpc } from "./ipc/ai-usage";
+import { AiUsageStore } from "./ai-usage-store";
+import { claudeUsageFromRateLimitInfo, codexUsageFromRateLimits } from "@/lib/ai/ai-usage";
+import type { AiProvider } from "@/lib/ai/ai-providers";
 import { registerAuthoringStyleIpc } from "./ipc/authoring-style";
 import { runToollessPrompt } from "./ai-skill-draft";
 import { registerAiResourcesIpc } from "./ipc/ai-resources";
@@ -340,9 +344,14 @@ const claudeStreamClient = new ClaudeStreamClient({
   }),
   claudeBin: process.env.SIGMA_STUDIO_CLAUDE_BIN?.trim() || usablePersistedBin(desktopSettings.claudeBin),
 });
+// AIごとの利用枠 (使用率とリセットの時刻)。受け取るたびに、開いている画面へ知らせる。
+const aiUsageStore = new AiUsageStore(path.join(SIGMA_STUDIO_DATA_PATH, "ai-usage.json"), (snapshot) => {
+  for (const win of BrowserWindow.getAllWindows()) win.webContents.send("ai-usage:changed", snapshot);
+});
 // 内蔵AI (SIGMA AI)。エージェントは DeepSeek Harness で、実行環境はアプリ本体の依存とは
 // 別に置く (配布物では resources、開発時は apps/desktop/dsh-runtime)。
 const dshHarnessClient = new DshHarnessClient({
+  onAccountUsage: usage => aiUsageStore.set(usage),
   dshHome: path.join(SIGMA_STUDIO_DATA_PATH, "sigma-ai", "dsh-home"),
   patchDir: path.join(SIGMA_STUDIO_DATA_PATH, "sigma-ai", "patches"),
   packaged: app.isPackaged,
@@ -357,6 +366,26 @@ const dshHarnessClient = new DshHarnessClient({
     entitlementAccount: () => collaborationSessions.actorId(),
   } : {}),
 });
+/**
+ * 問い合わせられる AI の利用枠を読み直す。Claude は実行中に届く知らせだけ (下の rateLimit)、
+ * Antigravity は利用枠を知らせないので、ここでは何もしない。
+ */
+async function refreshAiUsage(providers: readonly AiProvider[], options: { start: boolean }): Promise<void> {
+  await Promise.all(providers.map(async (provider) => {
+    if (provider === "sigma") {
+      // 利用枠はアカウントのもの。サインインしていないなら、前の人の値を残さない。
+      if (app.isPackaged && !collaborationSessions.actorId()) {
+        aiUsageStore.reset("sigma");
+        return;
+      }
+      // 読めた値は onAccountUsage が覚える。
+      await dshHarnessClient.getUsage();
+    } else if (provider === "chatgpt") {
+      const usage = codexUsageFromRateLimits(await codexAppServerClient.readRateLimits(options), Date.now(), aiUsageStore.get().chatgpt);
+      if (usage) aiUsageStore.set(usage);
+    }
+  }));
+}
 // 道具を持たせない 1 回の問い合わせ (スキルの下書き・枠の描画・作風の要約) の作業ディレクトリ。
 const SIGMA_AI_TOOLLESS_CWD = path.join(SIGMA_STUDIO_DATA_PATH, "sigma-ai", "toolless");
 const geminiAgentWorkspaceDir = path.join(SIGMA_STUDIO_DATA_PATH, "antigravity-agent-workspace");
@@ -1700,7 +1729,11 @@ function registerIpc() {
     openExternalUrl,
   });
 
+  registerAiUsageIpc({ read: () => aiUsageStore.get(), refresh: refreshAiUsage });
+
   registerAiEditIpc({
+    // 実行が終わるたびに、その AI の利用枠を読み直す (使った分がすぐ画面に出る)。
+    refreshAiUsage: provider => void refreshAiUsage([provider], { start: false }).catch(() => {}),
     userDataPath: USER_DATA_PATH,
     dataDir: SIGMA_STUDIO_DATA_PATH,
     localSigmaDocStore,
@@ -1790,6 +1823,15 @@ app.whenReady().then(async () => {
   });
   codexAppServerClient.on("statusChanged", broadcastCodexStatusChange);
   claudeStreamClient.on("statusChanged", broadcastClaudeStatusChange);
+  // 利用枠の知らせ。Claude は変わった窓だけ、Codex も変わった分だけを送るので、前の値に重ねる。
+  claudeStreamClient.on("rateLimit", (info: unknown) => {
+    const usage = claudeUsageFromRateLimitInfo(info, aiUsageStore.get().claude, Date.now());
+    if (usage) aiUsageStore.set(usage);
+  });
+  codexAppServerClient.on("rateLimits", (snapshot: unknown) => {
+    const usage = codexUsageFromRateLimits(snapshot, Date.now(), aiUsageStore.get().chatgpt);
+    if (usage) aiUsageStore.set(usage);
+  });
   registerIpc();
   buildMenu();
   applyDockIcon();

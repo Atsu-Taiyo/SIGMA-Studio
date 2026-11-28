@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { createMcpToolRegistrar, type McpToolRegistrarOptions } from "./sigma-doc-mcp-tool-registrar";
+import { createMcpToolRegistrar, READ_ONLY_MODE_REFUSAL, type McpToolRegistrarOptions } from "./sigma-doc-mcp-tool-registrar";
 import { withToolErrorHandling } from "./sigma-doc-mcp-response";
 import {
   clearSourceLedgerForTests,
@@ -179,5 +179,47 @@ describe("MCP call instrumentation", () => {
       isError: true,
       content: [{ type: "text", text: "failed" }],
     });
+  });
+});
+
+describe("the read-only permission", () => {
+  it("runs read tools and refuses every other tool without running it, as soon as the setting changes", async () => {
+    let readOnly = true;
+    const ran: string[] = [];
+    const activityLogger = vi.fn();
+    const { server, registerTool } = createRegistrar({ readOnlyMode: () => readOnly, activityLogger });
+    const tool = (name: string) => registerTool(name, { description: name, inputSchema: {} }, async () => {
+      ran.push(name);
+      return successfulResult();
+    });
+    // 読み取り / 提案を作る / 教材を直接書く / AI の設定を変える、のそれぞれ。
+    for (const name of ["read_local_document", "insert_content", "create_local_document", "update_ai_settings"]) tool(name);
+    const client = await connect(server);
+
+    expect((await client.callTool({ name: "read_local_document", arguments: {} })).isError).toBeFalsy();
+    for (const name of ["insert_content", "create_local_document", "update_ai_settings"]) {
+      const result = await client.callTool({ name, arguments: {} });
+      expect(result.isError).toBe(true);
+      // やり直さず、利用者へ伝える分類で返す。
+      expect(result.structuredContent).toMatchObject({
+        ok: false,
+        error: { code: "PERMISSION_DENIED", retryable: false, message: READ_ONLY_MODE_REFUSAL },
+      });
+    }
+    expect(ran).toEqual(["read_local_document"]);
+    expect(activityLogger).toHaveBeenCalledWith(expect.objectContaining({ tool: "insert_content", status: "failed" }));
+    expect(activityLogger).not.toHaveBeenCalledWith(expect.objectContaining({ tool: "insert_content", status: "started" }));
+
+    // 利用者が権限を戻したら、同じ実行の次の呼び出しから通る (MCP サーバーの再起動を待たない)。
+    readOnly = false;
+    expect((await client.callTool({ name: "insert_content", arguments: {} })).isError).toBeFalsy();
+    expect(ran).toEqual(["read_local_document", "insert_content"]);
+  });
+
+  it("is off unless the host says otherwise", async () => {
+    const { server, registerTool } = createRegistrar();
+    registerTool("insert_content", { description: "insert", inputSchema: {} }, successfulResult);
+    const client = await connect(server);
+    expect((await client.callTool({ name: "insert_content", arguments: {} })).isError).toBeFalsy();
   });
 });
