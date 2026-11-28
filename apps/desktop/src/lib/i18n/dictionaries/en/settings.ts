@@ -805,6 +805,14 @@ export const settings = {
       checking: "Checking",
     },
   },
+  usage: {
+    title: "Usage",
+    description: "How much of each AI's usage limits you have used. Context usage for a conversation is shown in the chat input.",
+    refresh: "Refresh",
+    refreshing: "Refreshing…",
+    sigmaNote: "The SIGMA AI allowance comes with your plan and resets one week after you first use it. Once it is used up, your own Claude, ChatGPT and Antigravity still work.",
+    claudeNote: "Claude reports its limits while it runs, so this shows the values from your last run.",
+  },
   provider: {
     section: "AI agents",
     tabsAria: "AI agent settings",
@@ -826,9 +834,9 @@ export const settings = {
     select: "Choose {{label}}",
     busy: "Working",
     autoDetect: "Auto-detect",
-    autoApply: {
-      label: "Auto-apply verified proposals",
-      description: "Automatically applies edits the MCP server reported as verified, but only while the material's revision is unchanged.",
+    permission: {
+      label: "AI permission",
+      description: "Choose how far the AI may change your materials. You can also switch this from the chat input. This setting is saved on this device.",
     },
     webSearch: {
       label: "Allow the AI to search the web",
@@ -888,7 +896,8 @@ export const settings = {
       update: "update version release 更新 バージョン",
       dataDir: "data directory folder location 保存先 フォルダ",
       aiAgents: "AI agent codex claude antigravity gemini connection エージェント",
-      autoApply: "auto apply proposal verified 自動適用 提案",
+      autoApply: "permission read only approval auto apply proposal verified 権限 読み取りのみ 自動適用 提案",
+      usage: "usage limit quota rate context allowance 使用状況 使用量 利用枠 上限",
       webSearch: "web search internet citation Web検索 出典",
       paper: "paper size A4 A3 B5 B4 orientation 用紙 向き",
       margins: "margin margins top bottom left right 余白",

@@ -311,6 +311,12 @@ export interface BuildMcpEditTurnPromptArgs {
    * 変わりうるため、静的ガイダンスではなく意図的に per-turn で送る (resumed turn 含む)。
    */
   webSearchEnabled?: boolean;
+  /**
+   * AIの権限が「読み取りのみ」(aiReadOnlyMode)。true のときだけ、編集せずに返答で答えるよう
+   * turn プロンプトで伝える。断るのは MCP サーバー (読み取り以外のツールを実行しない) で、
+   * この一文は AI が断られるツールを試さずに済むようにするためのもの。
+   */
+  readOnly?: boolean;
 }
 
 // 複数参照 (最大8件) の連結分の余裕を持たせる。
@@ -395,6 +401,7 @@ function turnPromptTailLines(args: BuildMcpEditTurnPromptArgs, t: PromptTranslat
     formatReferenceSection(args.referenceText, t),
     mentionsGraphContext(args.instruction, args.referenceText) ? section(t, "editGraphExamples") : "",
     args.webSearchEnabled ? section(t, "webSearch") : "",
+    args.readOnly ? section(t, "readOnlyMode") : "",
     "",
     t("turn.userInstruction"),
     args.instruction,

@@ -6,7 +6,7 @@ import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/
 import { z } from "zod";
 
 import type { BodyImplementationName, BodyToolImplementation } from "./sigma-doc-mcp-app-tools";
-import { ToolOutputEnvelopeSchema } from "./sigma-doc-mcp-response";
+import { ToolOutputEnvelopeSchema, toolErrorResult } from "./sigma-doc-mcp-response";
 import { recordDocumentRead } from "./sigma-doc-mcp-source-ledger";
 import { runWithMcpToolStats } from "./sigma-doc-mcp-stats";
 import type { ToolActivityLogger } from "./tool-activity";
@@ -46,10 +46,24 @@ interface ToolRegistrationConfig<InputSchema> {
   _meta?: Record<string, unknown>;
 }
 
+/**
+ * AIの権限が「読み取りのみ」のときに、読み取り以外のツールへ返す文。
+ * 「権限」を含めることで、応答の分類が PERMISSION_DENIED (やり直さず利用者へ伝える) になる。
+ */
+export const READ_ONLY_MODE_REFUSAL =
+  "AIの権限が「読み取りのみ」のため、このツールは使えません。教材を読んで答えることはできます。"
+  + "編集が必要なら、チャットの入力欄にある権限を「承認を求める」に変えるよう利用者へ伝えてください。";
+
 export interface McpToolRegistrarOptions {
   activityLogger: ToolActivityLogger;
   activeRunId?: () => string | undefined;
   visualSessionRunId: (sessionId: string) => string | undefined;
+  /**
+   * AIの権限が「読み取りのみ」か。呼び出しのたびに聞く (利用者が途中で切り替えても、次の呼び出しから効く)。
+   * true の間は READ_ONLY_TOOL_NAMES 以外を実行せずに断る。提案を作るツールも、教材・設定・スキルを
+   * 直接書くツールも同じ扱いで、どの AI・どの MCP クライアントから呼ばれても変わらない。
+   */
+  readOnlyMode?: () => boolean;
 }
 
 /**
@@ -102,6 +116,10 @@ export function createMcpToolRegistrar(server: McpServer, options: McpToolRegist
       // hits is later exposed as a proposal source reference.
       if (READ_ONLY_TOOL_NAMES.has(name) && typeof toolArgs?.fileId === "string") {
         recordDocumentRead(runId, toolArgs.fileId);
+      }
+      if (!READ_ONLY_TOOL_NAMES.has(name) && options.readOnlyMode?.() === true) {
+        activityLogger({ callId, tool: name, runId, status: "failed" });
+        return toolErrorResult(new Error(READ_ONLY_MODE_REFUSAL));
       }
       activityLogger({ callId, tool: name, runId, status: "started" });
       const result = await runWithMcpToolStats(name, runId, async () => {

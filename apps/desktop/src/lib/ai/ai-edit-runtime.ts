@@ -1,6 +1,7 @@
 import type { SigmaDocAgentToolName } from "@/lib/ai/sigma-doc-agent-tools";
 import { createCurrentLocaleTranslator, type Translate } from "@/lib/i18n";
 import type { AiEditSessionDocumentDraft } from "@/lib/ai/sigma-doc-edit-schema";
+import type { AiContextUsage } from "@/lib/ai/ai-usage";
 
 /** 既定指示は入力欄に入るので、表示言語に連動させる。 */
 const tPromptNow = createCurrentLocaleTranslator("prompt");
@@ -95,7 +96,11 @@ export interface AiEditRunEventImage {
 }
 
 export interface AiEditRunEvent {
-  kind: AiEditRunLogEntry["kind"] | "phase" | "stream" | "error" | "plan" | "activity";
+  /**
+   * "usage" は会話のコンテキスト使用量の知らせ (`contextUsage`)。チャットの履歴には並べず、
+   * 会話 (room) の状態として持つ。
+   */
+  kind: AiEditRunLogEntry["kind"] | "phase" | "stream" | "error" | "plan" | "activity" | "usage";
   phase: AiEditRunPhase;
   message: string;
   timestamp: number;
@@ -116,6 +121,13 @@ export interface AiEditRunEvent {
   planExplanation?: string;
   /** MCP tool-result PNG previews attached to this event (e.g. an mcpToolCall's render/verification screenshot). */
   images?: AiEditRunEventImage[];
+  /** For kind "usage": the conversation's context size as of the model's latest response. */
+  contextUsage?: AiContextUsage;
+}
+
+/** コンテキスト使用量の知らせ。どの AI のクライアントも、この形で run のイベントに載せる。 */
+export function contextUsageEvent(contextUsage: AiContextUsage): AiEditRunEvent {
+  return { kind: "usage", phase: "streaming", message: "", timestamp: Date.now(), contextUsage };
 }
 
 // Preview images are convenient for watching what the agent checked, but they

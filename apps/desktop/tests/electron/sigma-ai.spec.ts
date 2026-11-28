@@ -93,6 +93,9 @@ test("the built-in AI edits through DeepSeek Harness: reads the material, propos
     await page.waitForFunction(() => Boolean(window.desktopAPI));
     await page.evaluate(() => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true, ribbonCollapsed: false }));
+      // 使い方・Star の誘いは時間がたつとサイドチャットの下に重なり、遅い端末では承認ボタンや入力欄を塞ぐ。
+      localStorage.setItem("sigma-studio:usage-guide-dismissed:v1", "1");
+      localStorage.setItem("sigma-studio:github-star-dismissed:v1", "1");
     });
     await page.reload();
     await expect(page.getByText("次の図を見て答えなさい。").first()).toBeVisible({ timeout: 180_000 });
@@ -209,6 +212,9 @@ test("the built-in AI never overwrites a person's concurrent edit: edits made af
     await page.waitForFunction(() => Boolean(window.desktopAPI));
     await page.evaluate(() => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true, ribbonCollapsed: false }));
+      // 使い方・Star の誘いは時間がたつとサイドチャットの下に重なり、遅い端末では承認ボタンや入力欄を塞ぐ。
+      localStorage.setItem("sigma-studio:usage-guide-dismissed:v1", "1");
+      localStorage.setItem("sigma-studio:github-star-dismissed:v1", "1");
     });
     await page.reload();
     await expect(page.getByText("The cat sat on the mat.").first()).toBeVisible({ timeout: 180_000 });
@@ -264,6 +270,141 @@ test("the built-in AI never overwrites a person's concurrent edit: edits made af
   }
 });
 
+// 使用状況と権限を、実アプリで通す。モデルの応答と中継の利用枠だけが偽物で、
+// ローカル中継・dsh・MCP サーバー・設定ファイルは本物。
+//   (1) 権限「読み取りのみ」: 設定に保存され、AI が編集ツールを呼んでも MCP サーバーが断り、提案は作られない。
+//   (2) 応答の使用量がコンテキストの輪に出て、中継の利用枠が入力欄と AI設定に出る。
+//   (3) 利用枠を使い切ると、送る前に一行で分かり、送っても上限の文で止まる (再試行で粘らない)。
+test("the built-in AI shows context and allowance, obeys the read-only permission, and stops when the week's allowance is used up", async ({}, testInfo) => {
+  test.setTimeout(300_000);
+  const triangle = /```svg\r?\n([\s\S]*?)```/u.exec(readFileSync(SVG_SKILL, "utf8"))![1]!.trim();
+  const resetsAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+  const seen: { prompts: string[]; refusals: string[] } = { prompts: [], refusals: [] };
+  const gateway = await startGatewayFixture((request, index) => {
+    const { fileId, runId } = identifiers(request);
+    if (index === 0) {
+      seen.prompts.push(promptOf(request));
+      // 権限を無視して編集しようとするモデル。断るのは指示ではなく MCP サーバー。
+      return { tool: TOOL("insert_svg_image"), arguments: { fileId, runId, expectedRevision: 0, targetId: "lead", svg: triangle, name: "三角形", w: 320 } };
+    }
+    if (index === 1) {
+      seen.refusals.push(toolResults(request)[0] ?? "");
+      return { tool: TOOL("get_edit_context"), arguments: { fileId, runId } };
+    }
+    return { text: "この教材は1つの段落だけでできています。" };
+  });
+  gateway.allowance = { plan: "pro", included: true, weekly: { usedRatio: 0.42, resetsAt, reached: false } };
+  const profile = mkdtempSync(path.join(os.tmpdir(), "sigma-ai-usage-"));
+  const env = launchEnv(profile, gateway);
+  const source = ensurePageLayout({
+    ...sampleDocument,
+    docId: "sigma_ai_usage",
+    metadata: { title: "内蔵AIの使用状況" },
+    content: [{ type: "paragraph", id: "lead", children: [{ type: "text", text: "次の図を見て答えなさい。" }] }],
+  });
+  const sourceFile = path.join(profile, "内蔵AIの使用状況.sigma");
+  writeFileSync(sourceFile, JSON.stringify(source));
+  const settingsFile = () => JSON.parse(readFileSync(path.join(profile, "data", "settings.json"), "utf8")) as Record<string, unknown>;
+
+  const app = await electron.launch({ args: [APP_ROOT, sourceFile], cwd: APP_ROOT, env });
+  try {
+    const page = await app.firstWindow();
+    await page.waitForURL(/^(https?|file):/u, { timeout: 120_000 });
+    await page.waitForFunction(() => Boolean(window.desktopAPI));
+    await page.evaluate(() => {
+      localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true, ribbonCollapsed: false }));
+      // 使い方・Star の誘いは時間がたつとサイドチャットの下に重なり、遅い端末では承認ボタンや入力欄を塞ぐ。
+      localStorage.setItem("sigma-studio:usage-guide-dismissed:v1", "1");
+      localStorage.setItem("sigma-studio:github-star-dismissed:v1", "1");
+    });
+    await page.reload();
+    await expect(page.getByText("次の図を見て答えなさい。").first()).toBeVisible({ timeout: 180_000 });
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    const fileId = (await page.evaluate(() => window.desktopAPI!.storage.listFiles())).find((file) => file.title === "内蔵AIの使用状況")!.fileId;
+    const pending = async () => (await page.evaluate(() => window.desktopAPI!.storage.listMcpEditProposals({ status: "pending" })))
+      .filter((proposal) => proposal.fileId === fileId);
+
+    const sidebar = await openSideChat(page);
+    const composer = sidebar.locator(".ai-chat-composer textarea");
+    await expect(composer).toBeVisible();
+
+    // (1) 権限のピル。既定は「承認を求める」で、選ぶと設定ファイルに入る。
+    const permission = sidebar.getByRole("button", { name: /^AIの権限: / });
+    await expect(permission).toHaveAccessibleName("AIの権限: 承認を求める");
+    await permission.click();
+    await expect(page.getByRole("menuitemradio")).toHaveCount(3);
+    await keep(testInfo, "permission-menu", await page.screenshot());
+    await page.getByRole("menuitemradio", { name: /^読み取りのみ/ }).click();
+    await expect(permission).toHaveAccessibleName("AIの権限: 読み取りのみ");
+    await expect.poll(() => settingsFile().aiReadOnlyMode).toBe(true);
+
+    await composer.fill("冒頭の文の下に三角形の図を入れて。");
+    await sidebar.locator(".ai-chat-send-button").click();
+    await expect(sidebar).toContainText("この教材は1つの段落だけでできています。", { timeout: 180_000 });
+    // 指示にも一文が入り、それを無視した編集ツールは MCP サーバーが断る。読み取りツールは通る。
+    expect(seen.prompts[0]).toContain("利用者はAIの権限を「読み取りのみ」にしています。");
+    expect(seen.refusals[0]).toContain("PERMISSION_DENIED");
+    expect(seen.refusals[0]).toContain("AIの権限が「読み取りのみ」のため、このツールは使えません。");
+    expect(toolResults(gateway.requests[2]!)[0]).not.toContain("PERMISSION_DENIED");
+    expect(await pending()).toEqual([]);
+    expect((await page.evaluate((id) => window.desktopAPI!.storage.loadDocument(id), fileId))!.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []).toEqual([]);
+
+    // (2) 応答の使用量 (偽の中継は 1 応答 120 トークン) が輪に出て、押すと利用枠も出る。
+    const usage = sidebar.getByRole("button", { name: /^使用状況/ });
+    await expect(usage).toHaveAccessibleName("使用状況: コンテキスト 1%");
+    await usage.click();
+    const popover = page.getByRole("dialog", { name: "使用状況" });
+    await expect(popover).toContainText("120 / 1M トークン (1%)");
+    await expect(popover).toContainText("SIGMA AI の利用枠");
+    await expect(popover).toContainText("42% 使用");
+    await expect(popover).toContainText("にリセット");
+    await keep(testInfo, "usage-popover", await page.screenshot());
+
+    // AI設定の「使用状況」には、すべての AI が並ぶ。
+    await popover.getByRole("button", { name: "すべてのAIの使用状況" }).click();
+    const settings = page.locator(".ai-settings-dialog");
+    await expect(settings.locator("#ai-settings-usage")).toBeVisible();
+    const sigmaRow = settings.locator('.ai-usage-provider[data-provider="sigma"]');
+    await expect(sigmaRow).toContainText("プラン: Pro");
+    await expect(sigmaRow.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "42");
+    await expect(settings.locator('.ai-usage-provider[data-provider="antigravity"]')).toContainText("このAIは利用枠を知らせません。");
+    await keep(testInfo, "usage-settings", await page.screenshot());
+    // 同じ画面の「接続・動作」で権限を戻すと、入力欄のピルも同じ値になる。
+    await settings.getByRole("button", { name: "接続・動作" }).click();
+    await settings.getByTestId("desktop-settings-ai-permission").click();
+    await page.getByRole("option", { name: /^承認を求める/ }).click();
+    await expect.poll(() => settingsFile().aiReadOnlyMode).toBeUndefined();
+    await page.keyboard.press("Escape");
+    await expect(settings).toBeHidden();
+    await expect(permission).toHaveAccessibleName("AIの権限: 承認を求める");
+
+    // (3) 利用枠を使い切った。開き直すと、送る前の一行と輪の印で分かる。
+    gateway.allowance = { plan: "pro", included: true, weekly: { usedRatio: 1, resetsAt, reached: true } };
+    await usage.click();
+    await expect(page.getByRole("dialog", { name: "使用状況" })).toContainText("上限に達しています");
+    await page.keyboard.press("Escape");
+    await expect(sidebar.getByRole("status")).toContainText("SIGMA AI の利用枠を使い切りました。");
+    await expect(usage).toHaveAccessibleName(/SIGMA AI: 上限に達しています$/u);
+    const requestsBefore = gateway.requests.length;
+    await composer.fill("続けて、段落を直して。");
+    await sidebar.locator(".ai-chat-send-button").click();
+    // 理由だけを、戻る日時つきで見せる (内部の呼び出し名や、埋め残しの記号を混ぜない)。
+    const stopped = sidebar.locator(".ai-chat-turn").last();
+    await expect(stopped).toContainText(/今週の SIGMA AI の利用枠を使い切りました。\d+月\d+日\(.\) \d+:\d+ にリセットされます。/u, { timeout: 120_000 });
+    await expect(stopped).not.toContainText("Error invoking remote method");
+    await expect(stopped).not.toContainText("{");
+    await keep(testInfo, "limit-reached", await sidebar.screenshot());
+    // モデルへは 1 度も届かず、断られた後に粘って送り直してもいない。
+    expect(gateway.requests.length).toBe(requestsBefore);
+    expect(gateway.refused).toBe(1);
+    expect(gateway.rejected).toBe(0);
+  } finally {
+    await app.close().catch(() => undefined);
+    await gateway.close();
+    rmSync(profile, { recursive: true, force: true });
+  }
+});
+
 // 本物の中継と本物の DeepSeek を使う確認。料金がかかり結果も毎回違うので、明示したときだけ動かす:
 //   SIGMA_AI_LIVE=1 SIGMA_AI_GATEWAY_URL=... SIGMA_AI_GATEWAY_TOKEN=... pnpm run test:e2e:electron sigma-ai
 test("live: the built-in AI draws a figure, rewrites text, and converts the figure with the real model", async ({}, testInfo) => {
@@ -291,6 +432,9 @@ test("live: the built-in AI draws a figure, rewrites text, and converts the figu
     await page.waitForFunction(() => Boolean(window.desktopAPI));
     await page.evaluate(() => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true, ribbonCollapsed: false }));
+      // 使い方・Star の誘いは時間がたつとサイドチャットの下に重なり、遅い端末では承認ボタンや入力欄を塞ぐ。
+      localStorage.setItem("sigma-studio:usage-guide-dismissed:v1", "1");
+      localStorage.setItem("sigma-studio:github-star-dismissed:v1", "1");
       localStorage.setItem("sigma-studio:github-star-disabled:v1", "1");
     });
     await page.reload();

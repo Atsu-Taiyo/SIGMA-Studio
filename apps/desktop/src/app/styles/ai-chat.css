@@ -2052,15 +2052,26 @@
   outline: none;
 }
 
+/* 左に「追加」と権限、右に「モデル · 使用状況 · (サイドへ) · 送信」を並べる。
+   あいだはモデルの列が埋め、モデルのボタンはその右端に寄る (長いモデル名は省略記号になる)。
+   権限のボタンはデスクトップ版にしか出ないので、列の数を決め打ちにしない (flex)。
+   min-width: 0 が無いと、モデル名の幅がこの行の最小幅に数えられ、狭いサイドバーで送信ボタンまで
+   入力欄の外へ押し出される。 */
 .ai-chat-toolbar {
-  display: grid;
-  grid-template-columns: 31px minmax(0, 1fr) 34px;
+  display: flex;
   gap: 8px;
   align-items: center;
+  min-width: 0;
 }
 
-.ai-chat-toolbar--inline {
-  grid-template-columns: 31px minmax(0, 1fr) 31px 34px;
+.ai-chat-toolbar > * {
+  flex: 0 0 auto;
+}
+
+.ai-chat-toolbar > .ai-chat-model-wrap {
+  display: flex;
+  flex: 1 1 0;
+  justify-content: flex-end;
 }
 
 .ai-chat-add-wrap,
@@ -2126,7 +2137,9 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
+  /* 名前は短い (モデルの短い名前 · 思考の深さ)。幅いっぱいに広げず、山形を名前のすぐ後ろに置く。 */
+  width: fit-content;
+  max-width: 100%;
   min-width: 0;
   height: 30px;
   padding: 0 6px 0 8px;
@@ -2165,20 +2178,24 @@
   align-items: center;
   gap: 5px;
   min-width: 0;
-  flex: 1;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ai-chat-model-button-label > span:not(.ai-chat-model-button-divider) {
+.ai-chat-model-button-label > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ai-chat-model-button-divider {
+/* 名前は「モデルの短い名前」と、その後ろの薄い字の思考の深さ。狭いときはモデル名を省略記号にし、
+   思考の深さは残す。 */
+.ai-chat-model-button-effort {
+  flex-shrink: 0;
   color: var(--text-muted);
+  font-weight: 600;
 }
 
 .ai-chat-model-menu {
@@ -2346,6 +2363,243 @@
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 700;
+}
+
+/* AIの権限のボタン。「＋」の隣に、枠なしのアイコンだけで置く。 */
+.ai-chat-permission-wrap,
+.ai-chat-usage-wrap {
+  position: relative;
+}
+
+.ai-chat-permission-button {
+  border-color: transparent;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* 既定でない権限 (読み取りのみ・自動で適用) は灰色の面にする — AI の動きがふだんと変わる状態を、
+   アイコンの違いだけに頼らない。名前は title と読み上げに入っている。 */
+.ai-chat-permission-button:not([data-mode="ask"]) {
+  border-color: var(--border-subtle);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+.ai-chat-permission-menu {
+  width: min(300px, calc(100vw - 16px));
+}
+
+.ai-chat-permission-item {
+  align-items: start;
+  min-height: 46px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.ai-chat-permission-item > svg {
+  margin-top: 1px;
+}
+
+.ai-chat-permission-item-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ai-chat-permission-item-copy > small {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+/* 使用状況のボタン。輪はこの会話のコンテキスト使用率。 */
+.ai-chat-usage-button {
+  position: relative;
+  border-color: transparent;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ai-chat-usage-ring-track,
+.ai-chat-usage-ring-value {
+  fill: none;
+  stroke-width: 2.25;
+}
+
+.ai-chat-usage-ring-track {
+  stroke: var(--border);
+}
+
+.ai-chat-usage-ring-value {
+  stroke: var(--text-secondary);
+  stroke-linecap: round;
+}
+
+.ai-chat-usage-button[data-context-level="warning"] .ai-chat-usage-ring-value {
+  stroke: var(--warning);
+}
+
+.ai-chat-usage-button[data-context-level="reached"] .ai-chat-usage-ring-value {
+  stroke: var(--danger);
+}
+
+/* 利用枠が残り少ない・使い切ったときの印。意味は title と読み上げにも入れてある。 */
+.ai-chat-usage-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--background);
+  border-radius: var(--radius-round);
+  background: var(--warning);
+}
+
+.ai-chat-usage-button[data-limit-level="reached"] .ai-chat-usage-badge {
+  background: var(--danger);
+}
+
+.ai-chat-usage-popover {
+  gap: var(--space-sm);
+  width: min(280px, calc(100vw - 16px));
+}
+
+.ai-chat-usage-section {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.ai-chat-usage-section > .ai-chat-menu-title {
+  margin: 0;
+}
+
+.ai-chat-usage-section > :not(.ai-chat-menu-title) {
+  margin: 0;
+  padding: 0 7px;
+}
+
+.ai-chat-usage-settings-link {
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0 0 6px 6px;
+}
+
+.ai-chat-usage-notice {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* 利用枠・コンテキストの 1 行 (呼び名 / 使用率 / メーター / リセット)。入力欄と AI設定で共通。 */
+.ai-usage-windows {
+  display: grid;
+  gap: var(--space-md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-usage-window {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.ai-usage-window-head {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: baseline;
+  justify-content: space-between;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ai-usage-window-value {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ai-usage-window[data-level="warning"] .ai-usage-window-value {
+  color: var(--warning);
+}
+
+.ai-usage-window[data-level="reached"] .ai-usage-window-value {
+  color: var(--danger);
+}
+
+.ai-usage-meter {
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-round);
+  background: var(--surface-muted);
+}
+
+.ai-usage-meter-fill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--text-secondary);
+}
+
+.ai-usage-meter[aria-valuenow="0"] .ai-usage-meter-fill {
+  min-width: 0;
+}
+
+.ai-usage-window[data-level="warning"] .ai-usage-meter-fill {
+  background: var(--warning);
+}
+
+.ai-usage-window[data-level="reached"] .ai-usage-meter-fill {
+  background: var(--danger);
+}
+
+.ai-usage-window-reset,
+.ai-usage-state {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* AI設定「使用状況」の、AI ごとのまとまり。 */
+.ai-usage-provider {
+  display: grid;
+  gap: var(--space-sm);
+  padding-bottom: var(--space-lg);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ai-usage-provider:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.ai-usage-provider-head {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.ai-usage-provider-name {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ai-usage-provider-plan {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.ai-usage-provider .ai-usage-windows {
+  max-width: 420px;
 }
 
 /* AIプロバイダ切替 (ChatGPT / Claude) — ゲート画面の上部に表示 */

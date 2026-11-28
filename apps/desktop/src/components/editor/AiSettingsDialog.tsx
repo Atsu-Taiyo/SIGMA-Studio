@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Plus } from "lucide-react";
 
 import { AiAuthoringStylePane } from "./AiAuthoringStylePane";
+import { AiUsagePane } from "./AiUsagePane";
 import { ChatPromptField } from "./ChatPromptField";
 import { DesktopSettingsModal } from "./DesktopSettingsModal";
 import { Button, IconButton } from "@/components/ui/Button";
@@ -33,7 +34,7 @@ export interface AiSettingsDialogProps {
   focusEntryId?: string;
 }
 
-type NavSection = "global-style" | "workspace-style" | "ai-runtime" | "global-instructions" | "global-skills" | "workspace-instructions" | "workspace-skills";
+type NavSection = "global-style" | "workspace-style" | "ai-runtime" | "ai-usage" | "global-instructions" | "global-skills" | "workspace-instructions" | "workspace-skills";
 
 const DESCRIPTION_MAX_LENGTH = 250;
 const CONTENT_MAX_LENGTH = 12_000;
@@ -171,6 +172,16 @@ function AiSettingsBody({ onClose, activeWorkspaceId, focusEntryId }: { onClose:
               >
                 {t("ai.connection")}
               </Button>
+              <Button
+                tone="ghost"
+                size="sm"
+                className={`ai-settings-nav-button ${section === "ai-usage" ? "active" : ""}`}
+                aria-pressed={section === "ai-usage"}
+                aria-current={section === "ai-usage" ? "page" : undefined}
+                onClick={() => selectSection("ai-usage")}
+              >
+                {t("usage.title")}
+              </Button>
             </Stack>
             <Stack className="ai-settings-nav-group" gap="xs">
               <p className="ai-settings-nav-caption">{t("ai.scopeGlobal")}</p>
@@ -252,6 +263,7 @@ function AiSettingsBody({ onClose, activeWorkspaceId, focusEntryId }: { onClose:
                 onClose={onClose}
               />
             )}
+            {section === "ai-usage" && <AiUsagePane id="ai-settings-usage" />}
             {section === "global-instructions" && (
               <InstructionPane
                 key="global"

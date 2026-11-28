@@ -184,6 +184,9 @@ const desktopAPI = {
     setAiAutoApplyVerifiedProposals(value: boolean): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("settings:set-ai-auto-apply-verified-proposals", value);
     },
+    setAiPermissionMode(value: string): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("settings:set-ai-permission-mode", value);
+    },
     setAiWebSearchEnabled(value: boolean): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("settings:set-ai-web-search-enabled", value);
     },
@@ -333,6 +336,21 @@ const desktopAPI = {
   sigmaAi: {
     getStatus(): Promise<unknown> {
       return ipcRenderer.invoke("sigma-ai:get-status");
+    },
+  },
+
+  // AIの利用枠 (AIごとの使用率とリセットの時刻)。会話のコンテキスト使用量は run のイベントで届く。
+  aiUsage: {
+    get(): Promise<unknown> {
+      return ipcRenderer.invoke("ai-usage:get");
+    },
+    refresh(provider?: string): Promise<unknown> {
+      return ipcRenderer.invoke("ai-usage:refresh", provider);
+    },
+    onChanged(handler: (snapshot: unknown) => void): () => void {
+      const listener = (_: unknown, snapshot: unknown) => handler(snapshot);
+      ipcRenderer.on("ai-usage:changed", listener);
+      return () => ipcRenderer.removeListener("ai-usage:changed", listener);
     },
   },
 

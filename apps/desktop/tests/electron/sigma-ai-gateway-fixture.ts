@@ -18,6 +18,13 @@ export type GatewayReply =
   | { text: string }
   | { say?: string; tool: string; arguments: Record<string, unknown> };
 
+/** 中継の `GET /v1/usage` が返す、利用枠の状態 (本物の中継と同じ形)。 */
+export interface GatewayAllowance {
+  plan: string;
+  included: boolean;
+  weekly: { usedRatio: number; resetsAt: string | null; reached: boolean } | null;
+}
+
 export interface GatewayFixture {
   url: string;
   token: string;
@@ -25,6 +32,13 @@ export interface GatewayFixture {
   requests: GatewayRequest[];
   /** トークン無し・不一致で弾いた回数。 */
   rejected: number;
+  /**
+   * この利用者の利用枠。テストが書き換える。`weekly.reached` の間は、本物の中継と同じく
+   * モデルへ送らずに 402 `USAGE_LIMIT_REACHED` を返す。
+   */
+  allowance: GatewayAllowance;
+  /** 利用枠で断った回数。 */
+  refused: number;
   close(): Promise<void>;
 }
 
@@ -53,7 +67,10 @@ export async function startGatewayFixture(
   options: { delayMs?: number } = {},
 ): Promise<GatewayFixture> {
   const token = "fixture-gateway-token-32-bytes-minimum-length";
-  const fixture: GatewayFixture = { url: "", token, requests: [], rejected: 0, close: async () => {} };
+  const fixture: GatewayFixture = {
+    url: "", token, requests: [], rejected: 0, refused: 0, close: async () => {},
+    allowance: { plan: "pro", included: true, weekly: { usedRatio: 0, resetsAt: null, reached: false } },
+  };
   const server: Server = createServer((incoming, response) => {
     let raw = "";
     incoming.on("data", (chunk) => { raw += chunk; });
@@ -62,6 +79,22 @@ export async function startGatewayFixture(
         fixture.rejected += 1;
         response.writeHead(401, { "content-type": "application/json" });
         response.end(JSON.stringify({ error: { code: "UNAUTHORIZED", message: "A valid gateway token is required." } }));
+        return;
+      }
+      const json = (status: number, body: unknown) => {
+        response.writeHead(status, { "content-type": "application/json" });
+        response.end(JSON.stringify(body));
+      };
+      const route = new URL(incoming.url ?? "/", "http://fixture").pathname;
+      if (incoming.method === "GET") {
+        if (route === "/v1/usage") json(200, fixture.allowance);
+        else if (route === "/v1/models") json(200, { object: "list", data: [] });
+        else json(404, { error: { code: "NOT_FOUND", message: "Unknown route." } });
+        return;
+      }
+      if (fixture.allowance.weekly?.reached) {
+        fixture.refused += 1;
+        json(402, { error: { code: "USAGE_LIMIT_REACHED", message: "You have used this week's SIGMA AI allowance.", resetsAt: fixture.allowance.weekly.resetsAt } });
         return;
       }
       const request = JSON.parse(raw) as GatewayRequest;

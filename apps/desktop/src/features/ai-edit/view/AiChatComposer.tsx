@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import type { AiProvider } from "@/lib/ai/ai-providers";
+import { AiModelButtonLabel } from "@/components/editor/AiModelButtonLabel";
 import { AiModelMenuContents } from "@/components/editor/ai-model-menu-contents";
 import {
   ArrowUp,
@@ -46,7 +47,9 @@ import {
   AttachmentPreview,
 } from "@/features/ai-edit/view/AiChatComposerParts";
 import type { AiEditPanelProps } from "@/features/ai-edit/application/ai-chat-panel-contracts";
+import type { AiContextUsage } from "@/lib/ai/ai-usage";
 import type { AiChatComposerController } from "../application/use-ai-chat-composer";
+import { AiPermissionPicker, AiUsageButton, AiUsageLimitNotice } from "./AiComposerStatus";
 export interface AiChatComposerProps {
  controller: AiChatComposerController;
  models: ReturnType<typeof useAiChatModelController>;
@@ -60,11 +63,15 @@ export interface AiChatComposerProps {
  isRunning: boolean;
  hasTurns: boolean;
  onSubmit: () => Promise<void>;
+ /** いま開いている会話のコンテキスト使用量 (AI が知らせた会話だけ)。 */
+ contextUsage?: AiContextUsage | null;
+ /** AI設定の「使用状況」を開く。 */
+ onOpenUsageSettings?: () => void;
 }
 /** コメントを付けている画像。添付は id、選択図形のプレビューは参照キーで指す。 */
 type AnnotationTarget = { kind: "attachment"; id: string } | { kind: "overlay"; referenceKey: string };
 
-export function AiChatComposer({ controller, models, pinnedReferences,onRemovePinnedReference,lockedProvider,composerVariant,inlineSessionId,onPromoteToSidebar,historyLoading,isRunning,hasTurns,onSubmit:runEdit }: AiChatComposerProps) {
+export function AiChatComposer({ controller, models, pinnedReferences,onRemovePinnedReference,lockedProvider,composerVariant,inlineSessionId,onPromoteToSidebar,historyLoading,isRunning,hasTurns,onSubmit:runEdit,contextUsage=null,onOpenUsageSettings }: AiChatComposerProps) {
  const modelMenuButtonRef = useRef<HTMLButtonElement | null>(null);
  const [annotationTarget, setAnnotationTarget] = useState<AnnotationTarget | null>(null);
  const t=useT("ai");const tEditor=useT("editor");const tCommon=useT("common");
@@ -361,6 +368,7 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
           }}
           placeholder={hasTurns ? t("composer.placeholder") : t("composer.placeholderFirst")}
         />
+        <AiUsageLimitNotice provider={provider} />
         <div
           className={`ai-chat-toolbar${composerVariant === "inline" && onPromoteToSidebar ? " ai-chat-toolbar--inline" : ""}`.trim()}
         >
@@ -530,6 +538,7 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
               </div>
             )}
           </div>
+          <AiPermissionPicker />
           <div className="ai-chat-model-wrap">
             <button
               ref={modelMenuButtonRef}
@@ -557,17 +566,11 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
               disabled={isRunning || (builtIn && Boolean(lockedProvider))}
             >
               {renderModelMark(selectedProviderModel, provider, { size: 13 })}
-              <span className="ai-chat-model-button-label">
-                <span>{selectedProviderLabel}</span>
-                {!builtIn && (
-                  <>
-                    <span className="ai-chat-model-button-divider" aria-hidden="true">·</span>
-                    <span>{selectedModelLabel}</span>
-                    <span className="ai-chat-model-button-divider" aria-hidden="true">·</span>
-                    <span>{reasoningEffortSupported ? selectedReasoningEffortLabel : t("composer.effortUnsupported")}</span>
-                  </>
-                )}
-              </span>
+              <AiModelButtonLabel
+                provider={provider} providerLabel={selectedProviderLabel}
+                modelId={selectedProviderModel} modelLabel={selectedModelLabel}
+                effortLabel={!builtIn && reasoningEffortSupported ? selectedReasoningEffortLabel : null} t={t}
+              />
               {!(builtIn && lockedProvider) && <ChevronDown size={12} />}
             </button>
             {modelMenuOpen && (
@@ -691,6 +694,7 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
               </ToolbarPopover>
             )}
           </div>
+          <AiUsageButton provider={provider} contextUsage={contextUsage} onOpenUsageSettings={onOpenUsageSettings} />
           {composerVariant === "inline" && onPromoteToSidebar && (
             <button
               type="button"

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -23,6 +23,11 @@ export interface DesktopSettings {
   // baseRevision が現在のファイルrevisionと一致する場合に限り自動承認する。既定は無効 (false) で、
   // 未設定 (キー欠落) も false として扱う (readDesktopSettingsSync 参照)。
   aiAutoApplyVerifiedProposals?: boolean;
+  // AIの権限「読み取りのみ」。true の間、AI は教材を読んで答えるだけで、編集案も設定の変更も作れない
+  // (MCPサーバーが読み取り以外のツールを断る)。既定は無効 (false) で、true のときだけキーを書く。
+  // 権限の 3 段階 (読み取りのみ / 承認を求める / 自動で適用) は lib/ai/ai-permission-mode.ts が
+  // この値と aiAutoApplyVerifiedProposals から決める。
+  aiReadOnlyMode?: boolean;
   // AIエージェント (Codex/Claude/Antigravity) にWeb検索を許可する。既定は有効 (true) で、
   // 未設定 (キー欠落) も true として扱う (isAiWebSearchEnabled 参照)。false のときだけ
   // キーを書き込む (設定ファイルを簡潔に保つため、他の bool 設定と極性が逆な点に注意)。
@@ -143,6 +148,13 @@ async function writeDesktopSettingsNow(dataDir: string, settings: DesktopSetting
     } else {
       // 既定値 (false) はキーごと削除して設定ファイルを簡潔に保つ。
       delete next.aiAutoApplyVerifiedProposals;
+    }
+  }
+  if ("aiReadOnlyMode" in settings) {
+    if (settings.aiReadOnlyMode) {
+      next.aiReadOnlyMode = true;
+    } else {
+      delete next.aiReadOnlyMode;
     }
   }
   if ("aiWebSearchEnabled" in settings) {
@@ -326,6 +338,7 @@ function normalizeDesktopSettings(value: unknown): DesktopSettings {
   const customCommands = normalizeDesktopCustomCommands(parsed.customCommands);
   const aiAutoApplyVerifiedProposals = parsed.aiAutoApplyVerifiedProposals === true;
   const aiWebSearchEnabled = parsed.aiWebSearchEnabled !== false;
+  const aiReadOnlyMode = parsed.aiReadOnlyMode === true;
   const uiLocale = normalizeUiLocale(parsed.uiLocale);
   const newDocumentPageSetup = normalizeStoredNewDocumentPageSetup(parsed.newDocumentPageSetup);
 
@@ -356,6 +369,9 @@ function normalizeDesktopSettings(value: unknown): DesktopSettings {
   if (!aiWebSearchEnabled) {
     next.aiWebSearchEnabled = false;
   }
+  if (aiReadOnlyMode) {
+    next.aiReadOnlyMode = true;
+  }
   if (uiLocale) {
     next.uiLocale = uiLocale;
   }
@@ -374,6 +390,35 @@ export function normalizeUiLocale(value: unknown): AppLocale | undefined {
 /** Web検索設定の既定値 (true) を含めて解決する。未設定 (キー欠落) は true として扱う。 */
 export function isAiWebSearchEnabled(settings: DesktopSettings): boolean {
   return settings.aiWebSearchEnabled !== false;
+}
+
+/** AIの権限が「読み取りのみ」か。未設定 (キー欠落) は false。 */
+export function isAiReadOnlyMode(settings: DesktopSettings): boolean {
+  return settings.aiReadOnlyMode === true;
+}
+
+let aiReadOnlyModeCache: { path: string; mtimeMs: number; size: number; value: boolean } | null = null;
+
+/**
+ * 「読み取りのみ」かだけを、設定ファイルから読む。MCPサーバーがツール呼び出しのたびに聞くので、
+ * ファイルが変わっていなければ読み直さない (設定ファイルは用紙設定の画像で数MBになりうる)。
+ * 書き込みは一時ファイルからの rename なので、変更のたびに更新時刻が変わる。
+ * 読めない・無いときは既定 (読み取りのみではない)。
+ */
+export function readAiReadOnlyModeSync(dataDir: string): boolean {
+  const file = desktopSettingsPath(dataDir);
+  try {
+    const { mtimeMs, size } = statSync(file);
+    const cached = aiReadOnlyModeCache;
+    if (cached && cached.path === file && cached.mtimeMs === mtimeMs && cached.size === size) {
+      return cached.value;
+    }
+    const value = readDesktopSettingsRawSync(dataDir).aiReadOnlyMode === true;
+    aiReadOnlyModeCache = { path: file, mtimeMs, size, value };
+    return value;
+  } catch {
+    return false;
+  }
 }
 
 function normalizeTrimmedString(value: unknown): string | undefined {

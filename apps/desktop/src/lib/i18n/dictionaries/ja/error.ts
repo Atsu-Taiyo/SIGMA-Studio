@@ -202,6 +202,7 @@ export const error = {
     settings: {
       unsupportedLocale: "対応していない表示言語です。",
       invalidShortcuts: "ショートカット設定の形式が正しくありません。",
+      invalidPermissionMode: "AIの権限の指定が正しくありません。",
       invalidCustomCommands: "カスタムコマンドの形式が正しくありません。",
     },
     browser: {

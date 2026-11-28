@@ -131,6 +131,21 @@ AI編集で渡す選択ブロックは位置と文脈の手掛かりであり、
 
 提案には作成元の `runId` / `roomId` / `turnId` / 任意の `sessionLabel` も付記できます(すべて任意。実行コンテキストファイル `ai-run-context/<provider>[-<runId>].run-context.json` 経由でMCPサーバーへ渡り、`resolveProposalAttribution()` でproposalへ写す)。stale化した提案は、作り直させる代わりにその場で `rebaseMcpEditProposal` (IPC: `storage:rebase-mcp-edit-proposal`) を呼ぶと、現在のドキュメントへの再適用を試み、成功すれば `baseRevision`/`nextDocument` をその場で更新して(元のrevisionは `rebasedFrom` に残す)再びプレビュー対象に戻せます。`mergeBasis` を持つ提案は、保存後の自動追従・rebaseでdraftと元の内容を書き換えず、revisionだけを進めます (合成は承認のたびに今の文書へ行います)。却下は理由つきの一括版 `rejectMcpEditProposals` (IPC: `storage:reject-mcp-edit-proposals`、`{ proposalIds, reason? }`)を使うと `rejectedReason`/`rejectedAt` が記録されます(単体版 `rejectMcpEditProposal` はそのまま後方互換で残る)。
 
+### AIの権限 (読み取りのみ / 承認を求める / 自動で適用)
+
+教材の変更を AI にどこまで任せるかは、3 段階のうち 1 つで決めます (`src/lib/ai/ai-permission-mode.ts`)。チャットの入力欄で「＋」の隣にある権限のボタン (アイコン) と、AI設定の「接続・動作」の「AIの権限」が同じ値を見ます。端末ごとの設定で、アカウント間では同期しません。
+
+| 段階 | 設定 | 動き |
+|---|---|---|
+| 読み取りのみ | `aiReadOnlyMode: true` | AI は教材を読んで答えるだけ。編集案を作るツールも、教材・フォルダ・スキル・AI設定を直接書くツールも、MCPサーバーが実行せずに断ります |
+| 承認を求める (既定) | どちらも無し | 編集は承認待ちの提案になり、承認すると教材に入ります |
+| 自動で適用 | `aiAutoApplyVerifiedProposals: true` | 検証を通った提案を自動で承認します (下の段落) |
+
+- **読み取りのみの強制は MCP サーバーの 1 か所** (`mcp/sigma-doc-mcp-tool-registrar.ts` の `readOnlyMode`) です。呼び出しのたびに `settings.json` を読み、読み取りツール (`READ_ONLY_TOOL_NAMES`) 以外には `PERMISSION_DENIED` を返します。4 つの AI と、ローカルMCPへつないだ外部のクライアントのどれにも同じに効き、実行中に切り替えても次の呼び出しから変わります。
+- アプリからの実行では、毎ターンのプロンプトにも一文 (`prompt.ts` の `readOnlyMode`) を足し、AI が断られるツールを試さずに返答で答えるようにします。
+- `update_ai_settings` は `aiReadOnlyMode` を受け取りません。読み取りのみを外せるのは利用者だけです (読み取りのみの間は、このツール自体も断られます)。
+- 読み取りのみを選ぶと自動承認は切れます。戻すときは「承認を求める」か「自動で適用」を選び直します。
+
 デスクトップ設定 `aiAutoApplyVerifiedProposals` (既定false) をONにすると、MCPサーバーが `verification.validationOk === true` を報告したpending提案は、`baseRevision` が現在のファイルrevisionと一致する限り自動承認されます(承認イベントに `autoApplied: true` が付く)。人間の編集との合成が要る提案は自動承認せず、保留のまま残します。承認 (手動・自動どちらも) の際、承認直前に読み込んだドキュメントを `revertDocument` として、保存直後のrevisionを `appliedRevision` として提案レコードに保存しておきます。`revertMcpEditProposal` (IPC: `storage:revert-mcp-edit-proposal`) でその承認を取り消す際、現在のファイルrevisionが `appliedRevision` のままなら `revertDocument` をまるごと書き戻します。承認後にさらに教材が変更されていても、その提案 (および同じ1回の保存を共有した承認バッチ) が触ったブロック/overlay図形自体がその後無編集であれば、現在のドキュメントを土台にその範囲だけを選択的に戻します(`local-sigma-doc-proposal-store.ts` の `getRevertPlan`/`buildSelectiveRevertDocument`)。触った範囲へさらに人手の編集が入っている、ブロックの移動やレイアウト変更(`moveBlocks`/`wrapBlocksInColumns`/`updateLayoutSection`)を含む、削除されたブロックが本文直下ではなくネストされた位置にあった、といったケースは安全のため取り消し不可のまま残ります(取り消し後のstatusは共通して `reverted`)。この `verification.validationOk` は、全ての書き込み系MCPツールが変更後のSigmaDocを検証した結果からproposal作成時に埋めます(schemaレベルの検証のみで、page-context previewの見た目は含みません)。ツール呼び出し自体のレスポンスにも同じ検証結果とpreview PNGが `verification` フィールドとして返り、エージェントはcommitを待たずにその場で確認・自己修正できます。既存内容や承認前のproposalのブロック周辺は `render_block_context`、ページ全体と実際のページ割当は `render_page` で確認します。
 
 ## External File Changes

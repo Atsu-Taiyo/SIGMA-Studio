@@ -283,7 +283,9 @@ describe("AiFrameDrawingPanel", () => {
     mount();
 
     const modelButton = testId("custom-frame-ai-model-button")!;
-    expect(modelButton.textContent).toContain("Claude");
+    // ボタンに出すのはモデルの短い名前だけ。どの AI かはロゴと、ボタンの説明 (読み上げ) が持つ。
+    expect(modelButton.getAttribute("aria-label")).toContain("Claude");
+    expect(modelButton.textContent).not.toContain("Claude");
     act(() => modelButton.click());
     const menu = document.body.querySelector('[role="menu"]')!;
     const provider = (name: string) => menu.querySelector<HTMLButtonElement>(`[data-testid="custom-frame-ai-provider-${name}"]`)!;
@@ -298,8 +300,8 @@ describe("AiFrameDrawingPanel", () => {
     act(() => provider("antigravity").click());
     // The model list is asked for on the next tick and comes back asynchronously.
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
-    expect(testId("custom-frame-ai-model-button")!.textContent).toContain("Antigravity");
-    expect(testId("custom-frame-ai-model-button")!.textContent).toContain("Gemini X");
+    expect(testId("custom-frame-ai-model-button")!.getAttribute("aria-label")).toContain("Antigravity");
+    expect(testId("custom-frame-ai-model-button")!.textContent).toBe("Gemini X");
     await send("青い枠");
     expect(runs[0].request).toMatchObject({ provider: "antigravity", model: "gemini-x" });
     expect(runs[0].request.reasoningEffort).toBeUndefined();

@@ -103,6 +103,8 @@ export interface AiEditPanelProps {
    * 表示しない (API未対応のビルド向け)。 */
   onForceApplyStaleProposals?: (proposalIds: string[]) => Promise<{ ok: true } | { ok: false; reason: string }>;
   onOpenAiSettings?: () => void;
+  /** AI設定の「使用状況」を開く (入力欄の使用状況から、すべての AI の利用枠へ)。 */
+  onOpenAiUsageSettings?: () => void;
   onCloseInline?: () => void;
   onPromoteToSidebar?: () => void;
   onInlineRunAnchorChange?: (anchor: { left: number; top: number } | null) => void;

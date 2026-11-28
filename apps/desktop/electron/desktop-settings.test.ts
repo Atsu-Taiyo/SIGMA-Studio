@@ -3,7 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { aiPermissionModeSettings } from "@/lib/ai/ai-permission-mode";
 import {
+  readAiReadOnlyModeSync,
+  isAiReadOnlyMode,
   isAiWebSearchEnabled,
   readDesktopEditorPreferences,
   readDesktopSettingsSync,
@@ -227,6 +230,46 @@ describe("desktop-settings", () => {
     expect(readDesktopSettingsSync(dir)).toEqual({
       codexBin: "/usr/local/bin/codex",
     });
+  });
+
+  it("persists the read-only AI permission, omits the key when off, and leaves auto-apply as it was", async () => {
+    await writeDesktopSettings(dir, { aiAutoApplyVerifiedProposals: true });
+    expect(isAiReadOnlyMode(readDesktopSettingsSync(dir))).toBe(false);
+
+    await writeDesktopSettings(dir, { aiReadOnlyMode: true });
+    expect(readDesktopSettingsSync(dir)).toEqual({ aiReadOnlyMode: true, aiAutoApplyVerifiedProposals: true });
+    expect(isAiReadOnlyMode(readDesktopSettingsSync(dir))).toBe(true);
+    // 権限を選ぶ画面は 2 つの設定を 1 回で書く (読み取りのみ → 承認を求める)。
+    await writeDesktopSettings(dir, aiPermissionModeSettings("ask"));
+    expect(JSON.parse(await readFile(path.join(dir, "settings.json"), "utf8"))).toEqual({});
+    // 真偽値でないものは「読み取りのみ」と読まない。
+    await writeFile(path.join(dir, "settings.json"), JSON.stringify({ aiReadOnlyMode: "yes" }));
+    expect(isAiReadOnlyMode(readDesktopSettingsSync(dir))).toBe(false);
+  });
+
+  it("lets the MCP server see a permission change on its next tool call, without re-reading an unchanged file", async () => {
+    // 設定ファイルが無い端末では、読み取りのみではない。
+    expect(readAiReadOnlyModeSync(dir)).toBe(false);
+    await writeDesktopSettings(dir, { codexBin: "/usr/local/bin/codex" });
+    expect(readAiReadOnlyModeSync(dir)).toBe(false);
+
+    await writeDesktopSettings(dir, aiPermissionModeSettings("readOnly"));
+    expect(readAiReadOnlyModeSync(dir)).toBe(true);
+    expect(readAiReadOnlyModeSync(dir)).toBe(true);
+    await writeDesktopSettings(dir, aiPermissionModeSettings("auto"));
+    expect(readAiReadOnlyModeSync(dir)).toBe(false);
+    // 別の保存先 (別のプロファイル) の答えを使い回さない。
+    const other = await mkdtemp(path.join(os.tmpdir(), "sigma-desktop-settings-other-"));
+    try {
+      await writeDesktopSettings(other, aiPermissionModeSettings("readOnly"));
+      expect(readAiReadOnlyModeSync(other)).toBe(true);
+      expect(readAiReadOnlyModeSync(dir)).toBe(false);
+    } finally {
+      await rm(other, { recursive: true, force: true });
+    }
+    // 壊れた設定ファイルは、既定として読む。
+    await writeFile(path.join(dir, "settings.json"), "{ not json");
+    expect(readAiReadOnlyModeSync(dir)).toBe(false);
   });
 
   it("defaults aiAutoApplyVerifiedProposals to absent (falsy) when never set", async () => {

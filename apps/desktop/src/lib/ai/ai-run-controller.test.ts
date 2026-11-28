@@ -421,6 +421,30 @@ describe("ai-run-controller startRun", () => {
     await flushMicrotasks();
   });
 
+  it("keeps the latest context usage on the room instead of listing it in the turn's activity, and saves it with the turn", async () => {
+    const { documentId } = freshIds();
+    const room = addRoom(documentId);
+    const { assistantTurnId } = startRun(room.id, makeRunParams(documentId));
+    const onEvent = pendingRuns[0].request.onEvent!;
+    const usage = (usedTokens: number, windowTokens: number | null): AiEditRunEvent =>
+      ({ kind: "usage", phase: "streaming", message: "", timestamp: Date.now(), contextUsage: { usedTokens, windowTokens } });
+
+    onEvent(usage(4157, null));
+    expect(aiChatRoomsStore.getRoom(room.id)!.contextUsage).toEqual({ usedTokens: 4157, windowTokens: null });
+    onEvent(usage(31_000, 272_000));
+    // 形の合わない知らせでは、前の値を消さない。
+    onEvent({ kind: "usage", phase: "streaming", message: "", timestamp: Date.now() });
+    expect(aiChatRoomsStore.getRoom(room.id)!.contextUsage).toEqual({ usedTokens: 31_000, windowTokens: 272_000 });
+
+    const assistant = aiChatRoomsStore.getRoom(room.id)!.turns.find((turn) => turn.id === assistantTurnId) as AssistantTurn;
+    expect(assistant.events.some((event) => event.kind === "usage")).toBe(false);
+    expect((aiRunSessionStore.getSession(room.id)?.events ?? []).some((event) => event.kind === "usage")).toBe(false);
+
+    pendingRuns[0].resolve(makeRunResult());
+    await flushMicrotasks();
+    expect(savedRooms.at(-1)).toMatchObject({ id: room.id, contextUsage: { usedTokens: 31_000, windowTokens: 272_000 } });
+  });
+
   it("cancelRun is a no-op for an unknown turn id or one whose run already settled", async () => {
     cancelRun("no-such-turn");
     await flushMicrotasks();

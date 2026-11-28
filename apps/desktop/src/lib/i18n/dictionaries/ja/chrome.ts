@@ -173,6 +173,7 @@ export const chrome = {
           unlimitedDocuments: "共同編集できる教材が無制限",
           workspaceSharing: "ワークスペースやフォルダごとの共有",
           roles: "細かい役割設定",
+          sigmaAi: "内蔵AI（SIGMA AI）を1週間ごとの利用枠つきで利用",
           integrations: "他ツールとの連携",
         },
       },

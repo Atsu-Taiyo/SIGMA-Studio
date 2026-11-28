@@ -381,6 +381,36 @@ describe("ClaudeStreamClient", () => {
     expect(results).toEqual([]);
   });
 
+  it("reports the conversation's context size, learning the model's window from the first result", async () => {
+    const { client } = createClient();
+    const first: unknown[] = [];
+    await client.runTurn({ instruction: "please USAGE now", onContextUsage: (usage) => first.push(usage) });
+    // 上限は最初の result で分かる。それまでは使用量だけ、分かった時点で割合つきで知らせ直す。
+    // サブエージェントの応答 (別のコンテキスト) は数えない。
+    expect(first).toEqual([
+      { usedTokens: 4157, windowTokens: null },
+      { usedTokens: 4157, windowTokens: 1_000_000 },
+    ]);
+
+    const second: unknown[] = [];
+    await client.runTurn({ instruction: "please USAGE again", onContextUsage: (usage) => second.push(usage) });
+    client.dispose();
+    // 同じモデルの次の turn では、最初の応答から上限つきで出る (同じ値を 2 度は知らせない)。
+    expect(second).toEqual([{ usedTokens: 4157, windowTokens: 1_000_000 }]);
+  });
+
+  it("passes the account's usage limits on as they arrive, apart from any one turn", async () => {
+    const { client } = createClient();
+    const limits: unknown[] = [];
+    client.on("rateLimit", (info) => limits.push(info));
+    await client.runTurn({ instruction: "please USAGE now" });
+    client.dispose();
+    expect(limits).toEqual([{
+      status: "allowed", resetsAt: 1796371200, rateLimitType: "seven_day", isUsingOverage: false,
+      unifiedWindows: { seven_day: { utilization: 0.07, resetsAt: 1796371200, status: "allowed" } },
+    }]);
+  });
+
   it("never leaks ANTHROPIC_API_KEY and uses the default claude config (no CLAUDE_CONFIG_DIR override)", async () => {
     const previousApiKey = process.env.ANTHROPIC_API_KEY;
     const secretKey = "SECRET_FOR_CLAUDE_STREAM_CLIENT_TEST";
@@ -824,6 +854,15 @@ rl.on("line", (line) => {
         content: [{ type: "tool_result", tool_use_id: "toolu_999", content: [{ type: "text", text: "OK" }] }],
       },
     });
+  }
+  if (text.includes("USAGE")) {
+    // The shapes Claude Code 2.1.332 emits: a rate_limit_event before the response, usage on the
+    // assistant message, and the model's context window only on the result.
+    send({ type: "rate_limit_event", rate_limit_info: { status: "allowed", resetsAt: 1796371200, rateLimitType: "seven_day", isUsingOverage: false, unifiedWindows: { seven_day: { utilization: 0.07, resetsAt: 1796371200, status: "allowed" } } }, session_id: sessionId });
+    send({ type: "assistant", parent_tool_use_id: "toolu_sub", message: { role: "assistant", model: "claude-haiku-5-5", content: [], usage: { input_tokens: 900000, output_tokens: 1 } }, session_id: sessionId });
+    send({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", model: "claude-opus-4-8", content: [{ type: "text", text: "ECHO:" + text }], usage: { input_tokens: 2, cache_creation_input_tokens: 3502, cache_read_input_tokens: 649, output_tokens: 4 } }, session_id: sessionId });
+    send({ type: "result", subtype: "success", is_error: false, result: "ECHO:" + text, session_id: sessionId, total_cost_usd: 0.01, num_turns: 1, permission_denials: [], modelUsage: { "claude-opus-4-8": { inputTokens: 1176, outputTokens: 20, contextWindow: 1000000 } } });
+    return;
   }
   send({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "ECHO:" + text }] }, session_id: sessionId });
   send({ type: "result", subtype: "success", is_error: false, result: "ECHO:" + text, session_id: sessionId, total_cost_usd: 0.01, num_turns: 1, permission_denials: permissionDenials(text) });

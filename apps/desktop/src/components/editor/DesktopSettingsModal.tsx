@@ -10,7 +10,11 @@ import { Disclosure } from "@/components/ui/Disclosure";
 import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import { Shimmer } from "@/components/ui/Shimmer";
 import { Inline, Stack } from "@/components/ui/layout";
+import { Select } from "@/components/ui/Select";
 import { SettingsField, SettingsRow, SettingsSection, SettingsStatus, Switch, Tabs } from "@/components/ui/settings";
+import { setAiPermissionMode, useAiPermissionMode } from "@/features/ai-edit/application/ai-permission-mode-store";
+import { AI_PERMISSION_COPY } from "@/features/ai-edit/view/ai-permission-copy";
+import { AI_PERMISSION_MODES, parseAiPermissionMode } from "@/lib/ai/ai-permission-mode";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { SUPPORTED_LOCALES, type AppLocale } from "@/lib/i18n";
 import type { Translate } from "@/lib/i18n";
@@ -203,8 +207,9 @@ function DesktopSettingsBody({
   const [geminiBusy, setGeminiBusy] = useState(false);
   const [activeAiProvider, setActiveAiProvider] = useState<AiSettingsProvider>("chatgpt");
   const [updateBusy, setUpdateBusy] = useState(false);
-  const [autoApplyVerified, setAutoApplyVerified] = useState(false);
-  const [autoApplyBusy, setAutoApplyBusy] = useState(false);
+  // AIの権限は入力欄のピルと同じ値。どちらで変えても、もう一方がすぐ追随するよう同じ置き場を見る。
+  const permissionMode = useAiPermissionMode();
+  const tAi = useT("ai");
   // aiWebSearchEnabled は未設定 (キー欠落) が有効扱いのため、既定値は true。
   const [webSearchEnabled, setWebSearchEnabled] = useState(true);
   const [webSearchBusy, setWebSearchBusy] = useState(false);
@@ -240,7 +245,6 @@ function DesktopSettingsBody({
     });
     bridge.settings?.get().then((r) => {
       if (!cancelled) {
-        setAutoApplyVerified(r.aiAutoApplyVerifiedProposals ?? false);
         setWebSearchEnabled(r.aiWebSearchEnabled ?? true);
       }
     });
@@ -249,7 +253,6 @@ function DesktopSettingsBody({
     const unsubscribeAiSettings = bridge.settings?.onAiSettingsChanged?.(() => {
       bridge.settings?.get().then((r) => {
         if (!cancelled) {
-          setAutoApplyVerified(r.aiAutoApplyVerifiedProposals ?? false);
           setWebSearchEnabled(r.aiWebSearchEnabled ?? true);
         }
       });
@@ -807,21 +810,6 @@ function DesktopSettingsBody({
     </SettingsField>
   );
 
-  const setAutoApplyVerifiedSetting = async (next: boolean) => {
-    setAutoApplyVerified(next);
-    setAutoApplyBusy(true);
-    try {
-      const result = await bridge.settings?.setAiAutoApplyVerifiedProposals?.(next);
-      if (result && !result.ok) {
-        setAutoApplyVerified(!next);
-      }
-    } catch {
-      setAutoApplyVerified(!next);
-    } finally {
-      setAutoApplyBusy(false);
-    }
-  };
-
   const setWebSearchEnabledSetting = async (next: boolean) => {
     setWebSearchEnabled(next);
     setWebSearchBusy(true);
@@ -999,14 +987,28 @@ function DesktopSettingsBody({
           </Tabs>
           <SettingsRow
             id="desktop-settings-auto-apply"
-            label={t("provider.autoApply.label")}
-            description={t("provider.autoApply.description")}
+            label={t("provider.permission.label")}
+            description={t("provider.permission.description")}
             control={(
-              <Switch
-                label={t("provider.autoApply.label")}
-                checked={autoApplyVerified}
-                disabled={autoApplyBusy || !bridge.settings?.setAiAutoApplyVerifiedProposals}
-                onCheckedChange={(next) => void setAutoApplyVerifiedSetting(next)}
+              <Select
+                aria-label={t("provider.permission.label")}
+                data-testid="desktop-settings-ai-permission"
+                value={permissionMode}
+                disabled={!bridge.settings?.setAiPermissionMode}
+                onChange={(next) => {
+                  const mode = parseAiPermissionMode(next);
+                  if (mode) void setAiPermissionMode(mode);
+                }}
+                options={AI_PERMISSION_MODES.map((mode) => ({
+                  value: mode,
+                  label: tAi(AI_PERMISSION_COPY[mode].label),
+                  content: (
+                    <span className="desktop-settings-permission-option">
+                      <span>{tAi(AI_PERMISSION_COPY[mode].label)}</span>
+                      <small>{tAi(AI_PERMISSION_COPY[mode].description)}</small>
+                    </span>
+                  ),
+                }))}
               />
             )}
           />
@@ -1202,6 +1204,17 @@ function DesktopSettingsBody({
           overflow-wrap: anywhere;
           font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
           font-size: 11.5px !important; color: var(--text-muted, #8a8a8a) !important;
+        }
+        .desktop-settings-permission-option {
+          display: grid;
+          gap: 2px;
+          max-width: 300px;
+          white-space: normal;
+        }
+        .desktop-settings-permission-option small {
+          color: var(--text-muted, #8a8a8a);
+          font-size: 11px;
+          line-height: 1.4;
         }
         .desktop-settings-progress {
           overflow: hidden;

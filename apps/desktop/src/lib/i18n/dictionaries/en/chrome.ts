@@ -169,6 +169,7 @@ export const chrome = {
           unlimitedDocuments: "Unlimited collaborative materials",
           workspaceSharing: "Share whole workspaces and folders",
           roles: "Fine-grained roles",
+          sigmaAi: "The built-in AI (SIGMA AI), with a weekly allowance",
           integrations: "Integrations with other tools",
         },
       },

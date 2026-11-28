@@ -813,6 +813,15 @@ export const settings = {
     },
   },
   // --- AI プロバイダの接続 (DesktopSettingsModal の AI タブ) ---
+  /** AI設定の「使用状況」(AIごとの利用枠)。窓の呼び名や使用率の文言は ai 側の usage が持つ。 */
+  usage: {
+    title: "使用状況",
+    description: "AIごとの利用枠の使用率です。会話ごとのコンテキスト使用量は、チャットの入力欄で確認できます。",
+    refresh: "更新",
+    refreshing: "更新中…",
+    sigmaNote: "SIGMA AI の利用枠はプランに含まれ、最初に使った時から1週間で戻ります。使い切った後も、ご自身の Claude・ChatGPT・Antigravity は使えます。",
+    claudeNote: "Claude は実行中にだけ利用枠を知らせるため、最後に実行した時点の値を表示します。",
+  },
   provider: {
     section: "AIエージェント",
     tabsAria: "AIエージェント設定",
@@ -834,9 +843,9 @@ export const settings = {
     select: "{{label}}を選択",
     busy: "処理中",
     autoDetect: "自動検出",
-    autoApply: {
-      label: "検証済み提案の自動適用",
-      description: "MCPサーバーが検証済みと報告した編集案を、教材のrevisionが変わっていない場合に限り自動で適用します。",
+    permission: {
+      label: "AIの権限",
+      description: "教材の変更をAIにどこまで任せるかを選びます。チャットの入力欄からも切り替えられます。この設定はこの端末に保存します。",
     },
     webSearch: {
       label: "AIのWeb検索を許可",
@@ -899,7 +908,8 @@ export const settings = {
       update: "更新 update version バージョン アップデート",
       dataDir: "保存先 data directory folder 保存 フォルダ",
       aiAgents: "AI エージェント agent codex claude antigravity gemini 接続",
-      autoApply: "自動適用 auto apply 提案 proposal 検証済み",
+      autoApply: "権限 permission 読み取りのみ read only 承認 approval 自動適用 auto apply 提案 proposal 検証済み",
+      usage: "使用状況 使用量 利用枠 上限 レート制限 コンテキスト usage limit quota rate context",
       webSearch: "Web検索 web search インターネット 出典",
       paper: "用紙 paper size A4 A3 B5 B4 向き orientation",
       margins: "余白 margin マージン 上下左右",

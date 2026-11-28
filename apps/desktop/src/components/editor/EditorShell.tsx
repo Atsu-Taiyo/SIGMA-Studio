@@ -26,6 +26,7 @@ import { useDocumentRecovery } from "./editor-shell/use-document-recovery";
 import { useDocumentSearchCommands,useDocumentSearchState } from "./editor-shell/use-document-search";
 import { useProblemDisplayEditing } from "./editor-shell/use-problem-display-editing";
 import { OutlineDock } from "./OutlineDock";
+import { AI_USAGE_SETTINGS_ENTRY_ID } from "./settings-catalog";
 import { mergeEditorExtensionSets } from "./webmcp/webmcp-editor-extensions";
 import { useEditorChromeController } from "./editor-shell/use-editor-chrome-controller";
 import { useEditorDialogState } from "./editor-shell/use-editor-dialog-state";
@@ -4946,6 +4947,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       onRebaseStaleProposals={rebaseStaleProposals}
       onForceApplyStaleProposals={forceApplyStaleProposals}
       onOpenAiSettings={() => setAiSettingsOpen(true)}
+      onOpenAiUsageSettings={() => {
+        // 設定パレットと同じ道: 項目の id を渡すと、AI設定がその項目のセクションから開く。
+        setSettingsFocusEntryId(AI_USAGE_SETTINGS_ENTRY_ID);
+        setAiSettingsOpen(true);
+      }}
       onCloseInline={closeAiSurface}
       onPromoteToSidebar={promoteAiToSidebar}
       onInlineRunAnchorChange={handleInlineRunAnchorChange}

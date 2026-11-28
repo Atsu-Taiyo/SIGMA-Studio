@@ -732,6 +732,28 @@ describe("buildMcpWebSearchPrompt(tJa) gating", () => {
   });
 });
 
+describe("the read-only permission note", () => {
+  it("tells every provider to answer without editing, on first and resumed turns, only while read only is on", () => {
+    const note = tJa("mcp.readOnlyMode");
+    expect(note).toContain("読み取りのみ");
+    for (const provider of ["claude", "codex", "antigravity", "sigma"] as const) {
+      expect(buildMcpEditTurnPrompt(provider, { instruction: "指示", fileId: "file_1", readOnly: true })).toContain(note);
+      expect(buildMcpEditTurnPrompt(provider, { instruction: "指示", fileId: "file_1" })).not.toContain(note);
+      expect(buildMcpEditTurnPrompt(provider, { instruction: "指示", fileId: "file_1", readOnly: false })).not.toContain(note);
+    }
+    expect(buildMcpEditPrompt({ locale: "ja", provider: "claude", instruction: "指示", fileId: "file_1", readOnly: true })).toContain(note);
+    expect(buildMcpEditPrompt({ locale: "ja", provider: "claude", instruction: "指示", fileId: "file_1", readOnly: true, isResumedTurn: true })).toContain(note);
+    // 利用者の指示の直前に置く (指示より後ろには何も足さない)。
+    const prompt = buildMcpEditTurnPrompt("claude", { instruction: "この問題を直して", fileId: "file_1", readOnly: true });
+    expect(prompt.indexOf(note)).toBeLessThan(prompt.indexOf("この問題を直して"));
+    expect(prompt.endsWith("この問題を直して")).toBe(true);
+  });
+
+  it("is a per-turn note, not part of the standing guidance", () => {
+    expect(buildMcpEditInvariantGuidance(tJa)).not.toContain(tJa("mcp.readOnlyMode"));
+  });
+});
+
 describe("buildMcpEditGraphExamples(tJa) gating", () => {
   it("is omitted from the turn prompt when the instruction has no graph keyword", () => {
     const prompt = buildMcpEditTurnPrompt("claude", { instruction: "本文の誤字を直して", fileId: "file_1" });

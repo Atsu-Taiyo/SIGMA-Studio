@@ -176,6 +176,8 @@ export function buildMcpEditPromptForProvider(
     runId?: string;
     /** aiWebSearchEnabled設定の現在値。true のときだけ Web検索ポリシー (MCP_WEB_SEARCH_PROMPT) を含める。 */
     webSearchEnabled?: boolean;
+    /** AIの権限が「読み取りのみ」。true のときだけ、編集せずに返答で答える一文を含める。 */
+    readOnly?: boolean;
     /**
      * True when resuming an existing agentThreadId. Claude/Antigravity are
      * one-shot composed prompts (see buildMcpEditPrompt), so on a resumed
@@ -217,6 +219,8 @@ export async function runMcpEditForIpc<TClient>(
      * Web検索ポリシー節と、Claude の per-turn ツール許可の両方を切り替える。
      */
     webSearchEnabled?: boolean;
+    /** AIの権限が「読み取りのみ」(main が run ごとに読み直して渡す)。プロンプトの一文だけを切り替える。 */
+    readOnly?: boolean;
     /**
      * プロンプトを組む言語 (IPC ハンドラが run ごとに解決して渡す)。
      * **必須** — 引き回しの漏れをコンパイル時に落とす。
@@ -267,6 +271,7 @@ export async function runMcpEditForIpc<TClient>(
     attachments,
     runId: args.runId,
     webSearchEnabled: args.webSearchEnabled,
+    readOnly: args.readOnly,
     locale: args.locale,
     isResumedTurn: Boolean(payload.agentThreadId),
   });

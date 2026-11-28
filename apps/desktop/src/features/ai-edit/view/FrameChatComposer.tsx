@@ -5,6 +5,7 @@ import { useRef, useState, type KeyboardEvent, type RefObject } from "react";
 
 import { renderModelMark, renderProviderMark } from "@/components/branding/provider-logos";
 import { AiChatTextInput } from "@/components/editor/AiChatTextInput";
+import { AiModelButtonLabel } from "@/components/editor/AiModelButtonLabel";
 import { AiModelMenuContents } from "@/components/editor/ai-model-menu-contents";
 import { ToolbarPopover } from "@/components/editor/ToolbarPopover";
 import type { AiConnectionStateKind } from "@/lib/ai/ai-connection";
@@ -126,13 +127,11 @@ export function FrameChatComposer({
             }}
           >
             {renderModelMark(selection.model, provider, { size: 13 })}
-            <span className="ai-chat-model-button-label">
-              <span>{providerLabel}</span>
-              <span className="ai-chat-model-button-divider" aria-hidden="true">·</span>
-              <span>{modelLabel}</span>
-              <span className="ai-chat-model-button-divider" aria-hidden="true">·</span>
-              <span>{reasoningEffortSupported ? reasoningEffortLabel : tAi("composer.effortUnsupported")}</span>
-            </span>
+            <AiModelButtonLabel
+              provider={provider} providerLabel={providerLabel}
+              modelId={selection.model} modelLabel={modelLabel}
+              effortLabel={provider !== "sigma" && reasoningEffortSupported ? reasoningEffortLabel : null} t={tAi}
+            />
             <ChevronDown size={12} />
           </button>
           {menuOpen && (

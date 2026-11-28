@@ -181,9 +181,14 @@ describe("a turn", () => {
       profile: "sdk-minimal", provider: "sigma-gateway", model: SIGMA_AI_MODEL, sessionId: "session-1",
       content: [{ type: "text", text: "図を入れて" }, { type: "image", data: "AAAA", mimeType: "image/png", name: "a.png" }],
     });
-    // 橋渡しへは中継のトークンと最小の環境だけを渡し、Electron 由来の変数は渡さない。
-    expect(capture.env).toMatchObject({ SIGMA_AI_GATEWAY_TOKEN: TOKEN, PATH: "/usr/bin" });
+    // 橋渡しへは最小の環境と、この turn だけのローカル中継の鍵を渡す。中継のトークンそのものも、
+    // Electron 由来の変数も渡さない。
+    expect(capture.env).toMatchObject({ PATH: "/usr/bin" });
+    expect(capture.env?.SIGMA_AI_GATEWAY_TOKEN).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    expect(capture.env?.SIGMA_AI_GATEWAY_TOKEN).not.toBe(TOKEN);
     expect(capture.env).not.toHaveProperty("ELECTRON_RUN_AS_NODE");
+    const provider = ((capture.patch as Array<{ insert: Array<{ config: { providers: Record<string, { baseURL: string }> } }> }>)[0]!.insert[0]!.config.providers)["sigma-gateway"]!;
+    expect(provider.baseURL).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/v1$/u);
     expect(readdirSync(path.join(root, "patches"))).toEqual([]);
   });
 
@@ -302,5 +307,164 @@ describe("stopping and limits", () => {
       spawnBridge: () => { spawned += 1; throw new Error("must not start"); } });
     expect(await harness.runTurn(turn("run-nomcp", path.join(root, "ws")))).toMatchObject({ isError: true, cancelled: false });
     expect(spawned).toBe(0);
+  });
+});
+
+describe("the gateway, as the turn sees it", () => {
+  const callbacks = { onText: () => {}, onReasoning: () => {}, onToolUse: () => {}, onToolResult: () => {} };
+  const turn = (runId: string, cwd: string) => ({ runId, instruction: "x", images: [], resumeSessionId: null, cwd, mcp, systemPrompt: "", ...callbacks });
+  const tempRoot = () => { const root = mkdtempSync(path.join(os.tmpdir(), "dsh-client-")); temporary.push(root); return root; };
+  const base = (root: string) => ({
+    dshHome: path.join(root, "home"), patchDir: path.join(root, "patches"), runtimeDirCandidates: () => ["/runtime"],
+    env: { PATH: "/usr/bin", SIGMA_AI_GATEWAY_URL: "https://gateway.example.test", SIGMA_AI_GATEWAY_TOKEN: TOKEN, SIGMA_STUDIO_NODE_BIN: "/opt/node" },
+    pathExists: async () => true, probeNodeVersion: async () => "24.22.1",
+  });
+  type Relay = { url: string; token: string };
+  /** DSH の代わり。依頼を受け取ったら、渡されたローカル中継へ実際に HTTP で話す。 */
+  function httpBridge(script: (relay: Relay) => Promise<unknown[]>) {
+    return (_node: string, _bridge: string, env: NodeJS.ProcessEnv) => {
+      const child = new EventEmitter() as CliChildProcess & EventEmitter;
+      const stdin = new PassThrough(), stdout = new PassThrough(), stderr = new PassThrough();
+      Object.assign(child, { stdin, stdout, stderr, kill: () => true });
+      let raw = "";
+      let started = false;
+      let ended = false;
+      const finish = (code: number) => {
+        if (ended) return;
+        ended = true;
+        stdout.end();
+        stderr.end();
+        setImmediate(() => { child.emit("exit", code); child.emit("close", code); });
+      };
+      stdin.on("data", (chunk) => {
+        raw += chunk;
+        if (!raw.includes("\n") || started) return;
+        started = true;
+        const request = JSON.parse(raw) as { patches: string[] };
+        const patch = JSON.parse(readFileSync(request.patches[0]!, "utf8")) as Array<{ insert: Array<{ config: { providers: Record<string, { baseURL: string }> } }> }>;
+        const url = patch[0]!.insert[0]!.config.providers["sigma-gateway"]!.baseURL;
+        void script({ url, token: env.SIGMA_AI_GATEWAY_TOKEN! }).then((lines) => {
+          if (ended) return;
+          for (const line of lines) stdout.write(`${JSON.stringify(line)}\n`);
+          finish(0);
+        });
+      });
+      stdin.on("end", () => finish(130));
+      return child;
+    };
+  }
+  const chat = (relay: Relay) => fetch(`${relay.url}/chat/completions`, {
+    method: "POST", body: JSON.stringify({ messages: [] }), headers: { authorization: `Bearer ${relay.token}`, "content-type": "application/json" },
+  });
+  const done = [{ type: "result", sessionId: "s", finalResponse: "done", endReason: { kind: "stop" } }];
+
+  it("keeps the gateway token in main, in development too, and reports each response's context size", async () => {
+    const root = tempRoot();
+    const seen: unknown[] = [];
+    const upstream: Array<[string, string | null]> = [];
+    const harness = new DshHarnessClient({
+      ...base(root),
+      fetcher: async (url, init) => {
+        upstream.push([String(url), new Headers(init?.headers).get("authorization")]);
+        await new Response(init?.body).text();
+        return new Response(`data: ${JSON.stringify({ id: "gen-1", choices: [{ delta: {} }], usage: { prompt_tokens: 78000, completion_tokens: 400 } })}\n\ndata: [DONE]\n\n`,
+          { headers: { "content-type": "text/event-stream" } });
+      },
+      spawnBridge: httpBridge(async (relay) => {
+        await (await chat(relay)).text();
+        return done;
+      }),
+    });
+    const result = await harness.runTurn({ ...turn("run-usage", path.join(root, "ws")), onContextUsage: usage => seen.push(usage) });
+    expect(result).toMatchObject({ isError: false, finalText: "done" });
+    expect(upstream).toEqual([["https://gateway.example.test/v1/chat/completions", `Bearer ${TOKEN}`]]);
+    expect(seen).toEqual([{ usedTokens: 78400, windowTokens: 1_048_576 }]);
+  });
+
+  it("stops the turn at once when the week's allowance is used up, and says so instead of 'cancelled'", async () => {
+    const root = tempRoot();
+    let calls = 0;
+    const harness = new DshHarnessClient({
+      ...base(root),
+      fetcher: async (_url, init) => {
+        calls += 1;
+        await new Response(init?.body).text();
+        return Response.json({ error: { code: "USAGE_LIMIT_REACHED", message: "used", resetsAt: "2026-12-05T03:14:00.000Z" } }, { status: 402 });
+      },
+      // DSH は断られた後も続けようとする。その前に止まること。
+      spawnBridge: httpBridge(async (relay) => {
+        await (await chat(relay)).text();
+        await new Promise(resolve => setTimeout(resolve, 200));
+        return done;
+      }),
+    });
+    const result = await harness.runTurn(turn("run-limit", path.join(root, "ws")));
+    expect(result).toMatchObject({
+      isError: true, cancelled: false, errorMessage: "USAGE_LIMIT_REACHED",
+      refusal: { status: 402, code: "USAGE_LIMIT_REACHED", resetsAt: "2026-12-05T03:14:00.000Z" },
+    });
+    expect(calls).toBe(1);
+    expect(readdirSync(path.join(root, "patches"))).toEqual([]);
+  });
+
+  it("lets a brief rate limit pass if the agent recovers, and names it if the turn fails", async () => {
+    const root = tempRoot();
+    const limited = async (_url: unknown, init?: RequestInit) => {
+      await new Response(init?.body).text();
+      return Response.json({ error: { code: "RATE_LIMITED", message: "slow down" } }, { status: 429, headers: { "retry-after": "60" } });
+    };
+    const recovered = new DshHarnessClient({ ...base(root), fetcher: limited as typeof fetch,
+      spawnBridge: httpBridge(async (relay) => { await (await chat(relay)).text(); return done; }) });
+    expect(await recovered.runTurn(turn("run-429-ok", path.join(root, "ws")))).toEqual({ finalText: "done", sessionId: "s", isError: false, errorMessage: null, cancelled: false });
+
+    const failed = new DshHarnessClient({ ...base(root), fetcher: limited as typeof fetch,
+      spawnBridge: httpBridge(async (relay) => {
+        await (await chat(relay)).text();
+        return [{ type: "result", sessionId: "s", finalResponse: "", endReason: { kind: "error", message: "429 slow down" } }];
+      }) });
+    expect(await failed.runTurn(turn("run-429", path.join(root, "ws")))).toMatchObject({
+      isError: true, errorMessage: "429 slow down", refusal: { status: 429, code: "RATE_LIMITED", resetsAt: null },
+    });
+  });
+
+  it("reads the account's allowance from the gateway, or nothing when the gateway has none to give", async () => {
+    const root = tempRoot();
+    const seen: unknown[] = [];
+    const asked: Array<[string, string | null]> = [];
+    let answer: Response = Response.json({ plan: "pro", included: true, weekly: { usedRatio: 0.25, resetsAt: "2026-12-05T03:14:00.000Z", reached: false } });
+    const harness = new DshHarnessClient({
+      ...base(root), onAccountUsage: usage => seen.push(usage),
+      fetcher: async (url, init) => { asked.push([String(url), new Headers(init?.headers).get("authorization")]); return answer.clone(); },
+    });
+    const usage = await harness.getUsage(1000);
+    expect(usage).toMatchObject({ provider: "sigma", state: "available", plan: "pro", observedAt: 1000, windows: [{ kind: "weekly", usedRatio: 0.25 }] });
+    expect(asked).toEqual([["https://gateway.example.test/v1/usage", `Bearer ${TOKEN}`]]);
+    expect(seen).toEqual([usage]);
+    // 使用量を返さない中継 (開発用の代わり) ・読めない応答では、何も覚えさせない。
+    answer = new Response(null, { status: 404 });
+    expect(await harness.getUsage()).toBeNull();
+    answer = Response.json({ object: "list" });
+    expect(await harness.getUsage()).toBeNull();
+    expect(seen).toHaveLength(1);
+    expect(await new DshHarnessClient({ ...base(root), env: { PATH: "/usr/bin" } }).getUsage()).toBeNull();
+  });
+
+  it("in a packaged build, asks the gateway whether the plan includes SIGMA AI, and falls back to the plan name only when it cannot answer", async () => {
+    const root = tempRoot();
+    const account = { authorization: async () => "Bearer account-credential", accountSignal: () => new AbortController().signal };
+    const packaged = (fetcher: typeof fetch, entitled: () => Promise<boolean>) => new DshHarnessClient({
+      ...base(root), env: { PATH: "/usr/bin" }, packaged: true, gatewayAccount: account, fetcher, entitled,
+    });
+    const never = async () => { throw new Error("the plan name must not be asked"); };
+    // 上位プラン: アプリはプラン名を知らなくても、中継が「含む」と答えれば使える。
+    const max = packaged(async () => Response.json({ plan: "max", included: true, weekly: { usedRatio: 0, resetsAt: null, reached: false } }), never);
+    expect((await max.getStatus()).unavailableReason).not.toBe("plan");
+    const free = packaged(async () => Response.json({ plan: "free", included: false, weekly: null }), never);
+    expect((await free.getStatus()).unavailableReason).toBe("plan");
+    // 中継が答えないとき (通信不可・使用量を返さない古い中継) は、これまでどおりプラン名で確かめる。
+    let asked = 0;
+    const old = packaged(async () => new Response(null, { status: 404 }), async () => { asked += 1; return true; });
+    expect((await old.getStatus()).unavailableReason).not.toBe("plan");
+    expect(asked).toBe(1);
   });
 });

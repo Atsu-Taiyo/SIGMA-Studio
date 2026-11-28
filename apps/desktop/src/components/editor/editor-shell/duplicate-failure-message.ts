@@ -1,16 +1,7 @@
 import type { Translate } from "@/lib/i18n";
+import { ipcFailureReason } from "@/lib/ipc-failure-reason";
 
-/**
- * main が投げた失敗の理由。Electron は IPC の失敗に
- * `Error invoking remote method 'storage:duplicate-file': Error: ` を付けて renderer へ渡すので、それを外す。
- */
-export function ipcFailureReason(error: unknown): string {
-  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
-  return message
-    .replace(/^Error invoking remote method '[^']*':\s*/u, "")
-    .replace(/^(?:[A-Za-z]*Error:\s*)+/u, "")
-    .trim();
-}
+export { ipcFailureReason };
 
 const OFFLINE = /^(?:CATALOG_OFFLINE|NETWORK_UNAVAILABLE|HTTP_5\d\d|HTTP_429|RATE_LIMITED)$|fetch failed|network|timed? ?out|aborted|ECONN|ENOTFOUND|EAI_AGAIN/iu;
 

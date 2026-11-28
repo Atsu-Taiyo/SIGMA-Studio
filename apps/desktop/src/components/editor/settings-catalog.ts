@@ -41,6 +41,9 @@ export interface SettingsEntryDefinition {
   keywordsKey?: string;
 }
 
+/** AI設定の「使用状況」。チャットの入力欄からも、この id で開く。 */
+export const AI_USAGE_SETTINGS_ENTRY_ID = "settings.ai.usage";
+
 export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
   // --- アプリ設定 (DesktopSettingsModal, mode="app") ---
   {
@@ -92,11 +95,13 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     keywordsKey: "catalog.keywords.aiAgents",
   },
   {
+    // id と anchor は「検証済み提案の自動適用」のスイッチだった頃のまま (id は永続する契約)。
+    // いまは同じ場所で、自動適用を含む AI の権限 3 段階を選ぶ。
     id: "settings.ai.autoApply",
     surface: "desktopAi",
     anchorId: "desktop-settings-auto-apply",
-    labelKey: "provider.autoApply.label",
-    descriptionKey: "provider.autoApply.description",
+    labelKey: "provider.permission.label",
+    descriptionKey: "provider.permission.description",
     keywordsKey: "catalog.keywords.autoApply",
   },
   {
@@ -166,6 +171,15 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     keywordsKey: "catalog.keywords.customCommand",
   },
   // --- AI リソース (AiSettingsDialog) ---
+  {
+    id: AI_USAGE_SETTINGS_ENTRY_ID,
+    surface: "aiResources",
+    anchorId: "ai-settings-usage",
+    surfaceState: "ai-usage",
+    labelKey: "usage.title",
+    descriptionKey: "usage.description",
+    keywordsKey: "catalog.keywords.usage",
+  },
   {
     id: "settings.aiResources.globalStyle",
     surface: "aiResources",
